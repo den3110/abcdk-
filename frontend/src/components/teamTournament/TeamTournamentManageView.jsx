@@ -40,8 +40,8 @@ const matchCode = (match) =>
 
 export default function TeamTournamentManageView({
   tournamentId,
-  tour,
-  canManage,
+  tour = null,
+  canManage = false,
 }) {
   const {
     data: rosterData,
@@ -285,9 +285,4 @@ TeamTournamentManageView.propTypes = {
   tournamentId: PropTypes.string.isRequired,
   tour: PropTypes.object,
   canManage: PropTypes.bool,
-};
-
-TeamTournamentManageView.defaultProps = {
-  tour: null,
-  canManage: false,
 };

@@ -39,10 +39,10 @@ const registrationLabel = (registration, eventType) => {
 
 export default function TeamTournamentRegistrationView({
   tournamentId,
-  tour,
-  me,
-  canManage,
-  isAdmin,
+  tour = null,
+  me = null,
+  canManage = false,
+  isAdmin = false,
 }) {
   const { data, isLoading, error, refetch } =
     useGetTeamRosterQuery(tournamentId);
@@ -316,11 +316,4 @@ TeamTournamentRegistrationView.propTypes = {
   me: PropTypes.object,
   canManage: PropTypes.bool,
   isAdmin: PropTypes.bool,
-};
-
-TeamTournamentRegistrationView.defaultProps = {
-  tour: null,
-  me: null,
-  canManage: false,
-  isAdmin: false,
 };

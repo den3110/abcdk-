@@ -17,7 +17,7 @@ const PaletteSearchInput = memo(function PaletteSearchInput({
   onCommittedChange,
   placeholder,
   clearAriaLabel,
-  commitDelayMs,
+  commitDelayMs = 140,
 }) {
   const [draft, setDraft] = useState(externalValue || "");
   const isComposingRef = useRef(false);
@@ -114,10 +114,6 @@ PaletteSearchInput.propTypes = {
   placeholder: PropTypes.string.isRequired,
   clearAriaLabel: PropTypes.string.isRequired,
   commitDelayMs: PropTypes.number,
-};
-
-PaletteSearchInput.defaultProps = {
-  commitDelayMs: 140,
 };
 
 export default PaletteSearchInput;

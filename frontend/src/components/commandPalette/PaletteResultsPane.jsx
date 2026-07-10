@@ -23,16 +23,16 @@ const groupShape = PropTypes.shape({
 });
 
 const PaletteResultsPane = memo(function PaletteResultsPane({
-  hasSearchIntent,
-  results,
-  discoveryGroups,
-  selectedIndex,
-  selectedItem,
-  selectedItemIsPinned,
-  emptySuggestedPrompts,
+  hasSearchIntent = false,
+  results = [],
+  discoveryGroups = [],
+  selectedIndex = 0,
+  selectedItem = null,
+  selectedItemIsPinned = false,
+  emptySuggestedPrompts = [],
   itemRefs,
   resultsScrollRef,
-  isDark,
+  isDark = false,
   onScroll,
   onHoverSelect,
   onActivateItem,
@@ -221,21 +221,6 @@ PaletteResultsPane.propTypes = {
   onCopyLink: PropTypes.func,
   onOpenLink: PropTypes.func,
   t: PropTypes.func.isRequired,
-};
-
-PaletteResultsPane.defaultProps = {
-  hasSearchIntent: false,
-  results: [],
-  discoveryGroups: [],
-  selectedIndex: 0,
-  selectedItem: null,
-  selectedItemIsPinned: false,
-  emptySuggestedPrompts: [],
-  isDark: false,
-  onScroll: undefined,
-  onTogglePin: undefined,
-  onCopyLink: undefined,
-  onOpenLink: undefined,
 };
 
 export default PaletteResultsPane;

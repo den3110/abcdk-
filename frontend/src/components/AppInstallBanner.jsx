@@ -60,7 +60,7 @@ async function detectInstalledAndroid(androidPackage) {
   }
 }
 
-export default function AppInstallBanner({ links }) {
+export default function AppInstallBanner({ links = {} }) {
   const { t } = useLanguage();
   const { isAndroid, isIOS, isMobile, isStandalone } = detectPlatform();
   const [visible, setVisible] = useState(false);
@@ -279,8 +279,4 @@ AppInstallBanner.propTypes = {
     deeplinkPath: PropTypes.string,
     domain: PropTypes.string,
   }),
-};
-
-AppInstallBanner.defaultProps = {
-  links: {},
 };
