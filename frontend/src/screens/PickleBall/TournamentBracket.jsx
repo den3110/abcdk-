@@ -1431,7 +1431,7 @@ const CustomSeed = ({
     isByeMatch && hasNonByeSide
       ? { bg: "#2e7d32", fg: "#fff", key: "done" }
       : statusColors(m);
-  const clickable = !!m;
+  const clickable = !!m && !m.__syntheticByeAdvance;
   const resultText = isByeMatch
     ? ""
     : m
@@ -3136,7 +3136,7 @@ function buildRoundElimRounds(
   const matchesInRound = (r) => {
     if (r === 1) return r1Pairs;
     let prev = r1Pairs;
-    for (let i = 2; i <= r; i++) prev = Math.floor(prev / 2) || 1;
+    for (let i = 2; i <= r; i++) prev = Math.ceil(prev / 2) || 1;
     return Math.max(1, prev);
   };
 
@@ -3195,9 +3195,119 @@ function buildRoundElimRounds(
 
     rounds.push({ title: `Vòng ${r}`, seeds });
   }
+  fillSyntheticByeAdvanceRounds(rounds);
   const last = rounds[rounds.length - 1];
   if (last) last.seeds = last.seeds.map((s) => ({ ...s, __lastCol: true }));
   return rounds;
+}
+
+function isRenderableByeAdvanceSourceSeed(seed) {
+  if (!seed) return false;
+  if (seed.__match) return true;
+
+  return (seed.teams || []).some((team) => {
+    const name = String(team?.name || "").trim();
+    return isUsefulResolvedLabel(name, "Chưa có đội") && !isByeText(name);
+  });
+}
+
+function makeSyntheticByeAdvanceSeed(sourceSeed, round, order, sourceSide) {
+  const sourceMatch = sourceSeed?.__match || null;
+  const sourceRound = Number(sourceMatch?.round ?? sourceSeed?.__round ?? round - 1);
+  const sourceOrder = Number(
+    sourceMatch?.order ?? (sourceSide === "A" ? order * 2 : order * 2 + 1),
+  );
+  if (!Number.isFinite(sourceRound) || !Number.isFinite(sourceOrder)) {
+    return null;
+  }
+
+  const ref = {
+    round: sourceRound,
+    order: sourceOrder,
+  };
+  const stage = Number(
+    sourceMatch?.bracket?.stage ??
+      sourceMatch?.bracket?.stageIndex ??
+      sourceMatch?.stage ??
+      sourceMatch?.stageIndex,
+  );
+  if (Number.isFinite(stage)) {
+    ref.stage = stage;
+    ref.stageIndex = stage;
+  }
+  if (sourceMatch?._id) ref.matchId = sourceMatch._id;
+
+  const sourceSeedRef = {
+    type: "stageMatchWinner",
+    ref,
+    label: `W-V${sourceRound}-T${sourceOrder + 1}`,
+  };
+  const byeSeed = { type: "bye", label: "BYE" };
+  const id = `synthetic-bye-${round}-${order}-${sourceRound}-${sourceOrder}`;
+  const match = {
+    _id: id,
+    __syntheticByeAdvance: true,
+    round,
+    order,
+    status: "finished",
+    winner: sourceSide,
+    bracket: sourceMatch?.bracket,
+    branch: sourceMatch?.branch,
+    phase: sourceMatch?.phase,
+    format: sourceMatch?.format,
+    seedA: sourceSide === "A" ? sourceSeedRef : byeSeed,
+    seedB: sourceSide === "A" ? byeSeed : sourceSeedRef,
+    previousA: sourceSide === "A" ? sourceMatch || undefined : undefined,
+    previousB: sourceSide === "B" ? sourceMatch || undefined : undefined,
+    meta: { virtualBye: true },
+  };
+
+  return {
+    id,
+    __match: match,
+    __round: round,
+    teams: [
+      { name: sourceSide === "A" ? sourceSeedRef.label : "BYE" },
+      { name: sourceSide === "B" ? sourceSeedRef.label : "BYE" },
+    ],
+  };
+}
+
+function fillSyntheticByeAdvanceSeeds(previousSeeds, seeds, round) {
+  if (!Array.isArray(previousSeeds) || !previousSeeds.length || !Array.isArray(seeds)) {
+    return;
+  }
+
+  seeds.forEach((seed, index) => {
+    if (seed?.__match) return;
+
+    const sourceA = previousSeeds[index * 2];
+    const sourceB = previousSeeds[index * 2 + 1];
+    const hasSourceA = isRenderableByeAdvanceSourceSeed(sourceA);
+    const hasSourceB = isRenderableByeAdvanceSourceSeed(sourceB);
+    if (hasSourceA === hasSourceB) return;
+
+    const synthetic = makeSyntheticByeAdvanceSeed(
+      hasSourceA ? sourceA : sourceB,
+      round,
+      index,
+      hasSourceA ? "A" : "B",
+    );
+    if (synthetic) seeds[index] = synthetic;
+  });
+}
+
+function fillSyntheticByeAdvanceRounds(rounds) {
+  if (!Array.isArray(rounds)) return;
+  for (let roundIndex = 1; roundIndex < rounds.length; roundIndex += 1) {
+    const previousSeeds = rounds[roundIndex - 1]?.seeds;
+    const seeds = rounds[roundIndex]?.seeds;
+    const round =
+      Number(seeds?.[0]?.__round) ||
+      Number(rounds[roundIndex]?.__round) ||
+      roundIndex + 1;
+    fillSyntheticByeAdvanceSeeds(previousSeeds, seeds, round);
+  }
 }
 
 const ROUND_ELIM_CARD_W = SEED_CARD_W + 48;
@@ -4610,6 +4720,7 @@ function buildRoundsWithPlaceholders(
     return { title: koRoundTitle(need), seeds }; // <— đổi ở đây
   });
 
+  fillSyntheticByeAdvanceRounds(res);
   const last = res[res.length - 1];
   if (last) last.seeds = last.seeds.map((s) => ({ ...s, __lastCol: true }));
   return res;
