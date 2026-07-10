@@ -1,33 +1,56 @@
 /**
- * HomeScreenAstryx — trang chủ THỬ NGHIỆM (chỉ hiện với ?ui=v2).
- * Cảm hứng: astryx.atmeta.com (light, sạch, typography lớn, nhiều whitespace, grid showcase).
- * Full-bleed (App.jsx ẩn header/footer global khi ?ui=v2).
- * Data: /api/public/home (stats+clubs), /api/public/home/pulse (live/climbers),
- *       /api/tournaments, /api/rankings, /api/live/feed — tất cả guard rỗng/loading.
- * KHÔNG đụng production: không có ?ui=v2 thì file này không bao giờ render.
+ * HomeScreenAstryx — trang chủ THỬ NGHIỆM (?ui=v2) dựng bằng LIB ASTRYX THẬT (@astryxdesign/core).
+ * Cô lập khỏi CSS toàn cục (Bootstrap/MUI) bằng Shadow DOM (ShadowFrame).
+ * Lazy-load qua HomeScreen.jsx nên CSS/JS Astryx CHỈ tải khi ?ui=v2 — v1/production không đổi.
+ *
+ * Quy ước: dùng component Astryx cho typography/nút/thẻ/icon/token; div+inline-style chỉ cho
+ * khung layout (container, padding, sticky) — inline-style an toàn trong shadow, không nhiễm.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import "@fontsource-variable/figtree"; // font đẹp (chỉ tải ở v2; @font-face vô hại v1)
+
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+
+import { Theme } from "@astryxdesign/core/theme";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+import { Stack } from "@astryxdesign/core/Stack";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Text } from "@astryxdesign/core/Text";
+import { Button } from "@astryxdesign/core/Button";
+import { Icon } from "@astryxdesign/core/Icon";
+import { Card } from "@astryxdesign/core/Card";
+import { ClickableCard } from "@astryxdesign/core/ClickableCard";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Avatar } from "@astryxdesign/core/Avatar";
+import { Divider } from "@astryxdesign/core/Divider";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import {
-  Avatar,
-  Box,
-  Button,
-  Chip,
-  Container,
-  Skeleton,
-  Stack,
-  Typography,
-} from "@mui/material";
-import ArrowOutwardIcon from "@mui/icons-material/ArrowOutward";
-import BoltIcon from "@mui/icons-material/Bolt";
-import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
-import SportsTennisIcon from "@mui/icons-material/SportsTennis";
-import LiveTvIcon from "@mui/icons-material/LiveTv";
-import TrendingUpIcon from "@mui/icons-material/TrendingUp";
-import VerifiedIcon from "@mui/icons-material/Verified";
-import GroupsIcon from "@mui/icons-material/Groups";
+  Trophy,
+  Radio,
+  TrendingUp,
+  Users,
+  CalendarDays,
+  MapPin,
+  ArrowUpRight,
+  ArrowUp,
+  Plus,
+  Target,
+  Swords,
+  Tv,
+  Sparkles,
+  Check,
+  Zap,
+  ShieldCheck,
+  Radar,
+  Pause,
+  Eye,
+  Maximize2,
+} from "lucide-react";
 
 import SEOHead from "../components/SEOHead.jsx";
+import ShadowFrame from "./astryx/ShadowFrame.jsx";
+import PickleMark from "./astryx/PickleMark.jsx";
+import PickleWordmark from "./astryx/PickleWordmark.jsx";
 import {
   useGetHomeSummaryQuery,
   useGetHomePulseQuery,
@@ -36,23 +59,7 @@ import { useListTournamentsQuery } from "../slices/tournamentsApiSlice.js";
 import { useGetRankingsListQuery } from "../slices/rankingsApiSlice.js";
 import { useGetLiveFeedQuery } from "../slices/liveApiSlice.js";
 
-/* ----------------------------- tokens ----------------------------- */
-const T = {
-  ink: "#0B0B0F",
-  sub: "#606A78",
-  faint: "#8A93A0",
-  bg: "#FFFFFF",
-  bgAlt: "#F6F7F9",
-  line: "rgba(11,11,15,0.08)",
-  lineStrong: "rgba(11,11,15,0.14)",
-  teal: "#10B981",
-  indigo: "#6366F1",
-  amber: "#F59E0B",
-};
-const FONT =
-  '"Inter","SF Pro Display",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
-
-/* --------------------------- small utils --------------------------- */
+/* ------------------------------- helpers ------------------------------- */
 const imgUrl = (u) => {
   const s = String(u || "").trim();
   if (!s) return "";
@@ -60,1001 +67,1097 @@ const imgUrl = (u) => {
   return s.startsWith("/") ? s : `/${s}`;
 };
 const asArray = (d) =>
-  Array.isArray(d)
-    ? d
-    : d?.items || d?.list || d?.rows || d?.data || d?.matches || [];
+  Array.isArray(d) ? d : d?.items || d?.list || d?.rows || d?.data || d?.matches || [];
 const fmtInt = (n) => Number(n || 0).toLocaleString("vi-VN");
 const firstText = (...xs) =>
   xs.map((x) => (x == null ? "" : String(x).trim())).find(Boolean) || "";
+const fmtDate = (d) => {
+  if (!d) return "";
+  try {
+    return new Date(d).toLocaleDateString("vi-VN", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+  } catch {
+    return "";
+  }
+};
 
-/* count-up khi cuộn tới */
-function useReveal() {
+/* layout scaffolding (inline-style, an toàn trong shadow) */
+const Container = ({ children, style }) => (
+  <div style={{ maxWidth: 1140, margin: "0 auto", padding: "0 24px", ...style }}>
+    {children}
+  </div>
+);
+const Region = ({ children, style }) => (
+  <div style={{ padding: "72px 0", ...style }}>{children}</div>
+);
+
+const GRADIENT = "linear-gradient(92deg, #22D3EE 0%, #3B82F6 45%, #7C3AED 100%)";
+
+/* Anchor điều hướng SPA (react-router) — portal vào Shadow DOM vẫn giữ Router context.
+   Dùng thay <a href> để không reload cả trang. */
+const A = ({ href, children, ...rest }) => (
+  <Link to={href || "/"} {...rest}>
+    {children}
+  </Link>
+);
+/* wordmark nhỏ cho nav/footer — cùng chữ SVG blob với hero */
+const Wordmark = ({ width = 112, id = "ft" }) => (
+  <span style={{ display: "inline-block", width, color: "var(--color-brand, #3D87FF)" }}>
+    <PickleWordmark id={id} />
+  </span>
+);
+
+const STATUS_META = {
+  ongoing: { label: "Đang diễn ra", variant: "success" },
+  upcoming: { label: "Sắp diễn ra", variant: "info" },
+  finished: { label: "Đã kết thúc", variant: "neutral" },
+};
+
+/* ------------------------------- sections ------------------------------- */
+/* pill trắng kiểu "Get started" của Astryx (dark mode) */
+const WhitePill = ({ label, href, size = "md" }) => (
+  <A
+    href={href}
+    className="pk-pill"
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      height: size === "lg" ? 48 : 38,
+      padding: size === "lg" ? "0 26px" : "0 18px",
+      borderRadius: 999,
+      background: "#F2F3F5",
+      color: "#101114",
+      fontWeight: 600,
+      fontSize: size === "lg" ? 15.5 : 14,
+      textDecoration: "none",
+      whiteSpace: "nowrap",
+    }}
+  >
+    {label}
+  </A>
+);
+
+const GrayPill = ({ label, href, size = "md" }) => (
+  <A
+    href={href}
+    className="pk-pill"
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      height: size === "lg" ? 48 : 38,
+      padding: size === "lg" ? "0 26px" : "0 18px",
+      borderRadius: 999,
+      background: "#2A2B2F",
+      color: "#E6E8EA",
+      border: "1px solid rgba(255,255,255,0.07)",
+      fontWeight: 600,
+      fontSize: size === "lg" ? 15.5 : 14,
+      textDecoration: "none",
+      whiteSpace: "nowrap",
+    }}
+  >
+    {label}
+  </A>
+);
+
+function Nav() {
+  const links = [
+    ["Giải đấu", "/pickle-ball/tournaments"],
+    ["Bảng xếp hạng", "/pickle-ball/rankings"],
+    ["Trực tiếp", "/live"],
+    ["Câu lạc bộ", "/clubs"],
+    ["Liên hệ", "/contact"],
+  ];
+  return (
+    <div style={{ position: "sticky", top: 0, zIndex: 20, background: "rgba(17,17,18,0.72)", backdropFilter: "saturate(160%) blur(12px)" }}>
+      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 24px", height: 64, position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <A href="/" aria-label="PickleTour" className="pk-brand" style={{ display: "flex", alignItems: "center" }}>
+          <PickleMark size={34} />
+        </A>
+        <nav
+          className="pk-navlinks"
+          style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", gap: 28 }}
+        >
+          {links.map(([label, href]) => (
+            <A key={href} href={href} style={{ color: "#D8DBDF", textDecoration: "none", fontSize: 14.5, fontWeight: 550 }}>
+              {label}
+            </A>
+          ))}
+        </nav>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <A href="/login" style={{ color: "#C6CACF", textDecoration: "none", fontSize: 14.5, fontWeight: 550 }}>Đăng nhập</A>
+          <WhitePill label="Bắt đầu" href="/register" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ===== thẻ nổi quanh hero — bố cục theo trang chủ Astryx, nội dung PickleTour ===== */
+
+/** Cảnh sân pickleball PHỐI CẢNH (tự vẽ): nền tối + glow, mặt sân trapezoid, lưới có chiều sâu,
+ *  bóng bay có vệt, vignette — màu theo theme slide. */
+function CourtScene({ height = 190, ground = "#0E6F63", court = "#1D5FD1", accent = "#3D87FF", uid = "cs" }) {
+  const gid = (s) => `${uid}-${s}`;
+  return (
+    <svg width="100%" height={height} viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" style={{ display: "block", transition: "all .6s" }}>
+      <defs>
+        <linearGradient id={gid("bg")} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#0A0E15" />
+          <stop offset="0.55" stopColor={ground} stopOpacity="0.5" />
+          <stop offset="1" stopColor={ground} />
+        </linearGradient>
+        <linearGradient id={gid("ct")} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#FFFFFF" stopOpacity="0.14" />
+          <stop offset="0.12" stopColor={court} stopOpacity="0.92" />
+          <stop offset="1" stopColor={court} />
+        </linearGradient>
+        <radialGradient id={gid("glow")} cx="0.5" cy="0.3" r="0.62">
+          <stop offset="0" stopColor={accent} stopOpacity="0.38" />
+          <stop offset="1" stopColor={accent} stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id={gid("ball")} cx="0.35" cy="0.3" r="0.95">
+          <stop offset="0" stopColor="#FFF4B8" />
+          <stop offset="0.55" stopColor="#F5C518" />
+          <stop offset="1" stopColor="#B98A10" />
+        </radialGradient>
+        <radialGradient id={gid("vig")} cx="0.5" cy="0.45" r="0.78">
+          <stop offset="0.58" stopColor="#000" stopOpacity="0" />
+          <stop offset="1" stopColor="#000" stopOpacity="0.45" />
+        </radialGradient>
+      </defs>
+
+      <rect width="320" height="200" fill={`url(#${gid("bg")})`} />
+      <ellipse cx="160" cy="72" rx="155" ry="74" fill={`url(#${gid("glow")})`} />
+
+      {/* mặt sân phối cảnh */}
+      <polygon points="96,62 224,62 312,192 8,192" fill={`url(#${gid("ct")})`} />
+
+      {/* vạch sân (xa mảnh, gần dày) */}
+      <g stroke="#F2F6FF" fill="none" strokeLinecap="round">
+        <polygon points="96,62 224,62 312,192 8,192" strokeWidth="2.2" opacity="0.9" />
+        <line x1="70.3" y1="100" x2="249.7" y2="100" strokeWidth="1.8" opacity="0.85" />
+        <line x1="44.6" y1="138" x2="275.4" y2="138" strokeWidth="2.4" opacity="0.85" />
+        <line x1="160" y1="62" x2="160" y2="100" strokeWidth="1.8" opacity="0.85" />
+        <line x1="160" y1="138" x2="160" y2="192" strokeWidth="2.4" opacity="0.85" />
+      </g>
+
+      {/* bóng đổ của lưới xuống mặt sân */}
+      <polygon points="58,119 262,119 270,128 50,128" fill="#000" opacity="0.24" />
+
+      {/* lưới: cột + băng trên + lưới mắt cáo */}
+      <rect x="53" y="88" width="4.5" height="34" rx="2.2" fill="#E8ECF2" />
+      <rect x="262.5" y="88" width="4.5" height="34" rx="2.2" fill="#E8ECF2" />
+      <rect x="56" y="88" width="208" height="5.5" rx="2.7" fill="#F7FAFD" />
+      <rect x="56" y="93" width="208" height="26" fill="#fff" opacity="0.05" />
+      <g stroke="#D9E0EA" strokeWidth="0.7" opacity="0.45">
+        {Array.from({ length: 26 }, (_, i) => 60 + i * 8).map((x) => (
+          <line key={x} x1={x} y1="93" x2={x} y2="119" />
+        ))}
+        <line x1="56" y1="102" x2="264" y2="102" />
+        <line x1="56" y1="111" x2="264" y2="111" />
+      </g>
+
+      {/* bóng + vệt bay (nhấp nhô nhẹ) */}
+      <g className="pk-bob">
+        <path d="M 182 48 Q 206 42 224 60" stroke={accent} strokeWidth="3" strokeLinecap="round" fill="none" opacity="0.6" />
+        <circle cx="229" cy="65" r="9.5" fill={`url(#${gid("ball")})`} />
+        <circle cx="226" cy="62.5" r="1.7" fill="#8F6B0D" opacity="0.85" />
+        <circle cx="231.5" cy="67" r="1.7" fill="#8F6B0D" opacity="0.85" />
+      </g>
+
+      <rect width="320" height="200" fill={`url(#${gid("vig")})`} />
+    </svg>
+  );
+}
+
+/** Sân mini phẳng cho thumbnail nhỏ (44px) */
+function MiniCourt({ court = "#1D5FD1", ground = "#0E6F63" }) {
+  return (
+    <svg width="100%" height="100%" viewBox="0 0 44 44" style={{ display: "block" }}>
+      <rect width="44" height="44" fill={ground} />
+      <rect x="7" y="5" width="30" height="34" rx="2.5" fill={court} stroke="#EAF2FF" strokeWidth="1.6" />
+      <line x1="7" y1="22" x2="37" y2="22" stroke="#0B1220" strokeWidth="2.4" />
+      <circle cx="28" cy="13" r="3" fill="#FDE047" />
+    </svg>
+  );
+}
+
+const floatTitle = { color: "#ECEDEF", fontWeight: 700, fontSize: 16.5, lineHeight: 1.25 };
+const floatSub = { color: "#9BA1A8", fontWeight: 500, fontSize: 13.5, lineHeight: 1.35 };
+
+function TournamentFloatCard({ court, accent, title = "Giải Mùa Xuân PickleTour", sub = "Đà Nẵng · 32 đội · Vòng bảng" }) {
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ marginBottom: 12 }}>
+        <div style={floatTitle}>{title}</div>
+        <div style={{ ...floatSub, marginTop: 3 }}>{sub}</div>
+      </div>
+      <div style={{ borderRadius: 12, overflow: "hidden" }}>
+        <CourtScene height={182} uid="tc" accent={accent} {...(court || {})} />
+      </div>
+    </div>
+  );
+}
+
+function ChatFloatCard() {
+  const circle = (bg, color) => ({
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    background: bg,
+    color,
+    display: "grid",
+    placeItems: "center",
+    flex: "none",
+  });
+  return (
+    <div style={{ padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={circle("#2A2B2F", "#C9CDD2")}><Plus size={18} /></div>
+      <div style={{ flex: 1, color: "#AEB4BB", fontSize: 15, fontWeight: 500 }}>PickleTour giúp gì cho bạn?</div>
+      <div style={circle("#E9EAEC", "#101114")}><ArrowUp size={18} /></div>
+    </div>
+  );
+}
+
+function LiveFloatCard({ court, accent }) {
+  return (
+    <div style={{ position: "relative" }}>
+      {/* player livestream: cảnh sân + overlay tỉ số + thanh điều khiển */}
+      <div style={{ borderRadius: 20, overflow: "hidden", position: "relative", border: "1px solid rgba(255,255,255,0.07)" }}>
+        <CourtScene height={318} uid="lv" accent={accent} {...(court || {})} />
+        {/* overlay tỉ số (đúng sản phẩm overlay của app) */}
+        <div style={{ position: "absolute", top: 12, left: 12, background: "rgba(8,10,14,0.78)", borderRadius: 10, padding: "8px 10px", minWidth: 128, backdropFilter: "blur(4px)" }}>
+          {[["Minh / Phong", "11", true], ["Hùng / Nam", "9", false]].map(([n, s, serve]) => (
+            <div key={n} style={{ display: "flex", alignItems: "center", gap: 7, padding: "2px 0" }}>
+              <span style={{ width: 6, height: 6, borderRadius: 999, background: serve ? "#22C55E" : "transparent", flex: "none" }} />
+              <span style={{ color: "#E8EBEF", fontSize: 11.5, fontWeight: 650, flex: 1, whiteSpace: "nowrap" }}>{n}</span>
+              <span style={{ color: "#fff", fontSize: 12.5, fontWeight: 800 }}>{s}</span>
+            </div>
+          ))}
+        </div>
+        <span className="pk-live" style={{ position: "absolute", top: 12, right: 12, background: "#E5484D", color: "#fff", fontWeight: 700, fontSize: 11, borderRadius: 999, padding: "4px 10px" }}>● LIVE</span>
+        {/* thanh điều khiển player */}
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "30px 14px 10px", background: "linear-gradient(transparent, rgba(4,6,10,0.88))", display: "flex", alignItems: "center", gap: 12, color: "#E8EBEF" }}>
+          <Pause size={15} />
+          <span style={{ width: 7, height: 7, borderRadius: 999, background: "#FF5C5C" }} />
+          <span style={{ fontSize: 12, fontWeight: 650 }}>42:18</span>
+          <div style={{ flex: 1, height: 3, borderRadius: 999, background: "rgba(255,255,255,0.22)" }}>
+            <div style={{ width: "100%", height: "100%", borderRadius: 999, background: "#FF5C5C" }} />
+          </div>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 650 }}><Eye size={14} /> 1.2k</span>
+          <Maximize2 size={14} />
+        </div>
+      </div>
+      {/* thẻ trận treo đè lên góc dưới-trái (kiểu thẻ sản phẩm Astryx) */}
+      <div
+        style={{
+          position: "absolute",
+          left: -74,
+          bottom: -26,
+          width: 262,
+          borderRadius: 16,
+          background: "#232427",
+          border: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: "0 26px 60px -24px rgba(0,0,0,.7)",
+          padding: 12,
+        }}
+      >
+        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 10 }}>
+          <div style={{ width: 44, height: 44, borderRadius: 10, overflow: "hidden", flex: "none" }}>
+            <MiniCourt {...(court || {})} />
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ ...floatTitle, fontSize: 15 }}>Chung kết đôi nam</div>
+            <div style={{ ...floatSub, fontSize: 12.5 }}>Sân trung tâm · 18:00</div>
+          </div>
+        </div>
+        <A href="/live" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 34, borderRadius: 999, background: "#E9EAEC", color: "#101114", fontWeight: 650, fontSize: 13.5, textDecoration: "none" }}>
+          Xem trực tiếp
+        </A>
+      </div>
+    </div>
+  );
+}
+
+function PointsFloatCard({ accent = "#E9EAEC" }) {
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={floatSub}>Điểm trình</span>
+        <span style={{ color: "#ECEDEF", fontWeight: 700, fontSize: 14 }}>4.5 / 8.0</span>
+      </div>
+      <div style={{ height: 6, borderRadius: 999, background: "#3A3B40", overflow: "hidden", marginBottom: 12 }}>
+        <div style={{ width: "56%", height: "100%", borderRadius: 999, background: accent, transition: "background .6s" }} />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Avatar size="xsmall" name="Trần Bảo" />
+        <span style={{ ...floatSub, color: "#C6CACF" }}>Trần Bảo</span>
+      </div>
+    </div>
+  );
+}
+
+/* ===== các thẻ cho slide 2 & 3 của carousel ===== */
+function RefereeFloatCard({ accent = "#3D87FF" }) {
+  const Row = ({ name, score, serving }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0" }}>
+      <span style={{ width: 8, height: 8, borderRadius: 999, background: serving ? "#4ADE80" : "#33343A", flex: "none" }} />
+      <span style={{ ...floatSub, color: "#D5D9DD", flex: 1 }}>{name}</span>
+      <span style={{ color: "#ECEDEF", fontWeight: 800, fontSize: 26, lineHeight: 1 }}>{score}</span>
+    </div>
+  );
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+        <div style={floatTitle}>Chấm điểm trực tiếp</div>
+        <span className="pk-live" style={{ background: "#E5484D", color: "#fff", fontWeight: 700, fontSize: 11, borderRadius: 999, padding: "3px 9px", alignSelf: "flex-start" }}>LIVE</span>
+      </div>
+      <Row name="Minh / Phong" score="11" serving />
+      <div style={{ height: 1, background: "rgba(255,255,255,0.07)" }} />
+      <Row name="Hùng / Nam" score="9" />
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <span style={{ flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 999, background: accent, color: "#101114", fontWeight: 700, fontSize: 13.5, transition: "background .6s" }}>+1 điểm</span>
+        <span style={{ flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 999, background: "#2A2B2F", color: "#C9CDD2", fontWeight: 650, fontSize: 13.5 }}>Đổi giao</span>
+      </div>
+    </div>
+  );
+}
+
+function BracketFloatCard({ accent = "#3D87FF" }) {
+  const box = (x, y, w, label, hot) => (
+    <g>
+      <rect x={x} y={y} width={w} height="22" rx="6" fill={hot ? `${accent}30` : "#26272B"} stroke={hot ? accent : "rgba(255,255,255,0.09)"} strokeWidth="1" />
+      <text x={x + 9} y={y + 15} fill={hot ? "#F2F5F9" : "#B9BEC5"} fontSize="10.5" fontWeight="600" fontFamily="inherit">{label}</text>
+    </g>
+  );
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ ...floatTitle, marginBottom: 4 }}>Sơ đồ loại trực tiếp</div>
+      <div style={{ ...floatSub, marginBottom: 10 }}>Cập nhật realtime theo tỉ số</div>
+      <svg width="100%" height="150" viewBox="0 0 280 150" style={{ display: "block" }}>
+        {box(6, 8, 88, "Minh/Phong", true)}
+        {box(6, 44, 88, "Tú/Đạt")}
+        {box(6, 84, 88, "Hải/Long")}
+        {box(6, 120, 88, "Sơn/Vũ")}
+        <path d="M94 19 h16 v18 h14 M94 55 h16 v-18 M94 95 h16 v18 h14 M94 131 h16 v-18" stroke="rgba(255,255,255,0.22)" strokeWidth="1.4" fill="none" />
+        {box(124, 28, 88, "Minh/Phong", true)}
+        {box(124, 104, 88, "Hải/Long")}
+        <path d="M212 39 h16 v27 h14 M212 115 h16 v-27" stroke="rgba(255,255,255,0.22)" strokeWidth="1.4" fill="none" />
+        {box(242, 55, 34, "CK", true)}
+      </svg>
+    </div>
+  );
+}
+
+function LeaderboardFloatCard() {
+  const rows = [
+    ["1", "Đặng V. An", "5.213", "#F0B03A"],
+    ["2", "Lê Quân", "5.104", "#B9BEC5"],
+    ["3", "Trần Bảo", "4.987", "#C77B42"],
+  ];
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ ...floatTitle, marginBottom: 4 }}>Bảng xếp hạng</div>
+      <div style={{ ...floatSub, marginBottom: 8 }}>Điểm trình chuẩn hoá toàn quốc</div>
+      {rows.map(([rank, name, pts, c], i) => (
+        <div key={rank} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 0", borderTop: i ? "1px solid rgba(255,255,255,0.06)" : "none" }}>
+          <span style={{ color: c, fontWeight: 800, fontSize: 14, width: 14 }}>{rank}</span>
+          <Avatar size="xsmall" name={name} />
+          <span style={{ ...floatSub, color: "#D5D9DD", flex: 1 }}>{name}</span>
+          <span style={{ color: "#ECEDEF", fontWeight: 750, fontSize: 14 }}>{pts}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProfileFloatCard({ accent = "#3D87FF" }) {
+  return (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+        <Avatar size="medium" name="Đặng V. An" />
+        <div>
+          <div style={floatTitle}>Đặng V. An</div>
+          <div style={floatSub}>Đà Nẵng · 42 trận</div>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <span style={{ background: "#17251B", color: "#4ADE80", border: "1px solid rgba(74,222,128,0.25)", borderRadius: 999, padding: "4px 10px", fontSize: 12, fontWeight: 650 }}>Top 3 tuần</span>
+        <span style={{ background: `color-mix(in srgb, ${accent} 16%, transparent)`, color: accent, border: `1px solid color-mix(in srgb, ${accent} 34%, transparent)`, borderRadius: 999, padding: "4px 10px", fontSize: 12, fontWeight: 650, transition: "all .6s" }}>Đôi nam 5.2</span>
+      </div>
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+        <span style={floatSub}>Thắng gần đây</span>
+        <span style={{ color: "#4ADE80", fontWeight: 750, fontSize: 13.5 }}>W · W · L · W · W</span>
+      </div>
+      <div style={{ height: 6, borderRadius: 999, background: "#3A3B40", overflow: "hidden" }}>
+        <div style={{ width: "72%", height: "100%", borderRadius: 999, background: accent, transition: "background .6s" }} />
+      </div>
+    </div>
+  );
+}
+
+const HeroPill = ({ children, style }) => (
+  <div
+    style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 7,
+      borderRadius: 999,
+      padding: "6px 13px",
+      fontSize: 13,
+      fontWeight: 600,
+      ...style,
+    }}
+  >
+    {children}
+  </div>
+);
+
+/* ===== 3 slide = 3 THEME màu: đổi wordmark + nền + glow + sân + accent (như carousel Astryx) ===== */
+const HERO_SLIDES = [
+  {
+    key: "blue",
+    accent: "#3D87FF",
+    bg: "#111112",
+    glow:
+      "radial-gradient(42% 36% at 30% 100%, rgba(168,85,150,.14), transparent 62%)," +
+      "radial-gradient(40% 34% at 72% 96%, rgba(217,119,66,.10), transparent 60%)," +
+      "radial-gradient(50% 40% at 50% 0%, rgba(61,135,255,.08), transparent 60%)",
+    court: { ground: "#0E6F63", court: "#1D5FD1" },
+    rightBare: true,
+    renderLeft: (t) => <TournamentFloatCard court={t.court} accent={t.accent} />,
+    renderRight: (t) => <LiveFloatCard court={t.court} accent={t.accent} />,
+  },
+  {
+    key: "matcha",
+    accent: "#C3D2A0",
+    bg: "#171A12",
+    glow:
+      "radial-gradient(42% 36% at 28% 100%, rgba(140,180,100,.16), transparent 62%)," +
+      "radial-gradient(40% 34% at 74% 96%, rgba(90,140,70,.12), transparent 60%)," +
+      "radial-gradient(50% 40% at 50% 0%, rgba(150,190,120,.07), transparent 60%)",
+    court: { ground: "#31492C", court: "#63884D" },
+    rightBare: false,
+    renderLeft: (t) => <RefereeFloatCard accent={t.accent} />,
+    renderRight: (t) => <BracketFloatCard accent={t.accent} />,
+  },
+  {
+    key: "butter",
+    accent: "#F2D468",
+    bg: "#211A0F",
+    glow:
+      "radial-gradient(42% 36% at 30% 100%, rgba(228,180,60,.18), transparent 62%)," +
+      "radial-gradient(40% 34% at 72% 96%, rgba(200,140,50,.12), transparent 60%)," +
+      "radial-gradient(50% 40% at 50% 0%, rgba(240,210,110,.07), transparent 60%)",
+    court: { ground: "#6E5320", court: "#D9B23F" },
+    rightBare: false,
+    renderLeft: () => <LeaderboardFloatCard />,
+    renderRight: (t) => <ProfileFloatCard accent={t.accent} />,
+  },
+  {
+    key: "gothic",
+    accent: "#CFC8EE",
+    bg: "#16131D",
+    glow:
+      "radial-gradient(42% 36% at 30% 100%, rgba(140,110,220,.16), transparent 62%)," +
+      "radial-gradient(40% 34% at 72% 96%, rgba(90,70,160,.13), transparent 60%)," +
+      "radial-gradient(50% 40% at 50% 0%, rgba(180,160,240,.07), transparent 60%)",
+    court: { ground: "#373152", court: "#6E64B0" },
+    rightBare: false,
+    renderLeft: (t) => (
+      <TournamentFloatCard court={t.court} accent={t.accent} title="Giải Đêm PickleTour" sub="TP.HCM · 16 đội · Loại kép" />
+    ),
+    renderRight: (t) => <BracketFloatCard accent={t.accent} />,
+  },
+  {
+    key: "y2k",
+    accent: "#F2A7D8",
+    bg: "#1D1218",
+    glow:
+      "radial-gradient(42% 36% at 30% 100%, rgba(240,120,190,.17), transparent 62%)," +
+      "radial-gradient(40% 34% at 72% 96%, rgba(180,60,140,.12), transparent 60%)," +
+      "radial-gradient(50% 40% at 50% 0%, rgba(250,160,210,.07), transparent 60%)",
+    court: { ground: "#6E2B4E", court: "#C9539A" },
+    rightBare: true,
+    renderLeft: (t) => <ProfileFloatCard accent={t.accent} />,
+    renderRight: (t) => <LiveFloatCard court={t.court} accent={t.accent} />,
+  },
+];
+const SLIDE_MS = 5000;
+
+function Hero({ pulse }) {
+  const liveNow = Number(pulse?.liveNow || 0);
+  const [slide, setSlide] = useState(0);
+  useEffect(() => {
+    // phụ thuộc `slide` để mỗi lần bấm dot là timer đếm lại từ đầu
+    const timer = setInterval(() => setSlide((s) => (s + 1) % HERO_SLIDES.length), SLIDE_MS);
+    return () => clearInterval(timer);
+  }, [slide]);
+  const t = HERO_SLIDES[slide];
+  const { key, rightBare } = t;
+
+  return (
+    <div className="pk-hero" style={{ background: t.bg, transition: "background .8s ease" }}>
+      {/* glow đổi màu theo theme slide */}
+      <div
+        aria-hidden
+        key={`glow-${key}`}
+        className="pk-fade"
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: t.glow,
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
+      />
+
+      {/* ===== cụm thẻ nổi TRÁI (đối xứng với PHẢI) ===== */}
+      <div
+        className="pk-float"
+        style={{
+          top: 292,
+          left: 44,
+          borderRadius: 999,
+          background: `color-mix(in srgb, ${t.accent} 13%, #121316)`,
+          border: `1px solid color-mix(in srgb, ${t.accent} 32%, transparent)`,
+          boxShadow: "none",
+          transition: "background .6s, border-color .6s",
+        }}
+      >
+        <HeroPill style={{ color: t.accent, transition: "color .6s" }}>
+          <Sparkles size={13} />
+          {liveNow > 0 ? `${liveNow} trận đang live` : "Đang mở đăng ký"}
+        </HeroPill>
+      </div>
+      <div className="pk-float pk-fade" key={`L-${key}`} style={{ top: 340, left: 24, width: 312, borderRadius: 20 }}>
+        <div className="pk-drift" style={{ animationDuration: "9s" }}>{t.renderLeft(t)}</div>
+      </div>
+      <div className="pk-float" style={{ top: 700, left: 44, width: 324, borderRadius: 999 }}>
+        <div className="pk-drift" style={{ animationDuration: "11s", animationDelay: "1.4s" }}><ChatFloatCard /></div>
+      </div>
+
+      {/* ===== cụm thẻ nổi PHẢI ===== */}
+      <div className="pk-float" style={{ top: 292, right: 44, borderRadius: 999, boxShadow: "none", background: "#1C1D20" }}>
+        <HeroPill style={{ color: "#C9CDD2" }}>
+          <Target size={13} />
+          Miễn phí tạo giải
+        </HeroPill>
+      </div>
+      <div
+        className="pk-float pk-fade"
+        key={`R-${key}`}
+        style={
+          rightBare
+            ? { top: 340, right: 24, width: 312, overflow: "visible", background: "transparent", border: "none", borderRadius: 20 }
+            : { top: 340, right: 24, width: 312, borderRadius: 20 }
+        }
+      >
+        <div className="pk-drift" style={{ animationDuration: "10s", animationDelay: ".8s" }}>{t.renderRight(t)}</div>
+      </div>
+      <div className="pk-float" style={{ top: 700, right: 44, width: 280, borderRadius: 20 }}>
+        <div className="pk-drift" style={{ animationDuration: "12s", animationDelay: "2s" }}><PointsFloatCard accent={t.accent} /></div>
+      </div>
+
+      {/* ===== cột giữa: wordmark khổng lồ + tagline + nút ===== */}
+      <div className="pk-hero-inner">
+        <Container>
+          <div style={{ padding: "108px 0 120px", textAlign: "center" }}>
+            <h1
+              className="pk-rise"
+              style={{
+                margin: "0 auto",
+                width: "clamp(300px, 52vw, 680px)",
+                color: t.accent,
+                transition: "color .8s ease",
+                animationDelay: ".05s",
+              }}
+            >
+              <PickleWordmark id="hero" />
+            </h1>
+            <div className="pk-rise" style={{ maxWidth: 820, margin: "26px auto 0", animationDelay: ".18s" }}>
+              <div style={{ color: "#DFE2E5", fontWeight: 650, fontSize: "clamp(25px, 3.3vw, 42px)", lineHeight: 1.22, letterSpacing: "-0.015em" }}>
+                Nền tảng giải đấu pickleball tuỳ biến trọn vẹn và sẵn sàng lên sóng
+              </div>
+            </div>
+            <div className="pk-rise" style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 34, flexWrap: "wrap", animationDelay: ".3s" }}>
+              <WhitePill label="Bắt đầu ngay" href="/register" size="lg" />
+              <GrayPill label="Khám phá giải đấu" href="/pickle-ball/tournaments" size="lg" />
+            </div>
+            <div className="pk-rise" style={{ marginTop: 22, color: "#8F959C", fontSize: 14.5, animationDelay: ".42s" }}>
+              Đang thử nghiệm Beta · Chạy trên <span style={{ textDecoration: "underline" }}>React</span> và <span style={{ textDecoration: "underline" }}>Astryx</span>
+            </div>
+          </div>
+        </Container>
+      </div>
+
+      {/* dots carousel — bấm để đổi bộ thẻ showcase */}
+      <div style={{ position: "absolute", bottom: 26, left: "50%", transform: "translateX(-50%)", display: "flex", gap: 8, zIndex: 4 }}>
+        {HERO_SLIDES.map((s, i) => (
+          <button
+            key={s.key}
+            type="button"
+            aria-label={`Slide ${i + 1}`}
+            onClick={() => setSlide(i)}
+            style={{
+              width: i === slide ? 22 : 8,
+              height: 8,
+              borderRadius: 999,
+              background: i === slide ? "#E9EAEC" : "#3A3B40",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              transition: "width .25s ease, background .25s ease",
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ============ helper chung cho các section dưới-fold (chất Astryx) ============ */
+const bigHeadStyle = {
+  fontFamily: '"Figtree Variable", sans-serif',
+  fontWeight: 750,
+  letterSpacing: "-0.03em",
+  lineHeight: 1.03,
+  color: "var(--color-text-primary)",
+  fontSize: "clamp(30px, 4.4vw, 54px)",
+  margin: 0,
+};
+const surfPanel = {
+  borderRadius: 20,
+  border: "1px solid var(--color-border)",
+  background: "var(--color-background-surface)",
+  overflow: "hidden",
+};
+/* hiện dần khi cuộn tới (một lần) */
+function Reveal({ children }) {
   const ref = useRef(null);
-  const [shown, setShown] = useState(false);
+  const [on, setOn] = useState(false);
   useEffect(() => {
     const el = ref.current;
-    if (!el || shown) return undefined;
-    if (typeof IntersectionObserver === "undefined") {
-      setShown(true);
+    if (!el) return undefined;
+    // fallback: đã trong viewport lúc mount (hoặc môi trường không có IO) -> hiện luôn
+    const vh = window.innerHeight || 800;
+    if (el.getBoundingClientRect().top < vh * 0.95 || typeof IntersectionObserver === "undefined") {
+      setOn(true);
       return undefined;
     }
     const io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
-          setShown(true);
+          setOn(true);
           io.disconnect();
         }
       },
-      { threshold: 0.18 },
+      { threshold: 0.12 },
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [shown]);
-  return [ref, shown];
-}
-
-function CountUp({ value, duration = 1100 }) {
-  const [ref, shown] = useReveal();
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    if (!shown) return undefined;
-    const target = Number(value || 0);
-    if (!target) {
-      setN(0);
-      return undefined;
-    }
-    let raf;
-    const start = performance.now();
-    const tick = (now) => {
-      const p = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setN(Math.round(target * eased));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [shown, value, duration]);
-  return <span ref={ref}>{fmtInt(n)}</span>;
-}
-
-/* section wrapper reveal-on-scroll */
-function Reveal({ children, delay = 0, sx }) {
-  const [ref, shown] = useReveal();
-  return (
-    <Box
-      ref={ref}
-      sx={{
-        opacity: shown ? 1 : 0,
-        transform: shown ? "none" : "translateY(22px)",
-        transition: `opacity .7s cubic-bezier(.2,.7,.2,1) ${delay}ms, transform .7s cubic-bezier(.2,.7,.2,1) ${delay}ms`,
-        ...sx,
-      }}
-    >
-      {children}
-    </Box>
-  );
-}
-
-const pillBtnSx = (variant) => ({
-  borderRadius: 999,
-  px: 2.6,
-  py: 1.1,
-  fontWeight: 700,
-  fontSize: 15,
-  textTransform: "none",
-  fontFamily: FONT,
-  boxShadow: "none",
-  ...(variant === "dark"
-    ? {
-        bgcolor: T.ink,
-        color: "#fff",
-        "&:hover": { bgcolor: "#000", boxShadow: "none" },
-      }
-    : {
-        bgcolor: "transparent",
-        color: T.ink,
-        border: `1px solid ${T.lineStrong}`,
-        "&:hover": { bgcolor: T.bgAlt, borderColor: T.ink },
-      }),
-});
-
-const kicker = {
-  fontFamily: FONT,
-  fontWeight: 700,
-  fontSize: 13,
-  letterSpacing: 1.4,
-  textTransform: "uppercase",
-  color: T.teal,
-};
-const h2Sx = {
-  fontFamily: FONT,
-  fontWeight: 800,
-  letterSpacing: "-0.02em",
-  color: T.ink,
-  fontSize: "clamp(28px, 4.4vw, 46px)",
-  lineHeight: 1.05,
-};
-
-/* ------------------------------ NAV ------------------------------ */
-function Nav() {
-  const [solid, setSolid] = useState(false);
-  useEffect(() => {
-    const onScroll = () => setSolid(window.scrollY > 12);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
   }, []);
-  const links = [
-    { label: "Giải đấu", to: "/pickle-ball/tournaments" },
-    { label: "Bảng xếp hạng", to: "/pickle-ball/rankings" },
-    { label: "Trực tiếp", to: "/live" },
-    { label: "Câu lạc bộ", to: "/clubs" },
-  ];
   return (
-    <Box
-      component="header"
-      sx={{
-        position: "sticky",
-        top: 0,
-        zIndex: 40,
-        backdropFilter: "saturate(180%) blur(14px)",
-        WebkitBackdropFilter: "saturate(180%) blur(14px)",
-        bgcolor: solid ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.6)",
-        borderBottom: `1px solid ${solid ? T.line : "transparent"}`,
-        transition: "background .3s, border-color .3s",
-      }}
-    >
-      <Container maxWidth="lg">
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-          sx={{ height: 66 }}
-        >
-          <Box
-            component={Link}
-            to="/"
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              textDecoration: "none",
-            }}
-          >
-            <Box
-              sx={{
-                width: 30,
-                height: 30,
-                borderRadius: "9px",
-                background: `linear-gradient(135deg, ${T.teal}, ${T.indigo})`,
-                display: "grid",
-                placeItems: "center",
-                color: "#fff",
-              }}
-            >
-              <SportsTennisIcon sx={{ fontSize: 18 }} />
-            </Box>
-            <Typography
-              sx={{
-                fontFamily: FONT,
-                fontWeight: 800,
-                fontSize: 19,
-                letterSpacing: "-0.02em",
-                color: T.ink,
-              }}
-            >
-              PickleTour
-            </Typography>
-          </Box>
-
-          <Stack
-            direction="row"
-            spacing={3}
-            sx={{ display: { xs: "none", md: "flex" } }}
-          >
-            {links.map((l) => (
-              <Typography
-                key={l.to}
-                component={Link}
-                to={l.to}
-                sx={{
-                  fontFamily: FONT,
-                  fontWeight: 600,
-                  fontSize: 15,
-                  color: T.sub,
-                  textDecoration: "none",
-                  "&:hover": { color: T.ink },
-                }}
-              >
-                {l.label}
-              </Typography>
-            ))}
-          </Stack>
-
-          <Stack direction="row" spacing={1.2} alignItems="center">
-            <Button
-              component={Link}
-              to="/login"
-              sx={{
-                ...pillBtnSx("ghost"),
-                display: { xs: "none", sm: "inline-flex" },
-                py: 0.8,
-              }}
-            >
-              Đăng nhập
-            </Button>
-            <Button
-              component={Link}
-              to="/register"
-              endIcon={<ArrowOutwardIcon sx={{ fontSize: 16 }} />}
-              sx={{ ...pillBtnSx("dark"), py: 0.8 }}
-            >
-              Bắt đầu
-            </Button>
-          </Stack>
-        </Stack>
-      </Container>
-    </Box>
+    <div ref={ref} className={on ? "pk-reveal pk-reveal-in" : "pk-reveal"}>
+      {children}
+    </div>
   );
 }
 
-/* ------------------------------ HERO ------------------------------ */
-function Hero({ pulse }) {
-  const liveNow = Number(pulse?.liveNow || 0);
+const Band = ({ children, surface, pad = "104px 0", style }) => (
+  <div style={{ background: surface ? "var(--color-background-surface)" : "transparent", borderTop: "1px solid var(--color-border)", ...style }}>
+    <Container>
+      <div style={{ padding: pad }}>
+        <Reveal>{children}</Reveal>
+      </div>
+    </Container>
+  </div>
+);
+const ExploreLink = ({ href, label = "Khám phá" }) => (
+  <A href={href} className="pk-link" style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--color-text-accent)", fontWeight: 650, fontSize: 15.5, textDecoration: "none", whiteSpace: "nowrap" }}>
+    {label} <ArrowUpRight size={17} />
+  </A>
+);
+const SectionHead = ({ title, sub, href, linkLabel, align = "left", max = 620 }) => (
+  <div style={{ textAlign: align, maxWidth: align === "center" ? 760 : "none", margin: align === "center" ? "0 auto" : 0 }}>
+    <h2 style={bigHeadStyle}>{title}</h2>
+    {sub ? (
+      <div style={{ maxWidth: max, margin: align === "center" ? "16px auto 0" : "16px 0 0" }}>
+        <Text type="large" color="secondary">{sub}</Text>
+      </div>
+    ) : null}
+    {href ? <div style={{ marginTop: 20 }}><ExploreLink href={href} label={linkLabel} /></div> : null}
+  </div>
+);
+
+/* ===== Section: điểm trình — số liệu KHỔNG LỒ + feed leo hạng (kiểu revenue band) ===== */
+function MetricCard({ value, label, note }) {
   return (
-    <Box sx={{ position: "relative", overflow: "hidden", bgcolor: T.bg }}>
-      {/* glow nền */}
-      <Box
-        aria-hidden
-        sx={{
-          position: "absolute",
-          inset: 0,
-          background: `radial-gradient(60% 60% at 50% -10%, rgba(99,102,241,0.10), transparent 60%), radial-gradient(40% 40% at 85% 10%, rgba(16,185,129,0.10), transparent 60%)`,
-          pointerEvents: "none",
-        }}
+    <div style={{ ...surfPanel, padding: "28px 28px" }}>
+      <div style={{ fontFamily: '"Figtree Variable", sans-serif', fontWeight: 800, letterSpacing: "-0.04em", fontSize: "clamp(40px, 5vw, 60px)", lineHeight: 1, color: "var(--color-text-primary)" }}>
+        {value}
+        <span style={{ color: "var(--color-text-accent)" }}>+</span>
+      </div>
+      <div style={{ marginTop: 12 }}><Text type="body" weight="semibold">{label}</Text></div>
+      {note ? <div style={{ marginTop: 4 }}><Text type="supporting" color="secondary">{note}</Text></div> : null}
+    </div>
+  );
+}
+
+function RatingBand({ stats, climbers }) {
+  return (
+    <Band surface>
+      <SectionHead
+        title="Điểm trình chuẩn hoá sau mỗi trận"
+        sub="Cộng/trừ minh bạch theo vòng bảng và playoff. Mỗi kết quả đồng bộ tức thì vào hồ sơ và bảng xếp hạng toàn quốc."
+        href="/pickle-ball/rankings"
+        linkLabel="Xem bảng xếp hạng"
       />
-      <Container maxWidth="lg" sx={{ position: "relative", pt: { xs: 7, md: 12 }, pb: { xs: 6, md: 9 } }}>
-        <Reveal>
-          <Stack alignItems="center" spacing={3} textAlign="center">
-            <Chip
-              icon={
-                <Box
-                  component="span"
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    bgcolor: liveNow > 0 ? "#EF4444" : T.faint,
-                    boxShadow: liveNow > 0 ? "0 0 0 0 rgba(239,68,68,.6)" : "none",
-                    animation: liveNow > 0 ? "pkPulse 1.6s infinite" : "none",
-                    ml: 1,
-                  }}
-                />
-              }
-              label={
-                liveNow > 0
-                  ? `${liveNow} trận đang trực tiếp`
-                  : "Nền tảng giải đấu pickleball"
-              }
-              component={Link}
-              to={liveNow > 0 ? "/live" : "/pickle-ball/tournaments"}
-              clickable
-              sx={{
-                bgcolor: T.bgAlt,
-                border: `1px solid ${T.line}`,
-                color: T.ink,
-                fontFamily: FONT,
-                fontWeight: 600,
-                fontSize: 13,
-                height: 34,
-                borderRadius: 999,
-                "& .MuiChip-label": { px: 1.4 },
-              }}
-            />
-
-            <Typography
-              component="h1"
-              sx={{
-                fontFamily: FONT,
-                fontWeight: 800,
-                letterSpacing: "-0.035em",
-                color: T.ink,
-                fontSize: "clamp(38px, 7.2vw, 84px)",
-                lineHeight: 0.98,
-                maxWidth: 980,
-              }}
-            >
-              Tổ chức giải đấu pickleball{" "}
-              <Box
-                component="span"
-                sx={{
-                  background: `linear-gradient(120deg, ${T.teal}, ${T.indigo})`,
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
-                }}
-              >
-                chuyên nghiệp
-              </Box>{" "}
-              chỉ trong vài phút
-            </Typography>
-
-            <Typography
-              sx={{
-                fontFamily: FONT,
-                fontSize: "clamp(16px, 2.2vw, 20px)",
-                color: T.sub,
-                maxWidth: 620,
-                lineHeight: 1.55,
-              }}
-            >
-              Bốc thăm, chấm điểm trực tiếp, phát sóng có overlay và điểm trình
-              chuẩn hoá — tất cả trong một nền tảng cho ban tổ chức và vận động
-              viên.
-            </Typography>
-
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ pt: 1 }}>
-              <Button
-                component={Link}
-                to="/pickle-ball/tournaments"
-                endIcon={<ArrowOutwardIcon />}
-                sx={{ ...pillBtnSx("dark"), px: 3.2, py: 1.3, fontSize: 16 }}
-              >
-                Khám phá giải đấu
-              </Button>
-              <Button
-                component={Link}
-                to="/pickle-ball/rankings"
-                sx={{ ...pillBtnSx("ghost"), px: 3.2, py: 1.3, fontSize: 16 }}
-              >
-                Xem bảng xếp hạng
-              </Button>
-            </Stack>
-          </Stack>
-        </Reveal>
-      </Container>
-    </Box>
+      <div style={{ height: 40 }} />
+      <div className="pk-2col" style={{ display: "grid", gridTemplateColumns: "minmax(0,0.85fr) minmax(0,1.15fr)", gap: 22 }}>
+        <div style={{ display: "grid", gap: 20 }}>
+          <MetricCard value={fmtInt(stats?.matches)} label="Trận đã chấm điểm" note="Đồng bộ realtime khi trọng tài bấm" />
+          <MetricCard value={fmtInt(stats?.players)} label="Vận động viên có điểm trình" note="Tăng đều mỗi tuần" />
+        </div>
+        <div style={surfPanel}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 20px", borderBottom: "1px solid var(--color-border)" }}>
+            <Icon icon={TrendingUp} color="success" size="sm" />
+            <Text type="body" weight="bold">Leo hạng tuần này</Text>
+          </div>
+          {!climbers?.length ? (
+            <div style={{ padding: 28, textAlign: "center" }}><Text type="supporting" color="secondary">Chưa có dữ liệu tuần này.</Text></div>
+          ) : (
+            climbers.slice(0, 6).map((c, i) => (
+              <div key={c?.userId || i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 20px", borderTop: i ? "1px solid var(--color-border)" : "none" }}>
+                <Avatar size="small" src={imgUrl(c?.avatar)} name={firstText(c?.nickname, "VĐV")} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Text type="body" weight="semibold">{firstText(c?.nickname, "VĐV")}</Text>
+                  <Text type="supporting" color="secondary">{c?.matches || 0} trận · {firstText(c?.province, "—")}</Text>
+                </div>
+                <Badge variant="success" label={`+${Number(c?.delta || 0).toFixed(3)}`} />
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </Band>
   );
 }
 
-/* --------------------------- STAT BAND --------------------------- */
-function StatBand({ stats, loading }) {
-  const items = [
-    { key: "players", label: "Vận động viên", icon: <GroupsIcon /> },
-    { key: "tournaments", label: "Giải đấu", icon: <EmojiEventsIcon /> },
-    { key: "matches", label: "Trận đã đấu", icon: <SportsTennisIcon /> },
-    { key: "clubs", label: "Câu lạc bộ", icon: <VerifiedIcon /> },
+/* ===== Bảng điều khiển trọng tài (UI thật của sản phẩm — showcase) ===== */
+function ConsoleBtn({ label, primary }) {
+  return (
+    <span style={{ flex: 1, textAlign: "center", padding: "12px 0", borderRadius: 12, fontWeight: 700, fontSize: 14, background: primary ? "var(--color-accent)" : "#2A2B2F", color: primary ? "var(--color-on-accent)" : "#C9CDD2", transition: "background .6s" }}>
+      {label}
+    </span>
+  );
+}
+function ScoringConsole() {
+  const Row = ({ name, score, serving }) => (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "20px 22px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ width: 9, height: 9, borderRadius: 999, background: serving ? "#22C55E" : "#33343A", flex: "none" }} />
+        <Text type="large" weight="semibold">{name}</Text>
+      </div>
+      <span style={{ fontFamily: '"Figtree Variable", sans-serif', fontWeight: 800, fontSize: 46, lineHeight: 1, letterSpacing: "-0.03em", color: "var(--color-text-primary)" }}>{score}</span>
+    </div>
+  );
+  return (
+    <div style={{ ...surfPanel, boxShadow: "0 40px 80px -40px rgba(0,0,0,.7)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px 22px", borderBottom: "1px solid var(--color-border)" }}>
+        <div>
+          <Text type="body" weight="bold">Chung kết đôi nam</Text>
+          <Text type="supporting" color="secondary">Sân trung tâm · Ván 3</Text>
+        </div>
+        <span className="pk-live" style={{ background: "#E5484D", color: "#fff", fontWeight: 700, fontSize: 12, borderRadius: 999, padding: "5px 11px" }}>● LIVE</span>
+      </div>
+      <Row name="Minh / Phong" score="11" serving />
+      <div style={{ height: 1, background: "var(--color-border)" }} />
+      <Row name="Hùng / Nam" score="9" />
+      <div style={{ display: "flex", gap: 10, padding: "16px 22px", borderTop: "1px solid var(--color-border)" }}>
+        <ConsoleBtn label="＋ Điểm A" primary />
+        <ConsoleBtn label="Đổi giao" />
+        <ConsoleBtn label="Kết thúc ván" />
+      </div>
+    </div>
+  );
+}
+
+/* ===== Section: chấm điểm & phát sóng (2 cột split) ===== */
+function ScoringShowcase() {
+  const bullets = [
+    "Trọng tài chấm trên điện thoại — khán giả thấy tỉ số tức thì",
+    "Phát sóng có overlay: scoreboard, logo, nhà tài trợ",
+    "Sơ đồ nhánh tự cập nhật theo từng điểm số",
   ];
   return (
-    <Box sx={{ borderTop: `1px solid ${T.line}`, borderBottom: `1px solid ${T.line}`, bgcolor: T.bgAlt }}>
-      <Container maxWidth="lg" sx={{ py: { xs: 4, md: 5 } }}>
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: { xs: "1fr 1fr", md: "repeat(4,1fr)" },
-            gap: { xs: 3, md: 2 },
-          }}
-        >
-          {items.map((it) => (
-            <Stack key={it.key} spacing={0.5} alignItems="center" textAlign="center">
-              <Box sx={{ color: T.faint, mb: 0.5 }}>{it.icon}</Box>
-              <Typography
-                sx={{
-                  fontFamily: FONT,
-                  fontWeight: 800,
-                  letterSpacing: "-0.03em",
-                  color: T.ink,
-                  fontSize: "clamp(28px, 4.5vw, 44px)",
-                  lineHeight: 1,
-                }}
-              >
-                {loading ? (
-                  <Skeleton width={80} sx={{ mx: "auto" }} />
-                ) : (
-                  <>
-                    <CountUp value={stats?.[it.key]} />
-                    <Box component="span" sx={{ color: T.teal }}>
-                      +
-                    </Box>
-                  </>
-                )}
-              </Typography>
-              <Typography sx={{ fontFamily: FONT, fontWeight: 600, fontSize: 14, color: T.sub }}>
-                {it.label}
-              </Typography>
-            </Stack>
-          ))}
-        </Box>
-      </Container>
-    </Box>
+    <Band>
+      <div className="pk-2col" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 56, alignItems: "center" }}>
+        <div>
+          <SectionHead
+            title="Chấm điểm trực tiếp, lên sóng tức thì"
+            sub="Từ bàn trọng tài tới màn hình khán giả chỉ trong một nhịp bấm — không thiết bị đắt tiền, chỉ cần điện thoại."
+            href="/live"
+            linkLabel="Xem trực tiếp"
+          />
+          <div style={{ marginTop: 30, display: "grid", gap: 16 }}>
+            {bullets.map((b) => (
+              <div key={b} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <span style={{ width: 26, height: 26, borderRadius: 9, background: "color-mix(in srgb, var(--color-accent) 18%, transparent)", color: "var(--color-text-accent)", display: "grid", placeItems: "center", flex: "none", transition: "all .6s" }}>
+                  <Check size={16} />
+                </span>
+                <Text type="body">{b}</Text>
+              </div>
+            ))}
+          </div>
+        </div>
+        <ScoringConsole />
+      </div>
+    </Band>
   );
 }
 
-/* ---------------------------- LIVE NOW ---------------------------- */
-function liveTitle(m) {
-  const a = firstText(
-    m?.teamAName,
-    m?.homeName,
-    m?.nameA,
-    m?.pairAName,
-    m?.teamA?.name,
-    m?.a?.name,
-  );
-  const b = firstText(
-    m?.teamBName,
-    m?.awayName,
-    m?.nameB,
-    m?.pairBName,
-    m?.teamB?.name,
-    m?.b?.name,
-  );
-  if (a && b) return `${a}  vs  ${b}`;
-  return firstText(m?.title, m?.matchTitle, m?.name, "Trận đấu trực tiếp");
-}
-
-function LiveSection({ items, loading }) {
-  const list = (items || []).slice(0, 3);
-  if (!loading && !list.length) return null;
+/* ===== Social proof band (số khổng lồ, center) ===== */
+function SocialProof({ stats }) {
+  const mini = [
+    [fmtInt(stats?.players), "vận động viên"],
+    [fmtInt(stats?.matches), "trận đã đấu"],
+    [fmtInt(stats?.clubs), "câu lạc bộ"],
+  ];
   return (
-    <Container maxWidth="lg" sx={{ py: { xs: 6, md: 9 } }}>
-      <Reveal>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-end" sx={{ mb: 3 }}>
-          <Box>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-              <Box
-                sx={{
-                  width: 9,
-                  height: 9,
-                  borderRadius: "50%",
-                  bgcolor: "#EF4444",
-                  animation: "pkPulse 1.6s infinite",
-                }}
-              />
-              <Typography sx={{ ...kicker, color: "#EF4444" }}>Đang trực tiếp</Typography>
-            </Stack>
-            <Typography sx={h2Sx}>Xem trận ngay bây giờ</Typography>
-          </Box>
-          <Button component={Link} to="/live" endIcon={<ArrowOutwardIcon sx={{ fontSize: 16 }} />} sx={{ ...pillBtnSx("ghost"), py: 0.7 }}>
-            Tất cả
-          </Button>
-        </Stack>
-      </Reveal>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "repeat(3,1fr)" }, gap: 2.5 }}>
+    <Band surface pad="120px 0">
+      <div style={{ textAlign: "center", maxWidth: 860, margin: "0 auto" }}>
+        <h2 style={{ ...bigHeadStyle, fontSize: "clamp(34px, 5.6vw, 70px)" }}>
+          PickleTour đang phục vụ {fmtInt(stats?.tournaments)}+ giải đấu
+        </h2>
+        <div style={{ maxWidth: 620, margin: "18px auto 0" }}>
+          <Text type="large" color="secondary">
+            Từ giải phong trào tới hệ thống chuyên nghiệp — hàng nghìn trận được chấm điểm, phát sóng và xếp hạng minh bạch.
+          </Text>
+        </div>
+        <div style={{ display: "flex", justifyContent: "center", gap: 48, flexWrap: "wrap", marginTop: 48 }}>
+          {mini.map(([v, l]) => (
+            <div key={l} style={{ textAlign: "center" }}>
+              <div style={{ fontFamily: '"Figtree Variable", sans-serif', fontWeight: 800, fontSize: 34, letterSpacing: "-0.03em", color: "var(--color-text-primary)" }}>{v}</div>
+              <div style={{ marginTop: 4 }}><Text type="supporting" color="secondary">{l}</Text></div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Band>
+  );
+}
+
+function TournamentBand({ items, loading }) {
+  const list = asArray(items)
+    .filter((t) => !t?.isTest)
+    .sort((a, b) => ({ ongoing: 0, upcoming: 1, finished: 2 }[a?.status] ?? 3) - ({ ongoing: 0, upcoming: 1, finished: 2 }[b?.status] ?? 3))
+    .slice(0, 3);
+  return (
+    <Band>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ maxWidth: 620 }}>
+          <h2 style={bigHeadStyle}>Giải đấu đang mở khắp cả nước</h2>
+          <div style={{ marginTop: 16 }}><Text type="large" color="secondary">Tham gia thi đấu hoặc theo dõi trực tiếp — mọi giải đều có sơ đồ, lịch và bảng điểm realtime.</Text></div>
+        </div>
+        <ExploreLink href="/pickle-ball/tournaments" label="Tất cả giải đấu" />
+      </div>
+      <div style={{ height: 36 }} />
+      <div className="pk-3col" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 22 }}>
         {loading && !list.length
-          ? [0, 1, 2].map((i) => (
-              <Skeleton key={i} variant="rounded" height={220} sx={{ borderRadius: 3 }} />
-            ))
-          : list.map((m, i) => {
-              const thumb = imgUrl(
-                firstText(m?.thumbnail, m?.cover, m?.image, m?.poster, m?.tournamentImage),
-              );
-              const sub = firstText(m?.tournamentName, m?.tournament?.name, m?.courtName, m?.court?.name);
+          ? [0, 1, 2].map((i) => <div key={i} style={{ ...surfPanel, height: 280 }} />)
+          : list.map((t, i) => {
+              const st = STATUS_META[t?.status] || STATUS_META.upcoming;
+              const cover = imgUrl(firstText(t?.image, t?.coverUrl, t?.banner));
               return (
-                <Reveal key={m?._id || m?.matchId || i} delay={i * 70}>
-                  <Box
-                    component={Link}
-                    to="/live"
-                    sx={{
-                      display: "block",
-                      textDecoration: "none",
-                      borderRadius: 3,
-                      overflow: "hidden",
-                      border: `1px solid ${T.line}`,
-                      bgcolor: T.bg,
-                      transition: "transform .3s, box-shadow .3s, border-color .3s",
-                      "&:hover": {
-                        transform: "translateY(-4px)",
-                        boxShadow: "0 18px 40px rgba(11,11,15,0.10)",
-                        borderColor: T.lineStrong,
-                      },
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        position: "relative",
-                        aspectRatio: "16 / 9",
-                        bgcolor: "#0B0B0F",
-                        backgroundImage: thumb ? `url(${thumb})` : "none",
-                        backgroundSize: "cover",
-                        backgroundPosition: "center",
-                      }}
-                    >
-                      {!thumb && (
-                        <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", color: "rgba(255,255,255,0.35)" }}>
-                          <LiveTvIcon sx={{ fontSize: 44 }} />
-                        </Box>
-                      )}
-                      <Chip
-                        size="small"
-                        label="● LIVE"
-                        sx={{
-                          position: "absolute",
-                          top: 12,
-                          left: 12,
-                          bgcolor: "#EF4444",
-                          color: "#fff",
-                          fontWeight: 800,
-                          fontSize: 11,
-                          height: 24,
-                          fontFamily: FONT,
-                        }}
-                      />
-                    </Box>
-                    <Box sx={{ p: 2 }}>
-                      <Typography sx={{ fontFamily: FONT, fontWeight: 700, fontSize: 16, color: T.ink, lineHeight: 1.3 }} noWrap>
-                        {liveTitle(m)}
-                      </Typography>
-                      {sub && (
-                        <Typography sx={{ fontFamily: FONT, fontSize: 13.5, color: T.sub, mt: 0.5 }} noWrap>
-                          {sub}
-                        </Typography>
-                      )}
-                    </Box>
-                  </Box>
-                </Reveal>
+                <A key={t?._id || t?.id || i} href={`/tournament/${t?._id || t?.id}`} style={{ ...surfPanel, textDecoration: "none", display: "block" }}>
+                  <div style={{ position: "relative", aspectRatio: "16 / 10", background: "var(--color-background-body)" }}>
+                    {cover ? (
+                      <img src={cover} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : (
+                      <div style={{ width: "100%", height: "100%", background: "linear-gradient(135deg,#22D3EE,#3B82F6,#7C3AED)", display: "grid", placeItems: "center", fontSize: 40 }}>🏆</div>
+                    )}
+                    <div style={{ position: "absolute", top: 12, left: 12 }}>
+                      <span style={{ background: "rgba(10,12,16,0.72)", color: "#EDEEF0", fontWeight: 700, fontSize: 11.5, borderRadius: 999, padding: "4px 10px" }}>{st.label}</span>
+                    </div>
+                  </div>
+                  <div style={{ padding: 18 }}>
+                    <Text type="body" weight="bold">{firstText(t?.name, "Giải đấu")}</Text>
+                    <div style={{ marginTop: 8, display: "flex", gap: 16, flexWrap: "wrap" }}>
+                      <span style={{ display: "inline-flex", gap: 5, alignItems: "center" }}><Icon icon={MapPin} color="tertiary" size="xsm" /><Text type="supporting" color="secondary">{firstText(t?.location, t?.province, "—")}</Text></span>
+                      <span style={{ display: "inline-flex", gap: 5, alignItems: "center" }}><Icon icon={CalendarDays} color="tertiary" size="xsm" /><Text type="supporting" color="secondary">{fmtDate(t?.startDate || t?.startAt)}</Text></span>
+                    </div>
+                  </div>
+                </A>
               );
             })}
-      </Box>
-    </Container>
+      </div>
+    </Band>
   );
 }
 
-/* ------------------------- TOURNAMENTS --------------------------- */
-const STATUS_META = {
-  ongoing: { label: "Đang diễn ra", color: T.teal },
-  upcoming: { label: "Sắp diễn ra", color: T.indigo },
-  finished: { label: "Đã kết thúc", color: T.faint },
-};
-function fmtDate(d) {
-  if (!d) return "";
-  try {
-    return new Date(d).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
-  } catch {
-    return "";
-  }
-}
-function TournamentShowcase({ items, loading }) {
-  const list = useMemo(() => {
-    const arr = asArray(items).filter((t) => !t?.isTest);
-    const rank = { ongoing: 0, upcoming: 1, finished: 2 };
-    return [...arr]
-      .sort((a, b) => (rank[a?.status] ?? 3) - (rank[b?.status] ?? 3))
-      .slice(0, 6);
-  }, [items]);
-
-  return (
-    <Box sx={{ bgcolor: T.bgAlt, borderTop: `1px solid ${T.line}` }}>
-      <Container maxWidth="lg" sx={{ py: { xs: 6, md: 10 } }}>
-        <Reveal>
-          <Stack direction="row" justifyContent="space-between" alignItems="flex-end" sx={{ mb: 4 }}>
-            <Box>
-              <Typography sx={{ ...kicker, mb: 1 }}>Giải đấu nổi bật</Typography>
-              <Typography sx={h2Sx}>Tìm giải để tham gia hoặc theo dõi</Typography>
-            </Box>
-            <Button component={Link} to="/pickle-ball/tournaments" endIcon={<ArrowOutwardIcon sx={{ fontSize: 16 }} />} sx={{ ...pillBtnSx("ghost"), py: 0.7 }}>
-              Tất cả
-            </Button>
-          </Stack>
-        </Reveal>
-
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr", md: "repeat(3,1fr)" }, gap: 2.5 }}>
-          {loading && !list.length
-            ? [0, 1, 2, 3, 4, 5].map((i) => (
-                <Skeleton key={i} variant="rounded" height={280} sx={{ borderRadius: 3 }} />
-              ))
-            : list.map((t, i) => {
-                const st = STATUS_META[t?.status] || STATUS_META.upcoming;
-                const cover = imgUrl(firstText(t?.image, t?.coverUrl, t?.banner));
-                return (
-                  <Reveal key={t?._id || t?.id || i} delay={(i % 3) * 70}>
-                    <Box
-                      component={Link}
-                      to={`/tournament/${t?._id || t?.id}`}
-                      sx={{
-                        display: "block",
-                        textDecoration: "none",
-                        borderRadius: 3,
-                        overflow: "hidden",
-                        border: `1px solid ${T.line}`,
-                        bgcolor: T.bg,
-                        height: "100%",
-                        transition: "transform .3s, box-shadow .3s, border-color .3s",
-                        "&:hover": {
-                          transform: "translateY(-4px)",
-                          boxShadow: "0 18px 40px rgba(11,11,15,0.10)",
-                          borderColor: T.lineStrong,
-                        },
-                      }}
-                    >
-                      <Box
-                        sx={{
-                          aspectRatio: "16 / 10",
-                          bgcolor: "#E9ECF1",
-                          backgroundImage: cover ? `url(${cover})` : "none",
-                          backgroundSize: "cover",
-                          backgroundPosition: "center",
-                          position: "relative",
-                        }}
-                      >
-                        <Chip
-                          size="small"
-                          label={st.label}
-                          sx={{
-                            position: "absolute",
-                            top: 12,
-                            left: 12,
-                            bgcolor: "rgba(255,255,255,0.92)",
-                            color: st.color,
-                            fontWeight: 800,
-                            fontSize: 11.5,
-                            height: 24,
-                            fontFamily: FONT,
-                            border: `1px solid ${T.line}`,
-                          }}
-                        />
-                      </Box>
-                      <Box sx={{ p: 2.2 }}>
-                        <Typography
-                          sx={{ fontFamily: FONT, fontWeight: 750, fontSize: 17, color: T.ink, lineHeight: 1.3, minHeight: 44, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}
-                        >
-                          {firstText(t?.name, "Giải đấu")}
-                        </Typography>
-                        <Stack direction="row" spacing={2} sx={{ mt: 1.3 }}>
-                          <Typography sx={{ fontFamily: FONT, fontSize: 13, color: T.sub }} noWrap>
-                            📍 {firstText(t?.location, t?.province, "—")}
-                          </Typography>
-                          <Typography sx={{ fontFamily: FONT, fontSize: 13, color: T.sub, whiteSpace: "nowrap" }}>
-                            🗓 {fmtDate(t?.startDate || t?.startAt)}
-                          </Typography>
-                        </Stack>
-                      </Box>
-                    </Box>
-                  </Reveal>
-                );
-              })}
-        </Box>
-      </Container>
-    </Box>
-  );
-}
-
-/* ---------------------------- FEATURES --------------------------- */
-function Features() {
-  const feats = [
-    {
-      icon: <EmojiEventsIcon />,
-      title: "Bốc thăm & sơ đồ tự động",
-      body: "Vòng bảng, loại trực tiếp, playoff — tạo khung, bốc thăm và cập nhật sơ đồ theo thời gian thực.",
-    },
-    {
-      icon: <SportsTennisIcon />,
-      title: "Chấm điểm trực tiếp",
-      body: "Trọng tài chấm trên điện thoại, tỉ số đồng bộ tức thì tới khán giả, overlay và bảng xếp hạng.",
-    },
-    {
-      icon: <LiveTvIcon />,
-      title: "Phát sóng có overlay",
-      body: "Live/record ngay trên Android với scoreboard, logo, tài trợ và widget điều khiển từ xa.",
-    },
-    {
-      icon: <TrendingUpIcon />,
-      title: "Điểm trình chuẩn hoá",
-      body: "Hệ thống rating cộng/trừ sau mỗi trận, minh bạch theo vòng bảng và playoff.",
-    },
-  ];
-  return (
-    <Container maxWidth="lg" sx={{ py: { xs: 7, md: 11 } }}>
-      <Reveal>
-        <Typography sx={{ ...kicker, mb: 1.5 }}>Tất cả trong một</Typography>
-        <Typography sx={{ ...h2Sx, maxWidth: 720, mb: { xs: 4, md: 6 } }}>
-          Tổ chức. Chấm điểm. Phát sóng. Ship nhanh hơn.
-        </Typography>
-      </Reveal>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: { xs: 2.5, md: 3 } }}>
-        {feats.map((f, i) => (
-          <Reveal key={f.title} delay={(i % 2) * 80}>
-            <Box
-              sx={{
-                p: { xs: 3, md: 4 },
-                borderRadius: 3,
-                border: `1px solid ${T.line}`,
-                bgcolor: T.bg,
-                height: "100%",
-                transition: "border-color .3s, background .3s",
-                "&:hover": { borderColor: T.lineStrong, bgcolor: T.bgAlt },
-              }}
-            >
-              <Box
-                sx={{
-                  width: 46,
-                  height: 46,
-                  borderRadius: "13px",
-                  display: "grid",
-                  placeItems: "center",
-                  color: "#fff",
-                  background: `linear-gradient(135deg, ${T.teal}, ${T.indigo})`,
-                  mb: 2,
-                }}
-              >
-                {f.icon}
-              </Box>
-              <Typography sx={{ fontFamily: FONT, fontWeight: 750, fontSize: 20, color: T.ink, mb: 1 }}>
-                {f.title}
-              </Typography>
-              <Typography sx={{ fontFamily: FONT, fontSize: 15.5, color: T.sub, lineHeight: 1.6 }}>
-                {f.body}
-              </Typography>
-            </Box>
-          </Reveal>
-        ))}
-      </Box>
-    </Container>
-  );
-}
-
-/* --------------------- LEADERBOARD + CLIMBERS -------------------- */
 function rankName(r) {
-  return firstText(r?.nickname, r?.nickName, r?.user?.nickname, r?.fullName, r?.name, r?.user?.name, "VĐV");
-}
-function rankAvatar(r) {
-  return imgUrl(firstText(r?.avatar, r?.user?.avatar, r?.avatarUrl));
+  return firstText(r?.nickname, r?.nickName, r?.user?.nickname, r?.fullName, r?.name, "VĐV");
 }
 function rankScore(r) {
   const v = Number(firstText(r?.double, r?.points, r?.single) || 0);
   return v ? v.toFixed(3) : "—";
 }
 
-function Leaderboard({ ranks, ranksLoading, climbers }) {
-  const top = asArray(ranks).slice(0, 6);
-  const medal = ["#F59E0B", "#9CA3AF", "#B45309"];
+function RankTable({ ranks, ranksLoading, climbers }) {
+  const top = asArray(ranks).slice(0, 8);
+  const cmap = {};
+  (climbers || []).forEach((c) => { if (c?.userId) cmap[String(c.userId)] = c.delta; });
+  const GRID = "44px minmax(0,1fr) 130px 96px 84px";
+  const medal = ["#F0B03A", "#B9BEC5", "#C77B42"];
+  const cell = { padding: "0 16px", display: "flex", alignItems: "center", minWidth: 0 };
   return (
-    <Box sx={{ bgcolor: T.bgAlt, borderTop: `1px solid ${T.line}`, borderBottom: `1px solid ${T.line}` }}>
-      <Container maxWidth="lg" sx={{ py: { xs: 6, md: 10 } }}>
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1.4fr 1fr" }, gap: { xs: 4, md: 5 } }}>
-          {/* Top players */}
-          <Reveal>
-            <Stack direction="row" justifyContent="space-between" alignItems="flex-end" sx={{ mb: 3 }}>
-              <Box>
-                <Typography sx={{ ...kicker, mb: 1 }}>Bảng xếp hạng</Typography>
-                <Typography sx={h2Sx}>Top vận động viên</Typography>
-              </Box>
-              <Button component={Link} to="/pickle-ball/rankings" endIcon={<ArrowOutwardIcon sx={{ fontSize: 16 }} />} sx={{ ...pillBtnSx("ghost"), py: 0.7 }}>
-                Xem tất cả
-              </Button>
-            </Stack>
-            <Box sx={{ borderRadius: 3, border: `1px solid ${T.line}`, bgcolor: T.bg, overflow: "hidden" }}>
-              {ranksLoading && !top.length
-                ? [0, 1, 2, 3, 4].map((i) => (
-                    <Box key={i} sx={{ p: 2, borderBottom: i < 4 ? `1px solid ${T.line}` : "none" }}>
-                      <Skeleton height={40} />
-                    </Box>
-                  ))
-                : top.map((r, i) => (
-                    <Stack
-                      key={r?._id || r?.user?._id || r?.user || i}
-                      direction="row"
-                      alignItems="center"
-                      spacing={2}
-                      sx={{ px: 2.2, py: 1.6, borderBottom: i < top.length - 1 ? `1px solid ${T.line}` : "none" }}
-                    >
-                      <Typography sx={{ fontFamily: FONT, fontWeight: 800, fontSize: 16, width: 26, color: i < 3 ? medal[i] : T.faint }}>
-                        {i + 1}
-                      </Typography>
-                      <Avatar src={rankAvatar(r)} sx={{ width: 40, height: 40, bgcolor: T.bgAlt, color: T.faint, fontSize: 15 }}>
-                        {rankName(r).charAt(0).toUpperCase()}
-                      </Avatar>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Stack direction="row" spacing={0.6} alignItems="center">
-                          <Typography sx={{ fontFamily: FONT, fontWeight: 700, fontSize: 15.5, color: T.ink }} noWrap>
-                            {rankName(r)}
-                          </Typography>
-                          {(r?.verified || r?.user?.verified) && (
-                            <VerifiedIcon sx={{ fontSize: 15, color: T.indigo }} />
-                          )}
-                        </Stack>
-                        {firstText(r?.province, r?.user?.province) && (
-                          <Typography sx={{ fontFamily: FONT, fontSize: 12.5, color: T.faint }} noWrap>
-                            {firstText(r?.province, r?.user?.province)}
-                          </Typography>
-                        )}
-                      </Box>
-                      <Typography sx={{ fontFamily: FONT, fontWeight: 800, fontSize: 16, color: T.ink, letterSpacing: "-0.02em" }}>
-                        {rankScore(r)}
-                      </Typography>
-                    </Stack>
-                  ))}
-            </Box>
-          </Reveal>
-
-          {/* Week climbers — SÁNG CHẾ từ backend pulse */}
-          <Reveal delay={100}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 3 }}>
-              <BoltIcon sx={{ color: T.amber }} />
-              <Typography sx={{ ...kicker, color: T.amber, mb: 0 }}>Leo hạng tuần này</Typography>
-            </Stack>
-            <Box sx={{ borderRadius: 3, border: `1px solid ${T.line}`, bgcolor: T.bg, p: 1 }}>
-              {!climbers?.length ? (
-                <Box sx={{ p: 3, textAlign: "center" }}>
-                  <Typography sx={{ fontFamily: FONT, fontSize: 14, color: T.faint }}>
-                    Chưa có dữ liệu tuần này.
-                  </Typography>
-                </Box>
-              ) : (
-                climbers.slice(0, 5).map((c, i) => (
-                  <Stack key={c?.userId || i} direction="row" alignItems="center" spacing={1.5} sx={{ px: 1.4, py: 1.3, borderRadius: 2, "&:hover": { bgcolor: T.bgAlt } }}>
-                    <Avatar src={imgUrl(c?.avatar)} sx={{ width: 36, height: 36, bgcolor: T.bgAlt, color: T.faint, fontSize: 14 }}>
-                      {firstText(c?.nickname, "?").charAt(0).toUpperCase()}
-                    </Avatar>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Typography sx={{ fontFamily: FONT, fontWeight: 700, fontSize: 14.5, color: T.ink }} noWrap>
-                        {firstText(c?.nickname, "VĐV")}
-                      </Typography>
-                      <Typography sx={{ fontFamily: FONT, fontSize: 12, color: T.faint }} noWrap>
-                        {c?.matches || 0} trận · {firstText(c?.province, "—")}
-                      </Typography>
-                    </Box>
-                    <Chip
-                      size="small"
-                      icon={<TrendingUpIcon sx={{ fontSize: 15, color: `${T.teal} !important` }} />}
-                      label={`+${Number(c?.delta || 0).toFixed(3)}`}
-                      sx={{ bgcolor: "rgba(16,185,129,0.12)", color: T.teal, fontWeight: 800, fontFamily: FONT, fontSize: 12.5, height: 26 }}
-                    />
-                  </Stack>
-                ))
-              )}
-            </Box>
-          </Reveal>
-        </Box>
-      </Container>
-    </Box>
+    <Band>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 20, flexWrap: "wrap" }}>
+        <div style={{ maxWidth: 620 }}>
+          <h2 style={bigHeadStyle}>Bảng xếp hạng toàn quốc</h2>
+          <div style={{ marginTop: 16 }}><Text type="large" color="secondary">Điểm trình chuẩn hoá, cập nhật sau mỗi trận. Ai thắng ai — rõ ràng, không cảm tính.</Text></div>
+        </div>
+        <ExploreLink href="/pickle-ball/rankings" label="Xem đầy đủ" />
+      </div>
+      <div style={{ height: 32 }} />
+      <div style={surfPanel}>
+        <div style={{ display: "grid", gridTemplateColumns: GRID, height: 46, borderBottom: "1px solid var(--color-border)", background: "color-mix(in srgb, var(--color-text-primary) 4%, transparent)" }}>
+          {["#", "Vận động viên", "Tỉnh / Thành", "Điểm trình", "Tuần"].map((h, i) => (
+            <div key={h} style={{ ...cell, justifyContent: i >= 3 ? "flex-end" : "flex-start" }}><Text type="supporting" color="secondary" weight="semibold">{h}</Text></div>
+          ))}
+        </div>
+        {ranksLoading && !top.length
+          ? [0, 1, 2, 3, 4, 5].map((i) => <div key={i} style={{ height: 60, borderTop: i ? "1px solid var(--color-border)" : "none" }} />)
+          : top.map((r, i) => {
+              const uid = String(firstText(r?.user?._id, r?.user, r?._id));
+              const delta = cmap[uid];
+              return (
+                <div key={uid || i} className="pk-trow" style={{ display: "grid", gridTemplateColumns: GRID, height: 62, borderTop: i ? "1px solid var(--color-border)" : "none", transition: "background .15s" }}>
+                  <div style={{ ...cell }}><span style={{ fontWeight: 800, fontSize: 15, color: i < 3 ? medal[i] : "var(--color-text-secondary)" }}>{i + 1}</span></div>
+                  <div style={{ ...cell, gap: 12 }}>
+                    <Avatar size="small" src={imgUrl(firstText(r?.avatar, r?.user?.avatar))} name={rankName(r)} />
+                    <Text type="body" weight="semibold">{rankName(r)}</Text>
+                  </div>
+                  <div style={{ ...cell }}><Text type="supporting" color="secondary">{firstText(r?.province, r?.user?.province, "—")}</Text></div>
+                  <div style={{ ...cell, justifyContent: "flex-end" }}><Text type="body" weight="bold">{rankScore(r)}</Text></div>
+                  <div style={{ ...cell, justifyContent: "flex-end" }}>
+                    {delta ? <Badge variant="success" label={`+${Number(delta).toFixed(2)}`} /> : <Text type="supporting" color="tertiary">—</Text>}
+                  </div>
+                </div>
+              );
+            })}
+      </div>
+    </Band>
   );
 }
 
-/* ------------------------------ CLUBS ---------------------------- */
-function Clubs({ clubs }) {
-  const list = asArray(clubs).slice(0, 6);
-  if (!list.length) return null;
-  return (
-    <Container maxWidth="lg" sx={{ py: { xs: 6, md: 10 } }}>
-      <Reveal>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-end" sx={{ mb: 4 }}>
-          <Box>
-            <Typography sx={{ ...kicker, mb: 1 }}>Cộng đồng</Typography>
-            <Typography sx={h2Sx}>Câu lạc bộ nổi bật</Typography>
-          </Box>
-          <Button component={Link} to="/clubs" endIcon={<ArrowOutwardIcon sx={{ fontSize: 16 }} />} sx={{ ...pillBtnSx("ghost"), py: 0.7 }}>
-            Tất cả
-          </Button>
-        </Stack>
-      </Reveal>
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(3,1fr)", md: "repeat(6,1fr)" }, gap: 2 }}>
-        {list.map((c, i) => (
-          <Reveal key={c?.id || c?._id || i} delay={(i % 6) * 50}>
-            <Box
-              component={Link}
-              to={`/clubs/${c?.slug || c?.id || c?._id}`}
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                gap: 1,
-                p: 2,
-                borderRadius: 3,
-                border: `1px solid ${T.line}`,
-                bgcolor: T.bg,
-                textDecoration: "none",
-                textAlign: "center",
-                transition: "transform .25s, border-color .25s",
-                "&:hover": { transform: "translateY(-3px)", borderColor: T.lineStrong },
-              }}
-            >
-              <Avatar src={imgUrl(c?.logoUrl)} sx={{ width: 54, height: 54, bgcolor: T.bgAlt, color: T.faint }}>
-                {firstText(c?.name, "?").charAt(0).toUpperCase()}
-              </Avatar>
-              <Typography sx={{ fontFamily: FONT, fontWeight: 700, fontSize: 13.5, color: T.ink, lineHeight: 1.25 }} noWrap>
-                {firstText(c?.name, "CLB")}
-              </Typography>
-              <Typography sx={{ fontFamily: FONT, fontSize: 11.5, color: T.faint }} noWrap>
-                {Number(c?.memberCount || 0)} thành viên
-              </Typography>
-            </Box>
-          </Reveal>
-        ))}
-      </Box>
-    </Container>
-  );
-}
-
-/* ------------------------------ CTA ------------------------------ */
-function CtaBand() {
-  return (
-    <Container maxWidth="lg" sx={{ pb: { xs: 7, md: 11 } }}>
-      <Reveal>
-        <Box
-          sx={{
-            position: "relative",
-            overflow: "hidden",
-            borderRadius: 5,
-            px: { xs: 4, md: 9 },
-            py: { xs: 6, md: 9 },
-            textAlign: "center",
-            background: `linear-gradient(135deg, ${T.ink}, #1B1E2B)`,
-          }}
-        >
-          <Box
-            aria-hidden
-            sx={{
-              position: "absolute",
-              inset: 0,
-              background: `radial-gradient(50% 80% at 20% 0%, rgba(16,185,129,0.25), transparent 60%), radial-gradient(50% 80% at 90% 100%, rgba(99,102,241,0.28), transparent 60%)`,
-            }}
-          />
-          <Box sx={{ position: "relative" }}>
-            <Typography sx={{ fontFamily: FONT, fontWeight: 800, letterSpacing: "-0.03em", color: "#fff", fontSize: "clamp(28px, 4.6vw, 52px)", lineHeight: 1.05, mb: 2 }}>
-              Sẵn sàng tổ chức giải của bạn?
-            </Typography>
-            <Typography sx={{ fontFamily: FONT, fontSize: 18, color: "rgba(255,255,255,0.75)", maxWidth: 560, mx: "auto", mb: 4 }}>
-              Tạo giải miễn phí, mời vận động viên và lên sóng chỉ trong hôm nay.
-            </Typography>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} justifyContent="center">
-              <Button component={Link} to="/register" endIcon={<ArrowOutwardIcon />} sx={{ borderRadius: 999, px: 3.4, py: 1.35, fontFamily: FONT, fontWeight: 700, fontSize: 16, textTransform: "none", bgcolor: "#fff", color: T.ink, "&:hover": { bgcolor: "#F0F0F0" } }}>
-                Tạo giải miễn phí
-              </Button>
-              <Button component={Link} to="/pickle-ball/tournaments" sx={{ borderRadius: 999, px: 3.4, py: 1.35, fontFamily: FONT, fontWeight: 700, fontSize: 16, textTransform: "none", color: "#fff", border: "1px solid rgba(255,255,255,0.28)", "&:hover": { bgcolor: "rgba(255,255,255,0.08)" } }}>
-                Xem giải đang mở
-              </Button>
-            </Stack>
-          </Box>
-        </Box>
-      </Reveal>
-    </Container>
-  );
-}
-
-/* ---------------------------- FOOTER ----------------------------- */
-function Footer() {
+function ValueAndCTA() {
   const cols = [
-    { h: "Sản phẩm", links: [["Giải đấu", "/pickle-ball/tournaments"], ["Bảng xếp hạng", "/pickle-ball/rankings"], ["Trực tiếp", "/live"], ["Câu lạc bộ", "/clubs"]] },
-    { h: "Tài khoản", links: [["Đăng nhập", "/login"], ["Đăng ký", "/register"], ["Hồ sơ", "/profile"]] },
-    { h: "Hỗ trợ", links: [["Liên hệ", "/contact"], ["Trạng thái", "/status"], ["Chính sách", "/privacy-and-policy"]] },
+    [Zap, "Tổ chức trong vài phút", "Bốc thăm, tạo sơ đồ và xếp lịch tự động — không cần bảng tính hay giấy bút.", "/pickle-ball/tournaments", "Tạo giải"],
+    [ShieldCheck, "Minh bạch tuyệt đối", "Điểm trình cộng/trừ rõ ràng theo từng vòng, ai cũng kiểm chứng được.", "/pickle-ball/rankings", "Cách tính điểm"],
+    [Radar, "Sẵn sàng lên sóng", "Live/record ngay trên điện thoại với overlay chuyên nghiệp.", "/live", "Xem trực tiếp"],
   ];
   return (
-    <Box sx={{ borderTop: `1px solid ${T.line}`, bgcolor: T.bg }}>
-      <Container maxWidth="lg" sx={{ py: { xs: 6, md: 8 } }}>
-        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr 1fr", md: "2fr 1fr 1fr 1fr" }, gap: 4 }}>
-          <Box>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-              <Box sx={{ width: 28, height: 28, borderRadius: "8px", background: `linear-gradient(135deg, ${T.teal}, ${T.indigo})`, display: "grid", placeItems: "center", color: "#fff" }}>
-                <SportsTennisIcon sx={{ fontSize: 17 }} />
-              </Box>
-              <Typography sx={{ fontFamily: FONT, fontWeight: 800, fontSize: 18, color: T.ink }}>PickleTour</Typography>
-            </Stack>
-            <Typography sx={{ fontFamily: FONT, fontSize: 14, color: T.sub, maxWidth: 280, lineHeight: 1.6 }}>
-              Nền tảng tổ chức & phát sóng giải đấu pickleball cho cộng đồng Việt Nam.
-            </Typography>
-          </Box>
-          {cols.map((col) => (
-            <Box key={col.h}>
-              <Typography sx={{ fontFamily: FONT, fontWeight: 700, fontSize: 14, color: T.ink, mb: 1.5 }}>{col.h}</Typography>
-              <Stack spacing={1}>
-                {col.links.map(([label, to]) => (
-                  <Typography key={to} component={Link} to={to} sx={{ fontFamily: FONT, fontSize: 14, color: T.sub, textDecoration: "none", "&:hover": { color: T.ink } }}>
-                    {label}
-                  </Typography>
-                ))}
-              </Stack>
-            </Box>
+    <>
+      <Band>
+        <div className="pk-3col" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 28 }}>
+          {cols.map(([IconComp, title, body, href, link]) => (
+            <div key={title} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <span style={{ width: 44, height: 44, borderRadius: 12, background: "color-mix(in srgb, var(--color-accent) 16%, transparent)", color: "var(--color-text-accent)", display: "grid", placeItems: "center", transition: "all .6s" }}><IconComp size={22} /></span>
+              <Text type="large" weight="bold">{title}</Text>
+              <Text type="body" color="secondary">{body}</Text>
+              <div style={{ marginTop: 2 }}><ExploreLink href={href} label={link} /></div>
+            </div>
           ))}
-        </Box>
-        <Typography sx={{ fontFamily: FONT, fontSize: 13, color: T.faint, mt: 5 }}>
-          © {new Date().getFullYear()} PickleTour · Bản thử nghiệm giao diện (ui=v2)
-        </Typography>
-      </Container>
-    </Box>
+        </div>
+      </Band>
+
+      {/* CTA cuối: KHÔNG đóng hộp — chữ khổng lồ giữa nền trang, một nguồn sáng duy nhất (sạch kiểu Astryx) */}
+      <div style={{ borderTop: "1px solid var(--color-border)" }}>
+        <Container>
+          <div style={{ position: "relative", padding: "150px 0 160px", textAlign: "center" }}>
+            <div
+              aria-hidden
+              style={{
+                position: "absolute",
+                inset: 0,
+                pointerEvents: "none",
+                background: "radial-gradient(46% 58% at 50% 40%, color-mix(in srgb, var(--color-brand, #3D87FF) 15%, transparent), transparent 72%)",
+              }}
+            />
+            <div style={{ position: "relative" }}>
+              <Reveal>
+                <div style={{ display: "flex", justifyContent: "center" }}><PickleMark size={46} /></div>
+                <h2 style={{ ...bigHeadStyle, fontSize: "clamp(38px, 6vw, 76px)", marginTop: 26 }}>
+                  Sẵn sàng tổ chức{" "}
+                  <span style={{ color: "var(--color-brand, #3D87FF)" }}>giải của bạn?</span>
+                </h2>
+                <div style={{ maxWidth: 540, margin: "20px auto 0" }}>
+                  <Text type="large" color="secondary">Tạo giải miễn phí, mời vận động viên và lên sóng ngay hôm nay.</Text>
+                </div>
+                <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 38, flexWrap: "wrap" }}>
+                  <WhitePill label="Tạo giải miễn phí" href="/register" size="lg" />
+                  <GrayPill label="Xem giải đang mở" href="/pickle-ball/tournaments" size="lg" />
+                </div>
+                <div style={{ marginTop: 20 }}>
+                  <Text type="supporting" color="tertiary">Miễn phí tạo giải · Không cần thẻ · Chấm điểm realtime</Text>
+                </div>
+              </Reveal>
+            </div>
+          </div>
+        </Container>
+      </div>
+    </>
   );
 }
 
-/* ============================== PAGE ============================== */
+function Footer() {
+  const cols = [
+    ["Sản phẩm", [["Giải đấu", "/pickle-ball/tournaments"], ["Bảng xếp hạng", "/pickle-ball/rankings"], ["Trực tiếp", "/live"], ["Câu lạc bộ", "/clubs"]]],
+    ["Tài khoản", [["Đăng nhập", "/login"], ["Đăng ký", "/register"], ["Hồ sơ", "/profile"]]],
+    ["Hỗ trợ", [["Liên hệ", "/contact"], ["Trạng thái", "/status"], ["Tin tức", "/blog"]]],
+    ["Pháp lý", [["Chính sách", "/privacy-and-policy"], ["Điều khoản", "/terms"], ["Cookies", "/cookies"]]],
+  ];
+  return (
+    <div style={{ borderTop: "1px solid var(--color-border)", background: "var(--color-background-surface)" }}>
+      <Container>
+        <div style={{ padding: "64px 0 40px" }}>
+          <div className="pk-foot" style={{ display: "grid", gridTemplateColumns: "1.6fr repeat(4, 1fr)", gap: 40 }}>
+            <div style={{ maxWidth: 280 }}>
+              <A href="/" aria-label="PickleTour" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <PickleMark size={30} />
+                <span style={{ display: "inline-block", width: 120, color: "var(--color-brand, #3D87FF)" }}><PickleWordmark id="ft" /></span>
+              </A>
+              <div style={{ marginTop: 16 }}><Text type="supporting" color="secondary">Nền tảng tổ chức, chấm điểm & phát sóng giải đấu pickleball cho cộng đồng Việt Nam.</Text></div>
+            </div>
+            {cols.map(([h, links]) => (
+              <div key={h} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <Text type="supporting" weight="semibold">{h}</Text>
+                {links.map(([label, href]) => (
+                  <A key={href} href={href} style={{ textDecoration: "none" }}><Text type="supporting" color="secondary">{label}</Text></A>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div style={{ height: 40 }} />
+          <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 24, display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <Text type="supporting" color="tertiary">© {new Date().getFullYear()} PickleTour · Bản thử nghiệm giao diện (ui=v2)</Text>
+            <Text type="supporting" color="tertiary">Dựng bằng React · Astryx</Text>
+          </div>
+        </div>
+      </Container>
+    </div>
+  );
+}
+
+/* ================================= PAGE ================================= */
 export default function HomeScreenAstryx() {
   const { data: summary, isLoading: summaryLoading } = useGetHomeSummaryQuery({ clubsLimit: 6 });
   const { data: pulse } = useGetHomePulseQuery();
@@ -1063,30 +1166,26 @@ export default function HomeScreenAstryx() {
   const { data: liveFeed, isLoading: liveLoading } = useGetLiveFeedQuery({ limit: 6, sort: "smart" });
 
   return (
-    <Box sx={{ bgcolor: T.bg, minHeight: "100vh", fontFamily: FONT }}>
+    <>
       <SEOHead
         title="PickleTour — Nền tảng giải đấu pickleball chuyên nghiệp"
         description="Tổ chức, chấm điểm trực tiếp và phát sóng giải đấu pickleball. Bảng xếp hạng và điểm trình chuẩn hoá."
       />
-      {/* keyframes cục bộ */}
-      <style>{`
-        @keyframes pkPulse {
-          0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.55); }
-          70% { box-shadow: 0 0 0 8px rgba(239,68,68,0); }
-          100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
-        }
-      `}</style>
-
-      <Nav />
-      <Hero pulse={pulse} />
-      <StatBand stats={summary?.stats} loading={summaryLoading} />
-      <LiveSection items={asArray(liveFeed)} loading={liveLoading} />
-      <TournamentShowcase items={tournaments} loading={tourLoading} />
-      <Features />
-      <Leaderboard ranks={ranks} ranksLoading={ranksLoading} climbers={pulse?.weekClimbers} />
-      <Clubs clubs={summary?.clubs} />
-      <CtaBand />
-      <Footer />
-    </Box>
+      <ShadowFrame style={{ minHeight: "100vh" }}>
+        <Theme theme={neutralTheme}>
+          <div style={{ minHeight: "100vh", background: "var(--color-background-body)" }}>
+            <Nav />
+            <Hero pulse={pulse} />
+            <ScoringShowcase />
+            <RatingBand stats={summary?.stats} climbers={pulse?.weekClimbers} />
+            <RankTable ranks={ranks} ranksLoading={ranksLoading} climbers={pulse?.weekClimbers} />
+            <TournamentBand items={tournaments} loading={tourLoading} />
+            <SocialProof stats={summary?.stats} />
+            <ValueAndCTA />
+            <Footer />
+          </div>
+        </Theme>
+      </ShadowFrame>
+    </>
   );
 }
