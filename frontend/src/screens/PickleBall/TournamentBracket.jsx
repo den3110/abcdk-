@@ -3211,7 +3211,34 @@ function isRenderableByeAdvanceSourceSeed(seed) {
   });
 }
 
-function makeSyntheticByeAdvanceSeed(sourceSeed, round, order, sourceSide) {
+function inferSyntheticByeAdvanceSeedType(seeds, index) {
+  if (!Array.isArray(seeds)) return "stageMatchWinner";
+  const orderedSeeds = seeds
+    .map((seed, seedIndex) => ({ seed, seedIndex }))
+    .sort(
+      (a, b) =>
+        Math.abs(a.seedIndex - index) - Math.abs(b.seedIndex - index) ||
+        a.seedIndex - b.seedIndex,
+    );
+
+  for (const { seed } of orderedSeeds) {
+    const match = seed?.__match;
+    const refs = [match?.seedA, match?.seedB];
+    for (const refSeed of refs) {
+      const type = String(refSeed?.type || "");
+      if (type === "stageMatchLoser" || type === "matchLoser") {
+        return "stageMatchLoser";
+      }
+      if (type === "stageMatchWinner" || type === "matchWinner") {
+        return "stageMatchWinner";
+      }
+    }
+  }
+
+  return "stageMatchWinner";
+}
+
+function makeSyntheticByeAdvanceSeed(sourceSeed, round, order, sourceSide, seedType) {
   const sourceMatch = sourceSeed?.__match || null;
   const sourceRound = Number(sourceMatch?.round ?? sourceSeed?.__round ?? round - 1);
   const sourceOrder = Number(
@@ -3237,10 +3264,12 @@ function makeSyntheticByeAdvanceSeed(sourceSeed, round, order, sourceSide) {
   }
   if (sourceMatch?._id) ref.matchId = sourceMatch._id;
 
+  const resolvedSeedType = seedType === "stageMatchLoser" ? "stageMatchLoser" : "stageMatchWinner";
+  const refPrefix = resolvedSeedType === "stageMatchLoser" ? "L" : "W";
   const sourceSeedRef = {
-    type: "stageMatchWinner",
+    type: resolvedSeedType,
     ref,
-    label: `W-V${sourceRound}-T${sourceOrder + 1}`,
+    label: `${refPrefix}-V${sourceRound}-T${sourceOrder + 1}`,
   };
   const byeSeed = { type: "bye", label: "BYE" };
   const id = `synthetic-bye-${round}-${order}-${sourceRound}-${sourceOrder}`;
@@ -3292,6 +3321,7 @@ function fillSyntheticByeAdvanceSeeds(previousSeeds, seeds, round) {
       round,
       index,
       hasSourceA ? "A" : "B",
+      inferSyntheticByeAdvanceSeedType(seeds, index),
     );
     if (synthetic) seeds[index] = synthetic;
   });
