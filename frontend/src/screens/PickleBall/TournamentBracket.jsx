@@ -5848,10 +5848,23 @@ export default function TournamentBracket() {
     const byStageRoundOrder = new Map();
     const byDisplayCode = new Map();
 
+    // match.bracket nhiều khi chỉ là ID (chưa populate) → Number(bracket.stage) = NaN làm
+    // byStageRoundOrder RỖNG. Khi đó seed liên-bracket ({stageIndex, round, order}) không
+    // tra được theo stage, rơi xuống tra theo bracket của TRẬN CHỦ và dính nhầm trận cùng
+    // round/order ở nhánh khác — gốc bug feeder sơ loại "W-V2-T6" hiển thị "W-V4-T6".
+    // Bù stage từ danh sách brackets theo id (giống MatchContent đang làm).
+    const bracketStageById = new Map();
+    for (const bracket of brackets || []) {
+      const bid = String(bracket?._id || "");
+      if (bid) bracketStageById.set(bid, Number(bracket?.stage));
+    }
+
     for (const m of matchesMerged || []) {
       const id = String(m?._id || "");
       const bracketId = String(m?.bracket?._id || m?.bracket || "");
-      const stageNum = Number(m?.bracket?.stage);
+      const stageNum = Number(
+        m?.bracket?.stage ?? bracketStageById.get(bracketId),
+      );
       const roundNum = Number(m?.round);
       const orderNum = Number(m?.order);
 
@@ -5883,8 +5896,8 @@ export default function TournamentBracket() {
       }
     }
 
-    return { byId, byBracketRoundOrder, byStageRoundOrder, byDisplayCode };
-  }, [matchesMerged]);
+    return { byId, byBracketRoundOrder, byStageRoundOrder, byDisplayCode, bracketStageById };
+  }, [matchesMerged, brackets]);
   const baseRoundStartForCurrent = useMemo(
     () => computeBaseRoundStart(brackets, byBracket, current),
     [brackets, byBracket, current],
@@ -6043,10 +6056,27 @@ export default function TournamentBracket() {
         if (stageHit) return stageHit;
       }
 
-      const bracketId = String(m?.bracket?._id || m?.bracket || "");
-      if (bracketId) {
+      // Seed trỏ sang stage KHÁC stage của trận chủ (feeder liên bracket) mà các bước
+      // trên không tìm thấy — trận nguồn có thể KHÔNG TỒN TẠI (blueprint bị rút gọn,
+      // vd sơ loại chỉ sinh V2-T1..T5 nhưng seed vẫn trỏ V2-T6). Lúc này KHÔNG được
+      // rơi xuống tra theo bracket của TRẬN CHỦ: sẽ vớ nhầm trận cùng round/order của
+      // chính nhánh này (gốc bug "W-V2-T6" hiển thị "W-V4-T6"). Trả null để
+      // resolveSeedReferenceLabel dựng nhãn từ ref theo stage NGUỒN → ra đúng W-V2-T6.
+      const ownerBracketId = String(m?.bracket?._id || m?.bracket || "");
+      const ownerStage = Number(
+        m?.bracket?.stage ?? matchRefIndex.bracketStageById?.get(ownerBracketId),
+      );
+      if (
+        Number.isFinite(stageNum) &&
+        Number.isFinite(ownerStage) &&
+        stageNum !== ownerStage
+      ) {
+        return null;
+      }
+
+      if (ownerBracketId) {
         return (
-          matchRefIndex.byBracketRoundOrder.get(`${bracketId}:${roundNum}:${orderNum}`) || null
+          matchRefIndex.byBracketRoundOrder.get(`${ownerBracketId}:${roundNum}:${orderNum}`) || null
         );
       }
 

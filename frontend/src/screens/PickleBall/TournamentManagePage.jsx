@@ -1695,6 +1695,19 @@ export default function TournamentManagePage() {
         if (hit) return hit;
       }
       const bid = String(m?.bracket?._id || m?.bracket || "");
+      // Seed trỏ sang stage KHÁC stage của trận chủ mà không tìm thấy trận nguồn —
+      // trận đó có thể KHÔNG TỒN TẠI (blueprint sơ loại bị rút gọn, vd chỉ sinh
+      // V2-T1..T5 nhưng seed vẫn trỏ V2-T6). KHÔNG rơi xuống tra theo bracket của
+      // TRẬN CHỦ (vớ nhầm trận cùng round/order của chính nhánh này → "W-V2-T6"
+      // hiển thị "W-V4-T6"); trả null để nhãn dựng từ seed (getMatchSideDisplayName).
+      const ownerStage = Number(m?.bracket?.stage ?? bracketById.get(bid)?.stage);
+      if (
+        Number.isFinite(stage) &&
+        Number.isFinite(ownerStage) &&
+        stage !== ownerStage
+      ) {
+        return null;
+      }
       return bid ? pickIndexedSource(byBRO.get(`${bid}:${r}:${o}`), m) : null;
     };
 
