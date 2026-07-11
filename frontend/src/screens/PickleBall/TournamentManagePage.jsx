@@ -1,8 +1,5 @@
 // src/pages/admin/parts/TournamentManagePage.jsx
 /* eslint-disable react/prop-types, no-unused-vars, no-empty */
-import pdfMakeLib from "pdfmake/build/pdfmake";
-import * as pdfFontsLib from "pdfmake/build/vfs_fonts";
-import * as docxLib from "docx";
 import React, {
   useMemo,
   useState,
@@ -2926,8 +2923,10 @@ export default function TournamentManagePage() {
   const handleExportPDF = async () => {
     try {
       setExporting(true);
-      const pdfMake = pdfMakeLib;
-      const pdfFonts = pdfFontsLib;
+      // pdfmake (~2MB) tách chunk on-demand — nằm trong try/catch nên nếu chunk 404
+      // (tab cũ sau deploy) chỉ báo lỗi xuất PDF, không sập trang.
+      const { default: pdfMake } = await import("pdfmake/build/pdfmake");
+      const pdfFonts = await import("pdfmake/build/vfs_fonts");
       // pdfmake v0.2.x exports font files directly, v0.1.x uses pdfMake.vfs
       pdfMake.vfs = pdfFonts.pdfMake?.vfs || pdfFonts.default || pdfFonts;
 
@@ -3022,7 +3021,7 @@ export default function TournamentManagePage() {
   const handleExportWord = async () => {
     try {
       setExporting(true);
-      const docx = docxLib;
+      const docx = await import("docx");
       const {
         Document,
         Packer,

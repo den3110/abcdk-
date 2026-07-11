@@ -1,7 +1,19 @@
-import Hls from "hls.js";
+let hlsLoaderPromise = null;
 
-// Static import (hết dynamic chunk — tránh "Failed to fetch dynamically imported module"
-// khi deploy đổi hash). Giữ nguyên API dạng Promise cho các nơi đang gọi.
+// hls.js (~500KB) chỉ cần khi phát HLS → tách chunk on-demand để bundle chính nhẹ,
+// build không OOM. Gọi trong player có .catch nên nếu chunk 404 (tab cũ sau deploy)
+// thì chỉ hỏng phát video đó, KHÔNG sập trang.
 export default function loadHlsPlayer() {
-  return Promise.resolve(Hls);
+  if (hlsLoaderPromise) {
+    return hlsLoaderPromise;
+  }
+
+  hlsLoaderPromise = import("hls.js")
+    .then((module) => module?.default || module?.Hls || null)
+    .catch((error) => {
+      hlsLoaderPromise = null;
+      throw error;
+    });
+
+  return hlsLoaderPromise;
 }
