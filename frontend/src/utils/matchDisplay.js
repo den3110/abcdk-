@@ -288,6 +288,15 @@ export const getSeedDisplayName = (seed, ownerMatch = null) => {
   const prefix = referencePrefixFromSeed(seed);
   if (prefix) {
     const directParts = extractReferenceCodeParts(direct);
+    // Seed LIÊN-STAGE (stageMatchWinner/Loser, hoặc ref.stageIndex): ref.round ĐÃ là số vòng
+    // TOÀN CỤC của stage nguồn → dùng THẲNG. resolveDependentDisplayRound là heuristic cho
+    // "trận trước cùng bracket" (fallback +2) nên đội V2 thành V4 khi match thiếu displayCode
+    // (vd popup Bắt trận lấy match qua endpoint live không kèm code) → gốc bug W-V2-T6→W-V4-T6.
+    const isStageRef =
+      type === "stagematchwinner" ||
+      type === "stagematchloser" ||
+      ref?.stageIndex != null ||
+      ref?.stage != null;
     const fallbackRound =
       directParts?.round ||
       positiveInt(
@@ -298,9 +307,11 @@ export const getSeedDisplayName = (seed, ownerMatch = null) => {
           ref?.stage ??
           seed?.stage
       );
-    const round = ownerMatch
-      ? resolveDependentDisplayRound(ownerMatch, fallbackRound)
-      : fallbackRound;
+    const round =
+      directParts?.round ||
+      (isStageRef || !ownerMatch
+        ? fallbackRound
+        : resolveDependentDisplayRound(ownerMatch, fallbackRound));
     const order =
       directParts?.order ||
       toDisplayMatchOrder(ref?.tIndex ?? seed?.tIndex, ref?.order ?? seed?.order);
@@ -341,9 +352,14 @@ export const getPreviousMatchDisplayCode = (previous, ownerMatch = null) => {
         previous?.rrRound ??
         previous?.ref?.round
     );
-  const round = ownerMatch
-    ? resolveDependentDisplayRound(ownerMatch, fallbackRound)
-    : fallbackRound;
+  // Nếu previous ĐÃ có mã hiển thị rõ (code/globalCode/displayCode…) thì directParts.round
+  // CHÍNH là số vòng hiển thị của nó — dùng thẳng, không suy diễn (+2) vốn đội số vòng khi
+  // feeder trỏ liên-stage. Chỉ khi không parse được mã mới rơi về heuristic.
+  const round =
+    directParts?.round ||
+    (ownerMatch
+      ? resolveDependentDisplayRound(ownerMatch, fallbackRound)
+      : fallbackRound);
   const order =
     directParts?.order ||
     toDisplayMatchOrder(

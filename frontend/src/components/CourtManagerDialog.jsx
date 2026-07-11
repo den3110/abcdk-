@@ -33,9 +33,6 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import StadiumIcon from "@mui/icons-material/Stadium";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import PersonSearchIcon from "@mui/icons-material/PersonSearch";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
-import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import { toast } from "react-toastify";
 import { useSocket } from "../context/SocketContext";
 import { getPairDisplayName } from "../utils/matchDisplay";
@@ -496,27 +493,6 @@ export default function CourtManagerDialog({
 
   // Realtime state
   const [courts, setCourts] = useState([]);
-  // Hiện/ẩn ID chi tiết của từng sân + copy nhanh (phục vụ cấu hình stream/overlay theo courtId)
-  const [visibleIdCourtId, setVisibleIdCourtId] = useState(null);
-  const copyCourtId = async (cid) => {
-    try {
-      await navigator.clipboard.writeText(cid);
-      toast.success(`Đã copy ID sân: ${cid}`);
-    } catch {
-      // clipboard API bị chặn (http/iframe): fallback textarea
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = cid;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-        toast.success(`Đã copy ID sân: ${cid}`);
-      } catch {
-        toast.error("Không copy được ID sân");
-      }
-    }
-  };
   const [socketMatches, setSocketMatches] = useState([]);
   const [queue, setQueue] = useState([]);
 
@@ -1105,44 +1081,6 @@ export default function CourtManagerDialog({
                       }
                     />
                     <Typography variant="body2">{viCourtStatus(cs)}</Typography>
-
-                    <Tooltip
-                      title={visibleIdCourtId === cid ? "Ẩn ID sân" : "Hiện ID sân"}
-                    >
-                      <IconButton
-                        size="small"
-                        onClick={() =>
-                          setVisibleIdCourtId(
-                            visibleIdCourtId === cid ? null : cid,
-                          )
-                        }
-                      >
-                        {visibleIdCourtId === cid ? (
-                          <VisibilityOffOutlinedIcon fontSize="inherit" />
-                        ) : (
-                          <VisibilityOutlinedIcon fontSize="inherit" />
-                        )}
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Copy ID sân">
-                      <IconButton size="small" onClick={() => copyCourtId(cid)}>
-                        <ContentCopyIcon fontSize="inherit" />
-                      </IconButton>
-                    </Tooltip>
-                    {visibleIdCourtId === cid && (
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        onClick={() => copyCourtId(cid)}
-                        label={cid}
-                        sx={{
-                          fontFamily: "monospace",
-                          fontSize: 11,
-                          cursor: "pointer",
-                          maxWidth: 280,
-                        }}
-                      />
-                    )}
 
                     {hasMatch && (
                       <Chip

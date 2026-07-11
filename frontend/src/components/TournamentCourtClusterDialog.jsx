@@ -25,6 +25,9 @@ import DragIndicatorIcon from "@mui/icons-material/DragIndicator";
 import CloseIcon from "@mui/icons-material/Close";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import VisibilityOutlinedIcon from "@mui/icons-material/VisibilityOutlined";
+import VisibilityOffOutlinedIcon from "@mui/icons-material/VisibilityOffOutlined";
 import PropTypes from "prop-types";
 import { toast } from "react-toastify";
 import {
@@ -602,6 +605,28 @@ function TournamentCourtClusterDialog({
   const [selectedAllowedId, setSelectedAllowedId] = useState("");
   const [stationDrafts, setStationDrafts] = useState({});
   const [viewerMatch, setViewerMatch] = useState(null);
+  // Hiện/copy ID SÂN (station._id, khác "Mã sân") — phục vụ cấu hình overlay/stream theo id.
+  const [visibleStationId, setVisibleStationId] = useState(null);
+  const copyStationId = useCallback(async (id) => {
+    const value = String(id || "");
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`Đã copy ID sân: ${value}`);
+    } catch {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        toast.success(`Đã copy ID sân: ${value}`);
+      } catch {
+        toast.error("Không copy được ID sân");
+      }
+    }
+  }, []);
   const [sharedTournamentsOpen, setSharedTournamentsOpen] = useState(false);
   const [queuePickerOpenByStation, setQueuePickerOpenByStation] = useState({});
   const [queueEditorOpenByStation, setQueueEditorOpenByStation] = useState({});
@@ -1656,6 +1681,53 @@ function TournamentCourtClusterDialog({
                                           : "Mã sân: —"
                                       }
                                     />
+                                    <Tooltip
+                                      title={
+                                        visibleStationId === stationId
+                                          ? "Ẩn ID sân"
+                                          : "Hiện ID sân"
+                                      }
+                                      arrow
+                                    >
+                                      <IconButton
+                                        size="small"
+                                        onClick={() =>
+                                          setVisibleStationId(
+                                            visibleStationId === stationId
+                                              ? null
+                                              : stationId,
+                                          )
+                                        }
+                                      >
+                                        {visibleStationId === stationId ? (
+                                          <VisibilityOffOutlinedIcon fontSize="inherit" />
+                                        ) : (
+                                          <VisibilityOutlinedIcon fontSize="inherit" />
+                                        )}
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="Copy ID sân" arrow>
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => copyStationId(stationId)}
+                                      >
+                                        <ContentCopyIcon fontSize="inherit" />
+                                      </IconButton>
+                                    </Tooltip>
+                                    {visibleStationId === stationId && (
+                                      <Chip
+                                        size="small"
+                                        variant="outlined"
+                                        onClick={() => copyStationId(stationId)}
+                                        label={stationId}
+                                        sx={{
+                                          fontFamily: "monospace",
+                                          fontSize: 11,
+                                          cursor: "pointer",
+                                          maxWidth: 260,
+                                        }}
+                                      />
+                                    )}
                                     <Tooltip
                                       title={
                                         assignmentMode === "queue"
