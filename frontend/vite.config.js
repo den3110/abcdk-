@@ -13,6 +13,9 @@ async function resolveSentryVitePlugin() {
 
 export default defineConfig(async ({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
+  // Dev proxy target: đặt VITE_DEV_PROXY_TARGET=https://pickletour.vn trong .env
+  // để dev UI ăn data server thật; bỏ trống thì về backend local như cũ.
+  const devProxyTarget = env.VITE_DEV_PROXY_TARGET || "http://localhost:5001";
   const sentryVitePlugin = await resolveSentryVitePlugin();
   const sentryAuthToken = env.SENTRY_AUTH_TOKEN || process.env.SENTRY_AUTH_TOKEN;
   const sentryOrg = env.SENTRY_ORG || process.env.SENTRY_ORG;
@@ -135,15 +138,17 @@ export default defineConfig(async ({ mode }) => {
       port: 3000,
       proxy: {
         "/api": {
-          target: "http://localhost:5001",
+          target: devProxyTarget,
           changeOrigin: true,
+          // cookie của pickletour.vn cần rewrite về localhost thì login mới dính
+          cookieDomainRewrite: "localhost",
         },
         "/uploads": {
-          target: "http://localhost:5001",
+          target: devProxyTarget,
           changeOrigin: true,
         },
         "/socket.io": {
-          target: "http://localhost:5001",
+          target: devProxyTarget,
           ws: true,
           changeOrigin: true,
         },

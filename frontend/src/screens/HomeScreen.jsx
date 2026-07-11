@@ -1,26 +1,22 @@
 import { lazy, Suspense } from "react";
-import { useSearchParams } from "react-router-dom";
 
 import Hero from "../components/Hero";
-import useFrontendUiVersion from "../hook/useFrontendUiVersion.js";
-import HomeScreenV2 from "./HomeScreenV2.jsx";
+import useAstryxUi from "../hook/useAstryxUi.js";
 
-// 🧪 Astryx (?ui=v2): lazy-load để CSS Astryx CHỈ tải khi bật thử nghiệm — v1 không đổi.
+// Trang chủ: Astryx chính là bản "v2" trong cài đặt hệ thống (frontendUi.version);
+// v1 (hoặc ?ui=v1) -> Hero cũ. HomeScreenV2 (bản modern trước Astryx) không còn
+// trong gate — giữ file lại phòng cần tham khảo. Override thử nghiệm: ?ui=v1|v2.
 const HomeScreenAstryx = lazy(() => import("./HomeScreenAstryx.jsx"));
 
 const HomeScreen = () => {
-  const { isModernVersion } = useFrontendUiVersion();
-  const [searchParams] = useSearchParams();
+  const astryx = useAstryxUi();
 
-  const uiParam = String(searchParams.get("ui") || "").trim().toLowerCase();
-  if (uiParam === "v2") {
-    return (
-      <Suspense fallback={null}>
-        <HomeScreenAstryx />
-      </Suspense>
-    );
-  }
+  if (!astryx) return <Hero />;
 
-  return isModernVersion ? <HomeScreenV2 /> : <Hero />;
+  return (
+    <Suspense fallback={null}>
+      <HomeScreenAstryx />
+    </Suspense>
+  );
 };
 export default HomeScreen;

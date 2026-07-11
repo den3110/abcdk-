@@ -27,6 +27,7 @@ import {
   subscribeCrossTabChannel,
 } from "./utils/crossTabChannel";
 import useFrontendUiVersion from "./hook/useFrontendUiVersion.js";
+import useAstryxUi from "./hook/useAstryxUi.js";
 
 import Clarity from "@microsoft/clarity";
 
@@ -265,7 +266,8 @@ const App = () => {
   const location = useLocation();
   const { isDark } = useThemeMode();
   const { open: commandPaletteOpen } = useCommandPalette();
-  const { isModernVersion, pikoraEnabled } = useFrontendUiVersion();
+  const { pikoraEnabled } = useFrontendUiVersion();
+  const astryxUiOn = useAstryxUi();
 
   // Define routes that should have a full-screen layout (no header/footer)
   const isAuthPage = [
@@ -283,25 +285,34 @@ const App = () => {
   const isTournamentBracketPage = /^\/tournament\/[^/]+\/bracket\/?$/.test(
     location.pathname,
   );
-  const isModernHomeRoute = isModernVersion && location.pathname === "/";
-  // 🧪 Trang chủ thử nghiệm Astryx: chỉ khi có ?ui=v2 (full-bleed, ẩn chrome global)
+  // Các route đã refactor sang Astryx (full-bleed, tự có SiteNav — ẩn chrome global).
+  // Bật/tắt theo cài đặt hệ thống frontendUi.version (Astryx = "v2") + override ?ui= — xem useAstryxUi.
+  const ASTRYX_ROUTES = [
+    "/",
+    "/pickle-ball/tournaments",
+    "/pickle-ball/rankings",
+    "/clubs",
+    "/contact",
+    "/profile",
+    "/my-tournaments",
+    "/support",
+  ];
+  const astryxPath = location.pathname.replace(/\/+$/, "") || "/";
   const isAstryxHomeRoute =
-    location.pathname === "/" &&
-    String(new URLSearchParams(location.search).get("ui") || "")
-      .trim()
-      .toLowerCase() === "v2";
+    (ASTRYX_ROUTES.includes(astryxPath) ||
+      /^\/tournament\/[^/]+$/.test(astryxPath) ||
+      /^\/support\/[^/]+$/.test(astryxPath)) &&
+    astryxUiOn;
   const isFullScreenLayout =
     isAuthPage ||
     isImmersiveLiveFeedPage ||
-    isModernHomeRoute ||
     isAstryxHomeRoute ||
     isOverlayStudioPage;
-  const hideMobileBottomNav = isModernHomeRoute || isAstryxHomeRoute;
+  const hideMobileBottomNav = isAstryxHomeRoute;
   const shouldShowPikora =
     pikoraEnabled &&
     !isAuthPage &&
     !isImmersiveLiveFeedPage &&
-    !isModernHomeRoute &&
     !isAstryxHomeRoute &&
     !isOverlayStudioPage;
 

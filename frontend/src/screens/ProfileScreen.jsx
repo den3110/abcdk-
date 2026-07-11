@@ -100,7 +100,7 @@ function makePlaceholderCccd(dark, text = "Không tải được ảnh") {
   return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="250"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${bg1}"/><stop offset="100%" stop-color="${bg2}"/></linearGradient></defs><rect width="400" height="250" rx="16" fill="url(%23g)"/><rect x="140" y="60" width="120" height="75" rx="10" fill="${card}" opacity="0.5"/><rect x="155" y="75" width="90" height="8" rx="4" fill="${line}" opacity="${lineOp1}"/><rect x="155" y="90" width="65" height="6" rx="3" fill="${line}" opacity="${lineOp2}"/><rect x="155" y="103" width="75" height="6" rx="3" fill="${line}" opacity="${lineOp2}"/><text x="50%" y="180" text-anchor="middle" fill="${txtC}" font-family="sans-serif" font-size="14" font-weight="500">${safeText}</text></svg>`)}`;
 }
 
-const PROVINCES = [
+export const PROVINCES = [
   "An Giang",
   "Bà Rịa-Vũng Tàu",
   "Bạc Liêu",

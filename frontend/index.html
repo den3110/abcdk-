@@ -104,6 +104,11 @@
         "inLanguage": "vi"
       }
     </script>
+    <!-- Nền tối khớp splash Astryx CHỈ khi React chưa mount (chống chớp trắng lúc boot).
+         #root có con là selector hết khớp -> body về nền mặc định, trang v1 không bị dải đen. -->
+    <style>
+      html:has(#root:empty), body:has(#root:empty) { background: #111112; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

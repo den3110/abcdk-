@@ -53,9 +53,9 @@ const CheckpointScreen = lazyRoute(() =>
   import("./screens/CheckpointScreen.jsx"),
 );
 const RegisterScreen = lazyRoute(() => import("./screens/RegisterScreen.jsx"));
-const ProfileScreen = lazyRoute(() => import("./screens/ProfileScreen.jsx"));
+const ProfileScreen = lazyRoute(() => import("./screens/ProfileGate.jsx"));
 const TournamentDashboard = lazyRoute(() =>
-  import("./screens/PickleBall/Tournament.jsx"),
+  import("./screens/TournamentsScreen.jsx"),
 );
 const TournamentRegistration = lazyRoute(() =>
   import("./screens/PickleBall/TournamentRegistration.jsx"),
@@ -67,12 +67,12 @@ const TournamentBracket = lazyRoute(() =>
   import("./screens/PickleBall/TournamentBracket.jsx"),
 );
 const RankingList = lazyRoute(() =>
-  import("./screens/PickleBall/RankingList.jsx"),
+  import("./screens/RankingsScreen.jsx"),
 );
 const LevelPointPage = lazyRoute(() =>
   import("./screens/PickleBall/LevelPoint.jsx"),
 );
-const ContactPage = lazyRoute(() => import("./screens/Contact.jsx"));
+const ContactPage = lazyRoute(() => import("./screens/ContactScreen.jsx"));
 const CookiesPage = lazyRoute(() => import("./screens/CookiesPage.jsx"));
 const PrivacyPage = lazyRoute(() => import("./screens/PrivacyPage.jsx"));
 const TermsPage = lazyRoute(() => import("./screens/TermsPage.jsx"));
@@ -108,15 +108,15 @@ const OverlayStudioPage = lazyRoute(() =>
   import("./screens/PickleBall/OverlayStudioPage.jsx"),
 );
 const TournamentOverviewPage = lazyRoute(() =>
-  import("./screens/PickleBall/TournamentOverviewPage.jsx"),
+  import("./screens/TournamentDetailScreen.jsx"),
 );
 const TournamentRefereePage = lazyRoute(() =>
   import("./screens/PickleBall/TournamentRefereePage.jsx"),
 );
 const MyTournamentsPage = lazyRoute(() =>
-  import("./screens/MyTournaments.jsx"),
+  import("./screens/MyTournamentsGate.jsx"),
 );
-const SupportCenterPage = lazyRoute(() => import("./screens/SupportCenter.jsx"));
+const SupportCenterPage = lazyRoute(() => import("./screens/SupportGate.jsx"));
 const ForgotPasswordScreen = lazyRoute(() =>
   import("./screens/ForgotPasswordScreen.jsx"),
 );
@@ -147,7 +147,7 @@ const PublicProfilePage = lazyRoute(() =>
   import("./screens/PublicProfilePage.jsx"),
 );
 const ClubsListPage = lazyRoute(() =>
-  import("./screens/clubs/ClubsListPage.jsx"),
+  import("./screens/ClubsScreen.jsx"),
 );
 const ClubDetailPage = lazyRoute(() =>
   import("./components/ClubDetailPage.jsx"),
@@ -176,7 +176,7 @@ const VenueRevenuePage = lazyRoute(() =>
 const LiveStudioPage = lazyRoute(() =>
   import("./screens/live/LiveStudioPage.jsx"),
 );
-const LiveFeedPage = lazyRoute(() => import("./screens/live/LiveFeedPage.jsx"));
+const LiveFeedPage = lazyRoute(() => import("./screens/LiveScreen.jsx"));
 const LiveCourtClustersPage = lazyRoute(() =>
   import("./screens/live/LiveCourtClustersPage.jsx"),
 );

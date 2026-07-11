@@ -9,7 +9,7 @@
 import "@fontsource-variable/figtree"; // font đẹp (chỉ tải ở v2; @font-face vô hại v1)
 
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useSelector } from "react-redux";
 
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
@@ -51,6 +51,9 @@ import SEOHead from "../components/SEOHead.jsx";
 import ShadowFrame from "./astryx/ShadowFrame.jsx";
 import PickleMark from "./astryx/PickleMark.jsx";
 import PickleWordmark from "./astryx/PickleWordmark.jsx";
+import SiteNav from "./astryx/SiteNav.jsx";
+import SiteFooter from "./astryx/SiteFooter.jsx";
+import { A, WhitePill, GrayPill } from "./astryx/ui.jsx";
 import {
   useGetHomeSummaryQuery,
   useGetHomePulseQuery,
@@ -67,7 +70,7 @@ const imgUrl = (u) => {
   return s.startsWith("/") ? s : `/${s}`;
 };
 const asArray = (d) =>
-  Array.isArray(d) ? d : d?.items || d?.list || d?.rows || d?.data || d?.matches || [];
+  Array.isArray(d) ? d : d?.docs || d?.items || d?.list || d?.rows || d?.data || d?.matches || [];
 const fmtInt = (n) => Number(n || 0).toLocaleString("vi-VN");
 const firstText = (...xs) =>
   xs.map((x) => (x == null ? "" : String(x).trim())).find(Boolean) || "";
@@ -96,13 +99,6 @@ const Region = ({ children, style }) => (
 
 const GRADIENT = "linear-gradient(92deg, #22D3EE 0%, #3B82F6 45%, #7C3AED 100%)";
 
-/* Anchor điều hướng SPA (react-router) — portal vào Shadow DOM vẫn giữ Router context.
-   Dùng thay <a href> để không reload cả trang. */
-const A = ({ href, children, ...rest }) => (
-  <Link to={href || "/"} {...rest}>
-    {children}
-  </Link>
-);
 /* wordmark nhỏ cho nav/footer — cùng chữ SVG blob với hero */
 const Wordmark = ({ width = 112, id = "ft" }) => (
   <span style={{ display: "inline-block", width, color: "var(--color-brand, #3D87FF)" }}>
@@ -117,86 +113,7 @@ const STATUS_META = {
 };
 
 /* ------------------------------- sections ------------------------------- */
-/* pill trắng kiểu "Get started" của Astryx (dark mode) */
-const WhitePill = ({ label, href, size = "md" }) => (
-  <A
-    href={href}
-    className="pk-pill"
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      height: size === "lg" ? 48 : 38,
-      padding: size === "lg" ? "0 26px" : "0 18px",
-      borderRadius: 999,
-      background: "#F2F3F5",
-      color: "#101114",
-      fontWeight: 600,
-      fontSize: size === "lg" ? 15.5 : 14,
-      textDecoration: "none",
-      whiteSpace: "nowrap",
-    }}
-  >
-    {label}
-  </A>
-);
-
-const GrayPill = ({ label, href, size = "md" }) => (
-  <A
-    href={href}
-    className="pk-pill"
-    style={{
-      display: "inline-flex",
-      alignItems: "center",
-      justifyContent: "center",
-      height: size === "lg" ? 48 : 38,
-      padding: size === "lg" ? "0 26px" : "0 18px",
-      borderRadius: 999,
-      background: "#2A2B2F",
-      color: "#E6E8EA",
-      border: "1px solid rgba(255,255,255,0.07)",
-      fontWeight: 600,
-      fontSize: size === "lg" ? 15.5 : 14,
-      textDecoration: "none",
-      whiteSpace: "nowrap",
-    }}
-  >
-    {label}
-  </A>
-);
-
-function Nav() {
-  const links = [
-    ["Giải đấu", "/pickle-ball/tournaments"],
-    ["Bảng xếp hạng", "/pickle-ball/rankings"],
-    ["Trực tiếp", "/live"],
-    ["Câu lạc bộ", "/clubs"],
-    ["Liên hệ", "/contact"],
-  ];
-  return (
-    <div style={{ position: "sticky", top: 0, zIndex: 20, background: "rgba(17,17,18,0.72)", backdropFilter: "saturate(160%) blur(12px)" }}>
-      <div style={{ maxWidth: 1280, margin: "0 auto", padding: "0 24px", height: 64, position: "relative", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <A href="/" aria-label="PickleTour" className="pk-brand" style={{ display: "flex", alignItems: "center" }}>
-          <PickleMark size={34} />
-        </A>
-        <nav
-          className="pk-navlinks"
-          style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", gap: 28 }}
-        >
-          {links.map(([label, href]) => (
-            <A key={href} href={href} style={{ color: "#D8DBDF", textDecoration: "none", fontSize: 14.5, fontWeight: 550 }}>
-              {label}
-            </A>
-          ))}
-        </nav>
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-          <A href="/login" style={{ color: "#C6CACF", textDecoration: "none", fontSize: 14.5, fontWeight: 550 }}>Đăng nhập</A>
-          <WhitePill label="Bắt đầu" href="/register" />
-        </div>
-      </div>
-    </div>
-  );
-}
+/* Header dùng chung: SiteNav (./astryx/SiteNav.jsx) — có trạng thái đăng nhập */
 
 /* ===== thẻ nổi quanh hero — bố cục theo trang chủ Astryx, nội dung PickleTour ===== */
 
@@ -593,6 +510,7 @@ const SLIDE_MS = 5000;
 
 function Hero({ pulse }) {
   const liveNow = Number(pulse?.liveNow || 0);
+  const isAuthed = Boolean(useSelector((s) => s.auth?.userInfo));
   const [slide, setSlide] = useState(0);
   useEffect(() => {
     // phụ thuộc `slide` để mỗi lần bấm dot là timer đếm lại từ đầu
@@ -687,7 +605,11 @@ function Hero({ pulse }) {
               </div>
             </div>
             <div className="pk-rise" style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 34, flexWrap: "wrap", animationDelay: ".3s" }}>
-              <WhitePill label="Bắt đầu ngay" href="/register" size="lg" />
+              {isAuthed ? (
+                <WhitePill label="Giải của tôi" href="/my-tournaments" size="lg" />
+              ) : (
+                <WhitePill label="Bắt đầu ngay" href="/register" size="lg" />
+              )}
               <GrayPill label="Khám phá giải đấu" href="/pickle-ball/tournaments" size="lg" />
             </div>
             <div className="pk-rise" style={{ marginTop: 22, color: "#8F959C", fontSize: 14.5, animationDelay: ".42s" }}>
@@ -1059,6 +981,7 @@ function RankTable({ ranks, ranksLoading, climbers }) {
 }
 
 function ValueAndCTA() {
+  const ctaAuthed = Boolean(useSelector((s) => s.auth?.userInfo));
   const cols = [
     [Zap, "Tổ chức trong vài phút", "Bốc thăm, tạo sơ đồ và xếp lịch tự động — không cần bảng tính hay giấy bút.", "/pickle-ball/tournaments", "Tạo giải"],
     [ShieldCheck, "Minh bạch tuyệt đối", "Điểm trình cộng/trừ rõ ràng theo từng vòng, ai cũng kiểm chứng được.", "/pickle-ball/rankings", "Cách tính điểm"],
@@ -1103,7 +1026,7 @@ function ValueAndCTA() {
                   <Text type="large" color="secondary">Tạo giải miễn phí, mời vận động viên và lên sóng ngay hôm nay.</Text>
                 </div>
                 <div style={{ display: "flex", gap: 12, justifyContent: "center", marginTop: 38, flexWrap: "wrap" }}>
-                  <WhitePill label="Tạo giải miễn phí" href="/register" size="lg" />
+                  <WhitePill label="Tạo giải miễn phí" href={ctaAuthed ? "/my-tournaments" : "/register"} size="lg" />
                   <GrayPill label="Xem giải đang mở" href="/pickle-ball/tournaments" size="lg" />
                 </div>
                 <div style={{ marginTop: 20 }}>
@@ -1115,45 +1038,6 @@ function ValueAndCTA() {
         </Container>
       </div>
     </>
-  );
-}
-
-function Footer() {
-  const cols = [
-    ["Sản phẩm", [["Giải đấu", "/pickle-ball/tournaments"], ["Bảng xếp hạng", "/pickle-ball/rankings"], ["Trực tiếp", "/live"], ["Câu lạc bộ", "/clubs"]]],
-    ["Tài khoản", [["Đăng nhập", "/login"], ["Đăng ký", "/register"], ["Hồ sơ", "/profile"]]],
-    ["Hỗ trợ", [["Liên hệ", "/contact"], ["Trạng thái", "/status"], ["Tin tức", "/blog"]]],
-    ["Pháp lý", [["Chính sách", "/privacy-and-policy"], ["Điều khoản", "/terms"], ["Cookies", "/cookies"]]],
-  ];
-  return (
-    <div style={{ borderTop: "1px solid var(--color-border)", background: "var(--color-background-surface)" }}>
-      <Container>
-        <div style={{ padding: "64px 0 40px" }}>
-          <div className="pk-foot" style={{ display: "grid", gridTemplateColumns: "1.6fr repeat(4, 1fr)", gap: 40 }}>
-            <div style={{ maxWidth: 280 }}>
-              <A href="/" aria-label="PickleTour" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <PickleMark size={30} />
-                <span style={{ display: "inline-block", width: 120, color: "var(--color-brand, #3D87FF)" }}><PickleWordmark id="ft" /></span>
-              </A>
-              <div style={{ marginTop: 16 }}><Text type="supporting" color="secondary">Nền tảng tổ chức, chấm điểm & phát sóng giải đấu pickleball cho cộng đồng Việt Nam.</Text></div>
-            </div>
-            {cols.map(([h, links]) => (
-              <div key={h} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                <Text type="supporting" weight="semibold">{h}</Text>
-                {links.map(([label, href]) => (
-                  <A key={href} href={href} style={{ textDecoration: "none" }}><Text type="supporting" color="secondary">{label}</Text></A>
-                ))}
-              </div>
-            ))}
-          </div>
-          <div style={{ height: 40 }} />
-          <div style={{ borderTop: "1px solid var(--color-border)", paddingTop: 24, display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-            <Text type="supporting" color="tertiary">© {new Date().getFullYear()} PickleTour · Bản thử nghiệm giao diện (ui=v2)</Text>
-            <Text type="supporting" color="tertiary">Dựng bằng React · Astryx</Text>
-          </div>
-        </div>
-      </Container>
-    </div>
   );
 }
 
@@ -1174,7 +1058,7 @@ export default function HomeScreenAstryx() {
       <ShadowFrame style={{ minHeight: "100vh" }}>
         <Theme theme={neutralTheme}>
           <div style={{ minHeight: "100vh", background: "var(--color-background-body)" }}>
-            <Nav />
+            <SiteNav />
             <Hero pulse={pulse} />
             <ScoringShowcase />
             <RatingBand stats={summary?.stats} climbers={pulse?.weekClimbers} />
@@ -1182,7 +1066,7 @@ export default function HomeScreenAstryx() {
             <TournamentBand items={tournaments} loading={tourLoading} />
             <SocialProof stats={summary?.stats} />
             <ValueAndCTA />
-            <Footer />
+            <SiteFooter />
           </div>
         </Theme>
       </ShadowFrame>
