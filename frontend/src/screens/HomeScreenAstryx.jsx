@@ -530,9 +530,9 @@ const HERO_SLIDES = [
       "radial-gradient(40% 34% at 72% 96%, rgba(217,119,66,.10), transparent 60%)," +
       "radial-gradient(50% 40% at 50% 0%, rgba(61,135,255,.08), transparent 60%)",
     court: { ground: "#0E6F63", court: "#1D5FD1" },
-    rightBare: true,
-    renderLeft: (t) => <TournamentFloatCard court={t.court} accent={t.accent} />,
-    renderRight: (t) => <LiveFloatCard court={t.court} accent={t.accent} />,
+    rightBare: false,
+    renderLeft: (t) => <RefereeFloatCard accent={t.accent} />,
+    renderRight: (t) => <BracketFloatCard accent={t.accent} />,
   },
   {
     key: "matcha",
@@ -543,9 +543,9 @@ const HERO_SLIDES = [
       "radial-gradient(40% 34% at 74% 96%, rgba(90,140,70,.12), transparent 60%)," +
       "radial-gradient(50% 40% at 50% 0%, rgba(150,190,120,.07), transparent 60%)",
     court: { ground: "#31492C", court: "#63884D" },
-    rightBare: false,
-    renderLeft: (t) => <RefereeFloatCard accent={t.accent} />,
-    renderRight: (t) => <BracketFloatCard accent={t.accent} />,
+    rightBare: true,
+    renderLeft: (t) => <TournamentFloatCard court={t.court} accent={t.accent} />,
+    renderRight: (t) => <LiveFloatCard court={t.court} accent={t.accent} />,
   },
   {
     key: "butter",
