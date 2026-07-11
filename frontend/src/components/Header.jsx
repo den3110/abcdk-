@@ -45,7 +45,7 @@ const pulseKeyframes = {
   },
 };
 
-const preloadCommandPalette = () => import("./GlobalCommandPalette");
+const preloadCommandPalette = () => {}; // palette đã import tĩnh trong App.jsx
 
 function normalizeRole(role) {
   return String(role || "")

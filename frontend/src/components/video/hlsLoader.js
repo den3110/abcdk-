@@ -1,16 +1,7 @@
-let hlsLoaderPromise = null;
+import Hls from "hls.js";
 
+// Static import (hết dynamic chunk — tránh "Failed to fetch dynamically imported module"
+// khi deploy đổi hash). Giữ nguyên API dạng Promise cho các nơi đang gọi.
 export default function loadHlsPlayer() {
-  if (hlsLoaderPromise) {
-    return hlsLoaderPromise;
-  }
-
-  hlsLoaderPromise = import("hls.js")
-    .then((module) => module?.default || module?.Hls || null)
-    .catch((error) => {
-      hlsLoaderPromise = null;
-      throw error;
-    });
-
-  return hlsLoaderPromise;
+  return Promise.resolve(Hls);
 }

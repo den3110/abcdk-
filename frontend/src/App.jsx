@@ -7,7 +7,7 @@ import "react-toastify/dist/ReactToastify.css";
 import Header from "./components/Header";
 import MobileBottomNav from "./components/MenuMobile";
 import CheckpointRealtimeGate from "./components/CheckpointRealtimeGate.jsx";
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { initGA, logPageView } from "./utils/analytics";
 import { useThemeMode } from "./context/ThemeContext";
@@ -31,9 +31,9 @@ import useAstryxUi from "./hook/useAstryxUi.js";
 
 import Clarity from "@microsoft/clarity";
 
-const ChatBotDrawer = lazy(() => import("./components/ChatBotDrawer"));
-const loadGlobalCommandPalette = () => import("./components/GlobalCommandPalette");
-const GlobalCommandPalette = lazy(loadGlobalCommandPalette);
+import ChatBotDrawer from "./components/ChatBotDrawer";
+import GlobalCommandPalette from "./components/GlobalCommandPalette";
+const loadGlobalCommandPalette = () => Promise.resolve();
 
 function CommandPaletteFallback() {
   return (

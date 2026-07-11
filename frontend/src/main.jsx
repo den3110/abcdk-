@@ -35,160 +35,66 @@ import { initSentry } from "./utils/sentry.js";
 // import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
 // import VerifyOtpScreen from "./screens/VerifyOtpScreen.jsx";
 
-function lazyRoute(importer) {
-  const LazyComponent = React.lazy(importer);
-
-  return function LazyRouteComponent() {
-    return (
-      <React.Suspense fallback={null}>
-        <LazyComponent />
-      </React.Suspense>
-    );
-  };
-}
-
-const HomeScreen = lazyRoute(() => import("./screens/HomeScreen"));
-const LoginScreen = lazyRoute(() => import("./screens/LoginScreen.jsx"));
-const CheckpointScreen = lazyRoute(() =>
-  import("./screens/CheckpointScreen.jsx"),
-);
-const RegisterScreen = lazyRoute(() => import("./screens/RegisterScreen.jsx"));
-const ProfileScreen = lazyRoute(() => import("./screens/ProfileGate.jsx"));
-const TournamentDashboard = lazyRoute(() =>
-  import("./screens/TournamentsScreen.jsx"),
-);
-const TournamentRegistration = lazyRoute(() =>
-  import("./screens/PickleBall/TournamentRegistration.jsx"),
-);
-const TournamentCheckin = lazyRoute(() =>
-  import("./screens/PickleBall/TournamentCheckin.jsx"),
-);
-const TournamentBracket = lazyRoute(() =>
-  import("./screens/PickleBall/TournamentBracket.jsx"),
-);
-const RankingList = lazyRoute(() =>
-  import("./screens/RankingsScreen.jsx"),
-);
-const LevelPointPage = lazyRoute(() =>
-  import("./screens/PickleBall/LevelPoint.jsx"),
-);
-const ContactPage = lazyRoute(() => import("./screens/ContactScreen.jsx"));
-const CookiesPage = lazyRoute(() => import("./screens/CookiesPage.jsx"));
-const PrivacyPage = lazyRoute(() => import("./screens/PrivacyPage.jsx"));
-const TermsPage = lazyRoute(() => import("./screens/TermsPage.jsx"));
-const StatusPage = lazyRoute(() => import("./screens/StatusPage.jsx"));
-const ApiDocsPage = lazyRoute(() => import("./screens/ApiDocsPage.jsx"));
-const SeoNewsListScreen = lazyRoute(() =>
-  import("./screens/seo-news/SeoNewsListScreen.jsx"),
-);
-const SeoNewsDetailScreen = lazyRoute(() =>
-  import("./screens/seo-news/SeoNewsDetailScreen.jsx"),
-);
-const BlogPostScreen = lazyRoute(() =>
-  import("./screens/blog/BlogPostScreen.jsx"),
-);
-const ScoreOverlay = lazyRoute(() =>
-  import("./screens/PickleBall/ScoreOverlay.jsx"),
-);
-const AdminDrawPage = lazyRoute(() =>
-  import("./screens/PickleBall/AdminDrawPage.jsx"),
-);
-const DrawPage = lazyRoute(() => import("./screens/draw/DrawPage.jsx"));
-const DrawLivePage = lazyRoute(() =>
-  import("./screens/draw/DrawLivePage.jsx"),
-);
-const NotFound = lazyRoute(() => import("./screens/NotFound.jsx"));
-const TournamentSchedule = lazyRoute(() =>
-  import("./screens/PickleBall/TournamentSchedule.jsx"),
-);
-const TournamentManagePage = lazyRoute(() =>
-  import("./screens/PickleBall/TournamentManagePage.jsx"),
-);
-const OverlayStudioPage = lazyRoute(() =>
-  import("./screens/PickleBall/OverlayStudioPage.jsx"),
-);
-const TournamentOverviewPage = lazyRoute(() =>
-  import("./screens/TournamentDetailScreen.jsx"),
-);
-const TournamentRefereePage = lazyRoute(() =>
-  import("./screens/PickleBall/TournamentRefereePage.jsx"),
-);
-const MyTournamentsPage = lazyRoute(() =>
-  import("./screens/MyTournamentsGate.jsx"),
-);
-const SupportCenterPage = lazyRoute(() => import("./screens/SupportGate.jsx"));
-const ForgotPasswordScreen = lazyRoute(() =>
-  import("./screens/ForgotPasswordScreen.jsx"),
-);
-const ResetPasswordScreen = lazyRoute(() =>
-  import("./screens/ResetPasswordScreen.jsx"),
-);
-const OAuthAuthorizeScreen = lazyRoute(() =>
-  import("./screens/OAuthAuthorizeScreen.jsx"),
-);
-const AdminLayout = lazyRoute(() => import("./components/AdminLayout.jsx"));
-const UsersPage = lazyRoute(() => import("./screens/admin/UsersPage.jsx"));
-const NewsPage = lazyRoute(() => import("./screens/admin/NewsPage.jsx"));
-const AvatarOptimizationPage = lazyRoute(() =>
-  import("./screens/admin/AvatarOptimizationPage.jsx"),
-);
-const ChatBotOpsPage = lazyRoute(() =>
-  import("./screens/admin/ChatBotOpsPage.jsx"),
-);
-const IdentitySecurityPage = lazyRoute(() =>
-  import("./screens/admin/IdentitySecurityPage.jsx"),
-);
-const AssessmentHistoryPage = lazyRoute(() =>
-  import("./screens/admin/AssessmentHistoryPage.jsx"),
-);
-const Forbidden403 = lazyRoute(() => import("./screens/403.jsx"));
-const ServiceUnavailable = lazyRoute(() => import("./screens/503.jsx"));
-const PublicProfilePage = lazyRoute(() =>
-  import("./screens/PublicProfilePage.jsx"),
-);
-const ClubsListPage = lazyRoute(() =>
-  import("./screens/ClubsScreen.jsx"),
-);
-const ClubDetailPage = lazyRoute(() =>
-  import("./components/ClubDetailPage.jsx"),
-);
-const CourtsBrowsePage = lazyRoute(() =>
-  import("./screens/courts/CourtsBrowsePage.jsx"),
-);
-const VenueDetailPage = lazyRoute(() =>
-  import("./screens/courts/VenueDetailPage.jsx"),
-);
-const MyBookingsPage = lazyRoute(() =>
-  import("./screens/courts/MyBookingsPage.jsx"),
-);
-const OwnerVenuesPage = lazyRoute(() =>
-  import("./screens/courts/owner/OwnerVenuesPage.jsx"),
-);
-const VenueEditorPage = lazyRoute(() =>
-  import("./screens/courts/owner/VenueEditorPage.jsx"),
-);
-const VenueBookingsPage = lazyRoute(() =>
-  import("./screens/courts/owner/VenueBookingsPage.jsx"),
-);
-const VenueRevenuePage = lazyRoute(() =>
-  import("./screens/courts/owner/VenueRevenuePage.jsx"),
-);
-const LiveStudioPage = lazyRoute(() =>
-  import("./screens/live/LiveStudioPage.jsx"),
-);
-const LiveFeedPage = lazyRoute(() => import("./screens/LiveScreen.jsx"));
-const LiveCourtClustersPage = lazyRoute(() =>
-  import("./screens/live/LiveCourtClustersPage.jsx"),
-);
-const CourtLiveStudioPage = lazyRoute(() =>
-  import("./screens/live/CourtLiveStudio.jsx"),
-);
-const CourtStreamingPage = lazyRoute(() =>
-  import("./screens/court-live/Courtstreamingpage.jsx"),
-);
-const FacebookLiveSettings = lazyRoute(() =>
-  import("./components/FacebookLiveSettings"),
-);
+import HomeScreen from "./screens/HomeScreen";
+import LoginScreen from "./screens/LoginScreen.jsx";
+import CheckpointScreen from "./screens/CheckpointScreen.jsx";
+import RegisterScreen from "./screens/RegisterScreen.jsx";
+import ProfileScreen from "./screens/ProfileGate.jsx";
+import TournamentDashboard from "./screens/TournamentsScreen.jsx";
+import TournamentRegistration from "./screens/PickleBall/TournamentRegistration.jsx";
+import TournamentCheckin from "./screens/PickleBall/TournamentCheckin.jsx";
+import TournamentBracket from "./screens/PickleBall/TournamentBracket.jsx";
+import RankingList from "./screens/RankingsScreen.jsx";
+import LevelPointPage from "./screens/PickleBall/LevelPoint.jsx";
+import ContactPage from "./screens/ContactScreen.jsx";
+import CookiesPage from "./screens/CookiesPage.jsx";
+import PrivacyPage from "./screens/PrivacyPage.jsx";
+import TermsPage from "./screens/TermsPage.jsx";
+import StatusPage from "./screens/StatusPage.jsx";
+import ApiDocsPage from "./screens/ApiDocsPage.jsx";
+import SeoNewsListScreen from "./screens/seo-news/SeoNewsListScreen.jsx";
+import SeoNewsDetailScreen from "./screens/seo-news/SeoNewsDetailScreen.jsx";
+import BlogPostScreen from "./screens/blog/BlogPostScreen.jsx";
+import ScoreOverlay from "./screens/PickleBall/ScoreOverlay.jsx";
+import AdminDrawPage from "./screens/PickleBall/AdminDrawPage.jsx";
+import DrawPage from "./screens/draw/DrawPage.jsx";
+import DrawLivePage from "./screens/draw/DrawLivePage.jsx";
+import NotFound from "./screens/NotFound.jsx";
+import TournamentSchedule from "./screens/PickleBall/TournamentSchedule.jsx";
+import TournamentManagePage from "./screens/PickleBall/TournamentManagePage.jsx";
+import OverlayStudioPage from "./screens/PickleBall/OverlayStudioPage.jsx";
+import TournamentOverviewPage from "./screens/TournamentDetailScreen.jsx";
+import TournamentRefereePage from "./screens/PickleBall/TournamentRefereePage.jsx";
+import MyTournamentsPage from "./screens/MyTournamentsGate.jsx";
+import SupportCenterPage from "./screens/SupportGate.jsx";
+import ForgotPasswordScreen from "./screens/ForgotPasswordScreen.jsx";
+import ResetPasswordScreen from "./screens/ResetPasswordScreen.jsx";
+import OAuthAuthorizeScreen from "./screens/OAuthAuthorizeScreen.jsx";
+import AdminLayout from "./components/AdminLayout.jsx";
+import UsersPage from "./screens/admin/UsersPage.jsx";
+import NewsPage from "./screens/admin/NewsPage.jsx";
+import AvatarOptimizationPage from "./screens/admin/AvatarOptimizationPage.jsx";
+import ChatBotOpsPage from "./screens/admin/ChatBotOpsPage.jsx";
+import IdentitySecurityPage from "./screens/admin/IdentitySecurityPage.jsx";
+import AssessmentHistoryPage from "./screens/admin/AssessmentHistoryPage.jsx";
+import Forbidden403 from "./screens/403.jsx";
+import ServiceUnavailable from "./screens/503.jsx";
+import PublicProfilePage from "./screens/PublicProfilePage.jsx";
+import ClubsListPage from "./screens/ClubsScreen.jsx";
+import ClubDetailPage from "./components/ClubDetailPage.jsx";
+import CourtsBrowsePage from "./screens/courts/CourtsBrowsePage.jsx";
+import VenueDetailPage from "./screens/courts/VenueDetailPage.jsx";
+import MyBookingsPage from "./screens/courts/MyBookingsPage.jsx";
+import OwnerVenuesPage from "./screens/courts/owner/OwnerVenuesPage.jsx";
+import VenueEditorPage from "./screens/courts/owner/VenueEditorPage.jsx";
+import VenueBookingsPage from "./screens/courts/owner/VenueBookingsPage.jsx";
+import VenueRevenuePage from "./screens/courts/owner/VenueRevenuePage.jsx";
+import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
+import LiveFeedPage from "./screens/LiveScreen.jsx";
+import LiveCourtClustersPage from "./screens/live/LiveCourtClustersPage.jsx";
+import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
+import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
+import FacebookLiveSettings from "./components/FacebookLiveSettings";
 
 if (import.meta.env.PROD && typeof window !== "undefined") {
   let reloadingForSwUpdate = false;

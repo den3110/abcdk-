@@ -1,10 +1,10 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 
 import useAstryxUi from "../hook/useAstryxUi.js";
 
 // Trang Trực tiếp Astryx (feed dọc kiểu TikTok) là MẶC ĐỊNH; ?ui=v1 ra trang cũ.
-const LivePageAstryx = lazy(() => import("./astryx/LivePage.jsx"));
-const LiveFeedPageV1 = lazy(() => import("./live/LiveFeedPage.jsx"));
+import LivePageAstryx from "./astryx/LivePage.jsx";
+import LiveFeedPageV1 from "./live/LiveFeedPage.jsx";
 
 const LiveScreen = () => {
   const astryx = useAstryxUi();

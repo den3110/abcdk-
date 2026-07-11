@@ -1,5 +1,6 @@
 /* eslint-disable react/prop-types, react/display-name */
 // DrawPage.jsx — add Card-Deck draw mode (Classic/Card), deal & flip animations, KO=flip 2 to pair; Group=flip 1 and auto-seat per cursor. Pool still disappears immediately after drawNext; Group board reads board.groups[*].slots (fallback groupsMeta+reveals).
+import confettiLib from "canvas-confetti";
 import { useEffect, useMemo, useState, useRef, useCallback, memo } from "react";
 import {
   alpha,
@@ -184,10 +185,8 @@ function useAudioCue(enabled) {
 }
 async function fireConfettiBurst() {
   try {
-    const mod = await import(
-      /* webpackIgnore: true */ "https://cdn.skypack.dev/canvas-confetti"
-    );
-    const confetti = mod.default || mod;
+    // canvas-confetti là dependency thật (package.json) — import tĩnh, hết dynamic import CDN
+    const confetti = confettiLib;
     confetti({ particleCount: 140, spread: 70, origin: { y: 0.6 } });
     setTimeout(
       () =>

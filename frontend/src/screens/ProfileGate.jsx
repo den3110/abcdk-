@@ -1,10 +1,10 @@
-import { lazy, Suspense } from "react";
+import { Suspense } from "react";
 
 import useAstryxUi from "../hook/useAstryxUi.js";
 
 // Trang hồ sơ Astryx là MẶC ĐỊNH; bật/tắt theo cài đặt hệ thống (frontendUi.version) + override ?ui= (xem useAstryxUi).
-const ProfileAstryx = lazy(() => import("./astryx/ProfilePage.jsx"));
-const ProfileV1 = lazy(() => import("./ProfileScreen.jsx"));
+import ProfileAstryx from "./astryx/ProfilePage.jsx";
+import ProfileV1 from "./ProfileScreen.jsx";
 
 const ProfileGate = () => {
   const astryx = useAstryxUi();
