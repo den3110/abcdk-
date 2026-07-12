@@ -46,6 +46,10 @@ const ratingChangeSchema = new mongoose.Schema(
     revokedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     origDelta: { type: Number },
     origAfter: { type: Number },
+    // Chuỗi ScoreHistory đã được dịch xuống theo delta của log này chưa.
+    // Tách khỏi `revoked` để có thể "sửa bù" lịch sử cho các lần thu hồi cũ
+    // (trước khi vá schema sourceMatch) mà không trừ Ranking lần hai.
+    histShifted: { type: Boolean, default: false },
   },
   { timestamps: true, strict: true }
 );

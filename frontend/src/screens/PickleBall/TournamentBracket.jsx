@@ -9764,10 +9764,15 @@ export default function TournamentBracket() {
               if (!current?._id) return;
               try {
                 const out = await revokeBracketRatingMut(current._id).unwrap();
+                const revoked = out?.logsRevoked ?? 0;
+                const backfilled = out?.logsBackfilled ?? 0;
+                const bname = out?.bracket?.name || current?.name || "";
                 toast.success(
-                  `Đã thu hồi điểm bracket "${out?.bracket?.name || current?.name}": ${
-                    out?.logsRevoked ?? 0
-                  } lượt điểm của ${out?.usersAffected ?? 0} VĐV về 0`,
+                  revoked > 0
+                    ? `Đã thu hồi điểm bracket "${bname}": ${revoked} lượt điểm của ${out?.usersAffected ?? 0} VĐV về 0${backfilled ? ` (+ sửa bù lịch sử ${backfilled} lượt cũ)` : ""}`
+                    : backfilled > 0
+                      ? `Bracket "${bname}" đã thu hồi từ trước — vừa sửa bù lịch sử cho ${backfilled} lượt điểm`
+                      : `Bracket "${bname}" không có điểm nào cần thu hồi`,
                 );
                 setRevokeOpen(false);
               } catch (e) {

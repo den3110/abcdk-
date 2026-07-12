@@ -44,7 +44,9 @@ export const recomputeUser = asyncHandler(async (req, res) => {
  * - match.ratingDelta -> 0 (ratingApplied giữ true để không bị áp lại).
  * - bracket.noRankDelta = true: trận TƯƠNG LAI trong bracket cũng không tính điểm
  *   (guard sẵn có trong applyRatingForFinishedMatch).
- * Idempotent: bấm lại chỉ xử lý log chưa revoked (lần 2 = no-op).
+ * Idempotent: bấm lại chỉ xử lý log chưa revoked; log đã revoked mà lịch sử chưa
+ * dịch (các lần thu hồi trước khi vá schema sourceMatch) thì được "sửa bù" phần
+ * ScoreHistory theo origDelta — không đụng Ranking lần hai.
  */
 export const revokeBracketRating = asyncHandler(async (req, res) => {
   const isSuper = Boolean(req.user?.isSuperAdmin || req.user?.isSuperUser);
@@ -67,8 +69,11 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy bracket");
   }
 
-  const matches = await Match.find({ bracket: bracketId }).select("_id");
+  const matches = await Match.find({ bracket: bracketId }).select(
+    "_id finishedAt ratingAppliedAt"
+  );
   const matchIds = matches.map((m) => m._id);
+  const matchTime = new Map(matches.map((m) => [String(m._id), m]));
 
   // Log điểm CHƯA thu hồi của các trận trong bracket
   const logs = matchIds.length
@@ -76,6 +81,17 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
         match: { $in: matchIds },
         revoked: { $ne: true },
       }).select("user match kind before after delta")
+    : [];
+
+  // Log ĐÃ thu hồi các lần trước nhưng chuỗi lịch sử chưa được dịch (bug schema
+  // sourceMatch cũ khiến bước sửa ScoreHistory bị skip lặng lẽ) -> lần này sửa bù,
+  // tuyệt đối KHÔNG trừ Ranking lần nữa cho nhóm này.
+  const logsBackfill = matchIds.length
+    ? await RatingChange.find({
+        match: { $in: matchIds },
+        revoked: true,
+        histShifted: { $ne: true },
+      }).select("user match kind origDelta")
     : [];
 
   // ===== 1) Hoàn điểm trên Ranking: trừ đúng tổng delta từng user/kind =====
@@ -113,20 +129,41 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
   // mọi snapshot CÙNG user/loại có scoredAt >= trận đó đều phải trừ delta, để nền của
   // các trận tương lai đúng như thể bracket chưa từng cộng/trừ. (Phép trừ giao hoán nên
   // thứ tự xử lý các log không ảnh hưởng kết quả cuối.)
-  let historyUpdated = 0;
-  for (const lg of logs) {
+  // Neo xác định snapshot của trận, ưu tiên theo thứ tự:
+  //   1. sourceMatch (data mới — schema đã vá);
+  //   2. match.finishedAt (thuật toán đặt scoredAt = finishedAt, khớp chính xác);
+  //   3. match.ratingAppliedAt (khi finishedAt trống, scoredAt = new Date() lúc áp
+  //      điểm, chỉ sớm hơn ratingAppliedAt vài ms -> lùi 60s làm mốc an toàn).
+  const REVOKE_TAG = "đã thu hồi điểm bracket";
+  const shiftHistoryForLog = async (lg, delta) => {
+    const d = Number(delta) || 0;
+    if (!d) return 0;
     const key = lg.kind === "singles" ? "single" : "double";
-    const anchor = await ScoreHistory.findOne({
+    const mt = matchTime.get(String(lg.match)) || {};
+
+    let anchorAt = null;
+    let noteTo = null;
+    const anchorDoc = await ScoreHistory.findOne({
       user: lg.user,
       sourceMatch: lg.match,
       [key]: { $ne: null },
     })
       .sort({ scoredAt: 1 })
       .select("scoredAt");
-    if (!anchor) continue; // trận không tạo snapshot -> Ranking đã trừ ở bước 1 là đủ
+    if (anchorDoc?.scoredAt) {
+      anchorAt = anchorDoc.scoredAt;
+      noteTo = anchorAt;
+    } else if (mt.finishedAt) {
+      anchorAt = mt.finishedAt;
+      noteTo = anchorAt;
+    } else if (mt.ratingAppliedAt) {
+      anchorAt = new Date(mt.ratingAppliedAt.getTime() - 60 * 1000);
+      noteTo = mt.ratingAppliedAt;
+    }
+    if (!anchorAt) return 0; // không xác định được mốc -> bỏ qua an toàn
 
     const out = await ScoreHistory.updateMany(
-      { user: lg.user, [key]: { $ne: null }, scoredAt: { $gte: anchor.scoredAt } },
+      { user: lg.user, [key]: { $ne: null }, scoredAt: { $gte: anchorAt } },
       [
         {
           $set: {
@@ -134,7 +171,7 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
               $round: [
                 {
                   $max: [
-                    { $subtract: [{ $ifNull: [`$${key}`, 0] }, lg.delta] },
+                    { $subtract: [{ $ifNull: [`$${key}`, 0] }, d] },
                     0,
                   ],
                 },
@@ -145,11 +182,19 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
         },
       ]
     );
-    historyUpdated += out.modifiedCount || 0;
 
-    // Note thu hồi chỉ ghi trên snapshot của CHÍNH trận bị thu hồi
+    // Note thu hồi ghi trên snapshot của CHÍNH trận (cửa sổ hẹp quanh neo);
+    // guard regex chống ghép note hai lần.
     await ScoreHistory.updateMany(
-      { user: lg.user, sourceMatch: lg.match, [key]: { $ne: null } },
+      {
+        user: lg.user,
+        [key]: { $ne: null },
+        scoredAt: {
+          $gte: anchorAt,
+          $lte: new Date(noteTo.getTime() + 2000),
+        },
+        note: { $not: new RegExp(REVOKE_TAG) },
+      },
       [
         {
           $set: {
@@ -162,6 +207,24 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
           },
         },
       ]
+    );
+    return out.modifiedCount || 0;
+  };
+
+  let historyUpdated = 0;
+  for (const lg of logs) {
+    historyUpdated += await shiftHistoryForLog(lg, lg.delta);
+  }
+
+  // Sửa bù cho các lần thu hồi cũ: chỉ dịch lịch sử theo origDelta rồi đánh dấu
+  let backfilled = 0;
+  for (const lg of logsBackfill) {
+    backfilled += await shiftHistoryForLog(lg, lg.origDelta);
+  }
+  if (logsBackfill.length) {
+    await RatingChange.updateMany(
+      { _id: { $in: logsBackfill.map((l) => l._id) } },
+      { $set: { histShifted: true } }
     );
   }
 
@@ -177,6 +240,7 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
           revoked: true,
           revokedAt: "$$NOW",
           revokedBy: req.user._id,
+          histShifted: true, // chuỗi lịch sử đã dịch ngay trong request này
         },
       },
     ]);
@@ -201,9 +265,11 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
     bracket: { _id: bracket._id, name: bracket.name, noRankDelta: true },
     matches: matchIds.length,
     logsRevoked: logs.length,
+    logsBackfilled: logsBackfill.length,
     usersAffected: userIds.length,
     rankingUpdated,
     historyUpdated,
+    backfilled,
   });
 });
 
