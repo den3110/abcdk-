@@ -37,6 +37,15 @@ const ratingChangeSchema = new mongoose.Schema(
 
     // Optional: margin info (từ gameScores)
     marginBonus: { type: Number, default: 0 },
+
+    // ===== Thu hồi điểm theo bracket (super admin) =====
+    // Khi thu hồi: delta -> 0, after -> before (lịch sử vẫn còn nhưng là 0 điểm);
+    // giá trị gốc giữ ở origDelta/origAfter để trace/khôi phục ngược khi cần.
+    revoked: { type: Boolean, default: false },
+    revokedAt: { type: Date },
+    revokedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    origDelta: { type: Number },
+    origAfter: { type: Number },
   },
   { timestamps: true, strict: true }
 );

@@ -639,7 +639,8 @@ function sourceOrderCandidatesForSeed(seed) {
   return out;
 }
 
-async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
+async function resolveSeedToSlots(doc, side /* "A" | "B" */, depth = 0) {
+  if (depth > 8) return;
   const seed = side === "A" ? doc.seedA : doc.seedB;
   if (!seed || !seed.type) return;
   const directSourceId = objectIdStringOrNull(
@@ -672,7 +673,7 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
     if (side === "A") doc.previousA = matchId;
     else doc.previousB = matchId;
   };
-  const applySourceMatch = (sourceMatch) => {
+  const applySourceMatch = async (sourceMatch) => {
     if (!sourceMatch?._id) return;
     setPrev(sourceMatch._id);
 
@@ -689,7 +690,9 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
         ? "B"
         : "A"
       : winnerSide;
-    const sourcePair = sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+    const sourcePair =
+      (sourceSide === "A" ? sourceMatch.pairA : sourceMatch.pairB) ||
+      (await resolveFinishedByeWinnerPair(sourceMatch, sourceSide, depth + 1));
     const sourceSeed = sourceSide === "A" ? sourceMatch.seedA : sourceMatch.seedB;
     setPair(sourcePair || null);
     if (isByeSeedSource(sourceSeed)) {
@@ -714,7 +717,7 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
     const sourceMatch = await Match.findById(directSourceId).select(
       "_id status winner pairA pairB seedA seedB"
     );
-    applySourceMatch(sourceMatch || { _id: directSourceId });
+    await applySourceMatch(sourceMatch || { _id: directSourceId });
     return;
   }
 
@@ -739,7 +742,7 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
           orders: sourceOrderCandidatesForSeed(seed),
           branch,
         });
-        applySourceMatch(prev);
+        await applySourceMatch(prev);
       }
       break;
     }
@@ -756,7 +759,7 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
           orders: sourceOrderCandidatesForSeed(seed),
           branch,
         });
-        applySourceMatch(prev);
+        await applySourceMatch(prev);
       }
       break;
     }
@@ -778,7 +781,7 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
             round: seed.ref.round,
             orders: sourceOrderCandidatesForSeed(seed),
           });
-          applySourceMatch(prev);
+          await applySourceMatch(prev);
         }
       }
       break;
@@ -801,7 +804,7 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
             round: seed.ref.round,
             orders: sourceOrderCandidatesForSeed(seed),
           });
-          applySourceMatch(prev);
+          await applySourceMatch(prev);
         }
       }
       break;
@@ -827,6 +830,30 @@ function isByeSeedSource(seed) {
     String(seed?.type || "").toLowerCase() === "bye" ||
     String(seed?.label || "").trim().toUpperCase() === "BYE"
   );
+}
+
+async function resolveFinishedByeWinnerPair(sourceMatch, sourceSide, depth = 0) {
+  if (!sourceMatch || depth > 8) return null;
+
+  const side = sourceSide === "B" ? "B" : "A";
+  const directPair = side === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+  if (directPair) return directPair;
+
+  if (
+    String(sourceMatch.status || "") !== "finished" ||
+    String(sourceMatch.winner || "") !== side
+  ) {
+    return null;
+  }
+
+  const carriedSeed = side === "A" ? sourceMatch.seedA : sourceMatch.seedB;
+  const oppositeSeed = side === "A" ? sourceMatch.seedB : sourceMatch.seedA;
+  if (!isByeSeedSource(oppositeSeed) || isByeSeedSource(carriedSeed)) {
+    return null;
+  }
+
+  await resolveSeedToSlots(sourceMatch, side, depth + 1);
+  return side === "A" ? sourceMatch.pairA : sourceMatch.pairB;
 }
 
 function seedForSlot(match, slot) {

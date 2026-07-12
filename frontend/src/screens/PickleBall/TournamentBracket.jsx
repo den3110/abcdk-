@@ -73,7 +73,9 @@ import {
   useGetTournamentQuery,
   useListTournamentBracketsQuery,
   useListTournamentMatchesQuery,
+  useRevokeBracketRatingMutation,
 } from "../../slices/tournamentsApiSlice";
+import { toast } from "react-toastify";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
@@ -5312,6 +5314,11 @@ export default function TournamentBracket() {
   const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
   const { id: tourId } = useParams();
   const me = useSelector((s) => s.auth?.userInfo); // NEW
+  // ===== SUPER ADMIN: thu hồi điểm cả bracket (lịch sử giữ nhưng về 0 điểm) =====
+  const isSuperAdminUser = Boolean(me?.isSuperAdmin || me?.isSuperUser);
+  const [revokeOpen, setRevokeOpen] = useState(false);
+  const [revokeBracketRatingMut, { isLoading: revokingBracket }] =
+    useRevokeBracketRatingMutation();
   const [searchParams, setSearchParams] = useSearchParams();
   const explicitBracketUiVersion =
     searchParams.get("ui") || searchParams.get("bracketUi") || "";
@@ -9706,6 +9713,74 @@ export default function TournamentBracket() {
         </Stack>
       </Paper>
       </Box>
+
+      {/* ===== SUPER ADMIN: thu hồi điểm bracket đang xem ===== */}
+      {isSuperAdminUser && current?._id && (
+        <Box
+          sx={{
+            mb: 1.5,
+            display: "flex",
+            justifyContent: "flex-end",
+            ...BRACKET_NAV_WIDTH_SX,
+          }}
+        >
+          <Button
+            size="small"
+            color="error"
+            variant="outlined"
+            onClick={() => setRevokeOpen(true)}
+          >
+            Thu hồi điểm bracket này
+          </Button>
+        </Box>
+      )}
+      <Dialog
+        open={revokeOpen}
+        onClose={() => !revokingBracket && setRevokeOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Thu hồi điểm bracket?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Toàn bộ điểm cộng/trừ đã áp từ các trận trong bracket{" "}
+            <b>{current?.name || ""}</b> sẽ được hoàn trả — coi như bracket này
+            không tính điểm.
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Lịch sử trận vẫn được giữ nhưng ghi 0 điểm (không cộng/trừ cho ai).
+            Các trận thi đấu xong sau này trong bracket cũng sẽ không tính điểm.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRevokeOpen(false)} disabled={revokingBracket}>
+            Hủy
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={revokingBracket}
+            onClick={async () => {
+              if (!current?._id) return;
+              try {
+                const out = await revokeBracketRatingMut(current._id).unwrap();
+                toast.success(
+                  `Đã thu hồi điểm bracket "${out?.bracket?.name || current?.name}": ${
+                    out?.logsRevoked ?? 0
+                  } lượt điểm của ${out?.usersAffected ?? 0} VĐV về 0`,
+                );
+                setRevokeOpen(false);
+              } catch (e) {
+                toast.error(
+                  e?.data?.message || e?.error || "Thu hồi điểm thất bại",
+                );
+              }
+            }}
+          >
+            {revokingBracket ? "Đang thu hồi..." : "Thu hồi điểm"}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {isBracketV2 ? (
         renderUnifiedBracketV2()

@@ -9,8 +9,6 @@ import RatingChange from "../models/ratingChangeModel.js";
 /** ===================== Tunables (bạn có thể chỉnh) ===================== **/
 const DUPR_MIN = 2.0;
 const DUPR_MAX = 8.0;
-const DEFAULT_SEED_RATING = 2.5;
-const MALE_DEFAULT_SEED_RATING = 2.1;
 
 // Độ dốc kỳ vọng thắng thua trên thang DUPR.
 // Chênh ~0.6 level ~ 75% thắng.
@@ -24,7 +22,6 @@ const FLOOR_K = 0.04; // tránh K về 0 khi reliability=1
 // Thưởng nhẹ theo margin (tổng điểm thắng - thua).
 // Tối đa cộng/đè ~ +/- 25% K.
 const MARGIN_MAX_BOOST = 0.25;
-const MALE_LOW_RATING_LOSS_FLOOR = 2.1;
 
 // Reliability tăng theo số trận, cap ở 1.0
 const MATCHES_FOR_FULL_RELIABILITY = 25;
@@ -34,39 +31,6 @@ const SYNERGY_WEIGHT = 0.05; // giảm ~0.05*(|p1-p2|) vào team rating
 
 /** ===================== Helpers ===================== **/
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const isMaleGender = (value) => {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  return normalized === "male" || normalized === "nam";
-};
-const hasStoredRating = (value) => {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0;
-};
-const seedRatingForUser = (user) =>
-  isMaleGender(user?.gender) ? MALE_DEFAULT_SEED_RATING : DEFAULT_SEED_RATING;
-const effectiveRatingForUser = (value, user) => {
-  const seed = seedRatingForUser(user);
-  return hasStoredRating(value) ? Number(value) : seed;
-};
-const ratingFloorForUser = (user, fallbackMin = DUPR_MIN, currentRating = null) => {
-  if (!isMaleGender(user?.gender)) return fallbackMin;
-  const current = Number(currentRating);
-  if (Number.isFinite(current) && current > 0 && current < MALE_LOW_RATING_LOSS_FLOOR) {
-    return fallbackMin;
-  }
-  return Math.max(fallbackMin, MALE_LOW_RATING_LOSS_FLOOR);
-};
-
-function shouldProtectMaleLowRatingLoss({ user, before, delta, score }) {
-  return (
-    Number(score) === 0 &&
-    Number(delta) < 0 &&
-    Number(before) <= MALE_LOW_RATING_LOSS_FLOOR &&
-    isMaleGender(user?.gender)
-  );
-}
 
 function expectedFromDiff(diff /* A - B trên thang DUPR */) {
   // logistic với base10 cho cảm giác "Elo"
@@ -75,10 +39,8 @@ function expectedFromDiff(diff /* A - B trên thang DUPR */) {
 }
 
 function teamRatingDoubles(u1, u2) {
-  const r1 = effectiveRatingForUser(u1?.localRatings?.doubles, u1);
-  const r2 = u2
-    ? effectiveRatingForUser(u2?.localRatings?.doubles, u2)
-    : r1; // nếu lẻ, dùng r1
+  const r1 = u1.localRatings?.doubles ?? 2.5;
+  const r2 = u2?.localRatings?.doubles ?? r1; // nếu lẻ, dùng r1
   const mean = (r1 + r2) / 2;
   const imbalance = Math.abs(r1 - r2);
   // team rating giảm nhẹ nếu lệch trình lớn
@@ -86,7 +48,7 @@ function teamRatingDoubles(u1, u2) {
 }
 
 function ratingSingles(u) {
-  return effectiveRatingForUser(u?.localRatings?.singles, u);
+  return u.localRatings?.singles ?? 2.5;
 }
 
 function reliabilityFor(kind, user) {
@@ -143,16 +105,12 @@ async function ensureSeedFromAssessment(userIds, kind, session) {
 
     const seed =
       kind === "singles"
-        ? effectiveRatingForUser(latest?.singleLevel, u)
-        : effectiveRatingForUser(latest?.doubleLevel, u);
+        ? latest?.singleLevel || 2.5
+        : latest?.doubleLevel || 2.5;
 
     u.localRatings = {
       ...lr,
-      [field]: clamp(
-        Number(seed) || seedRatingForUser(u),
-        ratingFloorForUser(u, DUPR_MIN, seed),
-        DUPR_MAX
-      ),
+      [field]: clamp(Number(seed) || 2.5, DUPR_MIN, DUPR_MAX),
     };
     await u.save({ session });
   }
@@ -185,7 +143,7 @@ async function applyForUser({
   const reliabilityField =
     kind === "singles" ? "reliabilitySingles" : "reliabilityDoubles";
 
-  const before = effectiveRatingForUser(lr[field], user);
+  const before = lr[field] ?? 2.5;
   const reliability = reliabilityFor(kind, user);
 
   // Nếu có overrideDelta thì dùng nó (zero-sum, per-person equal).
@@ -199,23 +157,11 @@ async function applyForUser({
     delta = eff * (score - teamExpected);
   }
 
-  const protectedLoss = shouldProtectMaleLowRatingLoss({
-    user,
-    before,
-    delta,
-    score,
-  });
-  if (protectedLoss) {
-    delta = 0;
-  }
-
-  const after = protectedLoss
-    ? before
-    : clamp(
-        before + delta,
-        ratingFloorForUser(user, lr.minBound ?? DUPR_MIN, before),
-        lr.maxBound ?? DUPR_MAX
-      );
+  const after = clamp(
+    before + delta,
+    lr.minBound ?? DUPR_MIN,
+    lr.maxBound ?? DUPR_MAX
+  );
   const nextMatches = (lr[matchesField] ?? 0) + 1;
   const nextReliability = clamp(
     nextMatches / MATCHES_FOR_FULL_RELIABILITY,

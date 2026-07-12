@@ -194,6 +194,14 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       keepUnusedDataFor: 0,
     }),
 
+    // POST /api/brackets/:bracketId/revoke-rating — SUPER ADMIN thu hồi điểm cả bracket
+    revokeBracketRating: builder.mutation({
+      query: (bracketId) => ({
+        url: `/api/brackets/${bracketId}/revoke-rating`,
+        method: "POST",
+      }),
+    }),
+
     // GET /api/tournaments/:id/matches  (user route)
     listTournamentMatches: builder.query({
       query: ({ tournamentId, ...params }) => ({
@@ -818,6 +826,7 @@ export const {
   useSearchUserMatchesQuery,
   useUserCheckinRegistrationMutation,
   useListTournamentBracketsQuery,
+  useRevokeBracketRatingMutation,
   useListTournamentMatchesQuery,
   useListTournamentManagersQuery,
   useAddTournamentManagerMutation,

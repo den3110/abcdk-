@@ -4,7 +4,6 @@ import Match from "../models/matchModel.js";
 import Ranking from "../models/rankingModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import RatingChange from "../models/ratingChangeModel.js";
-import User from "../models/userModel.js";
 
 /* ===================== Tunables (core) ===================== */
 const DUPR_MIN = 1.6;
@@ -47,29 +46,15 @@ const MIDLINE_DAMPEN = false;
 const MIDLINE_BETA = 0.65;
 const EXP_GAMMA = 1;
 const DEFAULT_SEED_RATING = 2.5;
-const MALE_DEFAULT_SEED_RATING = 2.1;
 const NEW_PLAYER_WEIGHT_BONUS = 0.75;
 
 // === Win negative limit ===
 // ⭐ Đội thắng CHỈ bị trừ tối đa 0.001/người, chỉ khi kèo QUÁ LỆCH + thắng yếu
 const MAX_WIN_NEG = -0.001;
 
-// === ⭐ Giảm độ lớn thay đổi điểm trình cho các vòng KHÔNG phải knockout ===
-// Chỉ vòng loại trực tiếp (knockout / loại kép) giữ nguyên độ lớn (= 1.0);
-// vòng bảng, playoff, roundelim, prequalifying, swiss/gsl... cộng/trừ NHẸ hơn
-// (vẫn zero-sum: giảm đều cả điểm cộng của người thắng lẫn điểm trừ của người thua).
-// Muốn nặng/nhẹ hơn: chỉ đổi đúng 1 số NON_KNOCKOUT_DELTA_SCALE (1.0 = như knockout, càng nhỏ càng nhẹ).
-const NON_KNOCKOUT_DELTA_SCALE = 0.6;
-const KNOCKOUT_FAMILY_TYPES = new Set(["knockout", "double_elim"]);
-function formatDeltaScale(bracketType) {
-  const type = String(bracketType || "").toLowerCase();
-  return KNOCKOUT_FAMILY_TYPES.has(type) ? 1 : NON_KNOCKOUT_DELTA_SCALE;
-}
-
 // Quality mặc định khi thiếu điểm set
 const QUALITY_DEFAULT_WIN = 0.5;
-const TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL = 0.1;
-const MALE_LOW_RATING_LOSS_FLOOR = 2.1;
+const TOURNAMENT_DELTA_ABSOLUTE_GUARDRAIL = 0.14;
 
 const RATING_FEATURE_WEIGHTS = Object.freeze({
   expectedOutcome: 1.0,
@@ -106,30 +91,6 @@ const WIN_TAX_COEF = 0.18;
 /* ===================== Helpers ===================== */
 const round3 = (x) => Math.round(x * 1000) / 1000;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const isMaleGender = (value) => {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase();
-  return normalized === "male" || normalized === "nam";
-};
-const hasStoredRating = (value) => {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0;
-};
-const seedRatingForGender = (gender) =>
-  isMaleGender(gender) ? MALE_DEFAULT_SEED_RATING : DEFAULT_SEED_RATING;
-const effectiveRatingForGender = (value, gender) => {
-  const seed = seedRatingForGender(gender);
-  return hasStoredRating(value) ? Number(value) : seed;
-};
-const ratingFloorForGender = (gender, currentRating) => {
-  if (!isMaleGender(gender)) return DUPR_MIN;
-  const current = Number(currentRating);
-  if (Number.isFinite(current) && current > 0 && current < MALE_LOW_RATING_LOSS_FLOOR) {
-    return DUPR_MIN;
-  }
-  return MALE_LOW_RATING_LOSS_FLOOR;
-};
 const smoothstep01 = (x) => {
   const t = clamp(Number(x) || 0, 0, 1);
   return t * t * (3 - 2 * t);
@@ -486,28 +447,6 @@ function toObjectIdOrNull(value) {
   } catch {
     return null;
   }
-}
-
-async function getUserGenderMap(userIds = []) {
-  const ids = [...new Set((userIds || []).filter(Boolean).map(String))]
-    .map((id) => toObjectIdOrNull(id))
-    .filter(Boolean);
-  if (!ids.length) return new Map();
-
-  const rows = await User.find({ _id: { $in: ids } })
-    .select("_id gender")
-    .lean();
-
-  return new Map(rows.map((row) => [String(row._id), row.gender || ""]));
-}
-
-function shouldProtectMaleLowRatingLoss({ currentRating, delta, gender, isWinner }) {
-  return (
-    !isWinner &&
-    Number(delta) < 0 &&
-    Number(currentRating) <= MALE_LOW_RATING_LOSS_FLOOR &&
-    isMaleGender(gender)
-  );
 }
 
 async function getTournamentDeltaMap({
@@ -958,7 +897,6 @@ export async function applyRatingForFinishedMatch(matchId) {
     .filter(Boolean)
     .map(String);
   const allIds = [...new Set([...usersA, ...usersB])];
-  const genderMap = await getUserGenderMap(allIds);
 
   // ratings & reliability
   const latest = await getLatestRatingsMap(allIds);
@@ -966,7 +904,7 @@ export async function applyRatingForFinishedMatch(matchId) {
   const getRating = (uid) => {
     const r = latest.get(uid) || { single: 0, double: 0 };
     const val = Number(r[key] || 0) || 0;
-    return effectiveRatingForGender(val, genderMap.get(String(uid)));
+    return val > 0 ? val : DEFAULT_SEED_RATING;
   };
 
   // prefetch reputation map
@@ -1137,10 +1075,6 @@ export async function applyRatingForFinishedMatch(matchId) {
   const D_team_raw = ratingCalc.raw;
   let D_team = ratingCalc.soft;
 
-  // ⭐ Giảm độ lớn cho các vòng KHÔNG phải knockout (giữ zero-sum: nhân đều nên
-  // cả điểm cộng của người thắng lẫn điểm trừ của người thua đều nhẹ đi cùng tỉ lệ).
-  D_team = D_team * formatDeltaScale(bracketType);
-
   // ===== ⭐ PHÂN PHỐI ĐỀU CHO ĐỒNG ĐỘI =====
   const winnerUserIds = winnerSide === "A" ? usersA : usersB;
   const loserUserIds = winnerSide === "A" ? usersB : usersA;
@@ -1195,19 +1129,12 @@ export async function applyRatingForFinishedMatch(matchId) {
   const applySide = (userIds, deltas, isWinner) => {
     userIds.forEach((uid, idx) => {
       const current = latest.get(uid) || { single: 0, double: 0 };
-      const gender = genderMap.get(String(uid));
-      const curVal = effectiveRatingForGender(current[key], gender);
-      const rawDelta = deltas[idx] ?? 0;
-      const protectedLoss = shouldProtectMaleLowRatingLoss({
-        currentRating: curVal,
-        delta: rawDelta,
-        gender,
-        isWinner,
-      });
-      const delta = protectedLoss ? 0 : rawDelta;
-      const next = protectedLoss
-        ? curVal
-        : clamp(curVal + delta, ratingFloorForGender(gender, curVal), DUPR_MAX);
+      const curVal =
+        (Number(current[key]) || 0) > 0
+          ? Number(current[key])
+          : DEFAULT_SEED_RATING;
+      const delta = deltas[idx] ?? 0;
+      const next = clamp(curVal + delta, DUPR_MIN, DUPR_MAX);
       perUserDeltasAbs.push(Math.abs(delta));
 
       const noteScore = isWinner ? S_win : 1 - S_win;
@@ -1232,9 +1159,7 @@ export async function applyRatingForFinishedMatch(matchId) {
           ratingCalc.reliabilityScale
         )},tCap=${
           tournamentCapInfo.applied ? 1 : 0
-        },cap=${round3(tournamentCapInfo.cap)},ctxDU=${round3(contextDU)}${
-          protectedLoss ? ",protected=male_under_2_1_loss" : ""
-        })`,
+        },cap=${round3(tournamentCapInfo.cap)},ctxDU=${round3(contextDU)})`,
       });
 
       const prevRep = repMap.get(String(uid)) ?? 0;
@@ -1363,14 +1288,13 @@ export async function computeRatingPreviewFromParams({
     .filter(Boolean)
     .map(String);
   const allIds = [...new Set([...usersA, ...usersB])];
-  const genderMap = await getUserGenderMap(allIds);
 
   const latest = await getLatestRatingsMap(allIds);
   const reliabilityMap = await getReliabilityMap(allIds, key);
   const getRating = (uid) => {
     const r = latest.get(uid) || { single: 0, double: 0 };
     const val = Number(r[key] || 0) || 0;
-    return effectiveRatingForGender(val, genderMap.get(String(uid)));
+    return val > 0 ? val : DEFAULT_SEED_RATING;
   };
 
   let teamA,
@@ -1544,9 +1468,6 @@ export async function computeRatingPreviewFromParams({
   const D_team_raw = ratingCalc.raw;
   let D_team = ratingCalc.soft;
 
-  // ⭐ Giảm độ lớn cho các vòng KHÔNG phải knockout (khớp với applyRatingForFinishedMatch để preview đúng)
-  D_team = D_team * formatDeltaScale(bracketType);
-
   const winnerUserIds = winnerSide === "A" ? usersA : usersB;
   const loserUserIds = winnerSide === "A" ? usersB : usersA;
   const tournamentDeltaMap = await getTournamentDeltaMap({
@@ -1587,38 +1508,24 @@ export async function computeRatingPreviewFromParams({
   }
 
   const perUser = [];
-  const push = (uid, side, delta, isWinner) => {
+  const push = (uid, side, delta) => {
     const cur = latest.get(uid) || { single: 0, double: 0 };
-    const gender = genderMap.get(String(uid));
-    const curVal = effectiveRatingForGender(cur[key], gender);
-    const protectedLoss = shouldProtectMaleLowRatingLoss({
-      currentRating: curVal,
-      delta,
-      gender,
-      isWinner,
-    });
-    const effectiveDelta = protectedLoss ? 0 : delta;
-    const next = protectedLoss
-      ? curVal
-      : clamp(
-          curVal + effectiveDelta,
-          ratingFloorForGender(gender, curVal),
-          DUPR_MAX
-        );
+    const curVal =
+      (Number(cur[key]) || 0) > 0 ? Number(cur[key]) : DEFAULT_SEED_RATING;
+    const next = clamp(curVal + delta, DUPR_MIN, DUPR_MAX);
     perUser.push({
       uid,
       side,
       before: round3(curVal),
-      delta: round3(effectiveDelta),
+      delta: round3(delta),
       after: round3(next),
-      protectedLoss,
     });
   };
   winnerUserIds.forEach((uid, i) =>
-    push(uid, winnerSide, winnerDeltas[i] ?? 0, true)
+    push(uid, winnerSide, winnerDeltas[i] ?? 0)
   );
   loserUserIds.forEach((uid, i) =>
-    push(uid, winnerSide === "A" ? "B" : "A", loserDeltas[i] ?? 0, false)
+    push(uid, winnerSide === "A" ? "B" : "A", loserDeltas[i] ?? 0)
   );
 
   return {
@@ -1695,11 +1602,6 @@ export async function computeRatingPreviewFromParams({
       softness: SOFT_TEAM_SOFTNESS,
     },
     perUser,
-    floorProtection: {
-      maleLossNoDecreaseBelow: MALE_LOW_RATING_LOSS_FLOOR,
-      maleDefaultSeedRating: MALE_DEFAULT_SEED_RATING,
-      appliedCount: perUser.filter((item) => item.protectedLoss).length,
-    },
     zeroSumCheck: round3(perUser.reduce((s, u) => s + u.delta, 0)),
   };
 }
