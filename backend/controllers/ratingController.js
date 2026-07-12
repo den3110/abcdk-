@@ -40,7 +40,8 @@ export const recomputeUser = asyncHandler(async (req, res) => {
  * - Hoàn lại toàn bộ điểm cộng/trừ đã áp từ các trận trong bracket (trừ đúng tổng delta
  *   từng user/kind trên Ranking — các trận sau đó ở nơi khác giữ nguyên mức tăng/giảm).
  * - Lịch sử VẪN GIỮ nhưng về 0 điểm: RatingChange.delta -> 0, after -> before (gốc lưu ở
- *   origDelta/origAfter); ScoreHistory hạ snapshot về mức trước trận + ghi chú thu hồi.
+ *   origDelta/origAfter); ScoreHistory hạ snapshot về mức trước trận, note chỉ còn
+ *   "+0.000" — không lộ chuyện thu hồi ra hồ sơ công khai.
  * - match.ratingDelta -> 0 (ratingApplied giữ true để không bị áp lại).
  * - bracket.noRankDelta = true: trận TƯƠNG LAI trong bracket cũng không tính điểm
  *   (guard sẵn có trong applyRatingForFinishedMatch).
@@ -183,8 +184,9 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
       ]
     );
 
-    // Note thu hồi ghi trên snapshot của CHÍNH trận (cửa sổ hẹp quanh neo);
-    // guard regex chống ghép note hai lần.
+    // Note trên snapshot của CHÍNH trận: chỉ ghi "+0.000" — TUYỆT ĐỐI không lộ
+    // chuyện thu hồi ra hồ sơ công khai (delta gốc vẫn còn ở RatingChange.origDelta
+    // cho admin trace).
     await ScoreHistory.updateMany(
       {
         user: lg.user,
@@ -193,20 +195,9 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
           $gte: anchorAt,
           $lte: new Date(noteTo.getTime() + 2000),
         },
-        note: { $not: new RegExp(REVOKE_TAG) },
+        note: { $ne: "+0.000" },
       },
-      [
-        {
-          $set: {
-            note: {
-              $concat: [
-                "+0.000 (đã thu hồi điểm bracket) | gốc: ",
-                { $ifNull: ["$note", ""] },
-              ],
-            },
-          },
-        },
-      ]
+      { $set: { note: "+0.000" } }
     );
     return out.modifiedCount || 0;
   };
@@ -227,6 +218,15 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
       { $set: { histShifted: true } }
     );
   }
+
+  // Tự dọn các ghi chú thu hồi KIỂU CŨ còn sót trong DB (từng ghi lộ liễu
+  // "đã thu hồi điểm bracket | gốc: ...") -> chỉ còn "+0.000". Chạy mỗi lần bấm,
+  // quét toàn DB an toàn vì chuỗi tag này chỉ do chính flow thu hồi ghi ra.
+  const noteCleanOut = await ScoreHistory.updateMany(
+    { note: new RegExp(REVOKE_TAG) },
+    { $set: { note: "+0.000" } }
+  );
+  const notesCleaned = noteCleanOut.modifiedCount || 0;
 
   // ===== 3) RatingChange về 0 điểm, giữ giá trị gốc để trace =====
   if (logs.length) {
@@ -270,6 +270,7 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
     rankingUpdated,
     historyUpdated,
     backfilled,
+    notesCleaned,
   });
 });
 
