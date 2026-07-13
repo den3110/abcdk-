@@ -264,6 +264,15 @@ function relativeTime(value) {
   return `${day} ngày trước`;
 }
 
+function feedDisplayTime(item) {
+  const status = asTrimmed(item?.status).toLowerCase();
+  const replayState = asTrimmed(item?.replayState).toLowerCase();
+  const isReplay =
+    status === "finished" || Boolean(replayState && replayState !== "none");
+  const value = isReplay ? item?.finishedAt : item?.updatedAt;
+  return value ? relativeTime(value) : statusLabel(item?.status);
+}
+
 function statusLabel(status) {
   switch (asTrimmed(status).toLowerCase()) {
     case "live":
@@ -1279,7 +1288,7 @@ function FeedInfoOverlay({ item, scoreTuple }) {
   const title = getFeedTitle(item);
   const tags = useMemo(() => buildFeedTags(item, scoreTuple), [item, scoreTuple]);
   const avatarSrc = asTrimmed(item?.tournament?.image);
-  const metaText = item?.updatedAt ? relativeTime(item.updatedAt) : statusLabel(item?.status);
+  const metaText = feedDisplayTime(item);
 
   return (
     <Stack
