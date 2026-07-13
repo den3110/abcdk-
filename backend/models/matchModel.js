@@ -1103,12 +1103,21 @@ async function propagateFromFinishedMatch(doc) {
   // stageIndex fallback
   const st = await stageIndexForMatch(doc);
 
-  const winnerReg = doc.winner === "A" ? doc.pairA : doc.pairB;
-  const loserReg = doc.winner === "A" ? doc.pairB : doc.pairA;
+  let winnerReg = doc.winner === "A" ? doc.pairA : doc.pairB;
+  let loserReg = doc.winner === "A" ? doc.pairB : doc.pairA;
   const winnerSeed = doc.winner === "A" ? doc.seedA : doc.seedB;
   const loserSeed = doc.winner === "A" ? doc.seedB : doc.seedA;
   const winnerSeedIsBye = isByeSeedSource(winnerSeed);
   const loserSeedIsBye = isByeSeedSource(loserSeed);
+  if (!winnerReg && loserSeedIsBye) {
+    winnerReg = await resolveFinishedByeWinnerPair(doc, doc.winner);
+  }
+  if (!loserReg && winnerSeedIsBye) {
+    loserReg = await resolveFinishedByeWinnerPair(
+      doc,
+      doc.winner === "A" ? "B" : "A"
+    );
+  }
   // 1) KO chaining
   if (doc.nextMatch && doc.nextSlot) {
     const nm = await MatchModel.findById(doc.nextMatch);

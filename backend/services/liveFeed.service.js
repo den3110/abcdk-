@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 
 import Match from "../models/matchModel.js";
+import Tournament from "../models/tournamentModel.js";
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import {
   attachPublicStreamsToMatch,
@@ -90,7 +91,7 @@ const MATCH_LIST_SELECT = [
 const MATCH_LIST_POPULATE = [
   {
     path: "tournament",
-    select: "name image status eventType nameDisplayMode startDate startAt endDate endAt",
+    select: "name image status eventType nameDisplayMode startDate startAt endDate endAt isTest",
   },
   {
     path: "bracket",
@@ -199,6 +200,32 @@ function toIdString(value) {
 
 function getMatchTournamentId(match) {
   return toIdString(match?.tournament?._id || match?.tournament);
+}
+
+export function isPublicLiveFeedMatch(match = {}) {
+  return match?.tournament?.isTest !== true;
+}
+
+async function buildPublicTournamentMatchClause(normalizedTournamentId = "") {
+  if (mongoose.Types.ObjectId.isValid(normalizedTournamentId)) {
+    const tournament = await Tournament.findOne({
+      _id: normalizedTournamentId,
+      isTest: { $ne: true },
+    })
+      .select("_id")
+      .lean();
+
+    return tournament ? { tournament: tournament._id } : null;
+  }
+
+  const testTournaments = await Tournament.find({ isTest: true })
+    .select("_id")
+    .lean();
+  const excludedIds = testTournaments
+    .map((tournament) => tournament?._id)
+    .filter(Boolean);
+
+  return excludedIds.length ? { tournament: { $nin: excludedIds } } : {};
 }
 
 function parsePositiveInt(
@@ -1240,6 +1267,31 @@ export async function listLiveFeed({
   const normalizedTournamentId = asTrimmed(tournamentId);
 
   const recordingMatchIds = await getStreamRecordingMatchIds();
+  const publicTournamentClause =
+    await buildPublicTournamentMatchClause(normalizedTournamentId);
+  if (publicTournamentClause === null) {
+    return {
+      count: 0,
+      items: [],
+      page: safePage,
+      pages: 1,
+      limit: safeLimit,
+      meta: {
+        at: new Date().toISOString(),
+        filter: {
+          mode: normalizedMode,
+          source: normalizedSource,
+          replayState: normalizedReplayState,
+          sort: normalizedSort,
+          statuses,
+          q: asTrimmed(q),
+          tournamentId: normalizedTournamentId || null,
+        },
+        ...buildFeedMeta([]),
+      },
+    };
+  }
+
   const candidateClauses = [...STREAM_CANDIDATE_CLAUSES];
   if (recordingMatchIds.length > 0) {
     candidateClauses.push({ _id: { $in: recordingMatchIds } });
@@ -1249,14 +1301,17 @@ export async function listLiveFeed({
     $and: [
       { $or: candidateClauses },
       { status: { $in: statuses } },
+      publicTournamentClause,
     ].filter((clause) => Object.keys(clause).length > 0),
   };
 
-  const matches = await Match.find(matchQuery)
-    .select(MATCH_LIST_SELECT)
-    .populate(MATCH_LIST_POPULATE)
-    .sort({ updatedAt: -1, finishedAt: -1, startedAt: -1, createdAt: -1 })
-    .lean();
+  const matches = (
+    await Match.find(matchQuery)
+      .select(MATCH_LIST_SELECT)
+      .populate(MATCH_LIST_POPULATE)
+      .sort({ updatedAt: -1, finishedAt: -1, startedAt: -1, createdAt: -1 })
+      .lean()
+  ).filter(isPublicLiveFeedMatch);
 
   if (!matches.length) {
     return {

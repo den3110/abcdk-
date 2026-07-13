@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import mongoose from "mongoose";
 
+import Match from "../models/matchModel.js";
+import Tournament from "../models/tournamentModel.js";
+import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import { attachPublicStreamsToMatch } from "./publicStreams.service.js";
 import {
   buildLiveFeedSearchItem,
@@ -11,6 +15,8 @@ import {
   compareLiveFeedItems,
   getLiveFeedModeStatuses,
   getLiveFeedSmartScore,
+  isPublicLiveFeedMatch,
+  listLiveFeed,
   pickFeedPreferredStream,
 } from "./liveFeed.service.js";
 
@@ -71,6 +77,103 @@ test("buildLiveFeedItem labels live matches as Live", () => {
   });
 
   assert.equal(feedItem.smartBadge, "Live");
+});
+
+test("isPublicLiveFeedMatch excludes test tournaments", () => {
+  assert.equal(
+    isPublicLiveFeedMatch({
+      tournament: {
+        _id: "test-tournament",
+        isTest: true,
+      },
+    }),
+    false,
+  );
+  assert.equal(
+    isPublicLiveFeedMatch({
+      tournament: {
+        _id: "public-tournament",
+        isTest: false,
+      },
+    }),
+    true,
+  );
+});
+
+test("listLiveFeed excludes test tournaments in the match query", async (t) => {
+  const testTournamentId = new mongoose.Types.ObjectId();
+  let receivedMatchQuery = null;
+
+  t.mock.method(LiveRecordingV2, "distinct", async () => []);
+  t.mock.method(Tournament, "find", (query) => {
+    assert.deepEqual(query, { isTest: true });
+    return {
+      select(selection) {
+        assert.equal(selection, "_id");
+        return {
+          async lean() {
+            return [{ _id: testTournamentId }];
+          },
+        };
+      },
+    };
+  });
+  t.mock.method(Match, "find", (query) => {
+    receivedMatchQuery = query;
+    return {
+      select() {
+        return this;
+      },
+      populate() {
+        return this;
+      },
+      sort() {
+        return this;
+      },
+      async lean() {
+        return [];
+      },
+    };
+  });
+
+  const payload = await listLiveFeed({ limit: 5 });
+  const tournamentClause = receivedMatchQuery?.$and?.find(
+    (clause) => clause?.tournament?.$nin,
+  );
+
+  assert.equal(payload.count, 0);
+  assert.deepEqual(
+    tournamentClause?.tournament?.$nin?.map(String),
+    [String(testTournamentId)],
+  );
+});
+
+test("listLiveFeed returns empty for an explicit test tournament", async (t) => {
+  const testTournamentId = new mongoose.Types.ObjectId();
+
+  t.mock.method(LiveRecordingV2, "distinct", async () => []);
+  t.mock.method(Tournament, "findOne", (query) => {
+    assert.equal(String(query?._id), String(testTournamentId));
+    assert.deepEqual(query?.isTest, { $ne: true });
+    return {
+      select(selection) {
+        assert.equal(selection, "_id");
+        return {
+          async lean() {
+            return null;
+          },
+        };
+      },
+    };
+  });
+  t.mock.method(Match, "find", () => {
+    throw new Error("Match.find should not run for a test tournament feed");
+  });
+
+  const payload = await listLiveFeed({ tournamentId: String(testTournamentId) });
+
+  assert.equal(payload.count, 0);
+  assert.deepEqual(payload.items, []);
 });
 
 test("buildLiveFeedSearchItem returns lightweight search payload", () => {
