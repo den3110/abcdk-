@@ -82,6 +82,12 @@ test("buildLiveFeedItem labels live matches as Live", () => {
 test("isPublicLiveFeedMatch excludes test tournaments", () => {
   assert.equal(
     isPublicLiveFeedMatch({
+      tournament: null,
+    }),
+    false,
+  );
+  assert.equal(
+    isPublicLiveFeedMatch({
       tournament: {
         _id: "test-tournament",
         isTest: true,
@@ -142,6 +148,8 @@ test("listLiveFeed excludes test tournaments in the match query", async (t) => {
   );
 
   assert.equal(payload.count, 0);
+  assert.equal(tournamentClause?.tournament?.$exists, true);
+  assert.equal(tournamentClause?.tournament?.$ne, null);
   assert.deepEqual(
     tournamentClause?.tournament?.$nin?.map(String),
     [String(testTournamentId)],

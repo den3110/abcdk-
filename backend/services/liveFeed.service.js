@@ -203,7 +203,10 @@ function getMatchTournamentId(match) {
 }
 
 export function isPublicLiveFeedMatch(match = {}) {
-  return match?.tournament?.isTest !== true;
+  const tournament = match?.tournament;
+  if (!tournament) return false;
+  if (tournament?.isTest === true) return false;
+  return Boolean(toIdString(tournament));
 }
 
 async function buildPublicTournamentMatchClause(normalizedTournamentId = "") {
@@ -225,7 +228,12 @@ async function buildPublicTournamentMatchClause(normalizedTournamentId = "") {
     .map((tournament) => tournament?._id)
     .filter(Boolean);
 
-  return excludedIds.length ? { tournament: { $nin: excludedIds } } : {};
+  const tournamentFilter = { $exists: true, $ne: null };
+  if (excludedIds.length) {
+    tournamentFilter.$nin = excludedIds;
+  }
+
+  return { tournament: tournamentFilter };
 }
 
 function parsePositiveInt(
