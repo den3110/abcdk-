@@ -274,6 +274,212 @@ export const revokeBracketRating = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * SUPER ADMIN — Trả lại điểm đã thu hồi của MỘT BRACKET:
+ * - Khôi phục Ranking bằng origDelta/origAfter đã lưu khi thu hồi.
+ * - Dịch ScoreHistory lên lại cho các log đã từng được dịch xuống.
+ * - Mở lại bracket.noRankDelta để các trận sau tiếp tục tính điểm.
+ */
+export const restoreBracketRating = asyncHandler(async (req, res) => {
+  const isSuper = Boolean(req.user?.isSuperAdmin || req.user?.isSuperUser);
+  if (!isSuper) {
+    res.status(403);
+    throw new Error("Chỉ Super Admin mới được trả lại điểm bracket");
+  }
+
+  const { bracketId } = req.params;
+  if (!mongoose.isValidObjectId(bracketId)) {
+    res.status(400);
+    throw new Error("bracketId không hợp lệ");
+  }
+
+  const bracket = await Bracket.findById(bracketId).select(
+    "name tournament noRankDelta"
+  );
+  if (!bracket) {
+    res.status(404);
+    throw new Error("Không tìm thấy bracket");
+  }
+
+  const matches = await Match.find({ bracket: bracketId }).select(
+    "_id finishedAt ratingAppliedAt"
+  );
+  const matchIds = matches.map((m) => m._id);
+  const matchTime = new Map(matches.map((m) => [String(m._id), m]));
+
+  const logs = matchIds.length
+    ? await RatingChange.find({
+        match: { $in: matchIds },
+        revoked: true,
+      }).select("user match kind before after delta origDelta origAfter histShifted")
+    : [];
+
+  const restoredLogs = logs
+    .map((lg) => {
+      const origDelta = Number(lg.origDelta);
+      if (!Number.isFinite(origDelta) || origDelta === 0) return null;
+      const origAfter = Number.isFinite(Number(lg.origAfter))
+        ? Number(lg.origAfter)
+        : round3((Number(lg.before) || 0) + origDelta);
+      return { log: lg, origDelta, origAfter };
+    })
+    .filter(Boolean);
+
+  const sumByUserKind = new Map();
+  for (const item of restoredLogs) {
+    const k = `${item.log.user}|${item.log.kind}`;
+    sumByUserKind.set(k, (sumByUserKind.get(k) || 0) + item.origDelta);
+  }
+
+  const userIds = [...new Set(restoredLogs.map((item) => String(item.log.user)))];
+  let rankingUpdated = 0;
+  if (userIds.length) {
+    const ranks = await Ranking.find({ user: { $in: userIds } }).select(
+      "user single double"
+    );
+    const ops = [];
+    for (const r of ranks) {
+      const ds = sumByUserKind.get(`${r.user}|singles`) || 0;
+      const dd = sumByUserKind.get(`${r.user}|doubles`) || 0;
+      if (!ds && !dd) continue;
+      const $set = {};
+      if (ds) $set.single = round3(Math.max(0, (Number(r.single) || 0) + ds));
+      if (dd) $set.double = round3(Math.max(0, (Number(r.double) || 0) + dd));
+      ops.push({ updateOne: { filter: { user: r.user }, update: { $set } } });
+    }
+    if (ops.length) {
+      const out = await Ranking.bulkWrite(ops);
+      rankingUpdated = out.modifiedCount || 0;
+    }
+  }
+
+  const restoreHistoryForLog = async (lg, delta) => {
+    const d = Number(delta) || 0;
+    if (!d || lg.histShifted !== true) return 0;
+    const key = lg.kind === "singles" ? "single" : "double";
+    const mt = matchTime.get(String(lg.match)) || {};
+
+    let anchorAt = null;
+    let noteTo = null;
+    const anchorDoc = await ScoreHistory.findOne({
+      user: lg.user,
+      sourceMatch: lg.match,
+      [key]: { $ne: null },
+    })
+      .sort({ scoredAt: 1 })
+      .select("scoredAt");
+    if (anchorDoc?.scoredAt) {
+      anchorAt = anchorDoc.scoredAt;
+      noteTo = anchorAt;
+    } else if (mt.finishedAt) {
+      anchorAt = mt.finishedAt;
+      noteTo = anchorAt;
+    } else if (mt.ratingAppliedAt) {
+      anchorAt = new Date(mt.ratingAppliedAt.getTime() - 60 * 1000);
+      noteTo = mt.ratingAppliedAt;
+    }
+    if (!anchorAt) return 0;
+
+    const out = await ScoreHistory.updateMany(
+      { user: lg.user, [key]: { $ne: null }, scoredAt: { $gte: anchorAt } },
+      [
+        {
+          $set: {
+            [key]: {
+              $round: [
+                {
+                  $max: [
+                    { $add: [{ $ifNull: [`$${key}`, 0] }, d] },
+                    0,
+                  ],
+                },
+                3,
+              ],
+            },
+          },
+        },
+      ]
+    );
+
+    await ScoreHistory.updateMany(
+      {
+        user: lg.user,
+        [key]: { $ne: null },
+        scoredAt: {
+          $gte: anchorAt,
+          $lte: new Date(noteTo.getTime() + 2000),
+        },
+      },
+      { $set: { note: `${d >= 0 ? "+" : ""}${round3(d)}` } }
+    );
+    return out.modifiedCount || 0;
+  };
+
+  let historyUpdated = 0;
+  for (const item of restoredLogs) {
+    historyUpdated += await restoreHistoryForLog(item.log, item.origDelta);
+  }
+
+  if (restoredLogs.length) {
+    await RatingChange.bulkWrite(
+      restoredLogs.map((item) => ({
+        updateOne: {
+          filter: { _id: item.log._id },
+          update: {
+            $set: {
+              delta: round3(item.origDelta),
+              after: round3(item.origAfter),
+              revoked: false,
+              histShifted: false,
+            },
+            $unset: { revokedAt: "", revokedBy: "" },
+          },
+        },
+      }))
+    );
+  }
+
+  if (restoredLogs.length) {
+    const byMatch = new Map();
+    for (const item of restoredLogs) {
+      const key = String(item.log.match);
+      const list = byMatch.get(key) || [];
+      list.push(Math.abs(item.origDelta));
+      byMatch.set(key, list);
+    }
+    await Match.bulkWrite(
+      [...byMatch.entries()].map(([matchId, deltas]) => ({
+        updateOne: {
+          filter: { _id: matchId, ratingApplied: true },
+          update: {
+            $set: {
+              ratingDelta: round3(
+                deltas.reduce((sum, value) => sum + value, 0) /
+                  Math.max(1, deltas.length)
+              ),
+            },
+          },
+        },
+      }))
+    );
+  }
+
+  if (bracket.noRankDelta) {
+    bracket.noRankDelta = false;
+    await bracket.save();
+  }
+
+  res.json({
+    ok: true,
+    bracket: { _id: bracket._id, name: bracket.name, noRankDelta: false },
+    matches: matchIds.length,
+    logsRestored: restoredLogs.length,
+    usersAffected: userIds.length,
+    rankingUpdated,
+    historyUpdated,
+  });
+});
+
 /** Lấy rating & history của user */
 export const getUserRating = asyncHandler(async (req, res) => {
   const { userId } = req.params;

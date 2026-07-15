@@ -202,6 +202,14 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
+    // POST /api/brackets/:bracketId/restore-rating — SUPER ADMIN trả lại điểm đã thu hồi
+    restoreBracketRating: builder.mutation({
+      query: (bracketId) => ({
+        url: `/api/brackets/${bracketId}/restore-rating`,
+        method: "POST",
+      }),
+    }),
+
     // GET /api/tournaments/:id/matches  (user route)
     listTournamentMatches: builder.query({
       query: ({ tournamentId, ...params }) => ({
@@ -827,6 +835,7 @@ export const {
   useUserCheckinRegistrationMutation,
   useListTournamentBracketsQuery,
   useRevokeBracketRatingMutation,
+  useRestoreBracketRatingMutation,
   useListTournamentMatchesQuery,
   useListTournamentManagersQuery,
   useAddTournamentManagerMutation,

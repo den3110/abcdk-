@@ -74,6 +74,7 @@ import {
   useListTournamentBracketsQuery,
   useListTournamentMatchesQuery,
   useRevokeBracketRatingMutation,
+  useRestoreBracketRatingMutation,
 } from "../../slices/tournamentsApiSlice";
 import { toast } from "react-toastify";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
@@ -5317,8 +5318,11 @@ export default function TournamentBracket() {
   // ===== SUPER ADMIN: thu hồi điểm cả bracket (lịch sử giữ nhưng về 0 điểm) =====
   const isSuperAdminUser = Boolean(me?.isSuperAdmin || me?.isSuperUser);
   const [revokeOpen, setRevokeOpen] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
   const [revokeBracketRatingMut, { isLoading: revokingBracket }] =
     useRevokeBracketRatingMutation();
+  const [restoreBracketRatingMut, { isLoading: restoringBracket }] =
+    useRestoreBracketRatingMutation();
   const [searchParams, setSearchParams] = useSearchParams();
   const explicitBracketUiVersion =
     searchParams.get("ui") || searchParams.get("bracketUi") || "";
@@ -5690,6 +5694,7 @@ export default function TournamentBracket() {
   const closeMatch = () => setOpen(false);
 
   const current = brackets?.[tab] || null;
+  const currentBracketRatingRevoked = current?.noRankDelta === true;
   const currentMatches = useMemo(
     () => (current ? byBracket[current._id] || [] : []),
     [byBracket, current],
@@ -9714,7 +9719,7 @@ export default function TournamentBracket() {
       </Paper>
       </Box>
 
-      {/* ===== SUPER ADMIN: thu hồi điểm bracket đang xem ===== */}
+      {/* ===== SUPER ADMIN: trạng thái và thao tác điểm bracket đang xem ===== */}
       {isSuperAdminUser && current?._id && (
         <Box
           sx={{
@@ -9724,14 +9729,40 @@ export default function TournamentBracket() {
             ...BRACKET_NAV_WIDTH_SX,
           }}
         >
-          <Button
-            size="small"
-            color="error"
-            variant="outlined"
-            onClick={() => setRevokeOpen(true)}
+          <Stack
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            justifyContent="flex-end"
+            flexWrap="wrap"
+            useFlexGap
           >
-            Thu hồi điểm bracket này
-          </Button>
+            <Chip
+              size="small"
+              variant="outlined"
+              color={currentBracketRatingRevoked ? "warning" : "success"}
+              label={
+                currentBracketRatingRevoked
+                  ? "Đã thu hồi điểm"
+                  : "Chưa thu hồi điểm"
+              }
+            />
+            <Button
+              size="small"
+              color={currentBracketRatingRevoked ? "success" : "error"}
+              variant="outlined"
+              disabled={revokingBracket || restoringBracket}
+              onClick={() =>
+                currentBracketRatingRevoked
+                  ? setRestoreOpen(true)
+                  : setRevokeOpen(true)
+              }
+            >
+              {currentBracketRatingRevoked
+                ? "Trả lại điểm"
+                : "Thu hồi điểm bracket này"}
+            </Button>
+          </Stack>
         </Box>
       )}
       <Dialog
@@ -9774,6 +9805,9 @@ export default function TournamentBracket() {
                       ? `Bracket "${bname}" đã thu hồi từ trước — vừa sửa bù lịch sử cho ${backfilled} lượt điểm`
                       : `Bracket "${bname}" không có điểm nào cần thu hồi`,
                 );
+                await Promise.allSettled(
+                  [refetchBrackets?.(), refetchMatches?.()].filter(Boolean),
+                );
                 setRevokeOpen(false);
               } catch (e) {
                 toast.error(
@@ -9783,6 +9817,57 @@ export default function TournamentBracket() {
             }}
           >
             {revokingBracket ? "Đang thu hồi..." : "Thu hồi điểm"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={restoreOpen}
+        onClose={() => !restoringBracket && setRestoreOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Trả lại điểm bracket?</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Các điểm cộng/trừ đã thu hồi từ bracket <b>{current?.name || ""}</b>{" "}
+            sẽ được trả lại vào lịch sử điểm và bảng điểm hiện tại.
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Sau thao tác này, các trận thi đấu xong sau này trong bracket sẽ tiếp
+            tục được tính điểm.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRestoreOpen(false)} disabled={restoringBracket}>
+            Hủy
+          </Button>
+          <Button
+            color="success"
+            variant="contained"
+            disabled={restoringBracket}
+            onClick={async () => {
+              if (!current?._id) return;
+              try {
+                const out = await restoreBracketRatingMut(current._id).unwrap();
+                const restored = out?.logsRestored ?? 0;
+                const bname = out?.bracket?.name || current?.name || "";
+                toast.success(
+                  restored > 0
+                    ? `Đã trả lại điểm bracket "${bname}": ${restored} lượt điểm của ${out?.usersAffected ?? 0} VĐV`
+                    : `Bracket "${bname}" không có điểm nào cần trả lại`,
+                );
+                await Promise.allSettled(
+                  [refetchBrackets?.(), refetchMatches?.()].filter(Boolean),
+                );
+                setRestoreOpen(false);
+              } catch (e) {
+                toast.error(
+                  e?.data?.message || e?.error || "Trả lại điểm thất bại",
+                );
+              }
+            }}
+          >
+            {restoringBracket ? "Đang trả lại..." : "Trả lại điểm"}
           </Button>
         </DialogActions>
       </Dialog>
