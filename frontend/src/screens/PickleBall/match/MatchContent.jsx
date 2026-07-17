@@ -2211,6 +2211,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         return resolveSeedReferenceLabel(seed, match);
       }
 
+      // ⛔ Seed của CHÍNH slot là BYE → "BYE", không tra previous/source
+      // (PO lẻ đội: previousB vẫn trỏ trận BYE dù seedB = bye)
+      if (isByeSeed(seed)) return "BYE";
+
       const prev = side === "A" ? match?.previousA : match?.previousB;
       if (prev) {
         const prevId =
@@ -2336,6 +2340,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       if (!hasResolvedPair(pair) && seed && isSeedBlockedByUnfinishedGroup(seed)) {
         return null;
       }
+
+      // ⛔ Seed của CHÍNH slot là BYE → không có đội/hồ sơ, không tra previous
+      if (!hasResolvedPair(pair) && isByeSeed(seed)) return null;
 
       const resolveFromSourceMatch = (sourceMatch, isLoserSeed) => {
         if (!sourceMatch) return null;

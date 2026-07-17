@@ -399,7 +399,10 @@ const getMatchSideName = (
 ) => {
   const prev = side === "A" ? match?.previousA : match?.previousB;
   const pair = side === "A" ? match?.pairA : match?.pairB;
+  const seed = side === "A" ? match?.seedA : match?.seedB;
   if (pair) return displayPairName(pair, eventType, displayMode);
+  // Seed của slot là BYE → "BYE", không hiện "Winner of..." từ previous
+  if (seed?.type === "bye" || /^\s*BYE\s*$/i.test(seed?.label || "")) return "BYE";
   if (prev) return getLabelDep(prev, t);
   return t("draw.teamPending");
 };

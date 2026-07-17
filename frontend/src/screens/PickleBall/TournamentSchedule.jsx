@@ -489,6 +489,9 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
     const seedType = String(seed?.type || "");
     const isLoser =
       seedType === "matchLoser" || seedType === "stageMatchLoser";
+    // ⛔ Seed của CHÍNH slot là BYE → "BYE", không tra previous/source
+    // (PO lẻ đội: previousB vẫn trỏ trận BYE dù seedB = bye)
+    if (isByeSeed(seed)) return "BYE";
     const prev = side === "A" ? m.previousA : m.previousB;
     let source = prev ? byId.get(String(prev?._id || prev)) : null;
     if (!source && scheduleSeedRefTypes.has(seedType)) source = findSource(m, seed);

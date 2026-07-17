@@ -6306,6 +6306,17 @@ export default function TournamentBracket() {
         return pairLabelWithNick(pair, eventType, displayMode);
       }
 
+      // ⛔ Seed của CHÍNH slot này là BYE → hiển thị "BYE", tuyệt đối không tra
+      // trận nguồn (previous) — kẻo bê nhầm tên đội THẮNG của trận trước sang
+      // (vd PO lẻ đội: V2-T7 = L-V1-T13 vs BYE nhưng previousB vẫn trỏ V1-T14).
+      if (
+        String(effectiveSeed?.type || "") === "bye" ||
+        (typeof effectiveSeed?.label === "string" &&
+          /^\s*BYE\s*$/i.test(effectiveSeed.label))
+      ) {
+        return "BYE";
+      }
+
       // ⛔ Nếu seed đến từ GROUP và bảng chưa hoàn tất → KHÔNG fill tên đội
       if (effectiveSeed && isSeedBlockedByUnfinishedGroup(effectiveSeed)) {
         return resolveSeedReferenceLabel(effectiveSeed, m); // ví dụ "V{stage}-B{group}-T{rank}"
@@ -6494,6 +6505,15 @@ export default function TournamentBracket() {
         !seed?.ref?._id;
       const effectiveSeed =
         seed?.type && !isEmptyRegistrationSeed ? seed : plannedSeed || seed;
+
+      // ⛔ Seed của slot là BYE → không có đội để highlight, không tra previous
+      if (
+        String(effectiveSeed?.type || "") === "bye" ||
+        (typeof effectiveSeed?.label === "string" &&
+          /^\s*BYE\s*$/i.test(effectiveSeed.label))
+      ) {
+        return "";
+      }
 
       if (effectiveSeed && isSeedBlockedByUnfinishedGroup(effectiveSeed)) {
         return "";
