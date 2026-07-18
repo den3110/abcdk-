@@ -244,6 +244,16 @@ function applyRatingChangeToPlayer(base, ratingChange) {
   };
 }
 
+function plainMatchPlayer(p) {
+  if (!p) return null;
+  return {
+    _id: p.user || null,
+    name: p.fullName || "",
+    avatar: p.avatar || "",
+    regScore: p.score ?? undefined,
+  };
+}
+
 function buildScoreText(gameScores = []) {
   if (!Array.isArray(gameScores) || !gameScores.length) return "";
   return gameScores.map((g) => `${g.a ?? 0} - ${g.b ?? 0}`).join(" , ");
@@ -569,7 +579,9 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       const ratingChange = ratingChangeByMatchUserKind.get(
         `${m._id}|${userId}|${ratingKind}`
       );
-      const base = decoratePlayer(p, histMap, when, typeKey);
+      const base = ratingChange
+        ? decoratePlayer(p, histMap, when, typeKey)
+        : plainMatchPlayer(p);
       return attachNick(p, applyRatingChangeToPlayer(base, ratingChange));
     };
 

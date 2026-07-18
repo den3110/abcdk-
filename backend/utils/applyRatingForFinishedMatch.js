@@ -147,6 +147,15 @@ function isForfeitResult(match) {
   );
 }
 
+function hasPlayableScore(match) {
+  const games = Array.isArray(match?.gameScores) ? match.gameScores : [];
+  return games.some((game) => {
+    const a = Number(game?.a ?? game?.scoreA ?? 0);
+    const b = Number(game?.b ?? game?.scoreB ?? 0);
+    return Number.isFinite(a) && Number.isFinite(b) && a + b > 0;
+  });
+}
+
 function teamRatingDoubles(r1, r2) {
   const mean = (r1 + r2) / 2;
   const imbalance = Math.abs(r1 - r2);
@@ -452,6 +461,13 @@ export async function applyRatingForFinishedMatch(matchId, opts = {}) {
 
   // BYE/missing pair
   if (!mt.pairA || !mt.pairB) {
+    mt.ratingApplied = true;
+    mt.ratingAppliedAt = new Date();
+    mt.ratingDelta = 0;
+    await mt.save();
+    return;
+  }
+  if (!hasPlayableScore(mt)) {
     mt.ratingApplied = true;
     mt.ratingAppliedAt = new Date();
     mt.ratingDelta = 0;

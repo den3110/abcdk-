@@ -99,6 +99,23 @@ const shiftScoreHistoryAfter = async ({ user, key, anchorAt, delta }) => {
   return out.modifiedCount || 0;
 };
 
+const hasPlayableScore = (match) => {
+  const games = Array.isArray(match?.gameScores) ? match.gameScores : [];
+  return games.some((game) => {
+    const a = Number(game?.a ?? game?.scoreA ?? 0);
+    const b = Number(game?.b ?? game?.scoreB ?? 0);
+    return Number.isFinite(a) && Number.isFinite(b) && a + b > 0;
+  });
+};
+
+const isPlayableRatingMatch = (match) =>
+  Boolean(
+    match?.pairA &&
+      match?.pairB &&
+      ["A", "B"].includes(String(match?.winner || "")) &&
+      hasPlayableScore(match)
+  );
+
 const syncRankingsFromLatestScoreHistory = async (entries = []) => {
   const usersByKey = new Map([
     ["single", new Set()],
@@ -138,25 +155,30 @@ const syncRankingsFromLatestScoreHistory = async (entries = []) => {
       },
     ]);
 
-    const ops = rows
-      .filter((row) => Number.isFinite(Number(row?.value)))
-      .map((row) => {
-        touchedUserIds.add(String(row._id));
-        return {
-          updateOne: {
-            filter: { user: row._id },
-            update: {
-              $set: {
-                [key]: round3(row.value),
-                lastUpdated: now,
-              },
-              $currentDate: { updatedAt: true },
-              $setOnInsert: { user: row._id },
+    const latestByUser = new Map(
+      rows
+        .filter((row) => Number.isFinite(Number(row?.value)))
+        .map((row) => [String(row._id), round3(row.value)])
+    );
+
+    const ops = userIds.map((userId) => {
+      const userKey = String(userId);
+      touchedUserIds.add(userKey);
+      return {
+        updateOne: {
+          filter: { user: userId },
+          update: {
+            $set: {
+              [key]: latestByUser.get(userKey) ?? 0,
+              lastUpdated: now,
             },
-            upsert: true,
+            $currentDate: { updatedAt: true },
+            $setOnInsert: { user: userId },
           },
-        };
-      });
+          upsert: true,
+        },
+      };
+    });
 
     if (ops.length) {
       const out = await Ranking.bulkWrite(ops, { ordered: false });
@@ -778,21 +800,19 @@ export const backfillBracketRating = asyncHandler(async (req, res) => {
   const bracket = await loadBracketForRatingAction(req.params.bracketId);
   const { tournament, changes } = await enableRatingForBracketScope(bracket);
 
-  const candidates = await Match.find({
+  const finishedMatches = await Match.find({
     bracket: bracket._id,
     status: "finished",
     winner: { $in: ["A", "B"] },
-    pairA: { $ne: null },
-    pairB: { $ne: null },
   })
     .select(
-      "_id code labelKey finishedAt updatedAt createdAt ratingApplied ratingAppliedAt ratingDelta"
+      "_id code labelKey finishedAt updatedAt createdAt ratingApplied ratingAppliedAt ratingDelta winner pairA pairB gameScores"
     )
     .sort({ finishedAt: 1, updatedAt: 1, _id: 1 });
 
-  const candidateIds = candidates.map((match) => match._id);
-  const existingLogs = candidateIds.length
-    ? await RatingChange.find({ match: { $in: candidateIds } }).select(
+  const finishedMatchIds = finishedMatches.map((match) => match._id);
+  const existingLogs = finishedMatchIds.length
+    ? await RatingChange.find({ match: { $in: finishedMatchIds } }).select(
         "user match kind delta revoked"
       )
     : [];
@@ -804,13 +824,17 @@ export const backfillBracketRating = asyncHandler(async (req, res) => {
     logsByMatch.set(key, list);
   }
 
-  const toApply = candidates;
+  const invalidMatches = finishedMatches.filter(
+    (match) => !isPlayableRatingMatch(match)
+  );
+  const toApply = finishedMatches.filter(isPlayableRatingMatch);
 
   let removedOldLogs = 0;
   let removedOldHistory = 0;
   let shiftedOldHistory = 0;
   let reappliedMatches = 0;
   let undoRankingUpdated = 0;
+  let skippedInvalidMatches = 0;
   for (const match of toApply) {
     const oldLogs = logsByMatch.get(String(match._id)) || [];
     if (!oldLogs.length) continue;
@@ -823,6 +847,31 @@ export const backfillBracketRating = asyncHandler(async (req, res) => {
     if (undo.logsRemoved || undo.historyDeleted || undo.historyShifted) {
       reappliedMatches += 1;
     }
+  }
+
+  for (const match of invalidMatches) {
+    const oldLogs = logsByMatch.get(String(match._id)) || [];
+    if (oldLogs.length) {
+      const undo = await undoMatchRatingForReapply(match, oldLogs);
+      removedOldLogs += undo.logsRemoved;
+      removedOldHistory += undo.historyDeleted;
+      shiftedOldHistory += undo.historyShifted;
+      undoRankingUpdated += undo.rankingUpdated;
+      if (undo.logsRemoved || undo.historyDeleted || undo.historyShifted) {
+        reappliedMatches += 1;
+      }
+    }
+
+    const resetFields = {
+      ratingApplied: true,
+      ratingAppliedAt: match.ratingAppliedAt || new Date(),
+      ratingDelta: 0,
+    };
+    if (!match.finishedAt) {
+      resetFields.finishedAt = match.updatedAt || new Date();
+    }
+    await Match.updateOne({ _id: match._id }, { $set: resetFields });
+    skippedInvalidMatches += 1;
   }
 
   let appliedMatches = 0;
@@ -867,15 +916,18 @@ export const backfillBracketRating = asyncHandler(async (req, res) => {
     }
   }
 
-  const finalLogs = candidateIds.length
+  const finalLogs = finishedMatchIds.length
     ? await RatingChange.find({
-        match: { $in: candidateIds },
+        match: { $in: finishedMatchIds },
         revoked: { $ne: true },
       })
         .select("user kind")
         .lean()
     : [];
-  const rankingSync = await syncRankingsFromLatestScoreHistory(finalLogs);
+  const rankingSync = await syncRankingsFromLatestScoreHistory([
+    ...existingLogs,
+    ...finalLogs,
+  ]);
   await clearRankingPresentationCaches();
 
   res.json({
@@ -893,8 +945,9 @@ export const backfillBracketRating = asyncHandler(async (req, res) => {
         }
       : null,
     changed: changes,
-    matches: candidates.length,
+    matches: finishedMatches.length,
     skippedExistingRating: 0,
+    skippedInvalidMatches,
     attempted: toApply.length,
     appliedMatches,
     zeroDeltaMatches,
