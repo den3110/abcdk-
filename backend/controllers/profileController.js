@@ -1,6 +1,7 @@
 // controllers/profileController.js
 import asyncHandler from "express-async-handler";
 import ScoreHistory from "../models/scoreHistoryModel.js";
+import RatingChange from "../models/ratingChangeModel.js";
 import Match from "../models/matchModel.js";
 import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
@@ -230,6 +231,19 @@ function decoratePlayer(p, histMap, when, key /* 'single' | 'double' */) {
   };
 }
 
+function applyRatingChangeToPlayer(base, ratingChange) {
+  if (!base || !ratingChange) return base;
+  const before = Number(ratingChange.before);
+  const after = Number(ratingChange.after);
+  const delta = Number(ratingChange.delta);
+  return {
+    ...base,
+    preScore: Number.isFinite(before) ? before : base.preScore,
+    postScore: Number.isFinite(after) ? after : base.postScore,
+    delta: Number.isFinite(delta) ? delta : base.delta,
+  };
+}
+
 function buildScoreText(gameScores = []) {
   if (!Array.isArray(gameScores) || !gameScores.length) return "";
   return gameScores.map((g) => `${g.a ?? 0} - ${g.b ?? 0}`).join(" , ");
@@ -307,6 +321,21 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     .lean();
 
   const histMap = buildHistMap(histRows, isHiddenInfo);
+
+  const matchIds = matches.map((m) => m._id).filter(Boolean);
+  const ratingChanges = matchIds.length
+    ? await RatingChange.find({
+        match: { $in: matchIds },
+        revoked: { $ne: true },
+      })
+        .select("user match kind before after delta")
+        .lean()
+    : [];
+  const ratingChangeByMatchUserKind = new Map();
+  for (const row of ratingChanges) {
+    const mapKey = `${row.match}|${row.user}|${row.kind}`;
+    ratingChangeByMatchUserKind.set(mapKey, row);
+  }
 
   // ★ NEW: nạp Users để lấy nickname/avatar (ưu tiên nickname)
   const users = await User.find({ _id: { $in: [...allUserIds] } })
@@ -526,6 +555,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
   const out = matches.map((m) => {
     const tour = m.tournament || {};
     const typeKey = tour.eventType === "single" ? "single" : "double";
+    const ratingKind = typeKey === "single" ? "singles" : "doubles";
     const when =
       (m.finishedAt && new Date(m.finishedAt).getTime()) ||
       (m.scheduledAt && new Date(m.scheduledAt).getTime()) ||
@@ -534,12 +564,21 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     const regA = regById.get(String(m.pairA));
     const regB = regById.get(String(m.pairB));
 
+    const decorateForMatch = (p) => {
+      const userId = p?.user ? String(p.user) : "";
+      const ratingChange = ratingChangeByMatchUserKind.get(
+        `${m._id}|${userId}|${ratingKind}`
+      );
+      const base = decoratePlayer(p, histMap, when, typeKey);
+      return attachNick(p, applyRatingChangeToPlayer(base, ratingChange));
+    };
+
     const team1 = [regA?.player1, regA?.player2]
       .filter(Boolean)
-      .map((p) => attachNick(p, decoratePlayer(p, histMap, when, typeKey)));
+      .map(decorateForMatch);
     const team2 = [regB?.player1, regB?.player2]
       .filter(Boolean)
-      .map((p) => attachNick(p, decoratePlayer(p, histMap, when, typeKey)));
+      .map(decorateForMatch);
 
     const code = buildGlobalRCode(m);
 

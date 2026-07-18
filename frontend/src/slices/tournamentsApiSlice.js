@@ -200,6 +200,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         url: `/api/brackets/${bracketId}/revoke-rating`,
         method: "POST",
       }),
+      invalidatesTags: [{ type: "Rankings", id: "LIST" }],
     }),
 
     // POST /api/brackets/:bracketId/restore-rating — SUPER ADMIN trả lại điểm đã thu hồi
@@ -208,6 +209,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         url: `/api/brackets/${bracketId}/restore-rating`,
         method: "POST",
       }),
+      invalidatesTags: [{ type: "Rankings", id: "LIST" }],
     }),
 
     // POST /api/brackets/:bracketId/enable-rating — SUPER ADMIN bật lại tính điểm bracket
@@ -216,6 +218,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         url: `/api/brackets/${bracketId}/enable-rating`,
         method: "POST",
       }),
+      invalidatesTags: [{ type: "Rankings", id: "LIST" }],
     }),
 
     // POST /api/brackets/:bracketId/backfill-rating — SUPER ADMIN bù điểm cho trận đã kết thúc
@@ -224,6 +227,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         url: `/api/brackets/${bracketId}/backfill-rating`,
         method: "POST",
       }),
+      invalidatesTags: [{ type: "Rankings", id: "LIST" }],
     }),
 
     // GET /api/tournaments/:id/matches  (user route)

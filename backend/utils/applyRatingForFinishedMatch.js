@@ -680,32 +680,11 @@ export async function applyRatingForFinishedMatch(matchId, opts = {}) {
   const winnerUserIds = winnerSide === "A" ? usersA : usersB;
   const loserUserIds = winnerSide === "A" ? usersB : usersA;
 
-  let winnerDeltas = distributeTeamDeltaEvenly(D_team, winnerUserIds.length);
-  let loserDeltas = distributeTeamDeltaEvenly(-D_team, loserUserIds.length);
-
-  // ⭐ Kẹp biên âm cho đội THẮNG: mỗi người không âm quá MAX_WIN_NEG
-  const totalWinBefore = winnerDeltas.reduce((s, x) => s + x, 0);
-  const winnerClamped = winnerDeltas.map((d) => Math.max(d, MAX_WIN_NEG));
-  const totalWinAfter = winnerClamped.reduce((s, x) => s + x, 0);
-
-  // Nếu bị kẹp, cần redistribute phần thừa
-  if (Math.abs(totalWinAfter - totalWinBefore) > 1e-9) {
-    const deficit = totalWinBefore - totalWinAfter;
-    // Phân phối đều deficit cho bên thua
-    const perLoser = deficit / (loserUserIds.length || 1);
-    loserDeltas = loserDeltas.map((d) => d - perLoser);
-  }
-
-  winnerDeltas = winnerClamped;
-
-  // Ensure zero-sum strict
-  const sumWin = winnerDeltas.reduce((s, x) => s + x, 0);
-  const sumLose = loserDeltas.reduce((s, x) => s + x, 0);
-  const drift = sumWin + sumLose;
-  if (Math.abs(drift) > 1e-9) {
-    const n = loserDeltas.length || 1;
-    loserDeltas = loserDeltas.map((d) => d - drift / n);
-  }
+  const perPlayerDelta = round3(
+    Math.abs(D_team) / Math.max(1, winnerUserIds.length)
+  );
+  let winnerDeltas = Array(winnerUserIds.length).fill(perPlayerDelta);
+  let loserDeltas = Array(loserUserIds.length).fill(-perPlayerDelta);
 
   // === APPLY ===
   const histDocs = [];

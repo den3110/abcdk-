@@ -13,6 +13,7 @@ import {
   recomputeTournamentRatings,
   recomputeUserRatings,
 } from "../services/ratingEngine.js";
+import { clearRankingPresentationCaches } from "../services/cacheInvalidation.service.js";
 
 const round3 = (x) => Math.round((Number(x) || 0) * 1000) / 1000;
 
@@ -98,6 +99,84 @@ const shiftScoreHistoryAfter = async ({ user, key, anchorAt, delta }) => {
   return out.modifiedCount || 0;
 };
 
+const syncRankingsFromLatestScoreHistory = async (entries = []) => {
+  const usersByKey = new Map([
+    ["single", new Set()],
+    ["double", new Set()],
+  ]);
+
+  for (const entry of entries) {
+    const key = entry?.key || ratingHistoryKey(entry?.kind);
+    const user = entry?.user;
+    if (!usersByKey.has(key) || !mongoose.isValidObjectId(user)) continue;
+    usersByKey.get(key).add(String(user));
+  }
+
+  let rankingSynced = 0;
+  const touchedUserIds = new Set();
+  const now = new Date();
+
+  for (const [key, userSet] of usersByKey.entries()) {
+    if (!userSet.size) continue;
+
+    const userIds = [...userSet].map(
+      (id) => new mongoose.Types.ObjectId(String(id))
+    );
+    const rows = await ScoreHistory.aggregate([
+      {
+        $match: {
+          user: { $in: userIds },
+          [key]: { $type: "number" },
+        },
+      },
+      { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+      {
+        $group: {
+          _id: "$user",
+          value: { $first: `$${key}` },
+        },
+      },
+    ]);
+
+    const ops = rows
+      .filter((row) => Number.isFinite(Number(row?.value)))
+      .map((row) => {
+        touchedUserIds.add(String(row._id));
+        return {
+          updateOne: {
+            filter: { user: row._id },
+            update: {
+              $set: {
+                [key]: round3(row.value),
+                lastUpdated: now,
+              },
+              $currentDate: { updatedAt: true },
+              $setOnInsert: { user: row._id },
+            },
+            upsert: true,
+          },
+        };
+      });
+
+    if (ops.length) {
+      const out = await Ranking.bulkWrite(ops, { ordered: false });
+      rankingSynced +=
+        (out.modifiedCount || 0) +
+        (out.upsertedCount || 0) +
+        (out.matchedCount || 0);
+    }
+  }
+
+  if (touchedUserIds.size) {
+    await Ranking.bulkRecalculateTiers([...touchedUserIds]);
+  }
+
+  return {
+    rankingSynced,
+    rankingUsersSynced: touchedUserIds.size,
+  };
+};
+
 const undoMatchRatingForReapply = async (match, logs) => {
   const rows = Array.isArray(logs) ? logs : [];
   if (!match?._id || !rows.length) {
@@ -163,6 +242,26 @@ const undoMatchRatingForReapply = async (match, logs) => {
     });
   }
 
+  const staleHistoryFilters = activeLogs.map((log) => {
+    const key = ratingHistoryKey(log.kind);
+    return {
+      user: log.user,
+      sourceMatch: { $exists: false },
+      [key]: { $ne: null },
+      scoredAt: {
+        $gte: new Date(anchorAt.getTime() - 2000),
+        $lte: new Date(anchorAt.getTime() + 2000),
+      },
+      note: /^[+-]\d/,
+    };
+  });
+
+  let staleHistoryDeleted = 0;
+  if (staleHistoryFilters.length) {
+    const staleOut = await ScoreHistory.deleteMany({ $or: staleHistoryFilters });
+    staleHistoryDeleted = staleOut.deletedCount || 0;
+  }
+
   const deletedHistory = await ScoreHistory.deleteMany({ sourceMatch: match._id });
   const deletedLogs = await RatingChange.deleteMany({ match: match._id });
 
@@ -170,7 +269,7 @@ const undoMatchRatingForReapply = async (match, logs) => {
     logsRemoved: deletedLogs.deletedCount || 0,
     rankingUpdated,
     historyShifted,
-    historyDeleted: deletedHistory.deletedCount || 0,
+    historyDeleted: (deletedHistory.deletedCount || 0) + staleHistoryDeleted,
   };
 };
 
@@ -768,6 +867,17 @@ export const backfillBracketRating = asyncHandler(async (req, res) => {
     }
   }
 
+  const finalLogs = candidateIds.length
+    ? await RatingChange.find({
+        match: { $in: candidateIds },
+        revoked: { $ne: true },
+      })
+        .select("user kind")
+        .lean()
+    : [];
+  const rankingSync = await syncRankingsFromLatestScoreHistory(finalLogs);
+  await clearRankingPresentationCaches();
+
   res.json({
     ok: true,
     bracket: {
@@ -794,6 +904,8 @@ export const backfillBracketRating = asyncHandler(async (req, res) => {
     removedOldHistory,
     shiftedOldHistory,
     undoRankingUpdated,
+    rankingSynced: rankingSync.rankingSynced,
+    rankingUsersSynced: rankingSync.rankingUsersSynced,
     failed,
   });
 });
