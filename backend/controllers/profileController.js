@@ -244,12 +244,29 @@ function applyRatingChangeToPlayer(base, ratingChange) {
   };
 }
 
-function plainMatchPlayer(p) {
+function decorateUnchangedPlayer(p, histMap, when, key /* 'single' | 'double' */) {
   if (!p) return null;
+  const uid = p.user ? String(p.user) : "";
+  const hist = histMap[uid] || [];
+  let value = undefined;
+  for (let i = 0; i < hist.length; i++) {
+    const h = hist[i];
+    if (h.t <= when && Number.isFinite(h[key])) {
+      value = h[key];
+    }
+  }
+  if (value === undefined) {
+    const regScore = Number(p.score);
+    if (Number.isFinite(regScore)) value = regScore;
+  }
+
   return {
     _id: p.user || null,
     name: p.fullName || "",
     avatar: p.avatar || "",
+    preScore: Number.isFinite(value) ? value : undefined,
+    postScore: Number.isFinite(value) ? value : undefined,
+    delta: Number.isFinite(value) ? 0 : undefined,
     regScore: p.score ?? undefined,
   };
 }
@@ -581,7 +598,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       );
       const base = ratingChange
         ? decoratePlayer(p, histMap, when, typeKey)
-        : plainMatchPlayer(p);
+        : decorateUnchangedPlayer(p, histMap, when, typeKey);
       return attachNick(p, applyRatingChangeToPlayer(base, ratingChange));
     };
 
