@@ -75,7 +75,6 @@ import {
   useListTournamentMatchesQuery,
   useRevokeBracketRatingMutation,
   useRestoreBracketRatingMutation,
-  useEnableBracketRatingMutation,
   useBackfillBracketRatingMutation,
 } from "../../slices/tournamentsApiSlice";
 import { toast } from "react-toastify";
@@ -5321,14 +5320,11 @@ export default function TournamentBracket() {
   const isSuperAdminUser = Boolean(me?.isSuperAdmin || me?.isSuperUser);
   const [revokeOpen, setRevokeOpen] = useState(false);
   const [restoreOpen, setRestoreOpen] = useState(false);
-  const [enableRatingOpen, setEnableRatingOpen] = useState(false);
   const [backfillRatingOpen, setBackfillRatingOpen] = useState(false);
   const [revokeBracketRatingMut, { isLoading: revokingBracket }] =
     useRevokeBracketRatingMutation();
   const [restoreBracketRatingMut, { isLoading: restoringBracket }] =
     useRestoreBracketRatingMutation();
-  const [enableBracketRatingMut, { isLoading: enablingBracketRating }] =
-    useEnableBracketRatingMutation();
   const [backfillBracketRatingMut, { isLoading: backfillingBracketRating }] =
     useBackfillBracketRatingMutation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -5708,7 +5704,6 @@ export default function TournamentBracket() {
   const ratingActionBusy =
     revokingBracket ||
     restoringBracket ||
-    enablingBracketRating ||
     backfillingBracketRating;
   const currentMatches = useMemo(
     () => (current ? byBracket[current._id] || [] : []),
@@ -9799,18 +9794,12 @@ export default function TournamentBracket() {
             </Button>
             <Button
               size="small"
-              color={currentRatingDisabled ? "success" : "primary"}
+              color="primary"
               variant="contained"
               disabled={ratingActionBusy}
-              onClick={() =>
-                currentRatingDisabled
-                  ? setEnableRatingOpen(true)
-                  : setBackfillRatingOpen(true)
-              }
+              onClick={() => setBackfillRatingOpen(true)}
             >
-              {currentRatingDisabled
-                ? "Bật điểm trình"
-                : "Thêm cộng/trừ điểm trình vào các trận"}
+              Thêm cộng/trừ điểm trình vào các trận
             </Button>
           </Stack>
         </Box>
@@ -9922,56 +9911,6 @@ export default function TournamentBracket() {
         </DialogActions>
       </Dialog>
       <Dialog
-        open={enableRatingOpen}
-        onClose={() => !enablingBracketRating && setEnableRatingOpen(false)}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>Bật điểm trình bracket?</DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" sx={{ mb: 1 }}>
-            Bracket <b>{current?.name || ""}</b> sẽ được bật lại tính điểm trình.
-            Nếu giải đang tắt tính điểm toàn giải, hệ thống cũng mở lại cờ cấp giải
-            để các trận sau không bị chặn.
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            Thao tác này chỉ bật cờ tính điểm. Sau khi bật, dùng nút thêm cộng/trừ
-            điểm để bù cho các trận đã kết thúc.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => setEnableRatingOpen(false)}
-            disabled={enablingBracketRating}
-          >
-            Hủy
-          </Button>
-          <Button
-            color="success"
-            variant="contained"
-            disabled={enablingBracketRating}
-            onClick={async () => {
-              if (!current?._id) return;
-              try {
-                const out = await enableBracketRatingMut(current._id).unwrap();
-                const bname = out?.bracket?.name || current?.name || "";
-                toast.success(`Đã bật điểm trình cho bracket "${bname}".`);
-                await Promise.allSettled(
-                  [refetchTour?.(), refetchBrackets?.(), refetchMatches?.()].filter(Boolean),
-                );
-                setEnableRatingOpen(false);
-              } catch (e) {
-                toast.error(
-                  e?.data?.message || e?.error || "Bật điểm trình thất bại",
-                );
-              }
-            }}
-          >
-            {enablingBracketRating ? "Đang bật..." : "Bật điểm trình"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-      <Dialog
         open={backfillRatingOpen}
         onClose={() => !backfillingBracketRating && setBackfillRatingOpen(false)}
         maxWidth="xs"
@@ -9980,8 +9919,13 @@ export default function TournamentBracket() {
         <DialogTitle>Thêm cộng/trừ điểm vào các trận?</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 1 }}>
-            Hệ thống sẽ áp dụng bù điểm trình cho các trận đã kết thúc trong bracket{" "}
-            <b>{current?.name || ""}</b> nhưng chưa có lịch sử rating.
+            Hệ thống sẽ áp dụng lại điểm trình cho các trận đã kết thúc trong bracket{" "}
+            <b>{current?.name || ""}</b>.
+          </Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Nếu trận đã có lịch sử điểm cũ, hệ thống sẽ tự hoàn tác bản cũ rồi thay
+            bằng bản mới đúng. Nếu bracket hoặc giải đang tắt tính điểm, hệ thống sẽ
+            tự bật lại trước khi bù điểm.
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Lịch sử chấm trình sẽ lấy mốc thời gian kết thúc trận
@@ -10005,7 +9949,7 @@ export default function TournamentBracket() {
                 const out = await backfillBracketRatingMut(current._id).unwrap();
                 const bname = out?.bracket?.name || current?.name || "";
                 toast.success(
-                  `Đã bù điểm bracket "${bname}": ${out?.appliedMatches ?? 0} trận có cộng/trừ điểm, ${out?.zeroDeltaMatches ?? 0} trận 0 điểm, bỏ qua ${out?.skippedExistingRating ?? 0} trận đã có lịch sử.`,
+                  `Đã bù điểm bracket "${bname}": ${out?.appliedMatches ?? 0} trận có cộng/trừ điểm, ${out?.zeroDeltaMatches ?? 0} trận 0 điểm, sửa lại ${out?.reappliedMatches ?? 0} trận đã có lịch sử.`,
                 );
                 await Promise.allSettled(
                   [refetchTour?.(), refetchBrackets?.(), refetchMatches?.()].filter(Boolean),

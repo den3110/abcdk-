@@ -228,21 +228,36 @@ function distributeTeamDeltaEvenly(deltaTeam, playerCount) {
  * - single = 3.5 (từ doc 24/09)
  * - double = 3.884 (từ doc 20/12)
  */
-async function getLatestRatingsMap(userIds) {
+async function getLatestRatingsMap(userIds, opts = {}) {
   const ids = [...new Set(userIds.map(String))].map(
     (id) => new mongoose.Types.ObjectId(id)
   );
+  const scoredAtFilter = opts?.beforeAt
+    ? { scoredAt: { $lt: opts.beforeAt } }
+    : {};
 
   // Lấy điểm SINGLE mới nhất (chỉ từ docs có field single tồn tại và không null)
   const lastSingle = await ScoreHistory.aggregate([
-    { $match: { user: { $in: ids }, single: { $exists: true, $ne: null } } },
+    {
+      $match: {
+        user: { $in: ids },
+        single: { $exists: true, $ne: null },
+        ...scoredAtFilter,
+      },
+    },
     { $sort: { scoredAt: -1, _id: -1 } },
     { $group: { _id: "$user", single: { $first: "$single" } } },
   ]);
 
   // Lấy điểm DOUBLE mới nhất (chỉ từ docs có field double tồn tại và không null)
   const lastDouble = await ScoreHistory.aggregate([
-    { $match: { user: { $in: ids }, double: { $exists: true, $ne: null } } },
+    {
+      $match: {
+        user: { $in: ids },
+        double: { $exists: true, $ne: null },
+        ...scoredAtFilter,
+      },
+    },
     { $sort: { scoredAt: -1, _id: -1 } },
     { $group: { _id: "$user", double: { $first: "$double" } } },
   ]);
@@ -262,19 +277,22 @@ async function getLatestRatingsMap(userIds) {
     });
   }
 
-  // Fallback từ Ranking nếu ScoreHistory không có
-  const ranks = await Ranking.find({ user: { $in: ids } }).select(
-    "user single double"
-  );
-  ranks.forEach((r) => {
-    const k = String(r.user);
-    const existing = map.get(k) || { single: 0, double: 0 };
-    // Chỉ lấy từ Ranking nếu ScoreHistory không có giá trị
-    map.set(k, {
-      single: existing.single || (Number.isFinite(r.single) ? r.single : 0),
-      double: existing.double || (Number.isFinite(r.double) ? r.double : 0),
+  // Fallback từ Ranking chỉ dùng cho trận kết thúc realtime.
+  // Với backfill lịch sử, Ranking là điểm hiện tại nên không được dùng làm nền quá khứ.
+  if (!opts?.beforeAt) {
+    const ranks = await Ranking.find({ user: { $in: ids } }).select(
+      "user single double"
+    );
+    ranks.forEach((r) => {
+      const k = String(r.user);
+      const existing = map.get(k) || { single: 0, double: 0 };
+      // Chỉ lấy từ Ranking nếu ScoreHistory không có giá trị
+      map.set(k, {
+        single: existing.single || (Number.isFinite(r.single) ? r.single : 0),
+        double: existing.double || (Number.isFinite(r.double) ? r.double : 0),
+      });
     });
-  });
+  }
 
   // Đảm bảo tất cả userIds đều có entry
   userIds.forEach((uid) => {
@@ -421,7 +439,7 @@ function teamFormScore(kind, formA, formB) {
 }
 
 /* ===================== Main ===================== */
-export async function applyRatingForFinishedMatch(matchId) {
+export async function applyRatingForFinishedMatch(matchId, opts = {}) {
   const mt = await Match.findById(matchId)
     .populate({ path: "tournament", select: "eventType noRankDelta" })
     .populate({ path: "bracket", select: "type stage name meta noRankDelta" })
@@ -468,6 +486,7 @@ export async function applyRatingForFinishedMatch(matchId) {
   const kind = mt.tournament?.eventType === "single" ? "singles" : "doubles";
   const key = mt.tournament?.eventType === "single" ? "single" : "double";
   const when = mt.finishedAt || new Date();
+  const historicalBackfill = opts?.historical === true;
   const winnerSide = mt.winner;
   const bracketType = mt.bracket?.type || "knockout";
 
@@ -481,7 +500,9 @@ export async function applyRatingForFinishedMatch(matchId) {
   const allIds = [...new Set([...usersA, ...usersB])];
 
   // ratings & reliability
-  const latest = await getLatestRatingsMap(allIds);
+  const latest = await getLatestRatingsMap(allIds, {
+    beforeAt: historicalBackfill ? when : null,
+  });
   const reliabilityMap = await getReliabilityMap(allIds, key);
   const getRating = (uid) => {
     const r = latest.get(uid) || { single: 0, double: 0 };
@@ -491,11 +512,12 @@ export async function applyRatingForFinishedMatch(matchId) {
 
   // prefetch reputation map
   const repDocs = await Ranking.find({ user: { $in: allIds } })
-    .select("user reputation")
+    .select("user reputation single double")
     .lean();
   const repMap = new Map(
     repDocs.map((d) => [String(d.user), Number(d.reputation) || 0])
   );
+  const rankMap = new Map(repDocs.map((d) => [String(d.user), d]));
 
   // team ratings
   let teamA = 0,
@@ -687,6 +709,7 @@ export async function applyRatingForFinishedMatch(matchId) {
 
   // === APPLY ===
   const histDocs = [];
+  const futureHistoryShifts = [];
   const rankingOps = [];
   const logs = [];
   const perUserDeltasAbs = [];
@@ -716,6 +739,11 @@ export async function applyRatingForFinishedMatch(matchId) {
           upsetBoost
         )},ctxDU=${round3(contextDU)})`,
       });
+      futureHistoryShifts.push({
+        user: uid,
+        key,
+        delta: round3(delta),
+      });
 
       const prevRep = repMap.get(String(uid)) ?? 0;
 
@@ -726,7 +754,16 @@ export async function applyRatingForFinishedMatch(matchId) {
           filter: { user: uid },
           update: {
             $set: {
-              [key]: round3(next),
+              [key]: historicalBackfill
+                ? round3(
+                    Math.max(
+                      0,
+                      Number.isFinite(Number(rankMap.get(String(uid))?.[key]))
+                        ? Number(rankMap.get(String(uid))?.[key]) + delta
+                        : next
+                    )
+                  )
+                : round3(next),
               reputation: nextRep(prevRep),
             },
           },
@@ -766,6 +803,37 @@ export async function applyRatingForFinishedMatch(matchId) {
   applySide(loserUserIds, loserDeltas, false);
 
   if (histDocs.length) await ScoreHistory.insertMany(histDocs);
+  if (historicalBackfill) {
+    for (const item of futureHistoryShifts) {
+      const delta = Number(item.delta) || 0;
+      const historyKey = item.key;
+      if (!Number.isFinite(delta) || delta === 0) continue;
+      await ScoreHistory.updateMany(
+        {
+          user: item.user,
+          [historyKey]: { $ne: null },
+          scoredAt: { $gt: when },
+        },
+        [
+          {
+            $set: {
+              [historyKey]: {
+                $round: [
+                  {
+                    $max: [
+                      { $add: [{ $ifNull: [`$${historyKey}`, 0] }, delta] },
+                      0,
+                    ],
+                  },
+                  3,
+                ],
+              },
+            },
+          },
+        ]
+      );
+    }
+  }
   if (rankingOps.length) await Ranking.bulkWrite(rankingOps);
   if (logs.length) {
     await RatingChange.insertMany(logs, { ordered: false }).catch(() => {});

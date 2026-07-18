@@ -66,6 +66,114 @@ const enableRatingForBracketScope = async (bracket) => {
   return { tournament, changes };
 };
 
+const ratingHistoryKey = (kind) => (kind === "singles" ? "single" : "double");
+
+const shiftScoreHistoryAfter = async ({ user, key, anchorAt, delta }) => {
+  const amount = Number(delta) || 0;
+  if (!user || !key || !anchorAt || !Number.isFinite(amount) || amount === 0) {
+    return 0;
+  }
+
+  const out = await ScoreHistory.updateMany(
+    { user, [key]: { $ne: null }, scoredAt: { $gt: anchorAt } },
+    [
+      {
+        $set: {
+          [key]: {
+            $round: [
+              {
+                $max: [
+                  { $add: [{ $ifNull: [`$${key}`, 0] }, amount] },
+                  0,
+                ],
+              },
+              3,
+            ],
+          },
+        },
+      },
+    ]
+  );
+
+  return out.modifiedCount || 0;
+};
+
+const undoMatchRatingForReapply = async (match, logs) => {
+  const rows = Array.isArray(logs) ? logs : [];
+  if (!match?._id || !rows.length) {
+    return {
+      logsRemoved: 0,
+      rankingUpdated: 0,
+      historyShifted: 0,
+      historyDeleted: 0,
+    };
+  }
+
+  const anchorAt =
+    match.finishedAt ||
+    match.ratingAppliedAt ||
+    match.updatedAt ||
+    match.createdAt ||
+    new Date();
+
+  const activeLogs = rows.filter(
+    (log) => log?.revoked !== true && Number(log?.delta || 0) !== 0
+  );
+
+  const sumByUserKind = new Map();
+  for (const log of activeLogs) {
+    const key = `${log.user}|${log.kind}`;
+    sumByUserKind.set(key, (sumByUserKind.get(key) || 0) + Number(log.delta || 0));
+  }
+
+  const userIds = [...new Set(activeLogs.map((log) => String(log.user)))];
+  let rankingUpdated = 0;
+  if (userIds.length) {
+    const ranks = await Ranking.find({ user: { $in: userIds } }).select(
+      "user single double"
+    );
+    const ops = [];
+    for (const rank of ranks) {
+      const singleDelta = sumByUserKind.get(`${rank.user}|singles`) || 0;
+      const doubleDelta = sumByUserKind.get(`${rank.user}|doubles`) || 0;
+      const $set = {};
+      if (singleDelta) {
+        $set.single = round3(Math.max(0, (Number(rank.single) || 0) - singleDelta));
+      }
+      if (doubleDelta) {
+        $set.double = round3(Math.max(0, (Number(rank.double) || 0) - doubleDelta));
+      }
+      if (Object.keys($set).length) {
+        ops.push({ updateOne: { filter: { user: rank.user }, update: { $set } } });
+      }
+    }
+    if (ops.length) {
+      const out = await Ranking.bulkWrite(ops);
+      rankingUpdated = out.modifiedCount || 0;
+    }
+  }
+
+  let historyShifted = 0;
+  for (const log of activeLogs) {
+    historyShifted += await shiftScoreHistoryAfter({
+      user: log.user,
+      key: ratingHistoryKey(log.kind),
+      anchorAt,
+      delta: -Number(log.delta || 0),
+    });
+  }
+
+  const deletedHistory = await ScoreHistory.deleteMany({ sourceMatch: match._id });
+  const deletedLogs = await RatingChange.deleteMany({ match: match._id });
+
+  return {
+    logsRemoved: deletedLogs.deletedCount || 0,
+    rankingUpdated,
+    historyShifted,
+    historyDeleted: deletedHistory.deletedCount || 0,
+  };
+};
+
 /** Áp dụng rating cho 1 match ngay lập tức chưa dùng */
 export const applyMatchRating = asyncHandler(async (req, res) => {
   const { matchId } = req.params;
@@ -578,27 +686,45 @@ export const backfillBracketRating = asyncHandler(async (req, res) => {
     pairA: { $ne: null },
     pairB: { $ne: null },
   })
-    .select("_id code labelKey finishedAt updatedAt ratingApplied ratingDelta")
+    .select(
+      "_id code labelKey finishedAt updatedAt createdAt ratingApplied ratingAppliedAt ratingDelta"
+    )
     .sort({ finishedAt: 1, updatedAt: 1, _id: 1 });
 
   const candidateIds = candidates.map((match) => match._id);
-  const loggedMatchIds = candidateIds.length
-    ? new Set(
-        (
-          await RatingChange.distinct("match", {
-            match: { $in: candidateIds },
-          })
-        ).map(String)
+  const existingLogs = candidateIds.length
+    ? await RatingChange.find({ match: { $in: candidateIds } }).select(
+        "user match kind delta revoked"
       )
-    : new Set();
+    : [];
+  const logsByMatch = new Map();
+  for (const log of existingLogs) {
+    const key = String(log.match);
+    const list = logsByMatch.get(key) || [];
+    list.push(log);
+    logsByMatch.set(key, list);
+  }
 
-  const toApply = candidates.filter((match) => {
-    if (loggedMatchIds.has(String(match._id))) return false;
-    if (match.ratingApplied === true && Number(match.ratingDelta || 0) > 0) {
-      return false;
+  const toApply = candidates;
+
+  let removedOldLogs = 0;
+  let removedOldHistory = 0;
+  let shiftedOldHistory = 0;
+  let reappliedMatches = 0;
+  let undoRankingUpdated = 0;
+  for (const match of toApply) {
+    const oldLogs = logsByMatch.get(String(match._id)) || [];
+    if (!oldLogs.length) continue;
+
+    const undo = await undoMatchRatingForReapply(match, oldLogs);
+    removedOldLogs += undo.logsRemoved;
+    removedOldHistory += undo.historyDeleted;
+    shiftedOldHistory += undo.historyShifted;
+    undoRankingUpdated += undo.rankingUpdated;
+    if (undo.logsRemoved || undo.historyDeleted || undo.historyShifted) {
+      reappliedMatches += 1;
     }
-    return true;
-  });
+  }
 
   let appliedMatches = 0;
   let zeroDeltaMatches = 0;
@@ -620,7 +746,7 @@ export const backfillBracketRating = asyncHandler(async (req, res) => {
         await Match.updateOne({ _id: match._id }, { $set: resetFields });
       }
 
-      await applyRatingForFinishedMatch(match._id);
+      await applyRatingForFinishedMatch(match._id, { historical: true });
 
       const updated = await Match.findById(match._id).select(
         "ratingApplied ratingDelta"
@@ -658,11 +784,16 @@ export const backfillBracketRating = asyncHandler(async (req, res) => {
       : null,
     changed: changes,
     matches: candidates.length,
-    skippedExistingRating: candidates.length - toApply.length,
+    skippedExistingRating: 0,
     attempted: toApply.length,
     appliedMatches,
     zeroDeltaMatches,
     failedMatches,
+    reappliedMatches,
+    removedOldLogs,
+    removedOldHistory,
+    shiftedOldHistory,
+    undoRankingUpdated,
     failed,
   });
 });
