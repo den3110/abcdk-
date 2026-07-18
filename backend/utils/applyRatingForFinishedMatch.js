@@ -756,7 +756,8 @@ export async function applyRatingForFinishedMatch(matchId) {
         contextDU: round3(contextDU),
         bracketType,
         round: mt.round || 1,
-        createdAt: new Date(),
+        createdAt: when,
+        updatedAt: when,
       });
     });
   };

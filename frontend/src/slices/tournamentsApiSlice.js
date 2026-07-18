@@ -210,6 +210,22 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
+    // POST /api/brackets/:bracketId/enable-rating — SUPER ADMIN bật lại tính điểm bracket
+    enableBracketRating: builder.mutation({
+      query: (bracketId) => ({
+        url: `/api/brackets/${bracketId}/enable-rating`,
+        method: "POST",
+      }),
+    }),
+
+    // POST /api/brackets/:bracketId/backfill-rating — SUPER ADMIN bù điểm cho trận đã kết thúc
+    backfillBracketRating: builder.mutation({
+      query: (bracketId) => ({
+        url: `/api/brackets/${bracketId}/backfill-rating`,
+        method: "POST",
+      }),
+    }),
+
     // GET /api/tournaments/:id/matches  (user route)
     listTournamentMatches: builder.query({
       query: ({ tournamentId, ...params }) => ({
@@ -836,6 +852,8 @@ export const {
   useListTournamentBracketsQuery,
   useRevokeBracketRatingMutation,
   useRestoreBracketRatingMutation,
+  useEnableBracketRatingMutation,
+  useBackfillBracketRatingMutation,
   useListTournamentMatchesQuery,
   useListTournamentManagersQuery,
   useAddTournamentManagerMutation,

@@ -6,6 +6,8 @@ import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import Ranking from "../models/rankingModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
+import Tournament from "../models/tournamentModel.js";
+import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 import {
   applyRatingForMatch,
   recomputeTournamentRatings,
@@ -13,6 +15,56 @@ import {
 } from "../services/ratingEngine.js";
 
 const round3 = (x) => Math.round((Number(x) || 0) * 1000) / 1000;
+
+const assertSuperAdmin = (req, action) => {
+  const isSuper = Boolean(req.user?.isSuperAdmin || req.user?.isSuperUser);
+  if (!isSuper) {
+    const label = action || "thao tác điểm bracket";
+    const err = new Error(`Chỉ Super Admin mới được ${label}`);
+    err.status = 403;
+    throw err;
+  }
+};
+
+const loadBracketForRatingAction = async (bracketId) => {
+  if (!mongoose.isValidObjectId(bracketId)) {
+    const err = new Error("bracketId không hợp lệ");
+    err.status = 400;
+    throw err;
+  }
+
+  const bracket = await Bracket.findById(bracketId).select(
+    "name tournament noRankDelta"
+  );
+  if (!bracket) {
+    const err = new Error("Không tìm thấy bracket");
+    err.status = 404;
+    throw err;
+  }
+
+  return bracket;
+};
+
+const enableRatingForBracketScope = async (bracket) => {
+  const tournament = bracket.tournament
+    ? await Tournament.findById(bracket.tournament).select("name noRankDelta")
+    : null;
+  const changes = { bracket: false, tournament: false };
+
+  if (tournament?.noRankDelta) {
+    tournament.noRankDelta = false;
+    await tournament.save();
+    changes.tournament = true;
+  }
+
+  if (bracket.noRankDelta) {
+    bracket.noRankDelta = false;
+    await bracket.save();
+    changes.bracket = true;
+  }
+
+  return { tournament, changes };
+};
 
 /** Áp dụng rating cho 1 match ngay lập tức chưa dùng */
 export const applyMatchRating = asyncHandler(async (req, res) => {
@@ -477,6 +529,141 @@ export const restoreBracketRating = asyncHandler(async (req, res) => {
     usersAffected: userIds.length,
     rankingUpdated,
     historyUpdated,
+  });
+});
+
+/**
+ * SUPER ADMIN — Bật lại tính điểm cho bracket đang xem trên sơ đồ.
+ * Nếu giải đang tắt tính điểm toàn giải, mở luôn cờ cấp giải để guard không chặn.
+ */
+export const enableBracketRating = asyncHandler(async (req, res) => {
+  assertSuperAdmin(req, "bật điểm trình bracket");
+
+  const bracket = await loadBracketForRatingAction(req.params.bracketId);
+  const { tournament, changes } = await enableRatingForBracketScope(bracket);
+
+  res.json({
+    ok: true,
+    bracket: {
+      _id: bracket._id,
+      name: bracket.name,
+      noRankDelta: false,
+    },
+    tournament: tournament
+      ? {
+          _id: tournament._id,
+          name: tournament.name,
+          noRankDelta: false,
+        }
+      : null,
+    changed: changes,
+  });
+});
+
+/**
+ * SUPER ADMIN — Áp dụng bù cộng/trừ điểm cho các trận đã kết thúc trong bracket
+ * nhưng chưa có RatingChange. Dùng cho giải/bracket từng bị tắt tính điểm nên trận
+ * đã ghi ratingApplied=true, ratingDelta=0.
+ */
+export const backfillBracketRating = asyncHandler(async (req, res) => {
+  assertSuperAdmin(req, "bù điểm trình bracket");
+
+  const bracket = await loadBracketForRatingAction(req.params.bracketId);
+  const { tournament, changes } = await enableRatingForBracketScope(bracket);
+
+  const candidates = await Match.find({
+    bracket: bracket._id,
+    status: "finished",
+    winner: { $in: ["A", "B"] },
+    pairA: { $ne: null },
+    pairB: { $ne: null },
+  })
+    .select("_id code labelKey finishedAt updatedAt ratingApplied ratingDelta")
+    .sort({ finishedAt: 1, updatedAt: 1, _id: 1 });
+
+  const candidateIds = candidates.map((match) => match._id);
+  const loggedMatchIds = candidateIds.length
+    ? new Set(
+        (
+          await RatingChange.distinct("match", {
+            match: { $in: candidateIds },
+          })
+        ).map(String)
+      )
+    : new Set();
+
+  const toApply = candidates.filter((match) => {
+    if (loggedMatchIds.has(String(match._id))) return false;
+    if (match.ratingApplied === true && Number(match.ratingDelta || 0) > 0) {
+      return false;
+    }
+    return true;
+  });
+
+  let appliedMatches = 0;
+  let zeroDeltaMatches = 0;
+  let failedMatches = 0;
+  const failed = [];
+
+  for (const match of toApply) {
+    try {
+      const resetFields = {};
+      if (match.ratingApplied === true || Number(match.ratingDelta || 0) !== 0) {
+        resetFields.ratingApplied = false;
+        resetFields.ratingAppliedAt = null;
+        resetFields.ratingDelta = 0;
+      }
+      if (!match.finishedAt) {
+        resetFields.finishedAt = match.updatedAt || new Date();
+      }
+      if (Object.keys(resetFields).length) {
+        await Match.updateOne({ _id: match._id }, { $set: resetFields });
+      }
+
+      await applyRatingForFinishedMatch(match._id);
+
+      const updated = await Match.findById(match._id).select(
+        "ratingApplied ratingDelta"
+      );
+      if (updated?.ratingApplied && Number(updated.ratingDelta || 0) > 0) {
+        appliedMatches += 1;
+      } else if (updated?.ratingApplied) {
+        zeroDeltaMatches += 1;
+      }
+    } catch (error) {
+      failedMatches += 1;
+      if (failed.length < 5) {
+        failed.push({
+          matchId: match._id,
+          code: match.code || match.labelKey || "",
+          message: error?.message || "Không áp dụng được điểm",
+        });
+      }
+    }
+  }
+
+  res.json({
+    ok: true,
+    bracket: {
+      _id: bracket._id,
+      name: bracket.name,
+      noRankDelta: false,
+    },
+    tournament: tournament
+      ? {
+          _id: tournament._id,
+          name: tournament.name,
+          noRankDelta: false,
+        }
+      : null,
+    changed: changes,
+    matches: candidates.length,
+    skippedExistingRating: candidates.length - toApply.length,
+    attempted: toApply.length,
+    appliedMatches,
+    zeroDeltaMatches,
+    failedMatches,
+    failed,
   });
 });
 
