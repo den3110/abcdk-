@@ -484,10 +484,6 @@ function PublicProfileDialog({ open, onClose, userId }) {
     setTargetRatingScore("");
   }, [open, userId]);
 
-  useEffect(() => {
-    setSelectedRatingMatchIds([]);
-  }, [matchPage, userId]);
-
   const wantsRatings = Boolean(open && userId && tab === 1);
   const wantsMatches = Boolean(open && userId && tab === 2);
   const wantsAchievements = Boolean(open && userId && tab === 3);
@@ -1813,7 +1809,7 @@ function PublicProfileDialog({ open, onClose, userId }) {
     );
   }
 
-  function RatingTargetControls() {
+  function renderRatingTargetControls() {
     if (!viewerIsSuperAdmin) return null;
 
     return (
@@ -1881,7 +1877,7 @@ function PublicProfileDialog({ open, onClose, userId }) {
             Lịch sử thi đấu
           </Typography>
 
-          <RatingTargetControls />
+          {renderRatingTargetControls()}
 
           {rows.length ? (
             rows.map((m) => {
@@ -2030,7 +2026,7 @@ function PublicProfileDialog({ open, onClose, userId }) {
           Lịch sử thi đấu
         </Typography>
 
-        <RatingTargetControls />
+        {renderRatingTargetControls()}
 
         <TableContainer
           sx={{

@@ -22,6 +22,20 @@ const RATING_MAX = 8;
 
 const round3 = (value) => Math.round((Number(value) || 0) * 1000) / 1000;
 
+const formatSignedDelta = (value) => {
+  let rounded = round3(value);
+  if (Object.is(rounded, -0)) rounded = 0;
+  return `${rounded >= 0 ? "+" : ""}${rounded.toFixed(3)}`;
+};
+
+const replaceScoreHistoryDeltaNote = (note, delta) => {
+  const signed = formatSignedDelta(delta);
+  const text = String(note ?? "");
+  const deltaPrefix = /^[+-]\d+(?:\.\d+)?/;
+  if (deltaPrefix.test(text)) return text.replace(deltaPrefix, signed);
+  return text ? `${signed} ${text}` : signed;
+};
+
 const ratingHistoryKey = (kind) => (kind === "singles" ? "single" : "double");
 
 const assertSuperAdmin = (req, action) => {
@@ -330,7 +344,14 @@ function buildScoreText(gameScores = []) {
   return gameScores.map((g) => `${g.a ?? 0} - ${g.b ?? 0}`).join(" , ");
 }
 
-const addToScoreHistory = async ({ user, key, matchId, anchorAt, amount }) => {
+const addToScoreHistory = async ({
+  user,
+  key,
+  matchId,
+  anchorAt,
+  amount,
+  noteDelta,
+}) => {
   const delta = Number(amount) || 0;
   if (!user || !key || !matchId || !anchorAt || !delta) return 0;
 
@@ -354,26 +375,48 @@ const addToScoreHistory = async ({ user, key, matchId, anchorAt, amount }) => {
 
   const nearStart = new Date(anchorAt.getTime() - 2000);
   const nearEnd = new Date(anchorAt.getTime() + 2000);
-  const currentOut = await ScoreHistory.updateMany(
-    {
-      user,
-      [key]: { $ne: null },
-      $or: [
-        { sourceMatch: matchId },
-        {
-          sourceMatch: { $exists: false },
-          scoredAt: { $gte: nearStart, $lte: nearEnd },
-          note: /^[+-]\d/,
-        },
-        {
-          sourceMatch: null,
-          scoredAt: { $gte: nearStart, $lte: nearEnd },
-          note: /^[+-]\d/,
-        },
-      ],
-    },
-    addStage
-  );
+  const currentFilter = {
+    user,
+    [key]: { $ne: null },
+    $or: [
+      { sourceMatch: matchId },
+      {
+        sourceMatch: { $exists: false },
+        scoredAt: { $gte: nearStart, $lte: nearEnd },
+        note: /^[+-]\d/,
+      },
+      {
+        sourceMatch: null,
+        scoredAt: { $gte: nearStart, $lte: nearEnd },
+        note: /^[+-]\d/,
+      },
+    ],
+  };
+
+  const currentOut = await ScoreHistory.updateMany(currentFilter, addStage);
+
+  const nextNoteDelta = Number(noteDelta);
+  if (Number.isFinite(nextNoteDelta)) {
+    const currentRows = await ScoreHistory.find(currentFilter)
+      .select("_id note")
+      .lean();
+
+    if (currentRows.length) {
+      await ScoreHistory.bulkWrite(
+        currentRows.map((row) => ({
+          updateOne: {
+            filter: { _id: row._id },
+            update: {
+              $set: {
+                note: replaceScoreHistoryDeltaNote(row.note, nextNoteDelta),
+              },
+            },
+          },
+        })),
+        { ordered: false }
+      );
+    }
+  }
 
   const futureOut = await ScoreHistory.updateMany(
     {
@@ -704,6 +747,7 @@ export const adjustMatchRatingTarget = asyncHandler(async (req, res) => {
         matchId: plan.match._id,
         anchorAt: plan.anchorAt,
         amount: signedAmount,
+        noteDelta: nextDelta,
       });
       futureLogsShifted += await shiftFutureRatingChanges({
         user: log.user,
