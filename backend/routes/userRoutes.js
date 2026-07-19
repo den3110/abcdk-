@@ -31,6 +31,7 @@ import {
   superUser,
 } from "../middleware/authMiddleware.js";
 import {
+  adjustMatchRatingTarget,
   getMatchHistory,
   getRatingHistory,
 } from "../controllers/profileController.js";
@@ -77,6 +78,12 @@ router.post("/logout", logoutUser);
 router.get("/:id/public", passProtect, getPublicProfile);
 router.get("/:id/ratings", passProtect, getRatingHistory);
 router.get("/:userId/achievements", passProtect, getUserAchievements);
+router.post(
+  "/:id/matches/rating-target",
+  protect,
+  superUser,
+  adjustMatchRatingTarget,
+);
 router.get("/:id/matches", getMatchHistory);
 router.get("/me/score", protect, getMeWithScore);
 

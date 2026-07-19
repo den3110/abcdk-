@@ -395,6 +395,7 @@ export const apiSlice = createApi({
     "Booking",
     "AssessmentHistory",
     "RatingHistory",
+    "MatchHistory",
     "RegistrationHistory",
     "SupportTicket",
   ],

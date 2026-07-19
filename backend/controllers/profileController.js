@@ -7,14 +7,68 @@ import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
 import Bracket from "../models/bracketModel.js";
 import User from "../models/userModel.js";
+import Ranking from "../models/rankingModel.js";
 import mongoose from "mongoose";
 import { shouldHideUserRatings } from "../utils/privacyControl.js";
+import { clearRankingPresentationCaches } from "../services/cacheInvalidation.service.js";
 import {
   buildMatchCodePayload,
   isGroupishBracketType,
 } from "../utils/matchDisplayCode.js";
 
 const MAX_PROFILE_PAGE_SIZE = 1000;
+const RATING_MIN = 0;
+const RATING_MAX = 8;
+
+const round3 = (value) => Math.round((Number(value) || 0) * 1000) / 1000;
+
+const ratingHistoryKey = (kind) => (kind === "singles" ? "single" : "double");
+
+const assertSuperAdmin = (req, action) => {
+  const isSuper = Boolean(req.user?.isSuperAdmin || req.user?.isSuperUser);
+  if (!isSuper) {
+    const label = action || "thao tác điểm trình";
+    const err = new Error(`Chỉ Super Admin mới được ${label}`);
+    err.status = 403;
+    throw err;
+  }
+};
+
+const hasPlayableScore = (match) => {
+  const games = Array.isArray(match?.gameScores) ? match.gameScores : [];
+  return games.some((game) => {
+    const a = Number(game?.a ?? game?.scoreA ?? 0);
+    const b = Number(game?.b ?? game?.scoreB ?? 0);
+    return Number.isFinite(a) && Number.isFinite(b) && a + b > 0;
+  });
+};
+
+const splitMillisEvenly = (totalMillis, count) => {
+  if (!Number.isFinite(totalMillis) || count <= 0) return [];
+  const sign = totalMillis < 0 ? -1 : 1;
+  const abs = Math.abs(totalMillis);
+  const base = Math.trunc(abs / count);
+  const remainder = abs % count;
+  return Array.from({ length: count }, (_, index) =>
+    sign * (base + (index < remainder ? 1 : 0))
+  );
+};
+
+const addUserId = (set, value) => {
+  if (mongoose.isValidObjectId(value)) set.add(String(value));
+};
+
+const registrationUserIds = (reg) => {
+  const ids = new Set();
+  addUserId(ids, reg?.player1?.user);
+  addUserId(ids, reg?.player2?.user);
+  return [...ids];
+};
+
+const uniqueObjectIds = (values = []) =>
+  [...new Set(values.map(String).filter((value) => mongoose.isValidObjectId(value)))].map(
+    (value) => new mongoose.Types.ObjectId(value)
+  );
 
 function parsePositiveInt(value, fallback) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
@@ -275,6 +329,425 @@ function buildScoreText(gameScores = []) {
   if (!Array.isArray(gameScores) || !gameScores.length) return "";
   return gameScores.map((g) => `${g.a ?? 0} - ${g.b ?? 0}`).join(" , ");
 }
+
+const addToScoreHistory = async ({ user, key, matchId, anchorAt, amount }) => {
+  const delta = Number(amount) || 0;
+  if (!user || !key || !matchId || !anchorAt || !delta) return 0;
+
+  const addStage = [
+    {
+      $set: {
+        [key]: {
+          $round: [
+            {
+              $max: [
+                { $add: [{ $ifNull: [`$${key}`, 0] }, delta] },
+                0,
+              ],
+            },
+            3,
+          ],
+        },
+      },
+    },
+  ];
+
+  const nearStart = new Date(anchorAt.getTime() - 2000);
+  const nearEnd = new Date(anchorAt.getTime() + 2000);
+  const currentOut = await ScoreHistory.updateMany(
+    {
+      user,
+      [key]: { $ne: null },
+      $or: [
+        { sourceMatch: matchId },
+        {
+          sourceMatch: { $exists: false },
+          scoredAt: { $gte: nearStart, $lte: nearEnd },
+          note: /^[+-]\d/,
+        },
+        {
+          sourceMatch: null,
+          scoredAt: { $gte: nearStart, $lte: nearEnd },
+          note: /^[+-]\d/,
+        },
+      ],
+    },
+    addStage
+  );
+
+  const futureOut = await ScoreHistory.updateMany(
+    {
+      user,
+      [key]: { $ne: null },
+      scoredAt: { $gt: anchorAt },
+    },
+    addStage
+  );
+
+  return (currentOut.modifiedCount || 0) + (futureOut.modifiedCount || 0);
+};
+
+const shiftFutureRatingChanges = async ({ user, kind, anchorAt, amount }) => {
+  const delta = Number(amount) || 0;
+  if (!user || !kind || !anchorAt || !delta) return 0;
+
+  const out = await RatingChange.updateMany(
+    {
+      user,
+      kind,
+      revoked: { $ne: true },
+      createdAt: { $gt: anchorAt },
+    },
+    [
+      {
+        $set: {
+          before: {
+            $round: [
+              { $max: [{ $add: [{ $ifNull: ["$before", 0] }, delta] }, 0] },
+              3,
+            ],
+          },
+          after: {
+            $round: [
+              { $max: [{ $add: [{ $ifNull: ["$after", 0] }, delta] }, 0] },
+              3,
+            ],
+          },
+        },
+      },
+    ]
+  );
+
+  return out.modifiedCount || 0;
+};
+
+const syncRankingsFromLatestHistory = async (usersByKey) => {
+  let rankingSynced = 0;
+  const touchedUserIds = new Set();
+  const now = new Date();
+
+  for (const [key, userSet] of usersByKey.entries()) {
+    if (!userSet?.size) continue;
+    const userIds = uniqueObjectIds([...userSet]);
+    if (!userIds.length) continue;
+
+    const rows = await ScoreHistory.aggregate([
+      {
+        $match: {
+          user: { $in: userIds },
+          [key]: { $type: "number" },
+        },
+      },
+      { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+      {
+        $group: {
+          _id: "$user",
+          value: { $first: `$${key}` },
+        },
+      },
+    ]);
+
+    const latestByUser = new Map(
+      rows
+        .filter((row) => Number.isFinite(Number(row?.value)))
+        .map((row) => [String(row._id), round3(row.value)])
+    );
+
+    const ops = userIds.map((userId) => {
+      const userKey = String(userId);
+      touchedUserIds.add(userKey);
+      return {
+        updateOne: {
+          filter: { user: userId },
+          update: {
+            $set: {
+              [key]: latestByUser.get(userKey) ?? 0,
+              lastUpdated: now,
+            },
+            $currentDate: { updatedAt: true },
+            $setOnInsert: { user: userId },
+          },
+          upsert: true,
+        },
+      };
+    });
+
+    if (ops.length) {
+      const out = await Ranking.bulkWrite(ops, { ordered: false });
+      rankingSynced +=
+        (out.modifiedCount || 0) +
+        (out.upsertedCount || 0) +
+        (out.matchedCount || 0);
+    }
+  }
+
+  if (touchedUserIds.size) {
+    await Ranking.bulkRecalculateTiers([...touchedUserIds]);
+  }
+
+  return {
+    rankingSynced,
+    rankingUsersSynced: touchedUserIds.size,
+  };
+};
+
+const getCurrentRatingValue = async (userId, key) => {
+  const rank = await Ranking.findOne({ user: userId }).select(key).lean();
+  const ranked = Number(rank?.[key]);
+  if (Number.isFinite(ranked)) return round3(ranked);
+
+  const latest = await ScoreHistory.findOne({
+    user: userId,
+    [key]: { $type: "number" },
+  })
+    .sort({ scoredAt: -1, createdAt: -1, _id: -1 })
+    .select(key)
+    .lean();
+  const value = Number(latest?.[key]);
+  return Number.isFinite(value) ? round3(value) : 0;
+};
+
+export const adjustMatchRatingTarget = asyncHandler(async (req, res) => {
+  assertSuperAdmin(req, "chỉnh điểm trình theo mục tiêu");
+
+  const userId = String(req.params.id || "");
+  if (!mongoose.isValidObjectId(userId)) {
+    res.status(400);
+    throw new Error("userId không hợp lệ");
+  }
+
+  const targetScore = Number(req.body?.targetScore);
+  if (
+    !Number.isFinite(targetScore) ||
+    targetScore < RATING_MIN ||
+    targetScore > RATING_MAX
+  ) {
+    res.status(400);
+    throw new Error("Điểm mục tiêu không hợp lệ");
+  }
+
+  const matchIds = [
+    ...new Set(
+      (Array.isArray(req.body?.matchIds) ? req.body.matchIds : [])
+        .map(String)
+        .filter((id) => mongoose.isValidObjectId(id))
+    ),
+  ];
+  if (!matchIds.length) {
+    res.status(400);
+    throw new Error("Chưa chọn trận để dàn điểm");
+  }
+
+  const matches = await Match.find({
+    _id: { $in: uniqueObjectIds(matchIds) },
+    status: "finished",
+    winner: { $in: ["A", "B"] },
+  })
+    .select(
+      "_id tournament pairA pairB gameScores winner finishedAt scheduledAt updatedAt createdAt"
+    )
+    .populate("tournament", "eventType")
+    .populate("pairA", "player1.user player2.user")
+    .populate("pairB", "player1.user player2.user")
+    .lean();
+
+  if (matches.length !== matchIds.length) {
+    res.status(400);
+    throw new Error("Có trận không tồn tại hoặc chưa kết thúc");
+  }
+
+  const plans = matches
+    .map((match) => {
+      const kind =
+        match?.tournament?.eventType === "single" ? "singles" : "doubles";
+      const key = ratingHistoryKey(kind);
+      const teamAIds = registrationUserIds(match.pairA);
+      const teamBIds = registrationUserIds(match.pairB);
+      const targetOnA = teamAIds.includes(userId);
+      const targetOnB = teamBIds.includes(userId);
+      const anchorAt =
+        match.finishedAt ||
+        match.scheduledAt ||
+        match.updatedAt ||
+        match.createdAt ||
+        new Date();
+
+      return {
+        match,
+        kind,
+        key,
+        teamAIds,
+        teamBIds,
+        targetSide: targetOnA ? "A" : targetOnB ? "B" : "",
+        anchorAt: new Date(anchorAt),
+      };
+    })
+    .sort((a, b) => {
+      const time = a.anchorAt.getTime() - b.anchorAt.getTime();
+      if (time !== 0) return time;
+      return String(a.match._id).localeCompare(String(b.match._id));
+    });
+
+  const kindSet = new Set(plans.map((plan) => plan.kind));
+  if (kindSet.size !== 1) {
+    res.status(400);
+    throw new Error("Chỉ chọn các trận cùng loại điểm đơn hoặc đôi");
+  }
+
+  for (const plan of plans) {
+    if (!plan.targetSide) {
+      res.status(400);
+      throw new Error("Có trận không thuộc user đang mở hồ sơ");
+    }
+    if (!plan.match?.pairA || !plan.match?.pairB || !hasPlayableScore(plan.match)) {
+      res.status(400);
+      throw new Error("Không thể chỉnh điểm cho trận BYE hoặc trận không có tỷ số");
+    }
+  }
+
+  const kind = plans[0].kind;
+  const key = plans[0].key;
+  const currentScore = await getCurrentRatingValue(userId, key);
+  const currentMillis = Math.round(currentScore * 1000);
+  const targetMillis = Math.round(targetScore * 1000);
+  const totalMillis = targetMillis - currentMillis;
+
+  if (totalMillis === 0) {
+    return res.json({
+      ok: true,
+      kind,
+      key,
+      currentScore,
+      targetScore: round3(targetScore),
+      totalDelta: 0,
+      adjustedMatches: 0,
+      message: "Điểm hiện tại đã bằng điểm mục tiêu",
+    });
+  }
+
+  const logs = await RatingChange.find({
+    match: { $in: plans.map((plan) => plan.match._id) },
+    kind,
+    revoked: { $ne: true },
+  }).select("_id user match kind before after delta");
+
+  const logsByMatchUser = new Map();
+  for (const log of logs) {
+    logsByMatchUser.set(`${log.match}|${log.user}`, log);
+  }
+
+  for (const plan of plans) {
+    const allIds = [...new Set([...plan.teamAIds, ...plan.teamBIds])];
+    for (const uid of allIds) {
+      if (!logsByMatchUser.has(`${plan.match._id}|${uid}`)) {
+        res.status(400);
+        throw new Error("Có trận chưa có đủ log cộng/trừ điểm trình");
+      }
+    }
+  }
+
+  const adjustmentsMillis = splitMillisEvenly(totalMillis, plans.length);
+  const usersByKey = new Map([[key, new Set()]]);
+  let ratingChangesUpdated = 0;
+  let scoreHistoriesShifted = 0;
+  let futureLogsShifted = 0;
+  const perMatch = [];
+
+  for (const [index, plan] of plans.entries()) {
+    const amount = adjustmentsMillis[index] / 1000;
+    if (!amount) {
+      perMatch.push({
+        match: plan.match._id,
+        deltaForTarget: 0,
+      });
+      continue;
+    }
+
+    const sameSideIds = plan.targetSide === "A" ? plan.teamAIds : plan.teamBIds;
+    const otherSideIds = plan.targetSide === "A" ? plan.teamBIds : plan.teamAIds;
+    const signedAdjustments = new Map();
+    sameSideIds.forEach((uid) => signedAdjustments.set(uid, amount));
+    otherSideIds.forEach((uid) => signedAdjustments.set(uid, -amount));
+
+    const updatedDeltas = [];
+    for (const [uid, signedAmount] of signedAdjustments.entries()) {
+      const log = logsByMatchUser.get(`${plan.match._id}|${uid}`);
+      const freshLog =
+        (await RatingChange.findById(log._id).select("before after delta")) ||
+        log;
+      const before = Number(freshLog.before);
+      const after = Number(freshLog.after);
+      const safeBefore = Number.isFinite(before) ? before : 0;
+      const rawAfter = (Number.isFinite(after) ? after : safeBefore) +
+        signedAmount;
+      const nextAfter = round3(Math.max(0, rawAfter));
+      const nextDelta = round3(nextAfter - safeBefore);
+
+      await RatingChange.updateOne(
+        { _id: log._id },
+        {
+          $set: {
+            after: nextAfter,
+            delta: nextDelta,
+            updatedAt: new Date(),
+          },
+        }
+      );
+      log.after = nextAfter;
+      log.delta = nextDelta;
+      ratingChangesUpdated += 1;
+      updatedDeltas.push(Math.abs(nextDelta));
+
+      scoreHistoriesShifted += await addToScoreHistory({
+        user: log.user,
+        key,
+        matchId: plan.match._id,
+        anchorAt: plan.anchorAt,
+        amount: signedAmount,
+      });
+      futureLogsShifted += await shiftFutureRatingChanges({
+        user: log.user,
+        kind,
+        anchorAt: plan.anchorAt,
+        amount: signedAmount,
+      });
+      usersByKey.get(key).add(String(uid));
+    }
+
+    if (updatedDeltas.length) {
+      const avgAbsDelta = updatedDeltas.reduce((sum, value) => sum + value, 0) /
+        updatedDeltas.length;
+      await Match.updateOne(
+        { _id: plan.match._id },
+        { $set: { ratingDelta: round3(avgAbsDelta) } }
+      );
+    }
+
+    perMatch.push({
+      match: plan.match._id,
+      deltaForTarget: round3(amount),
+    });
+  }
+
+  const rankingSync = await syncRankingsFromLatestHistory(usersByKey);
+  await clearRankingPresentationCaches();
+
+  return res.json({
+    ok: true,
+    kind,
+    key,
+    currentScore,
+    targetScore: round3(targetScore),
+    totalDelta: round3(totalMillis / 1000),
+    adjustedMatches: plans.length,
+    ratingChangesUpdated,
+    scoreHistoriesShifted,
+    futureLogsShifted,
+    rankingSynced: rankingSync.rankingSynced,
+    rankingUsersSynced: rankingSync.rankingUsersSynced,
+    perMatch,
+  });
+});
 
 export const getMatchHistory = asyncHandler(async (req, res) => {
   const userId = String(req.params.id);
@@ -590,6 +1063,12 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
 
     const regA = regById.get(String(m.pairA));
     const regB = regById.get(String(m.pairB));
+    const profileRatingChange = ratingChangeByMatchUserKind.get(
+      `${m._id}|${userId}|${ratingKind}`
+    );
+    const ratingAdjustable = Boolean(
+      profileRatingChange && regA && regB && hasPlayableScore(m)
+    );
 
     const decorateForMatch = (p) => {
       const userId = p?.user ? String(p.user) : "";
@@ -618,6 +1097,9 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       codeResolved: code,
       dateTime: m.finishedAt || m.scheduledAt || null,
       tournament: { id: tour?._id, name: tour?.name || "" },
+      ratingKind,
+      ratingKey: typeKey,
+      ratingAdjustable,
       team1,
       team2,
       scoreText: buildScoreText(m.gameScores) || "—",

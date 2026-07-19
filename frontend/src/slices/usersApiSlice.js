@@ -70,6 +70,10 @@ export const userApiSlice = apiSlice.injectEndpoints({
           },
         };
       },
+      providesTags: (result, error, arg) => {
+        const { id } = normalizeUserScopedArg(arg);
+        return [{ type: "MatchHistory", id }];
+      },
     }),
     getProfile: builder.query({
       query: () => "/api/users/profile",
@@ -122,6 +126,18 @@ export const userApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (r, e, { userId }) => [
         { type: "RatingHistory", id: userId },
+      ],
+    }),
+    adjustMatchRatingTarget: builder.mutation({
+      query: ({ userId, matchIds, targetScore }) => ({
+        url: `${USERS_URL}/${userId}/matches/rating-target`,
+        method: "POST",
+        body: { matchIds, targetScore },
+      }),
+      invalidatesTags: (r, e, { userId }) => [
+        { type: "RatingHistory", id: userId },
+        { type: "MatchHistory", id: userId },
+        { type: "Rankings", id: "LIST" },
       ],
     }),
     getUserAchievements: builder.query({
@@ -190,6 +206,7 @@ export const {
   useResetPasswordMutation,
   useGetMeScoreQuery,
   useDeleteRatingHistoryMutation,
+  useAdjustMatchRatingTargetMutation,
   useGetUserAchievementsQuery,
   // OTP tạm tắt
   // useVerifyRegisterOtpMutation,

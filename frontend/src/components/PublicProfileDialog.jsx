@@ -33,6 +33,8 @@ import {
   CardContent,
   Snackbar,
   Grid,
+  Checkbox,
+  TextField,
 } from "@mui/material";
 import DeleteOutlineOutlinedIcon from "@mui/icons-material/DeleteOutlineOutlined";
 import CloseIcon from "@mui/icons-material/Close";
@@ -63,6 +65,7 @@ import {
   useGetRatingHistoryQuery,
   useGetMatchHistoryQuery,
   useDeleteRatingHistoryMutation,
+  useAdjustMatchRatingTargetMutation,
   useGetUserAchievementsQuery,
 } from "../slices/usersApiSlice";
 import { useReviewKycMutation } from "../slices/adminApiSlice";
@@ -469,13 +472,21 @@ function PublicProfileDialog({ open, onClose, userId }) {
   const ratingPerPage = 10;
   const [matchPage, setMatchPage] = useState(1);
   const matchPerPage = 10;
+  const [selectedRatingMatchIds, setSelectedRatingMatchIds] = useState([]);
+  const [targetRatingScore, setTargetRatingScore] = useState("");
 
   useEffect(() => {
     if (!open) return;
     setTab(0);
     setRatingPage(1);
     setMatchPage(1);
+    setSelectedRatingMatchIds([]);
+    setTargetRatingScore("");
   }, [open, userId]);
+
+  useEffect(() => {
+    setSelectedRatingMatchIds([]);
+  }, [matchPage, userId]);
 
   const wantsRatings = Boolean(open && userId && tab === 1);
   const wantsMatches = Boolean(open && userId && tab === 2);
@@ -575,9 +586,16 @@ function PublicProfileDialog({ open, onClose, userId }) {
     (s) =>
       !!(s?.auth?.userInfo?.isAdmin || s?.auth?.userInfo?.role === "admin"),
   );
+  const viewerIsSuperAdmin = useSelector((s) =>
+    Boolean(
+      s?.auth?.userInfo?.isSuperAdmin || s?.auth?.userInfo?.isSuperUser,
+    ),
+  );
 
   /* --- duyệt / từ chối KYC (admin) --- */
   const [reviewKyc, { isLoading: kycSubmitting }] = useReviewKycMutation();
+  const [adjustMatchRatingTarget, { isLoading: ratingTargetSubmitting }] =
+    useAdjustMatchRatingTargetMutation();
   const [kycAction, setKycAction] = useState(null); // "approve" | "reject" | null
 
   async function handleReviewKyc(action) {
@@ -609,6 +627,59 @@ function PublicProfileDialog({ open, onClose, userId }) {
     ? matchQ.data
     : matchQ.data?.items || [];
   const matchTotal = matchQ.data?.total ?? 0;
+
+  const toggleRatingMatch = (matchId, checked) => {
+    const id = String(matchId || "");
+    if (!id) return;
+    setSelectedRatingMatchIds((prev) => {
+      const set = new Set(prev.map(String));
+      if (checked) set.add(id);
+      else set.delete(id);
+      return [...set];
+    });
+  };
+
+  const clearRatingTargetForm = () => {
+    setSelectedRatingMatchIds([]);
+    setTargetRatingScore("");
+  };
+
+  const submitRatingTarget = async () => {
+    if (!viewerIsSuperAdmin || !userId || ratingTargetSubmitting) return;
+    if (!selectedRatingMatchIds.length) {
+      openSnack("Chưa chọn trận để dàn điểm.", "warning");
+      return;
+    }
+    const targetScore = Number(targetRatingScore);
+    if (!Number.isFinite(targetScore)) {
+      openSnack("Điểm mục tiêu không hợp lệ.", "error");
+      return;
+    }
+
+    try {
+      const result = await adjustMatchRatingTarget({
+        userId,
+        matchIds: selectedRatingMatchIds,
+        targetScore,
+      }).unwrap();
+      openSnack(
+        `Đã dàn ${num(result?.totalDelta, 3)} điểm qua ${result?.adjustedMatches || 0} trận.`,
+      );
+      clearRatingTargetForm();
+      await Promise.allSettled([
+        baseQ.refetch?.(),
+        rateQ.refetch?.(),
+        matchQ.refetch?.(),
+      ]);
+    } catch (e) {
+      const msg =
+        e?.data?.message ||
+        e?.error ||
+        e?.message ||
+        "Không thực thi được điểm mục tiêu.";
+      openSnack(msg, "error");
+    }
+  };
 
   /* --- match detail modal --- */
   const [detailOpen, setDetailOpen] = useState(false);
@@ -1742,6 +1813,53 @@ function PublicProfileDialog({ open, onClose, userId }) {
     );
   }
 
+  function RatingTargetControls() {
+    if (!viewerIsSuperAdmin) return null;
+
+    return (
+      <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 1.5 }}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          alignItems={{ xs: "stretch", sm: "center" }}
+        >
+          <TextField
+            size="small"
+            label="Điểm mục tiêu"
+            type="number"
+            value={targetRatingScore}
+            onChange={(e) => setTargetRatingScore(e.target.value)}
+            inputProps={{ step: "0.001", min: 0, max: 8 }}
+            sx={{ width: { xs: "100%", sm: 160 } }}
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
+            Đã chọn {selectedRatingMatchIds.length} trận
+          </Typography>
+          <Button
+            variant="contained"
+            size="small"
+            disabled={
+              ratingTargetSubmitting ||
+              !selectedRatingMatchIds.length ||
+              targetRatingScore === ""
+            }
+            onClick={submitRatingTarget}
+          >
+            Thực thi điểm
+          </Button>
+          <Button
+            variant="text"
+            size="small"
+            disabled={ratingTargetSubmitting || !selectedRatingMatchIds.length}
+            onClick={clearRatingTargetForm}
+          >
+            Bỏ chọn
+          </Button>
+        </Stack>
+      </Paper>
+    );
+  }
+
   /* --- Match section: mobile | desktop --- */
   function MatchSection({ isMobileView }) {
     if (matchLoading) return <MatchSkeleton isMobile={isMobileView} />;
@@ -1763,11 +1881,14 @@ function PublicProfileDialog({ open, onClose, userId }) {
             Lịch sử thi đấu
           </Typography>
 
+          <RatingTargetControls />
+
           {rows.length ? (
             rows.map((m) => {
               const winnerA = m?.winner === "A";
               const winnerB = m?.winner === "B";
               const scoreLines = toScoreLines(m);
+              const selected = selectedRatingMatchIds.includes(String(m._id));
               return (
                 <Paper
                   key={m._id}
@@ -1780,11 +1901,24 @@ function PublicProfileDialog({ open, onClose, userId }) {
                     justifyContent="space-between"
                     alignItems="center"
                   >
-                    <Chip
-                      size="small"
-                      color="primary"
-                      label={safe(m.code, String(m._id).slice(-5))}
-                    />
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      {viewerIsSuperAdmin && (
+                        <Checkbox
+                          size="small"
+                          checked={selected}
+                          disabled={!m.ratingAdjustable}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) =>
+                            toggleRatingMatch(m._id, e.target.checked)
+                          }
+                        />
+                      )}
+                      <Chip
+                        size="small"
+                        color="primary"
+                        label={safe(m.code, String(m._id).slice(-5))}
+                      />
+                    </Stack>
                     <Chip size="small" color="info" label={fmtDT(m.dateTime)} />
                   </Stack>
 
@@ -1896,6 +2030,8 @@ function PublicProfileDialog({ open, onClose, userId }) {
           Lịch sử thi đấu
         </Typography>
 
+        <RatingTargetControls />
+
         <TableContainer
           sx={{
             border: "1px solid",
@@ -1907,6 +2043,9 @@ function PublicProfileDialog({ open, onClose, userId }) {
           <Table size="small" stickyHeader>
             <TableHead>
               <TableRow>
+                {viewerIsSuperAdmin && (
+                  <TableCell sx={{ whiteSpace: "nowrap" }}>Chọn</TableCell>
+                )}
                 <TableCell sx={{ whiteSpace: "nowrap" }}>ID</TableCell>
                 <TableCell sx={{ whiteSpace: "nowrap" }}>
                   Ngày &amp; giờ
@@ -1926,6 +2065,7 @@ function PublicProfileDialog({ open, onClose, userId }) {
                   const winnerA = m?.winner === "A";
                   const winnerB = m?.winner === "B";
                   const scoreLines = toScoreLines(m);
+                  const selected = selectedRatingMatchIds.includes(String(m._id));
                   return (
                     <TableRow
                       key={m._id}
@@ -1933,6 +2073,19 @@ function PublicProfileDialog({ open, onClose, userId }) {
                       sx={{ cursor: "pointer" }}
                       onClick={() => openDetail(m)}
                     >
+                      {viewerIsSuperAdmin && (
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>
+                          <Checkbox
+                            size="small"
+                            checked={selected}
+                            disabled={!m.ratingAdjustable}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) =>
+                              toggleRatingMatch(m._id, e.target.checked)
+                            }
+                          />
+                        </TableCell>
+                      )}
                       <TableCell sx={{ whiteSpace: "nowrap" }}>
                         {safe(m.code, String(m._id).slice(-5))}
                       </TableCell>
@@ -1992,7 +2145,7 @@ function PublicProfileDialog({ open, onClose, userId }) {
               ) : (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={viewerIsSuperAdmin ? 8 : 7}
                     align="center"
                     sx={{ fontStyle: "italic" }}
                   >
