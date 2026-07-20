@@ -644,11 +644,15 @@ function PublicProfileDialog({ open, onClose, userId }) {
   };
 
   const refetchProfileDialogData = async () => {
-    await Promise.allSettled([
-      baseQ.refetch?.(),
-      rateQ.refetch?.(),
-      matchQ.refetch?.(),
-    ]);
+    const tasks = [];
+    if (typeof baseQ.refetch === "function") tasks.push(baseQ.refetch());
+    if (wantsRatings && typeof rateQ.refetch === "function") {
+      tasks.push(rateQ.refetch());
+    }
+    if (wantsMatches && typeof matchQ.refetch === "function") {
+      tasks.push(matchQ.refetch());
+    }
+    await Promise.allSettled(tasks);
   };
 
   const submitRatingTarget = async () => {
