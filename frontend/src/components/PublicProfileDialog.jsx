@@ -66,6 +66,7 @@ import {
   useGetMatchHistoryQuery,
   useDeleteRatingHistoryMutation,
   useAdjustMatchRatingTargetMutation,
+  useRestoreMatchRatingTargetMutation,
   useGetUserAchievementsQuery,
 } from "../slices/usersApiSlice";
 import { useReviewKycMutation } from "../slices/adminApiSlice";
@@ -592,6 +593,8 @@ function PublicProfileDialog({ open, onClose, userId }) {
   const [reviewKyc, { isLoading: kycSubmitting }] = useReviewKycMutation();
   const [adjustMatchRatingTarget, { isLoading: ratingTargetSubmitting }] =
     useAdjustMatchRatingTargetMutation();
+  const [restoreMatchRatingTarget, { isLoading: ratingTargetRestoring }] =
+    useRestoreMatchRatingTargetMutation();
   const [kycAction, setKycAction] = useState(null); // "approve" | "reject" | null
 
   async function handleReviewKyc(action) {
@@ -640,8 +643,22 @@ function PublicProfileDialog({ open, onClose, userId }) {
     setTargetRatingScore("");
   };
 
+  const refetchProfileDialogData = async () => {
+    await Promise.allSettled([
+      baseQ.refetch?.(),
+      rateQ.refetch?.(),
+      matchQ.refetch?.(),
+    ]);
+  };
+
   const submitRatingTarget = async () => {
-    if (!viewerIsSuperAdmin || !userId || ratingTargetSubmitting) return;
+    if (
+      !viewerIsSuperAdmin ||
+      !userId ||
+      ratingTargetSubmitting ||
+      ratingTargetRestoring
+    )
+      return;
     if (!selectedRatingMatchIds.length) {
       openSnack("Chưa chọn trận để dàn điểm.", "warning");
       return;
@@ -662,17 +679,42 @@ function PublicProfileDialog({ open, onClose, userId }) {
         `Đã dàn ${num(result?.totalDelta, 3)} điểm qua ${result?.adjustedMatches || 0} trận.`,
       );
       clearRatingTargetForm();
-      await Promise.allSettled([
-        baseQ.refetch?.(),
-        rateQ.refetch?.(),
-        matchQ.refetch?.(),
-      ]);
+      await refetchProfileDialogData();
     } catch (e) {
       const msg =
         e?.data?.message ||
         e?.error ||
         e?.message ||
         "Không thực thi được điểm mục tiêu.";
+      openSnack(msg, "error");
+    }
+  };
+
+  const restoreRatingTarget = async () => {
+    if (
+      !viewerIsSuperAdmin ||
+      !userId ||
+      ratingTargetSubmitting ||
+      ratingTargetRestoring
+    )
+      return;
+
+    try {
+      const result = await restoreMatchRatingTarget({ userId }).unwrap();
+      const restored = Number(result?.ratingChangesUpdated || 0);
+      openSnack(
+        restored
+          ? `Đã phục hồi điểm như cũ ở ${result?.matchesReset || 0} trận.`
+          : "Không có điểm đã dàn để phục hồi.",
+      );
+      clearRatingTargetForm();
+      await refetchProfileDialogData();
+    } catch (e) {
+      const msg =
+        e?.data?.message ||
+        e?.error ||
+        e?.message ||
+        "Không phục hồi được điểm.";
       openSnack(msg, "error");
     }
   };
@@ -1836,6 +1878,7 @@ function PublicProfileDialog({ open, onClose, userId }) {
             size="small"
             disabled={
               ratingTargetSubmitting ||
+              ratingTargetRestoring ||
               !selectedRatingMatchIds.length ||
               targetRatingScore === ""
             }
@@ -1846,10 +1889,22 @@ function PublicProfileDialog({ open, onClose, userId }) {
           <Button
             variant="text"
             size="small"
-            disabled={ratingTargetSubmitting || !selectedRatingMatchIds.length}
+            disabled={
+              ratingTargetSubmitting ||
+              ratingTargetRestoring ||
+              !selectedRatingMatchIds.length
+            }
             onClick={clearRatingTargetForm}
           >
             Bỏ chọn
+          </Button>
+          <Button
+            variant="outlined"
+            size="small"
+            disabled={ratingTargetSubmitting || ratingTargetRestoring}
+            onClick={restoreRatingTarget}
+          >
+            Phục hồi điểm như cũ
           </Button>
         </Stack>
       </Paper>

@@ -140,6 +140,17 @@ export const userApiSlice = apiSlice.injectEndpoints({
         { type: "Rankings", id: "LIST" },
       ],
     }),
+    restoreMatchRatingTarget: builder.mutation({
+      query: ({ userId }) => ({
+        url: `${USERS_URL}/${userId}/matches/rating-target/restore`,
+        method: "POST",
+      }),
+      invalidatesTags: (r, e, { userId }) => [
+        { type: "RatingHistory", id: userId },
+        { type: "MatchHistory", id: userId },
+        { type: "Rankings", id: "LIST" },
+      ],
+    }),
     getUserAchievements: builder.query({
       query: (arg) => {
         const { id, userId } = normalizeUserScopedArg(arg);
@@ -207,6 +218,7 @@ export const {
   useGetMeScoreQuery,
   useDeleteRatingHistoryMutation,
   useAdjustMatchRatingTargetMutation,
+  useRestoreMatchRatingTargetMutation,
   useGetUserAchievementsQuery,
   // OTP tạm tắt
   // useVerifyRegisterOtpMutation,

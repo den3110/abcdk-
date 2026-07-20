@@ -38,6 +38,24 @@ const ratingChangeSchema = new mongoose.Schema(
     // Optional: margin info (từ gameScores)
     marginBonus: { type: Number, default: 0 },
 
+    // Các lần dàn điểm thủ công theo điểm mục tiêu ở hồ sơ công khai.
+    // Lưu theo owner để lần bấm sau tự hoàn tác phần cũ rồi áp phần mới,
+    // tránh cộng dồn sai delta.
+    targetAdjustments: [
+      {
+        _id: false,
+        owner: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          index: true,
+          required: true,
+        },
+        delta: { type: Number, required: true },
+        adjustedAt: { type: Date, default: Date.now },
+        adjustedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      },
+    ],
+
     // ===== Thu hồi điểm theo bracket (super admin) =====
     // Khi thu hồi: delta -> 0, after -> before (lịch sử vẫn còn nhưng là 0 điểm);
     // giá trị gốc giữ ở origDelta/origAfter để trace/khôi phục ngược khi cần.
@@ -56,5 +74,6 @@ const ratingChangeSchema = new mongoose.Schema(
 
 // idempotent: 1 user chỉ được log 1 lần cho 1 match/kind
 ratingChangeSchema.index({ user: 1, match: 1, kind: 1 }, { unique: true });
+ratingChangeSchema.index({ "targetAdjustments.owner": 1, kind: 1 });
 
 export default mongoose.model("RatingChange", ratingChangeSchema);

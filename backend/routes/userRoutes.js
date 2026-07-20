@@ -31,9 +31,11 @@ import {
   superUser,
 } from "../middleware/authMiddleware.js";
 import {
+  adjustMatchRatingAlpha,
   adjustMatchRatingTarget,
   getMatchHistory,
   getRatingHistory,
+  restoreMatchRatingTarget,
 } from "../controllers/profileController.js";
 import {
   deleteRatingHistoryItem,
@@ -83,6 +85,18 @@ router.post(
   protect,
   superUser,
   adjustMatchRatingTarget,
+);
+router.post(
+  "/:id/matches/rating-target/restore",
+  protect,
+  superUser,
+  restoreMatchRatingTarget,
+);
+router.post(
+  "/:id/matches/:matchId/rating-alpha",
+  protect,
+  superUser,
+  adjustMatchRatingAlpha,
 );
 router.get("/:id/matches", getMatchHistory);
 router.get("/me/score", protect, getMeWithScore);

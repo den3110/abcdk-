@@ -189,24 +189,29 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
     .sort({ scoredAt: -1, _id: -1 })
     .skip(skip)
     .limit(limit)
-    .select("scoredAt single double note scorer user")
+    .select("scoredAt single double note scorer user sourceMatch")
     .populate("scorer", "name email")
     .populate("user", "name nickname email avatar")
     .lean();
 
+  const ratingNoteOverrides = await buildRatingHistoryNoteOverrides(
+    req.params.id,
+    rows
+  );
   const isHiddenInfo = await shouldHideUserRatings(req.user, req.params.id);
 
   // ===== 6) Transform
   const history = rows.map((r) => {
-    const isDelta = isDeltaNote(r.note);
-    const isSelf = isSelfNote(r.note);
+    const displayNote = ratingNoteOverrides.get(String(r._id)) ?? r.note;
+    const isDelta = isDeltaNote(displayNote);
+    const isSelf = isSelfNote(displayNote);
 
     // Hiển thị note
     const noteForClient =
       isDelta || isSelf
-        ? r.note ?? ""
+        ? displayNote ?? ""
         : isAdmin
-        ? r.note ?? ""
+        ? displayNote ?? ""
         : "Mod Pickletour chấm trình";
 
     // Scorer: delta => null; còn lại: admin thấy thật, non-admin thấy mask
@@ -298,6 +303,113 @@ function decoratePlayer(p, histMap, when, key /* 'single' | 'double' */) {
     regScore: p.score ?? undefined, // snapshot lúc đăng ký (nếu cần)
   };
 }
+
+const ratingKindFromScoreHistory = (row) => {
+  const hasSingle = Number.isFinite(Number(row?.single));
+  const hasDouble = Number.isFinite(Number(row?.double));
+  if (hasSingle && !hasDouble) return "singles";
+  if (hasDouble && !hasSingle) return "doubles";
+  return null;
+};
+
+const buildRatingHistoryNoteOverrides = async (userId, rows = []) => {
+  const overrides = new Map();
+  if (!mongoose.isValidObjectId(userId) || !Array.isArray(rows) || !rows.length) {
+    return overrides;
+  }
+
+  const matchRatingNoteRe = /^\s*[+-]\d+(?:\.\d+)?\s*\(S=/;
+  const directRows = [];
+  const fallbackRows = [];
+
+  for (const row of rows) {
+    const kind = ratingKindFromScoreHistory(row);
+    if (!kind || !matchRatingNoteRe.test(String(row?.note || ""))) continue;
+
+    const sourceMatch = row?.sourceMatch ? String(row.sourceMatch) : "";
+    if (mongoose.isValidObjectId(sourceMatch)) {
+      directRows.push({ row, kind, sourceMatch });
+    } else if (row?.scoredAt) {
+      fallbackRows.push({ row, kind });
+    }
+  }
+
+  if (directRows.length) {
+    const logs = await RatingChange.find({
+      user: userId,
+      match: { $in: uniqueObjectIds(directRows.map((item) => item.sourceMatch)) },
+      kind: { $in: [...new Set(directRows.map((item) => item.kind))] },
+    })
+      .select("match kind delta")
+      .lean();
+
+    const logByMatchKind = new Map(
+      logs.map((log) => [`${log.match}|${log.kind}`, Number(log.delta)])
+    );
+
+    for (const item of directRows) {
+      const delta = logByMatchKind.get(`${item.sourceMatch}|${item.kind}`);
+      if (Number.isFinite(delta)) {
+        overrides.set(
+          String(item.row._id),
+          replaceScoreHistoryDeltaNote(item.row.note, delta)
+        );
+      }
+    }
+  }
+
+  const unresolvedFallbackRows = fallbackRows.filter(
+    (item) => !overrides.has(String(item.row._id))
+  );
+  if (unresolvedFallbackRows.length) {
+    const times = unresolvedFallbackRows
+      .map((item) => new Date(item.row.scoredAt).getTime())
+      .filter(Number.isFinite);
+
+    if (times.length) {
+      const windowMs = 5000;
+      const logs = await RatingChange.find({
+        user: userId,
+        kind: { $in: [...new Set(unresolvedFallbackRows.map((item) => item.kind))] },
+        createdAt: {
+          $gte: new Date(Math.min(...times) - windowMs),
+          $lte: new Date(Math.max(...times) + windowMs),
+        },
+      })
+        .select("_id kind delta createdAt")
+        .lean();
+
+      const usedLogIds = new Set();
+      for (const item of unresolvedFallbackRows) {
+        const scoredAt = new Date(item.row.scoredAt).getTime();
+        if (!Number.isFinite(scoredAt)) continue;
+
+        let bestLog = null;
+        let bestDiff = Infinity;
+        for (const log of logs) {
+          const logId = String(log._id);
+          if (usedLogIds.has(logId) || log.kind !== item.kind) continue;
+          const diff = Math.abs(new Date(log.createdAt).getTime() - scoredAt);
+          if (diff <= windowMs && diff < bestDiff) {
+            bestLog = log;
+            bestDiff = diff;
+          }
+        }
+
+        const delta = Number(bestLog?.delta);
+        if (bestLog && Number.isFinite(delta)) {
+          usedLogIds.add(String(bestLog._id));
+          overrides.set(
+            String(item.row._id),
+            replaceScoreHistoryDeltaNote(item.row.note, delta)
+          );
+        }
+      }
+    }
+  }
+
+  return overrides;
+};
 
 function applyRatingChangeToPlayer(base, ratingChange) {
   if (!base || !ratingChange) return base;
@@ -462,6 +574,325 @@ const shiftFutureRatingChanges = async ({ user, kind, anchorAt, amount }) => {
   );
 
   return out.modifiedCount || 0;
+};
+
+const targetAdjustmentDeltaForOwner = (log, ownerId) => {
+  const owner = String(ownerId || "");
+  const entries = Array.isArray(log?.targetAdjustments)
+    ? log.targetAdjustments
+    : [];
+  const found = entries.find((entry) => String(entry?.owner || "") === owner);
+  const value = Number(found?.delta);
+  return Number.isFinite(value) ? round3(value) : 0;
+};
+
+const replaceTargetAdjustment = async ({
+  logId,
+  ownerId,
+  amount,
+  adjustedBy,
+}) => {
+  if (!mongoose.isValidObjectId(logId) || !mongoose.isValidObjectId(ownerId)) {
+    return;
+  }
+
+  const owner = new mongoose.Types.ObjectId(String(ownerId));
+  await RatingChange.updateOne(
+    { _id: logId },
+    { $pull: { targetAdjustments: { owner } } }
+  );
+
+  const delta = round3(amount);
+  if (!delta) return;
+
+  await RatingChange.updateOne(
+    { _id: logId },
+    {
+      $push: {
+        targetAdjustments: {
+          owner,
+          delta,
+          adjustedAt: new Date(),
+          ...(mongoose.isValidObjectId(adjustedBy)
+            ? { adjustedBy: new mongoose.Types.ObjectId(String(adjustedBy)) }
+            : {}),
+        },
+      },
+    }
+  );
+};
+
+const clearTargetAdjustments = async (logId) => {
+  if (!mongoose.isValidObjectId(logId)) return;
+  await RatingChange.updateOne(
+    { _id: logId },
+    { $set: { targetAdjustments: [] } }
+  );
+};
+
+const touchUsersByKey = (usersByKey, key, user) => {
+  if (!usersByKey.has(key)) usersByKey.set(key, new Set());
+  usersByKey.get(key).add(String(user));
+};
+
+const mergeUsersByKey = (target, source) => {
+  for (const [key, users] of source.entries()) {
+    if (!target.has(key)) target.set(key, new Set());
+    for (const user of users) target.get(key).add(String(user));
+  }
+  return target;
+};
+
+const shiftOneRatingLog = async ({
+  log,
+  key,
+  kind,
+  matchId,
+  anchorAt,
+  amount,
+  usersByKey,
+  targetOwnerId,
+  targetOwnerAmount,
+  adjustedBy,
+  clearTargets = false,
+}) => {
+  const requestedDelta = Number(amount) || 0;
+  if (
+    !log?._id ||
+    !log?.user ||
+    !key ||
+    !kind ||
+    !matchId ||
+    !anchorAt ||
+    !requestedDelta
+  ) {
+    return {
+      ratingChangesUpdated: 0,
+      scoreHistoriesShifted: 0,
+      futureLogsShifted: 0,
+      nextDelta: Number(log?.delta) || 0,
+    };
+  }
+
+  const freshLog =
+    (await RatingChange.findById(log._id).select(
+      "user before after delta targetAdjustments"
+    )) || log;
+  const before = Number(freshLog.before);
+  const after = Number(freshLog.after);
+  const safeBefore = Number.isFinite(before) ? before : 0;
+  const safeAfter = Number.isFinite(after) ? after : safeBefore;
+  const nextAfter = round3(Math.max(0, safeAfter + requestedDelta));
+  const actualShift = round3(nextAfter - safeAfter);
+  const nextDelta = round3(nextAfter - safeBefore);
+
+  if (!actualShift) {
+    if (clearTargets) {
+      await clearTargetAdjustments(log._id);
+    } else if (targetOwnerId && targetOwnerAmount !== undefined) {
+      await replaceTargetAdjustment({
+        logId: log._id,
+        ownerId: targetOwnerId,
+        amount: targetOwnerAmount,
+        adjustedBy,
+      });
+    }
+
+    return {
+      ratingChangesUpdated: 0,
+      scoreHistoriesShifted: 0,
+      futureLogsShifted: 0,
+      nextDelta,
+    };
+  }
+
+  await RatingChange.updateOne(
+    { _id: log._id },
+    {
+      $set: {
+        after: nextAfter,
+        delta: nextDelta,
+        updatedAt: new Date(),
+      },
+    }
+  );
+
+  if (clearTargets) {
+    await clearTargetAdjustments(log._id);
+  } else if (targetOwnerId) {
+    await replaceTargetAdjustment({
+      logId: log._id,
+      ownerId: targetOwnerId,
+      amount:
+        targetOwnerAmount === undefined ? actualShift : targetOwnerAmount,
+      adjustedBy,
+    });
+  }
+
+  const scoreHistoriesShifted = await addToScoreHistory({
+    user: freshLog.user || log.user,
+    key,
+    matchId,
+    anchorAt,
+    amount: actualShift,
+    noteDelta: nextDelta,
+  });
+  const futureLogsShifted = await shiftFutureRatingChanges({
+    user: freshLog.user || log.user,
+    kind,
+    anchorAt,
+    amount: actualShift,
+  });
+
+  touchUsersByKey(usersByKey, key, freshLog.user || log.user);
+
+  return {
+    ratingChangesUpdated: 1,
+    scoreHistoriesShifted,
+    futureLogsShifted,
+    nextDelta,
+  };
+};
+
+const recalcMatchRatingDelta = async (matchId, kind) => {
+  if (!mongoose.isValidObjectId(matchId)) return 0;
+  const logs = await RatingChange.find({
+    match: matchId,
+    kind,
+    revoked: { $ne: true },
+  })
+    .select("delta")
+    .lean();
+  const values = logs
+    .map((log) => Math.abs(Number(log.delta)))
+    .filter(Number.isFinite);
+  const ratingDelta = values.length
+    ? round3(values.reduce((sum, value) => sum + value, 0) / values.length)
+    : 0;
+  await Match.updateOne({ _id: matchId }, { $set: { ratingDelta } });
+  return ratingDelta;
+};
+
+const resetTargetAdjustmentsForOwner = async ({
+  ownerId,
+  kind,
+  key,
+  adjustedBy,
+}) => {
+  const usersByKey = new Map([[key, new Set()]]);
+  const owner = mongoose.isValidObjectId(ownerId)
+    ? new mongoose.Types.ObjectId(String(ownerId))
+    : null;
+  if (!owner || !kind || !key) {
+    return {
+      usersByKey,
+      ratingChangesUpdated: 0,
+      scoreHistoriesShifted: 0,
+      futureLogsShifted: 0,
+      matchesReset: 0,
+    };
+  }
+
+  const oldLogs = await RatingChange.find({
+    kind,
+    revoked: { $ne: true },
+    targetAdjustments: {
+      $elemMatch: {
+        owner,
+        delta: { $ne: 0 },
+      },
+    },
+  }).select("_id user match kind before after delta targetAdjustments");
+
+  if (!oldLogs.length) {
+    return {
+      usersByKey,
+      ratingChangesUpdated: 0,
+      scoreHistoriesShifted: 0,
+      futureLogsShifted: 0,
+      matchesReset: 0,
+    };
+  }
+
+  const matchIds = [...new Set(oldLogs.map((log) => String(log.match)))];
+  const matches = await Match.find({ _id: { $in: uniqueObjectIds(matchIds) } })
+    .select("_id finishedAt scheduledAt updatedAt createdAt")
+    .lean();
+  const matchById = new Map(matches.map((match) => [String(match._id), match]));
+  const logsByMatch = new Map();
+  for (const log of oldLogs) {
+    const matchId = String(log.match);
+    if (!logsByMatch.has(matchId)) logsByMatch.set(matchId, []);
+    logsByMatch.get(matchId).push(log);
+  }
+
+  const plans = [...logsByMatch.entries()]
+    .map(([matchId, logs]) => {
+      const match = matchById.get(matchId);
+      const anchorAt =
+        match?.finishedAt ||
+        match?.scheduledAt ||
+        match?.updatedAt ||
+        match?.createdAt ||
+        new Date();
+      return {
+        matchId,
+        logs,
+        anchorAt: new Date(anchorAt),
+      };
+    })
+    .sort((a, b) => {
+      const time = a.anchorAt.getTime() - b.anchorAt.getTime();
+      if (time !== 0) return time;
+      return a.matchId.localeCompare(b.matchId);
+    });
+
+  let ratingChangesUpdated = 0;
+  let scoreHistoriesShifted = 0;
+  let futureLogsShifted = 0;
+  let matchesReset = 0;
+
+  for (const plan of plans) {
+    let touchedMatch = false;
+    for (const log of plan.logs) {
+      const freshLog =
+        (await RatingChange.findById(log._id).select(
+          "user before after delta targetAdjustments"
+        )) || log;
+      const oldDelta = targetAdjustmentDeltaForOwner(freshLog, ownerId);
+      if (!oldDelta) continue;
+
+      const out = await shiftOneRatingLog({
+        log: freshLog,
+        key,
+        kind,
+        matchId: plan.matchId,
+        anchorAt: plan.anchorAt,
+        amount: -oldDelta,
+        usersByKey,
+        targetOwnerId: ownerId,
+        targetOwnerAmount: 0,
+        adjustedBy,
+      });
+      ratingChangesUpdated += out.ratingChangesUpdated;
+      scoreHistoriesShifted += out.scoreHistoriesShifted;
+      futureLogsShifted += out.futureLogsShifted;
+      touchedMatch = true;
+    }
+
+    if (touchedMatch) {
+      await recalcMatchRatingDelta(plan.matchId, kind);
+      matchesReset += 1;
+    }
+  }
+
+  return {
+    usersByKey,
+    ratingChangesUpdated,
+    scoreHistoriesShifted,
+    futureLogsShifted,
+    matchesReset,
+  };
 };
 
 const syncRankingsFromLatestHistory = async (usersByKey) => {
@@ -650,12 +1081,26 @@ export const adjustMatchRatingTarget = asyncHandler(async (req, res) => {
 
   const kind = plans[0].kind;
   const key = plans[0].key;
+  const resetOut = await resetTargetAdjustmentsForOwner({
+    ownerId: userId,
+    kind,
+    key,
+    adjustedBy: req.user?._id,
+  });
+  let resetRankingSync = { rankingSynced: 0, rankingUsersSynced: 0 };
+  if (resetOut.ratingChangesUpdated || resetOut.matchesReset) {
+    resetRankingSync = await syncRankingsFromLatestHistory(resetOut.usersByKey);
+  }
+
   const currentScore = await getCurrentRatingValue(userId, key);
   const currentMillis = Math.round(currentScore * 1000);
   const targetMillis = Math.round(targetScore * 1000);
   const totalMillis = targetMillis - currentMillis;
 
   if (totalMillis === 0) {
+    if (resetOut.ratingChangesUpdated || resetOut.matchesReset) {
+      await clearRankingPresentationCaches();
+    }
     return res.json({
       ok: true,
       kind,
@@ -664,6 +1109,10 @@ export const adjustMatchRatingTarget = asyncHandler(async (req, res) => {
       targetScore: round3(targetScore),
       totalDelta: 0,
       adjustedMatches: 0,
+      resetMatches: resetOut.matchesReset,
+      resetRatingChanges: resetOut.ratingChangesUpdated,
+      rankingSynced: resetRankingSync.rankingSynced,
+      rankingUsersSynced: resetRankingSync.rankingUsersSynced,
       message: "Điểm hiện tại đã bằng điểm mục tiêu",
     });
   }
@@ -672,7 +1121,7 @@ export const adjustMatchRatingTarget = asyncHandler(async (req, res) => {
     match: { $in: plans.map((plan) => plan.match._id) },
     kind,
     revoked: { $ne: true },
-  }).select("_id user match kind before after delta");
+  }).select("_id user match kind before after delta targetAdjustments");
 
   const logsByMatchUser = new Map();
   for (const log of logs) {
@@ -712,59 +1161,28 @@ export const adjustMatchRatingTarget = asyncHandler(async (req, res) => {
     sameSideIds.forEach((uid) => signedAdjustments.set(uid, amount));
     otherSideIds.forEach((uid) => signedAdjustments.set(uid, -amount));
 
-    const updatedDeltas = [];
+    let touchedMatch = false;
     for (const [uid, signedAmount] of signedAdjustments.entries()) {
       const log = logsByMatchUser.get(`${plan.match._id}|${uid}`);
-      const freshLog =
-        (await RatingChange.findById(log._id).select("before after delta")) ||
-        log;
-      const before = Number(freshLog.before);
-      const after = Number(freshLog.after);
-      const safeBefore = Number.isFinite(before) ? before : 0;
-      const rawAfter = (Number.isFinite(after) ? after : safeBefore) +
-        signedAmount;
-      const nextAfter = round3(Math.max(0, rawAfter));
-      const nextDelta = round3(nextAfter - safeBefore);
-
-      await RatingChange.updateOne(
-        { _id: log._id },
-        {
-          $set: {
-            after: nextAfter,
-            delta: nextDelta,
-            updatedAt: new Date(),
-          },
-        }
-      );
-      log.after = nextAfter;
-      log.delta = nextDelta;
-      ratingChangesUpdated += 1;
-      updatedDeltas.push(Math.abs(nextDelta));
-
-      scoreHistoriesShifted += await addToScoreHistory({
-        user: log.user,
+      const out = await shiftOneRatingLog({
+        log,
         key,
+        kind,
         matchId: plan.match._id,
         anchorAt: plan.anchorAt,
         amount: signedAmount,
-        noteDelta: nextDelta,
+        usersByKey,
+        targetOwnerId: userId,
+        adjustedBy: req.user?._id,
       });
-      futureLogsShifted += await shiftFutureRatingChanges({
-        user: log.user,
-        kind,
-        anchorAt: plan.anchorAt,
-        amount: signedAmount,
-      });
-      usersByKey.get(key).add(String(uid));
+      ratingChangesUpdated += out.ratingChangesUpdated;
+      scoreHistoriesShifted += out.scoreHistoriesShifted;
+      futureLogsShifted += out.futureLogsShifted;
+      touchedMatch = true;
     }
 
-    if (updatedDeltas.length) {
-      const avgAbsDelta = updatedDeltas.reduce((sum, value) => sum + value, 0) /
-        updatedDeltas.length;
-      await Match.updateOne(
-        { _id: plan.match._id },
-        { $set: { ratingDelta: round3(avgAbsDelta) } }
-      );
+    if (touchedMatch) {
+      await recalcMatchRatingDelta(plan.match._id, kind);
     }
 
     perMatch.push({
@@ -784,12 +1202,228 @@ export const adjustMatchRatingTarget = asyncHandler(async (req, res) => {
     targetScore: round3(targetScore),
     totalDelta: round3(totalMillis / 1000),
     adjustedMatches: plans.length,
+    resetMatches: resetOut.matchesReset,
+    resetRatingChanges: resetOut.ratingChangesUpdated,
+    ratingChangesUpdated: resetOut.ratingChangesUpdated + ratingChangesUpdated,
+    scoreHistoriesShifted:
+      resetOut.scoreHistoriesShifted + scoreHistoriesShifted,
+    futureLogsShifted: resetOut.futureLogsShifted + futureLogsShifted,
+    rankingSynced: resetRankingSync.rankingSynced + rankingSync.rankingSynced,
+    rankingUsersSynced:
+      resetRankingSync.rankingUsersSynced + rankingSync.rankingUsersSynced,
+    perMatch,
+  });
+});
+
+export const restoreMatchRatingTarget = asyncHandler(async (req, res) => {
+  assertSuperAdmin(req, "phục hồi điểm trình theo mục tiêu");
+
+  const userId = String(req.params.id || "");
+  if (!mongoose.isValidObjectId(userId)) {
+    res.status(400);
+    throw new Error("userId không hợp lệ");
+  }
+
+  const singleReset = await resetTargetAdjustmentsForOwner({
+    ownerId: userId,
+    kind: "singles",
+    key: "single",
+    adjustedBy: req.user?._id,
+  });
+  const doubleReset = await resetTargetAdjustmentsForOwner({
+    ownerId: userId,
+    kind: "doubles",
+    key: "double",
+    adjustedBy: req.user?._id,
+  });
+
+  const usersByKey = new Map([
+    ["single", new Set()],
+    ["double", new Set()],
+  ]);
+  mergeUsersByKey(usersByKey, singleReset.usersByKey);
+  mergeUsersByKey(usersByKey, doubleReset.usersByKey);
+
+  const rankingSync = await syncRankingsFromLatestHistory(usersByKey);
+  if (
+    singleReset.ratingChangesUpdated ||
+    doubleReset.ratingChangesUpdated ||
+    singleReset.matchesReset ||
+    doubleReset.matchesReset
+  ) {
+    await clearRankingPresentationCaches();
+  }
+
+  return res.json({
+    ok: true,
+    restored: true,
+    ratingChangesUpdated:
+      singleReset.ratingChangesUpdated + doubleReset.ratingChangesUpdated,
+    scoreHistoriesShifted:
+      singleReset.scoreHistoriesShifted + doubleReset.scoreHistoriesShifted,
+    futureLogsShifted:
+      singleReset.futureLogsShifted + doubleReset.futureLogsShifted,
+    matchesReset: singleReset.matchesReset + doubleReset.matchesReset,
+    rankingSynced: rankingSync.rankingSynced,
+    rankingUsersSynced: rankingSync.rankingUsersSynced,
+    single: {
+      ratingChangesUpdated: singleReset.ratingChangesUpdated,
+      matchesReset: singleReset.matchesReset,
+    },
+    double: {
+      ratingChangesUpdated: doubleReset.ratingChangesUpdated,
+      matchesReset: doubleReset.matchesReset,
+    },
+  });
+});
+
+export const adjustMatchRatingAlpha = asyncHandler(async (req, res) => {
+  assertSuperAdmin(req, "chỉnh alpha điểm trình của trận");
+
+  const userId = String(req.params.id || "");
+  const matchId = String(req.params.matchId || "");
+  if (!mongoose.isValidObjectId(userId) || !mongoose.isValidObjectId(matchId)) {
+    res.status(400);
+    throw new Error("Dữ liệu không hợp lệ");
+  }
+
+  const alpha = Number(req.body?.alpha ?? req.body?.ratingDelta);
+  if (
+    !Number.isFinite(alpha) ||
+    alpha < 0 ||
+    alpha > RATING_MAX
+  ) {
+    res.status(400);
+    throw new Error("Điểm alpha không hợp lệ");
+  }
+
+  const match = await Match.findOne({
+    _id: matchId,
+    status: "finished",
+    winner: { $in: ["A", "B"] },
+  })
+    .select(
+      "_id tournament pairA pairB gameScores winner finishedAt scheduledAt updatedAt createdAt"
+    )
+    .populate("tournament", "eventType")
+    .populate("pairA", "player1.user player2.user")
+    .populate("pairB", "player1.user player2.user")
+    .lean();
+
+  if (!match) {
+    res.status(404);
+    throw new Error("Không tìm thấy trận đã kết thúc");
+  }
+  if (!match?.pairA || !match?.pairB || !hasPlayableScore(match)) {
+    res.status(400);
+    throw new Error("Không thể chỉnh alpha cho trận BYE hoặc trận không có tỷ số");
+  }
+
+  const kind = match?.tournament?.eventType === "single" ? "singles" : "doubles";
+  const key = ratingHistoryKey(kind);
+  const teamAIds = registrationUserIds(match.pairA);
+  const teamBIds = registrationUserIds(match.pairB);
+  if (![...teamAIds, ...teamBIds].includes(userId)) {
+    res.status(400);
+    throw new Error("Trận không thuộc user đang mở hồ sơ");
+  }
+
+  const logs = await RatingChange.find({
+    match: match._id,
+    kind,
+    revoked: { $ne: true },
+  }).select("_id user match kind before after delta targetAdjustments");
+
+  const logsByUser = new Map(logs.map((log) => [String(log.user), log]));
+  const allIds = [...new Set([...teamAIds, ...teamBIds])];
+  for (const uid of allIds) {
+    if (!logsByUser.has(uid)) {
+      res.status(400);
+      throw new Error("Trận chưa có đủ log cộng/trừ điểm trình");
+    }
+  }
+
+  const winnerIds = match.winner === "A" ? teamAIds : teamBIds;
+  const loserIds = match.winner === "A" ? teamBIds : teamAIds;
+  const desiredByUser = new Map();
+  winnerIds.forEach((uid) => desiredByUser.set(uid, round3(alpha)));
+  loserIds.forEach((uid) => desiredByUser.set(uid, round3(-alpha)));
+
+  const anchorAt = new Date(
+    match.finishedAt ||
+      match.scheduledAt ||
+      match.updatedAt ||
+      match.createdAt ||
+      Date.now()
+  );
+  const usersByKey = new Map([[key, new Set()]]);
+  let ratingChangesUpdated = 0;
+  let scoreHistoriesShifted = 0;
+  let futureLogsShifted = 0;
+  const perUser = [];
+
+  for (const uid of allIds) {
+    const log = logsByUser.get(uid);
+    const freshLog =
+      (await RatingChange.findById(log._id).select(
+        "user before after delta targetAdjustments"
+      )) || log;
+    const before = Number(freshLog.before);
+    const after = Number(freshLog.after);
+    const safeBefore = Number.isFinite(before) ? before : 0;
+    const safeAfter = Number.isFinite(after) ? after : safeBefore;
+    const desiredDelta = Number(desiredByUser.get(uid)) || 0;
+    const desiredAfter = round3(Math.max(0, safeBefore + desiredDelta));
+    const actualDesiredDelta = round3(desiredAfter - safeBefore);
+    const shiftAmount = round3(desiredAfter - safeAfter);
+
+    if (!shiftAmount) {
+      await clearTargetAdjustments(freshLog._id || log._id);
+      perUser.push({
+        user: uid,
+        delta: actualDesiredDelta,
+        shifted: 0,
+      });
+      continue;
+    }
+
+    const out = await shiftOneRatingLog({
+      log: freshLog,
+      key,
+      kind,
+      matchId: match._id,
+      anchorAt,
+      amount: shiftAmount,
+      usersByKey,
+      clearTargets: true,
+    });
+    ratingChangesUpdated += out.ratingChangesUpdated;
+    scoreHistoriesShifted += out.scoreHistoriesShifted;
+    futureLogsShifted += out.futureLogsShifted;
+    perUser.push({
+      user: uid,
+      delta: out.nextDelta,
+      shifted: shiftAmount,
+    });
+  }
+
+  const ratingDelta = await recalcMatchRatingDelta(match._id, kind);
+  const rankingSync = await syncRankingsFromLatestHistory(usersByKey);
+  await clearRankingPresentationCaches();
+
+  return res.json({
+    ok: true,
+    match: match._id,
+    kind,
+    key,
+    alpha: round3(alpha),
+    ratingDelta,
     ratingChangesUpdated,
     scoreHistoriesShifted,
     futureLogsShifted,
     rankingSynced: rankingSync.rankingSynced,
     rankingUsersSynced: rankingSync.rankingUsersSynced,
-    perMatch,
+    perUser,
   });
 });
 
@@ -830,7 +1464,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       .skip(skip)
       .limit(limit)
       .select(
-        "_id code displayCode codeResolved globalCode matchCode bracketCode slotCode roundCode labelKey meta tournament bracket pairA pairB gameScores winner finishedAt scheduledAt round order status video branch phase format pool group groupCode groupNo groupIndex rrRound globalRound stageIndex matchNo index"
+        "_id code displayCode codeResolved globalCode matchCode bracketCode slotCode roundCode labelKey meta tournament bracket pairA pairB gameScores winner finishedAt scheduledAt round order status video ratingDelta branch phase format pool group groupCode groupNo groupIndex rrRound globalRound stageIndex matchNo index"
       )
       .populate("tournament", "name eventType _id")
       .populate("bracket", "type stage order _id createdAt meta drawRounds config")
@@ -1144,6 +1778,9 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       ratingKind,
       ratingKey: typeKey,
       ratingAdjustable,
+      ratingDelta: Number.isFinite(Number(m.ratingDelta))
+        ? round3(m.ratingDelta)
+        : 0,
       team1,
       team2,
       scoreText: buildScoreText(m.gameScores) || "—",
