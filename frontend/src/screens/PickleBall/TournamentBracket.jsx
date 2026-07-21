@@ -2467,6 +2467,103 @@ const TIEBREAK_LABELS = {
   pointsDiff: "hiệu số điểm",
   pointsFor: "tổng điểm ghi được",
 };
+
+const ADVANCING_STANDING_COLOR = "#1a73e8";
+
+const normalizeGroupRankAlias = (value) =>
+  String(value ?? "").trim().toLowerCase();
+
+function readPositiveInteger(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : 0;
+}
+
+function addGroupRankAlias(aliasMap, value, groupKey) {
+  const alias = normalizeGroupRankAlias(value);
+  if (alias) aliasMap.set(alias, groupKey);
+}
+
+function buildGroupRankAliasMap(groups = []) {
+  const aliasMap = new Map();
+  (groups || []).forEach((group, index) => {
+    const groupKey = groupKeyOf(group, index);
+    const letter = String.fromCharCode(65 + index);
+    [
+      groupKey,
+      group?.name,
+      group?.code,
+      group?._id,
+      index + 1,
+      letter,
+    ].forEach((value) => addGroupRankAlias(aliasMap, value, groupKey));
+  });
+  return aliasMap;
+}
+
+function readGroupCodeFromGroupRankSeed(seed) {
+  const ref = seed?.ref || {};
+  const groupRef = ref.group;
+  if (groupRef && typeof groupRef === "object") {
+    return (
+      groupRef.name ||
+      groupRef.code ||
+      groupRef.key ||
+      groupRef._id ||
+      groupRef.id ||
+      ""
+    );
+  }
+  return (
+    ref.groupCode ||
+    ref.groupName ||
+    ref.groupKey ||
+    groupRef ||
+    seed?.groupCode ||
+    ""
+  );
+}
+
+function visitGroupRankSeeds(value, visit, seen = new Set()) {
+  if (!value || typeof value !== "object") return;
+  if (seen.has(value)) return;
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    value.forEach((item) => visitGroupRankSeeds(item, visit, seen));
+    return;
+  }
+
+  if (String(value.type || "") === "groupRank") {
+    visit(value);
+  }
+
+  [
+    value.A,
+    value.B,
+    value.seedA,
+    value.seedB,
+    value.seeds,
+    value.pairs,
+    value.slots,
+  ].forEach((child) => visitGroupRankSeeds(child, visit, seen));
+}
+
+function readQualifiersPerGroup(bracket) {
+  const candidates = [
+    bracket?.config?.blueprint?.qualifiersPerGroup,
+    bracket?.config?.groups?.qualifiersPerGroup,
+    bracket?.config?.qualifiersPerGroup,
+    bracket?.meta?.qualifiersPerGroup,
+    bracket?.qualifiersPerGroup,
+  ];
+
+  for (const candidate of candidates) {
+    const value = readPositiveInteger(candidate);
+    if (value) return value;
+  }
+  return 0;
+}
+
 function StandingsLegend({
   points = { win: 3, draw: 1, loss: 0 },
   tiebreakers = [],
@@ -2520,6 +2617,34 @@ function StandingsLegend({
             size="small"
             variant="outlined"
             label={t("tournaments.bracket.standingsDiffHint")}
+          />
+          <Chip
+            size="small"
+            variant="outlined"
+            label={
+              <Box
+                component="span"
+                sx={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0.75,
+                }}
+              >
+                <Box
+                  component="span"
+                  sx={{
+                    width: 4,
+                    height: 16,
+                    borderRadius: 999,
+                    bgcolor: ADVANCING_STANDING_COLOR,
+                    display: "inline-block",
+                  }}
+                />
+                <Box component="span">
+                  {t("tournaments.bracket.standingsAdvanceHint")}
+                </Box>
+              </Box>
+            }
           />
           {Array.isArray(tiebreakers) && tiebreakers.length > 0 && (
             <Chip
@@ -6755,6 +6880,66 @@ export default function TournamentBracket() {
     );
   }, [current, currentMatches, tour?.eventType, displayMode]);
 
+  const advancingRanksByGroupKey = useMemo(() => {
+    const result = new Map();
+    if (!current || current.type !== "group") return result;
+
+    const groups = current?.groups || [];
+    const groupAliasMap = buildGroupRankAliasMap(groups);
+    const sourceStage = Number(current?.stage ?? 1);
+
+    const addRank = (groupKey, rank) => {
+      if (!groupKey || !rank) return;
+      if (!result.has(groupKey)) result.set(groupKey, new Set());
+      result.get(groupKey).add(rank);
+    };
+
+    const registerSeed = (seed) => {
+      if (String(seed?.type || "") !== "groupRank") return;
+      const ref = seed?.ref || {};
+      const seedStage = Number(ref.stage ?? ref.stageIndex);
+      if (
+        Number.isFinite(seedStage) &&
+        Number.isFinite(sourceStage) &&
+        seedStage !== sourceStage
+      ) {
+        return;
+      }
+
+      const groupAlias = normalizeGroupRankAlias(
+        readGroupCodeFromGroupRankSeed(seed),
+      );
+      const groupKey = groupAliasMap.get(groupAlias);
+      const rank = readPositiveInteger(ref.rank);
+      addRank(groupKey, rank);
+    };
+
+    (brackets || []).forEach((bracket) => {
+      visitGroupRankSeeds(bracket?.prefill, registerSeed);
+      visitGroupRankSeeds(bracket?.config?.blueprint, registerSeed);
+
+      const bracketId = String(bracket?._id || "");
+      (byBracket?.[bracketId] || []).forEach((match) => {
+        registerSeed(match?.seedA);
+        registerSeed(match?.seedB);
+      });
+    });
+
+    if (!result.size) {
+      const fallbackLimit = readQualifiersPerGroup(current);
+      if (fallbackLimit) {
+        groups.forEach((group, index) => {
+          const groupKey = groupKeyOf(group, index);
+          for (let rank = 1; rank <= fallbackLimit; rank += 1) {
+            addRank(groupKey, rank);
+          }
+        });
+      }
+    }
+
+    return result;
+  }, [brackets, byBracket, current]);
+
   const groupEntries = useMemo(() => {
     if (!current || current.type !== "group") return [];
 
@@ -6848,11 +7033,13 @@ export default function TournamentBracket() {
         }
 
         const gStand = standingsByKey.get(String(key));
+        const advancingRanks = advancingRanksByGroupKey.get(String(key));
         const standingRows = (gStand?.rows || []).map((row, idx) => {
           const pts = Number(row.pts ?? 0);
           const diff = Number.isFinite(row.pointDiff)
             ? row.pointDiff
             : (row.setDiff ?? 0);
+          const rank = row.rank || idx + 1;
           return {
             id: row.id || `row-${idx}`,
             name: row.pair
@@ -6864,7 +7051,8 @@ export default function TournamentBracket() {
             loss: Number(row.loss ?? 0),
             pts,
             diff,
-            rank: row.rank || idx + 1,
+            rank,
+            isAdvancing: advancingRanks?.has(readPositiveInteger(rank)) || false,
             isMine: row.id ? myRegIdsAll.has(String(row.id)) : false,
           };
         });
@@ -6901,6 +7089,7 @@ export default function TournamentBracket() {
     locale,
     myGroupKeys,
     myRegIdsAll,
+    advancingRanksByGroupKey,
     groupSelected,
     onlyMine,
     matchGroupLabel,
@@ -7495,6 +7684,7 @@ export default function TournamentBracket() {
             (x) => String(x.key) === String(key),
           );
           const pointsCfg = sData.points || { win: 3, draw: 1, loss: 0 };
+          const advancingRanks = advancingRanksByGroupKey.get(String(key));
 
           return (
             <Paper
@@ -7937,9 +8127,23 @@ export default function TournamentBracket() {
                             ? row.pointDiff
                             : (row.setDiff ?? 0);
                           const rank = row.rank || idx + 1;
+                          const isAdvancing =
+                            advancingRanks?.has(readPositiveInteger(rank)) ||
+                            false;
                           return (
                             <TableRow key={row.id || `row-${idx}`}>
-                              <TableCell align="center">{idx + 1}</TableCell>
+                              <TableCell
+                                align="center"
+                                sx={{
+                                  borderLeft: `4px solid ${
+                                    isAdvancing
+                                      ? ADVANCING_STANDING_COLOR
+                                      : "transparent"
+                                  }`,
+                                }}
+                              >
+                                {idx + 1}
+                              </TableCell>
                               <TableCell sx={{ wordBreak: "break-word" }}>
                                 {name}
                               </TableCell>
@@ -7977,11 +8181,21 @@ export default function TournamentBracket() {
                         ? row.pointDiff
                         : (row.setDiff ?? 0);
                       const rank = row.rank || idx + 1;
+                      const isAdvancing =
+                        advancingRanks?.has(readPositiveInteger(rank)) || false;
                       return (
                         <Paper
                           key={row.id || `row-${idx}`}
                           variant="outlined"
-                          sx={{ p: 1.25, borderRadius: 2 }}
+                          sx={{
+                            p: 1.25,
+                            borderRadius: 2,
+                            borderLeft: `4px solid ${
+                              isAdvancing
+                                ? ADVANCING_STANDING_COLOR
+                                : "transparent"
+                            }`,
+                          }}
                         >
                           <Stack
                             direction="row"
@@ -8527,6 +8741,11 @@ export default function TournamentBracket() {
                               width: 36,
                               textAlign: "center",
                               p: 0.5,
+                              borderLeft: `4px solid ${
+                                row.isAdvancing
+                                  ? ADVANCING_STANDING_COLOR
+                                  : "transparent"
+                              }`,
                             }}
                           >
                             <Box
@@ -9302,7 +9521,17 @@ export default function TournamentBracket() {
                     {standingRows.length ? (
                       standingRows.map((row, index) => (
                         <TableRow key={row.id || `v3-standing-${index}`}>
-                          <TableCell>{index + 1}</TableCell>
+                          <TableCell
+                            sx={{
+                              borderLeft: `4px solid ${
+                                row.isAdvancing
+                                  ? ADVANCING_STANDING_COLOR
+                                  : "transparent"
+                              }`,
+                            }}
+                          >
+                            {index + 1}
+                          </TableCell>
                           <TableCell
                             sx={{
                               color: row.isMine ? "#8ab4f8" : textPrimary,

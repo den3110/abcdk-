@@ -1854,6 +1854,7 @@ export default {
       standingsWinPoints: "Win +{count}",
       standingsLossPoints: "Loss +{count}",
       standingsDiffHint: "Difference = Points scored - Points conceded",
+      standingsAdvanceHint: "Blue = Advances",
       noMatches: "No matches yet.",
       noStandings: "No standings data yet.",
       liveSpotlightTitle: "Live matches (Group stage)",

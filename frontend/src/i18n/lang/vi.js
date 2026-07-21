@@ -1852,6 +1852,7 @@ export default {
       standingsWinPoints: "Thắng +{count}",
       standingsLossPoints: "Thua +{count}",
       standingsDiffHint: "Hiệu số = Điểm ghi - Điểm thua",
+      standingsAdvanceHint: "Màu xanh = Đi tiếp",
       noMatches: "Chưa có trận nào.",
       noStandings: "Chưa có dữ liệu BXH.",
       liveSpotlightTitle: "Trận đang diễn ra (Vòng bảng)",
