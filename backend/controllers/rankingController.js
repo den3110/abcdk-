@@ -1507,6 +1507,7 @@ async function buildRecentPodiumsByUser({ days = 30 } = {}) {
   // 1) Các giải "đã kết thúc" trong 30 ngày
   const tours = await Tournament.find(
     {
+      isTest: { $ne: true },
       $or: [
         { status: "finished" },
         { finishedAt: { $ne: null } },
@@ -1642,6 +1643,7 @@ const buildRecentPodiumAnnouncements = async ({ days = 7, limit = 36 } = {}) => 
 
   const tours = await Tournament.find(
     {
+      isTest: { $ne: true },
       $or: [
         { status: "finished" },
         { finishedAt: { $ne: null } },
