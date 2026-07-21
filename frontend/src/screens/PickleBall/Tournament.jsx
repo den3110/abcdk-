@@ -681,7 +681,7 @@ export default function TournamentDashboard() {
           <Box
             sx={{
               position: "relative",
-              height: 180,
+              aspectRatio: "16 / 9",
               overflow: "hidden",
               bgcolor: "action.hover",
             }}
