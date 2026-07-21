@@ -1415,7 +1415,9 @@ export default function TournamentRegistration() {
 
   /* Data Fetching */
   const authToken = useSelector((s) => s.auth?.userInfo?.token || "");
-  const { data: me, isLoading: meLoading } = useGetMeScoreQuery();
+  const { data: me, isLoading: meLoading } = useGetMeScoreQuery(undefined, {
+    skip: !authToken,
+  });
   const {
     data: tour,
     isLoading: tourLoading,
