@@ -99,6 +99,7 @@ export const liveApiSlice = apiSlice.injectEndpoints({
       query: ({
         page = 1,
         limit = FEED_LIMIT,
+        matchId = "",
         q = "",
         tournamentId = "",
         mode = "all",
@@ -110,6 +111,7 @@ export const liveApiSlice = apiSlice.injectEndpoints({
 
         params.set("page", String(page));
         params.set("limit", String(limit));
+        if (matchId) params.set("matchId", String(matchId));
         if (q) params.set("q", String(q).trim());
         if (tournamentId) params.set("tournamentId", String(tournamentId));
         if (mode) params.set("mode", String(mode));
@@ -122,13 +124,14 @@ export const liveApiSlice = apiSlice.injectEndpoints({
       keepUnusedDataFor: 30,
       serializeQueryArgs: ({ endpointName, queryArgs }) => {
         const mode = String(queryArgs?.mode || "all");
+        const matchId = String(queryArgs?.matchId || "").trim();
         const q = String(queryArgs?.q || "").trim();
         const tournamentId = String(queryArgs?.tournamentId || "").trim();
         const source = String(queryArgs?.source || "all");
         const replayState = String(queryArgs?.replayState || "all");
         const sort = String(queryArgs?.sort || "smart");
         const limit = Math.max(1, Number(queryArgs?.limit || FEED_LIMIT));
-        return `${endpointName}:${mode}:${tournamentId}:${q}:${source}:${replayState}:${sort}:${limit}`;
+        return `${endpointName}:${mode}:${matchId}:${tournamentId}:${q}:${source}:${replayState}:${sort}:${limit}`;
       },
       transformResponse: (resp, meta, arg) =>
         transformFeedResponse(resp, Number(arg?.limit || FEED_LIMIT)),
@@ -153,6 +156,7 @@ export const liveApiSlice = apiSlice.injectEndpoints({
         return (
           currentArg?.page !== previousArg?.page ||
           currentArg?.limit !== previousArg?.limit ||
+          currentArg?.matchId !== previousArg?.matchId ||
           currentArg?.mode !== previousArg?.mode ||
           currentArg?.q !== previousArg?.q ||
           currentArg?.tournamentId !== previousArg?.tournamentId ||
@@ -166,6 +170,7 @@ export const liveApiSlice = apiSlice.injectEndpoints({
       query: ({
         page = 1,
         limit = FEED_LIMIT,
+        matchId = "",
         q = "",
         tournamentId = "",
         mode = "all",
@@ -177,6 +182,7 @@ export const liveApiSlice = apiSlice.injectEndpoints({
 
         params.set("page", String(page));
         params.set("limit", String(limit));
+        if (matchId) params.set("matchId", String(matchId));
         if (q) params.set("q", String(q).trim());
         if (tournamentId) params.set("tournamentId", String(tournamentId));
         if (mode) params.set("mode", String(mode));

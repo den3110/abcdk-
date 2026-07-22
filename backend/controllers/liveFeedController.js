@@ -21,6 +21,7 @@ const liveFeedCache = createShortTtlCache(LIVE_FEED_CACHE_TTL_MS, {
 function buildLiveFeedParams(req, { search = false } = {}) {
   return {
     q: req.query.q || req.query.keyword || "",
+    matchId: req.query.matchId || "",
     tournamentId: req.query.tournamentId || "",
     mode: req.query.mode || "all",
     source: req.query.source || "all",

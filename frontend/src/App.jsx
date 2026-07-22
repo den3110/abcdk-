@@ -279,6 +279,7 @@ const App = () => {
     "/oauth/authorize",
   ].some((path) => location.pathname.startsWith(path));
   const isImmersiveLiveFeedPage = location.pathname === "/live";
+  const isLiveWatchPage = /^\/live\/watch\/[^/]+\/?$/.test(location.pathname);
   const isOverlayStudioPage = /\/tournament\/[^/]+\/overlay-studio$/.test(
     location.pathname,
   );
@@ -306,6 +307,7 @@ const App = () => {
   const isFullScreenLayout =
     isAuthPage ||
     isImmersiveLiveFeedPage ||
+    isLiveWatchPage ||
     isAstryxHomeRoute ||
     isOverlayStudioPage;
   const hideMobileBottomNav = isAstryxHomeRoute;
@@ -313,6 +315,7 @@ const App = () => {
     pikoraEnabled &&
     !isAuthPage &&
     !isImmersiveLiveFeedPage &&
+    !isLiveWatchPage &&
     !isAstryxHomeRoute &&
     !isOverlayStudioPage;
 

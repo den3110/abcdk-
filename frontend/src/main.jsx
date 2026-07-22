@@ -91,6 +91,7 @@ import VenueBookingsPage from "./screens/courts/owner/VenueBookingsPage.jsx";
 import VenueRevenuePage from "./screens/courts/owner/VenueRevenuePage.jsx";
 import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
 import LiveFeedPage from "./screens/LiveScreen.jsx";
+import LiveWatchPage from "./screens/live/LiveWatchPage.jsx";
 import LiveCourtClustersPage from "./screens/live/LiveCourtClustersPage.jsx";
 import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
@@ -228,6 +229,7 @@ const router = sentryCreateBrowserRouter(
         <Route path="/clubs/:id" element={<ClubDetailPage />} />
         <Route path="/courts" element={<CourtsBrowsePage />} />
         <Route path="/courts/:id" element={<VenueDetailPage />} />
+        <Route path="/live/watch/:matchId" element={<LiveWatchPage />} />
         <Route path="/live" element={<LiveFeedPage />} />
         <Route path="/live/clusters" element={<LiveCourtClustersPage />} />
         <Route path="/settings/facebook" element={<FacebookLiveSettings />} />

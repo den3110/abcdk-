@@ -1252,6 +1252,7 @@ async function getCachedMatchDisplayContexts(matches = []) {
 
 export async function listLiveFeed({
   q = "",
+  matchId = "",
   tournamentId = "",
   mode = "all",
   source = "all",
@@ -1272,7 +1273,35 @@ export async function listLiveFeed({
   });
   const safePage = parsePositiveInt(page, 1, { min: 1 });
   const normalizedQuery = asTrimmed(q).toLowerCase();
+  const normalizedMatchId = asTrimmed(matchId);
   const normalizedTournamentId = asTrimmed(tournamentId);
+
+  if (
+    normalizedMatchId &&
+    !mongoose.Types.ObjectId.isValid(normalizedMatchId)
+  ) {
+    return {
+      count: 0,
+      items: [],
+      page: safePage,
+      pages: 1,
+      limit: safeLimit,
+      meta: {
+        at: new Date().toISOString(),
+        filter: {
+          mode: normalizedMode,
+          source: normalizedSource,
+          replayState: normalizedReplayState,
+          sort: normalizedSort,
+          statuses,
+          q: asTrimmed(q),
+          matchId: normalizedMatchId,
+          tournamentId: normalizedTournamentId || null,
+        },
+        ...buildFeedMeta([]),
+      },
+    };
+  }
 
   const recordingMatchIds = await getStreamRecordingMatchIds();
   const publicTournamentClause =
@@ -1293,6 +1322,7 @@ export async function listLiveFeed({
           sort: normalizedSort,
           statuses,
           q: asTrimmed(q),
+          matchId: normalizedMatchId || null,
           tournamentId: normalizedTournamentId || null,
         },
         ...buildFeedMeta([]),
@@ -1307,8 +1337,9 @@ export async function listLiveFeed({
 
   const matchQuery = {
     $and: [
+      normalizedMatchId ? { _id: normalizedMatchId } : {},
       { $or: candidateClauses },
-      { status: { $in: statuses } },
+      normalizedMatchId ? {} : { status: { $in: statuses } },
       publicTournamentClause,
     ].filter((clause) => Object.keys(clause).length > 0),
   };
@@ -1337,6 +1368,7 @@ export async function listLiveFeed({
           sort: normalizedSort,
           statuses,
           q: asTrimmed(q),
+          matchId: normalizedMatchId || null,
           tournamentId: normalizedTournamentId || null,
         },
         ...buildFeedMeta([]),
@@ -1425,6 +1457,7 @@ export async function listLiveFeed({
         sort: normalizedSort,
         statuses,
         q: asTrimmed(q),
+        matchId: normalizedMatchId || null,
         tournamentId: normalizedTournamentId || null,
       },
       ...feedMeta,

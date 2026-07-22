@@ -2581,6 +2581,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     activeStream?.openUrl ||
     (activeStream?.kind === "delayed_manifest" ? "" : activeStream?.url) ||
     "";
+  const liveWatchUrl = lockedId
+    ? `/live/watch/${encodeURIComponent(String(lockedId))}`
+    : "";
   const facebookPageUrl = useMemo(
     () =>
       buildFacebookPageUrl(
@@ -3170,7 +3173,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 size="small"
                 disableElevation
                 variant="contained"
-                onClick={() => setPlayerDialogOpen(true)}
+                component={MuiLink}
+                href={liveWatchUrl}
+                underline="none"
+                disabled={!liveWatchUrl}
                 startIcon={<PlayIcon />}
                 sx={{
                   borderRadius: 2,
