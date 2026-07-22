@@ -2740,15 +2740,22 @@ export default function TournamentRegistration() {
                         mb: 1.5,
                       }}
                     >
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        startIcon={<SwapVert fontSize="small" />}
-                        onClick={handleSwitchSelfSlot}
-                        sx={{ borderRadius: 2, textTransform: "none" }}
+                      <Tooltip
+                        title={t(
+                          "tournaments.registration.form.switchSelfPosition",
+                        )}
                       >
-                        {t("tournaments.registration.form.switchSelfPosition")}
-                      </Button>
+                        <IconButton
+                          size="small"
+                          color="primary"
+                          onClick={handleSwitchSelfSlot}
+                          aria-label={t(
+                            "tournaments.registration.form.switchSelfPosition",
+                          )}
+                        >
+                          <SwapVert fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     </Box>
                   )}
 
