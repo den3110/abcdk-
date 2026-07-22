@@ -4000,7 +4000,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         e.statusCode = 403;
         throw e;
       }
-      if (String(me._id) === String(target._id)) {
+      if (String(me._id) === String(target._id) && !isAdminRole) {
         const e = new Error("Không thể tự chấm chính mình");
         e.statusCode = 400;
         throw e;
