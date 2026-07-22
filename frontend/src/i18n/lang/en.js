@@ -2177,9 +2177,11 @@ export default {
         locked:
           "Registration for players has ended. Please contact the organizer if you need support.",
         player1Title: "Player 1 (You)",
+        player1PlainTitle: "Player 1",
         player1Label: "Player 1",
         player1PartnerTitle: "Player 1 (Partner)",
         player2Title: "Player 2 (Partner)",
+        player2PlainTitle: "Player 2",
         player2Label: "Player 2",
         player2YouTitle: "Player 2 (You)",
         playerSearchPlaceholder: "Search by name, phone...",

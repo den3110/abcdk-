@@ -1605,7 +1605,8 @@ export default function TournamentRegistration() {
 
   const statsLoading = tourLoading || regsLoading;
   const listInitialLoading = regsLoading || (searching && !activeList.length);
-  const canSwitchSelfSlot = isDoubles && isLoggedIn && !isAdmin;
+  const canSwitchRegistrationSlots = isDoubles && isLoggedIn;
+  const canSwitchSelfSlot = canSwitchRegistrationSlots && !isAdmin;
 
   useEffect(() => {
     if (canSwitchSelfSlot) return;
@@ -1711,7 +1712,13 @@ export default function TournamentRegistration() {
 
   /* Handlers */
   const handleSwitchSelfSlot = useCallback(() => {
-    if (!canSwitchSelfSlot) return;
+    if (!canSwitchRegistrationSlots) return;
+
+    if (isAdmin) {
+      setP1(p2);
+      setP2(p1);
+      return;
+    }
 
     if (selfSlot === "p1") {
       setP1(p2);
@@ -1723,7 +1730,7 @@ export default function TournamentRegistration() {
     setP2(p1);
     setP1(null);
     setSelfSlot("p1");
-  }, [canSwitchSelfSlot, p1, p2, selfSlot]);
+  }, [canSwitchRegistrationSlots, isAdmin, p1, p2, selfSlot]);
 
   const submit = useCallback(
     async (e) => {
@@ -2710,9 +2717,13 @@ export default function TournamentRegistration() {
                       gutterBottom
                       fontWeight={600}
                     >
-                      {!isAdmin && selfSlot === "p2"
-                        ? t("tournaments.registration.form.player1PartnerTitle")
-                        : t("tournaments.registration.form.player1Title")}
+                      {isAdmin
+                        ? t("tournaments.registration.form.player1PlainTitle")
+                        : selfSlot === "p2"
+                          ? t(
+                              "tournaments.registration.form.player1PartnerTitle",
+                            )
+                          : t("tournaments.registration.form.player1Title")}
                     </Typography>
                     {isAdmin || selfSlot === "p2" ? (
                       <PlayerSelector
@@ -2731,7 +2742,7 @@ export default function TournamentRegistration() {
                     )}
                   </Box>
 
-                  {canSwitchSelfSlot && (
+                  {canSwitchRegistrationSlots && (
                     <Box
                       sx={{
                         display: "flex",
@@ -2767,9 +2778,13 @@ export default function TournamentRegistration() {
                         gutterBottom
                         fontWeight={600}
                       >
-                        {!isAdmin && selfSlot === "p2"
-                          ? t("tournaments.registration.form.player2YouTitle")
-                          : t("tournaments.registration.form.player2Title")}
+                        {isAdmin
+                          ? t("tournaments.registration.form.player2PlainTitle")
+                          : selfSlot === "p2"
+                            ? t(
+                                "tournaments.registration.form.player2YouTitle",
+                              )
+                            : t("tournaments.registration.form.player2Title")}
                       </Typography>
                       {!isAdmin && selfSlot === "p2" ? (
                         renderSelfPlayerCard(

@@ -2172,9 +2172,11 @@ export default {
         locked:
           "Đã hết thời gian đăng ký cho VĐV. Vui lòng liên hệ BTC nếu cần hỗ trợ thêm.",
         player1Title: "Vận động viên 1 (Bạn)",
+        player1PlainTitle: "Vận động viên 1",
         player1Label: "VĐV 1",
         player1PartnerTitle: "Vận động viên 1 (Partner)",
         player2Title: "Vận động viên 2 (Partner)",
+        player2PlainTitle: "Vận động viên 2",
         player2Label: "VĐV 2",
         player2YouTitle: "Vận động viên 2 (Bạn)",
         playerSearchPlaceholder: "Tìm theo tên, SĐT...",
