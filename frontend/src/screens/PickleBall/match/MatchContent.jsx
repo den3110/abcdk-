@@ -53,7 +53,7 @@ import {
   useAdminPatchMatchMutation,
   useAdminSwapMatchTeamsMutation,
 } from "../../../slices/matchesApiSlice";
-import { useLocation, useParams } from "react-router-dom";
+import { Link as RouterLink, useLocation, useParams } from "react-router-dom";
 import { skipToken } from "@reduxjs/toolkit/query";
 import {
   useLazySearchRegistrationsQuery,
@@ -3173,9 +3173,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 size="small"
                 disableElevation
                 variant="contained"
-                component={MuiLink}
-                href={liveWatchUrl}
-                underline="none"
+                component={RouterLink}
+                to={liveWatchUrl}
                 disabled={!liveWatchUrl}
                 startIcon={<PlayIcon />}
                 sx={{
