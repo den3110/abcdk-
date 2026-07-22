@@ -54,6 +54,7 @@ import {
   ImageOutlined,
   InfoOutlined,
   FileDownloadOutlined,
+  SwapVert,
 } from "@mui/icons-material";
 import DangerousSharpIcon from "@mui/icons-material/DangerousSharp";
 
@@ -1475,6 +1476,7 @@ export default function TournamentRegistration() {
   /* Form States */
   const [p1, setP1] = useState(null);
   const [p2, setP2] = useState(null);
+  const [selfSlot, setSelfSlot] = useState("p1");
   const [msg, setMsg] = useState("");
   const [cancelingId, setCancelingId] = useState(null);
 
@@ -1603,6 +1605,13 @@ export default function TournamentRegistration() {
 
   const statsLoading = tourLoading || regsLoading;
   const listInitialLoading = regsLoading || (searching && !activeList.length);
+  const canSwitchSelfSlot = isDoubles && isLoggedIn && !isAdmin;
+
+  useEffect(() => {
+    if (canSwitchSelfSlot) return;
+    setSelfSlot("p1");
+    if (!isAdmin) setP1(null);
+  }, [canSwitchSelfSlot, isAdmin]);
 
   /* Helper Logic */
   const regCodeOf = useCallback(
@@ -1701,6 +1710,21 @@ export default function TournamentRegistration() {
   );
 
   /* Handlers */
+  const handleSwitchSelfSlot = useCallback(() => {
+    if (!canSwitchSelfSlot) return;
+
+    if (selfSlot === "p1") {
+      setP1(p2);
+      setP2(null);
+      setSelfSlot("p2");
+      return;
+    }
+
+    setP2(p1);
+    setP1(null);
+    setSelfSlot("p1");
+  }, [canSwitchSelfSlot, p1, p2, selfSlot]);
+
   const submit = useCallback(
     async (e) => {
       e.preventDefault();
@@ -1710,15 +1734,26 @@ export default function TournamentRegistration() {
         );
       if (!isLoggedIn)
         return toast.info(t("tournaments.registration.toasts.loginRequired"));
-      const p1Id = isAdmin ? p1?._id : String(me?._id);
+      const selfId = String(me?._id || "");
+      const selfAsPlayer2 = isDoubles && !isAdmin && selfSlot === "p2";
+      const p1Id = isAdmin ? p1?._id : selfAsPlayer2 ? p1?._id : selfId;
+      const p2Id = isDoubles
+        ? isAdmin
+          ? p2?._id
+          : selfAsPlayer2
+            ? selfId
+            : p2?._id
+        : undefined;
 
       if (!p1Id)
         return toast.error(
           isAdmin
             ? t("tournaments.registration.toasts.selectPlayer1")
-            : t("tournaments.registration.toasts.ownInfoError"),
+            : isDoubles
+              ? t("tournaments.registration.toasts.doublesNeedTwo")
+              : t("tournaments.registration.toasts.ownInfoError"),
         );
-      if (isDoubles && !p2?._id)
+      if (isDoubles && !p2Id)
         return toast.error(t("tournaments.registration.toasts.doublesNeedTwo"));
 
       try {
@@ -1726,13 +1761,13 @@ export default function TournamentRegistration() {
           tourId: id,
           message: msg,
           player1Id: p1Id,
-          player2Id: p2?._id,
+          player2Id: p2Id,
         }).unwrap();
         toast.success(t("tournaments.registration.toasts.registrationSuccess"));
         refetchRegs();
         setMsg("");
         setP2(null);
-        if (isAdmin) setP1(null);
+        if (isAdmin || selfSlot === "p2") setP1(null);
       } catch (err) {
         if (err?.status === 412) {
           toast.error(t("tournaments.registration.toasts.kycRequired"));
@@ -1751,6 +1786,7 @@ export default function TournamentRegistration() {
       isDoubles,
       p1,
       p2,
+      selfSlot,
       msg,
       me,
       id,
@@ -2256,6 +2292,53 @@ export default function TournamentRegistration() {
     actionHandlers: chatBotActionHandlers,
   });
 
+  const renderSelfPlayerCard = (fallbackLabel) => (
+    <Card
+      variant="outlined"
+      sx={{
+        p: 1.5,
+        display: "flex",
+        alignItems: "center",
+        gap: 2,
+        borderRadius: 2,
+        bgcolor: "background.paper",
+      }}
+    >
+      <Avatar src={me?.avatar} sx={{ width: 48, height: 48 }} />
+
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 0.5,
+            maxWidth: "100%",
+          }}
+        >
+          <Typography
+            fontWeight={700}
+            sx={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              maxWidth: "100%",
+            }}
+          >
+            {displayName(me, displayMode) || fallbackLabel}
+          </Typography>
+
+          <VerifyBadge status={me?.cccdStatus} />
+        </Box>
+
+        <Typography variant="caption" color="text.secondary">
+          {t("tournaments.registration.form.scorePrefix")}{" "}
+          {fmt3(isSingles ? me?.score?.single : me?.score?.double)} •{" "}
+          {me?.phone || t("tournaments.registration.form.noPhone")}
+        </Typography>
+      </Box>
+    </Card>
+  );
+
   if (tourLoading && !tour)
     return (
       <Box sx={{ height: "80vh", display: "grid", placeItems: "center" }}>
@@ -2627,9 +2710,11 @@ export default function TournamentRegistration() {
                       gutterBottom
                       fontWeight={600}
                     >
-                      {t("tournaments.registration.form.player1Title")}
+                      {!isAdmin && selfSlot === "p2"
+                        ? t("tournaments.registration.form.player1PartnerTitle")
+                        : t("tournaments.registration.form.player1Title")}
                     </Typography>
-                    {isAdmin ? (
+                    {isAdmin || selfSlot === "p2" ? (
                       <PlayerSelector
                         value={p1}
                         onChange={setP1}
@@ -2640,65 +2725,32 @@ export default function TournamentRegistration() {
                         )}
                       />
                     ) : (
-                      <Card
-                        variant="outlined"
-                        sx={{
-                          p: 1.5,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 2,
-                          borderRadius: 2,
-                          bgcolor: "background.paper",
-                        }}
-                      >
-                        <Avatar
-                          src={me?.avatar}
-                          sx={{ width: 48, height: 48 }}
-                        />
-
-                        <Box sx={{ minWidth: 0, flex: 1 }}>
-                          {/* Hàng tên + badge KYC */}
-                          <Box
-                            sx={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 0.5,
-                              maxWidth: "100%",
-                            }}
-                          >
-                            <Typography
-                              fontWeight={700}
-                              sx={{
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                whiteSpace: "nowrap",
-                                maxWidth: "100%",
-                              }}
-                            >
-                              {displayName(me, displayMode) ||
-                                t(
-                                  "tournaments.registration.form.player1Fallback",
-                                )}
-                            </Typography>
-
-                            {/* Badge KYC dính sát tên */}
-                            <VerifyBadge status={me?.cccdStatus} />
-                          </Box>
-
-                          {/* Hàng điểm + SĐT */}
-                          <Typography variant="caption" color="text.secondary">
-                            {t("tournaments.registration.form.scorePrefix")}{" "}
-                            {fmt3(
-                              isSingles ? me?.score?.single : me?.score?.double,
-                            )}{" "}
-                            •{" "}
-                            {me?.phone ||
-                              t("tournaments.registration.form.noPhone")}
-                          </Typography>
-                        </Box>
-                      </Card>
+                      renderSelfPlayerCard(
+                        t("tournaments.registration.form.player1Fallback"),
+                      )
                     )}
                   </Box>
+
+                  {canSwitchSelfSlot && (
+                    <Box
+                      sx={{
+                        display: "flex",
+                        justifyContent: "center",
+                        mt: -1,
+                        mb: 1.5,
+                      }}
+                    >
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<SwapVert fontSize="small" />}
+                        onClick={handleSwitchSelfSlot}
+                        sx={{ borderRadius: 2, textTransform: "none" }}
+                      >
+                        {t("tournaments.registration.form.switchSelfPosition")}
+                      </Button>
+                    </Box>
+                  )}
 
                   {/* VĐV 2 */}
                   {isDoubles && (
@@ -2708,17 +2760,27 @@ export default function TournamentRegistration() {
                         gutterBottom
                         fontWeight={600}
                       >
-                        {t("tournaments.registration.form.player2Title")}
+                        {!isAdmin && selfSlot === "p2"
+                          ? t("tournaments.registration.form.player2YouTitle")
+                          : t("tournaments.registration.form.player2Title")}
                       </Typography>
-                      <PlayerSelector
-                        value={p2}
-                        onChange={setP2}
-                        eventType={tour.eventType}
-                        label={t("tournaments.registration.form.player2Label")}
-                        placeholder={t(
-                          "tournaments.registration.form.playerSearchPlaceholder",
-                        )}
-                      />
+                      {!isAdmin && selfSlot === "p2" ? (
+                        renderSelfPlayerCard(
+                          t("tournaments.registration.form.player2Fallback"),
+                        )
+                      ) : (
+                        <PlayerSelector
+                          value={p2}
+                          onChange={setP2}
+                          eventType={tour.eventType}
+                          label={t(
+                            "tournaments.registration.form.player2Label",
+                          )}
+                          placeholder={t(
+                            "tournaments.registration.form.playerSearchPlaceholder",
+                          )}
+                        />
+                      )}
                     </Box>
                   )}
 

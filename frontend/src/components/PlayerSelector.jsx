@@ -17,10 +17,17 @@ function maskPhone(p) {
   return `${s.slice(0, 3)}****${s.slice(-3)}`;
 }
 
-export default function PlayerSelector({ label, eventType, onChange }) {
+export default function PlayerSelector({
+  label,
+  eventType,
+  onChange,
+  value: controlledValue,
+}) {
   const [input, setInput] = useState("");
-  const [value, setValue] = useState(null);
+  const [innerValue, setInnerValue] = useState(null);
   const [trigger, { data = [], isFetching }] = useLazySearchUserQuery();
+  const isControlled = controlledValue !== undefined;
+  const value = isControlled ? controlledValue : innerValue;
 
   // debounce input
   useEffect(() => {
@@ -33,12 +40,16 @@ export default function PlayerSelector({ label, eventType, onChange }) {
     return () => clearTimeout(id);
   }, [input, trigger, eventType]);
 
-  // báo lên parent
-  useEffect(() => {
-    onChange?.(value || null);
-  }, [value, onChange]);
-
-  const options = useMemo(() => (Array.isArray(data) ? data : []), [data]);
+  const options = useMemo(() => {
+    const base = Array.isArray(data) ? data : [];
+    if (!value?._id) return base;
+    const exists = base.some((item) => String(item?._id) === String(value._id));
+    return exists ? base : [value, ...base];
+  }, [data, value]);
+  const handleChange = (_, nextValue) => {
+    if (!isControlled) setInnerValue(nextValue || null);
+    onChange?.(nextValue || null);
+  };
 
   const getLabel = (o) =>
     (o?.nickname && String(o.nickname)) ||
@@ -61,7 +72,7 @@ export default function PlayerSelector({ label, eventType, onChange }) {
         loading={isFetching}
         onInputChange={(_, v) => setInput(v)}
         value={value}
-        onChange={(_, v) => setValue(v)}
+        onChange={handleChange}
         renderOption={(props, option) => (
           <li {...props} key={option._id}>
             <Stack direction="row" spacing={1} alignItems="center">
