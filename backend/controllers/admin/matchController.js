@@ -2074,11 +2074,31 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     const winnerReg = mt.winner === "A" ? mt.pairA : mt.pairB;
     if (winnerReg) {
       await Match.updateMany(
-        { previousA: mt._id, status: { $nin: ["live", "finished"] } },
+        {
+          tournament: mt.tournament,
+          status: { $nin: ["live", "finished"] },
+          $or: [
+            { previousA: mt._id },
+            {
+              "seedA.type": { $in: ["stageMatchWinner", "matchWinner"] },
+              "seedA.ref.matchId": mt._id,
+            },
+          ],
+        },
         { $set: { pairA: winnerReg } }
       );
       await Match.updateMany(
-        { previousB: mt._id, status: { $nin: ["live", "finished"] } },
+        {
+          tournament: mt.tournament,
+          status: { $nin: ["live", "finished"] },
+          $or: [
+            { previousB: mt._id },
+            {
+              "seedB.type": { $in: ["stageMatchWinner", "matchWinner"] },
+              "seedB.ref.matchId": mt._id,
+            },
+          ],
+        },
         { $set: { pairB: winnerReg } }
       );
     }

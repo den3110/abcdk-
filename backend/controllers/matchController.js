@@ -2122,6 +2122,113 @@ async function unlinkPreviousFeedForMatchSide(matchId, previousId, side) {
   );
 }
 
+async function normalizeWinnerSourceSeed(rawSeed, targetMatch) {
+  const type = String(rawSeed?.type || "").trim();
+  if (type !== "stageMatchWinner" && type !== "matchWinner") return null;
+
+  const sourceMatchId = String(
+    rawSeed?.ref?.matchId ||
+      rawSeed?.ref?.match ||
+      rawSeed?.ref?.sourceMatchId ||
+      rawSeed?.sourceMatchId ||
+      ""
+  ).trim();
+  if (!mongoose.isValidObjectId(sourceMatchId)) {
+    throw new Error("Trận nguồn không hợp lệ.");
+  }
+  if (String(sourceMatchId) === String(targetMatch._id)) {
+    throw new Error("Không thể lấy đội thắng từ chính trận này.");
+  }
+
+  const sourceMatch = await Match.findById(sourceMatchId).select(
+    "_id tournament bracket round order status winner pairA pairB"
+  );
+  if (!sourceMatch) throw new Error("Không tìm thấy trận nguồn.");
+  if (String(sourceMatch.tournament) !== String(targetMatch.tournament)) {
+    throw new Error("Trận nguồn không thuộc cùng giải đấu.");
+  }
+
+  const sameBracket = String(sourceMatch.bracket) === String(targetMatch.bracket);
+  if (sameBracket && Number(sourceMatch.round || 1) >= Number(targetMatch.round || 1)) {
+    throw new Error("Trận nguồn phải ở vòng trước của trận đang chỉnh.");
+  }
+
+  const sourceBracket = await Bracket.findById(sourceMatch.bracket)
+    .select("stage")
+    .lean();
+  const stageIndex = Number(sourceBracket?.stage || 1);
+  const winnerPair =
+    sourceMatch.status === "finished" &&
+    (sourceMatch.winner === "A" || sourceMatch.winner === "B")
+      ? sourceMatch.winner === "A"
+        ? sourceMatch.pairA
+        : sourceMatch.pairB
+      : null;
+
+  return {
+    sourceMatch,
+    previous: sameBracket ? sourceMatch._id : null,
+    pair: winnerPair || null,
+    seed: {
+      type: "stageMatchWinner",
+      ref: {
+        matchId: sourceMatch._id,
+        stageIndex,
+        round: Number(sourceMatch.round || 1),
+        order: Number(sourceMatch.order || 0),
+      },
+      label: String(
+        rawSeed?.label || `W-V${sourceMatch.round || 1}-T${Number(sourceMatch.order || 0) + 1}`
+      ).trim(),
+    },
+  };
+}
+
+async function fillWinnerSourceDependents(sourceMatch) {
+  if (
+    sourceMatch?.status !== "finished" ||
+    !["A", "B"].includes(sourceMatch?.winner)
+  ) {
+    return;
+  }
+
+  const winnerPair = sourceMatch.winner === "A" ? sourceMatch.pairA : sourceMatch.pairB;
+  if (!winnerPair) return;
+
+  const editableStatus = { $nin: ["live", "finished"] };
+  const sourceId = sourceMatch._id;
+  await Promise.all([
+    Match.updateMany(
+      {
+        tournament: sourceMatch.tournament,
+        status: editableStatus,
+        $or: [
+          { previousA: sourceId },
+          {
+            "seedA.type": { $in: ["stageMatchWinner", "matchWinner"] },
+            "seedA.ref.matchId": sourceId,
+          },
+        ],
+      },
+      { $set: { pairA: winnerPair } }
+    ),
+    Match.updateMany(
+      {
+        tournament: sourceMatch.tournament,
+        status: editableStatus,
+        $or: [
+          { previousB: sourceId },
+          {
+            "seedB.type": { $in: ["stageMatchWinner", "matchWinner"] },
+            "seedB.ref.matchId": sourceId,
+          },
+        ],
+      },
+      { $set: { pairB: winnerPair } }
+    ),
+  ]);
+}
+
 function sourceSeedForMatch(match, type, stageIndexOverride = null) {
   const round = Number(match?.round || 1);
   const order = Number(match?.order || 0);
@@ -2300,6 +2407,8 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     req.body,
     "status"
   );
+  const hasSeedAField = Object.prototype.hasOwnProperty.call(req.body, "seedA");
+  const hasSeedBField = Object.prototype.hasOwnProperty.call(req.body, "seedB");
 
   const updates = {};
   let touchLive = false;
@@ -2358,6 +2467,7 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
 
   // Chuẩn hoá A/B (nếu được gửi)
   let A, B;
+  let winnerSourceA, winnerSourceB;
   try {
     A = await normPairInput(
       wantsByeSeed(byeA, bodySeedA) ? { type: "bye" } : pairA,
@@ -2367,6 +2477,12 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
       wantsByeSeed(byeB, bodySeedB) ? { type: "bye" } : pairB,
       "B"
     );
+    winnerSourceA = hasSeedAField
+      ? await normalizeWinnerSourceSeed(bodySeedA, match)
+      : null;
+    winnerSourceB = hasSeedBField
+      ? await normalizeWinnerSourceSeed(bodySeedB, match)
+      : null;
   } catch (e) {
     res.status(400);
     throw e;
@@ -2383,8 +2499,8 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     throw new Error("pairA và pairB không được trùng nhau");
   }
 
-  const willSetA = A?.provided;
-  const willSetB = B?.provided;
+  const willSetA = A?.provided || Boolean(winnerSourceA);
+  const willSetB = B?.provided || Boolean(winnerSourceB);
 
   if (
     (willSetA || willSetB) &&
@@ -2393,18 +2509,32 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     res.status(403);
     throw new Error("Chỉ quản trị viên hoặc quản lý giải mới được chỉnh đội.");
   }
-  const newA = willSetA
+  const newA = winnerSourceA
+    ? winnerSourceA.pair
+    : willSetA
     ? A.value === null
       ? null
       : new mongoose.Types.ObjectId(A.value)
     : match.pairA;
-  const newB = willSetB
+  const newB = winnerSourceB
+    ? winnerSourceB.pair
+    : willSetB
     ? B.value === null
       ? null
       : new mongoose.Types.ObjectId(B.value)
     : match.pairB;
-  const newSeedA = willSetA ? A.seed ?? null : match.seedA;
-  const newSeedB = willSetB ? B.seed ?? null : match.seedB;
+  const newSeedA = winnerSourceA
+    ? winnerSourceA.seed
+    : willSetA
+      ? A.seed ?? null
+      : match.seedA;
+  const newSeedB = winnerSourceB
+    ? winnerSourceB.seed
+    : willSetB
+      ? B.seed ?? null
+      : match.seedB;
+  const newPreviousA = winnerSourceA ? winnerSourceA.previous : null;
+  const newPreviousB = winnerSourceB ? winnerSourceB.previous : null;
 
   if (
     (willSetA || willSetB) &&
@@ -2424,8 +2554,12 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     willSetA && seedSignature(match.seedA) !== seedSignature(newSeedA);
   const seedChangedB =
     willSetB && seedSignature(match.seedB) !== seedSignature(newSeedB);
-  const changedA = pairChangedA || seedChangedA;
-  const changedB = pairChangedB || seedChangedB;
+  const previousChangedA =
+    willSetA && String(match.previousA || "") !== String(newPreviousA || "");
+  const previousChangedB =
+    willSetB && String(match.previousB || "") !== String(newPreviousB || "");
+  const changedA = pairChangedA || seedChangedA || previousChangedA;
+  const changedB = pairChangedB || seedChangedB || previousChangedB;
   const teamsChanged = changedA || changedB;
   const changedToRealTeam = (changedA && newA) || (changedB && newB);
 
@@ -2433,13 +2567,13 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     if (changedA) {
       await unlinkPreviousFeedForMatchSide(match._id, match.previousA, "A");
       updates.pairA = newA;
-      updates.previousA = null;
+      updates.previousA = newPreviousA;
       updates.seedA = newSeedA;
     }
     if (changedB) {
       await unlinkPreviousFeedForMatchSide(match._id, match.previousB, "B");
       updates.pairB = newB;
-      updates.previousB = null;
+      updates.previousB = newPreviousB;
       updates.seedB = newSeedB;
     }
     if (changedToRealTeam) {
@@ -2512,6 +2646,21 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
   // 9) save
   match.set(updates);
   await match.save();
+  await Promise.all([
+    changedA && winnerSourceA?.previous
+      ? Match.updateOne(
+          { _id: winnerSourceA.previous },
+          { $set: { nextMatch: match._id, nextSlot: "A" } }
+        )
+      : null,
+    changedB && winnerSourceB?.previous
+      ? Match.updateOne(
+          { _id: winnerSourceB.previous },
+          { $set: { nextMatch: match._id, nextSlot: "B" } }
+        )
+      : null,
+  ].filter(Boolean));
+  await fillWinnerSourceDependents(match);
   if (teamsChanged) {
     await syncRoundElimDrawSourceForTeamOverride(match);
   }

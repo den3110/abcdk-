@@ -1498,7 +1498,6 @@ function EditTeamsDialog({
       open && effectiveTid
         ? {
             tournamentId: effectiveTid,
-            ...(currentBracketKey ? { bracket: currentBracketKey } : {}),
             limit: 1000,
           }
         : skipToken,
@@ -1522,6 +1521,15 @@ function EditTeamsDialog({
     [swapMatches, currentMatchKey, currentBracketKey],
   );
 
+  const winnerSourceMatchOptions = useMemo(
+    () =>
+      (swapMatches || []).filter((match) => {
+        const matchId = sid(match);
+        return Boolean(matchId && matchId !== currentMatchKey);
+      }),
+    [swapMatches, currentMatchKey],
+  );
+
   const matchCodeLabel = (match) => {
     const direct =
       match?.displayCode ||
@@ -1538,10 +1546,12 @@ function EditTeamsDialog({
 
   const winnerSourceOptions = useMemo(() => {
     const targetRound = Number(currentRound);
-    return swapMatchOptions
+    return winnerSourceMatchOptions
       .filter((match) => {
         const sourceRound = Number(match?.round);
+        const sourceBracketKey = sid(match?.bracket?._id || match?.bracket);
         return (
+          sourceBracketKey !== currentBracketKey ||
           !Number.isFinite(targetRound) ||
           (Number.isFinite(sourceRound) && sourceRound < targetRound)
         );
@@ -1552,7 +1562,7 @@ function EditTeamsDialog({
         sourceMatchId: sid(match),
         label: `W-${matchCodeLabel(match)}`,
       }));
-  }, [swapMatchOptions, currentRound]);
+  }, [winnerSourceMatchOptions, currentBracketKey, currentRound]);
 
   const options = useMemo(() => [BYE_OPTION, ...(data || [])], [data]);
 
@@ -1705,9 +1715,6 @@ function EditTeamsDialog({
                   onChange={(_, v) => setSelA(v)}
                   getOptionLabel={assignmentOptionLabel}
                   isOptionEqualToValue={isSameAssignmentOption}
-                  disabled={
-                    !isFetchingSwapMatches && !winnerSourceOptions.length
-                  }
                   renderInput={(params) => (
                     <TextField
                       {...params}
@@ -1719,7 +1726,7 @@ function EditTeamsDialog({
                           ? "Đang tải các trận playoff trước đó..."
                           : winnerSourceOptions.length
                             ? "Chọn đội thắng từ một trận playoff trước đó."
-                            : "Chưa có trận playoff trước đó để chọn."
+                            : "Chưa tìm thấy trận nguồn phù hợp để chọn."
                       }
                     />
                   )}
@@ -1760,9 +1767,6 @@ function EditTeamsDialog({
                   onChange={(_, v) => setSelB(v)}
                   getOptionLabel={assignmentOptionLabel}
                   isOptionEqualToValue={isSameAssignmentOption}
-                  disabled={
-                    !isFetchingSwapMatches && !winnerSourceOptions.length
-                  }
                   renderInput={(params) => (
                     <TextField
                       {...params}
@@ -1774,7 +1778,7 @@ function EditTeamsDialog({
                           ? "Đang tải các trận playoff trước đó..."
                           : winnerSourceOptions.length
                             ? "Chọn đội thắng từ một trận playoff trước đó."
-                            : "Chưa có trận playoff trước đó để chọn."
+                            : "Chưa tìm thấy trận nguồn phù hợp để chọn."
                       }
                     />
                   )}
