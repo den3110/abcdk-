@@ -1968,6 +1968,8 @@ export default {
       exportPdfLoading: "Exporting PDF…",
       exportRegistrationPdf: "Registered athletes (PDF)",
       exportRegistrationPdfLoading: "Exporting registered athletes…",
+      exportRegistrationWord: "Registered athletes (Word)",
+      exportRegistrationWordLoading: "Exporting registered athletes…",
       exportWord: "Export Word (.docx)",
       exportWordLoading: "Exporting Word…",
       overview: "Overview",
@@ -2016,6 +2018,7 @@ export default {
       assignVideoFailed: "Failed to assign video",
       exportPdfFailed: "Failed to export PDF",
       registrationExportPdfFailed: "Failed to export registered athletes",
+      registrationExportWordFailed: "Failed to export registered athletes (Word)",
       registrationExportEmpty: "There are no registered athletes to export.",
       registrationExportTitle: "Registered athletes",
       registrationExportSubtitle:

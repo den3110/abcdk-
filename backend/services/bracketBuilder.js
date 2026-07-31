@@ -769,7 +769,8 @@ function poMatchesForRound(N, r) {
   const round = Math.max(1, Number(r) || 1);
   if (round === 1) return Math.max(1, Math.ceil(n / 2));
   const prevMatches = poMatchesForRound(n, round - 1);
-  return Math.floor(prevMatches / 2);
+  // ceil: số trận vòng trước lẻ → đội dư vẫn phải có trận thật (vs BYE)
+  return Math.ceil(prevMatches / 2);
 }
 
 /**

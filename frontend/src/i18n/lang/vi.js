@@ -1966,6 +1966,8 @@ export default {
       exportPdfLoading: "Đang xuất PDF…",
       exportRegistrationPdf: "Danh sách VĐV đã đăng ký (PDF)",
       exportRegistrationPdfLoading: "Đang xuất danh sách VĐV…",
+      exportRegistrationWord: "Danh sách VĐV đã đăng ký (Word)",
+      exportRegistrationWordLoading: "Đang xuất danh sách VĐV…",
       exportWord: "Xuất Word (.docx)",
       exportWordLoading: "Đang xuất Word…",
       overview: "Tổng quan",
@@ -2014,6 +2016,7 @@ export default {
       assignVideoFailed: "Gán video thất bại",
       exportPdfFailed: "Xuất PDF thất bại",
       registrationExportPdfFailed: "Xuất danh sách VĐV thất bại",
+      registrationExportWordFailed: "Xuất danh sách VĐV (Word) thất bại",
       registrationExportEmpty: "Chưa có vận động viên đăng ký để xuất.",
       registrationExportTitle: "Danh sách vận động viên đã đăng ký",
       registrationExportSubtitle:

@@ -1767,7 +1767,9 @@ const roundElimMatchesForRound = (drawSize, roundNum) => {
   const round = Math.max(1, Number(roundNum || 1));
   if (round === 1) return Math.max(1, Math.ceil(totalTeams / 2));
   const prevMatches = roundElimMatchesForRound(totalTeams, round - 1);
-  return Math.floor(prevMatches / 2);
+  // ceil: số trận vòng trước lẻ → đội dư vẫn phải có trận thật (vs BYE),
+  // nếu floor thì slot cuối chỉ tồn tại ảo trên FE, không chọn W-Vx-Ty được
+  return Math.ceil(prevMatches / 2);
 };
 
 const getRoundElimRuleForRound = (bracket, roundNum) => {

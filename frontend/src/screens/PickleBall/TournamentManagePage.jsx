@@ -2906,131 +2906,9 @@ export default function TournamentManagePage() {
   const openExportMenu = (e) => setExportAnchor(e.currentTarget);
   const closeExportMenu = () => setExportAnchor(null);
 
-  const buildRowsForBracket = useCallback(
-    (matches) =>
-      matches.map((m) => {
-        const merged = { ...m, ...(liveStore.get(String(m._id)) || {}) };
-        return [
-          matchCode(merged),
-          teamLabel(merged, "A"),
-          teamLabel(merged, "B"),
-          courtLabel(merged),
-          Number.isFinite(merged?.order) ? `T${merged.order + 1}` : "—",
-          scoreSummary(merged),
-        ];
-      }),
-    [liveStore],
-  );
-
-  const buildExportPayload = useCallback(() => {
-    const payload = [];
-    for (const b of bracketsOfTab) {
-      const bid = String(b?._id);
-      const list = groupedLists.get(bid) || [];
-      payload.push({ bracket: b, rows: buildRowsForBracket(list) });
-    }
-    return payload;
-  }, [bracketsOfTab, groupedLists, buildRowsForBracket]);
-
-  const handleExportPDF = async () => {
-    try {
-      setExporting(true);
-      // pdfmake (~2MB) tách chunk on-demand — nằm trong try/catch nên nếu chunk 404
-      // (tab cũ sau deploy) chỉ báo lỗi xuất PDF, không sập trang.
-      const { default: pdfMake } = await import("pdfmake/build/pdfmake");
-      const pdfFonts = await import("pdfmake/build/vfs_fonts");
-      // pdfmake v0.2.x exports font files directly, v0.1.x uses pdfMake.vfs
-      pdfMake.vfs = pdfFonts.pdfMake?.vfs || pdfFonts.default || pdfFonts;
-
-      const data = buildExportPayload();
-      const title = t("tournaments.manage.exportTitle", {
-        name: tour?.name || t("tournaments.manage.fallbackName"),
-      });
-      const sub = t("tournaments.manage.exportSubtitle", {
-        type: getTypeLabel(t, tab),
-        time: formatDateTime(new Date(), locale),
-      });
-
-      const content = [
-        { text: title, style: "title" },
-        { text: sub, margin: [0, 2, 0, 10], style: "sub" },
-      ];
-
-      data.forEach((sec, idx) => {
-        content.push({
-          text: t("tournaments.manage.exportSectionTitle", {
-            name: sec.bracket?.name || "Bracket",
-            type: getTypeLabel(t, sec.bracket?.type),
-          }),
-          style: "h2",
-          margin: [0, idx === 0 ? 0 : 8, 0, 6],
-        });
-
-        const tableBody = [
-          [
-            t("tournaments.manage.exportHeaders.matchCode"),
-            t("tournaments.manage.exportHeaders.pairA"),
-            t("tournaments.manage.exportHeaders.pairB"),
-            t("tournaments.manage.exportHeaders.court"),
-            t("tournaments.manage.exportHeaders.order"),
-            t("tournaments.manage.exportHeaders.score"),
-          ],
-          ...sec.rows.map((r) =>
-            r.map((cell) => (cell == null ? "" : String(cell))),
-          ),
-        ];
-
-        content.push({
-          table: {
-            headerRows: 1,
-            widths: [50, 160, 160, 80, 55, 65],
-            body: tableBody,
-          },
-          layout: "lightHorizontalLines",
-          fontSize: 9,
-        });
-      });
-
-      const docDefinition = {
-        pageSize: "A4",
-        pageMargins: [30, 30, 30, 40],
-        defaultStyle: { font: "Roboto", fontSize: 10 },
-        styles: {
-          title: { fontSize: 16, bold: true },
-          sub: { fontSize: 9, color: "#666" },
-          h2: { fontSize: 12, bold: true },
-        },
-        footer: (currentPage, pageCount) => ({
-          text: t("tournaments.manage.exportPage", {
-            current: currentPage,
-            total: pageCount,
-          }),
-          alignment: "left",
-          margin: [30, 0, 0, 20],
-          fontSize: 9,
-          color: "#666",
-        }),
-      };
-
-      const fname = `tournament_${(tour?.name || "export")
-        .replace(/[^\p{L}\p{N}]+/gu, "_")
-        .replace(/^_+|_+$/g, "")
-        .toLowerCase()}_${tab}_${new Date()
-        .toISOString()
-        .slice(0, 19)
-        .replace(/[:T]/g, "-")}.pdf`;
-
-      pdfMake.createPdf({ ...docDefinition, content }).download(fname);
-    } catch (e) {
-      toast.error(t("tournaments.manage.exportPdfFailed"));
-      console.error(e);
-    } finally {
-      setExporting(false);
-      closeExportMenu();
-    }
-  };
-
-  const handleExportRegistrationsPDF = async () => {
+  /* Xuất file = danh sách VĐV đã đăng ký; tên theo cài đặt hiển thị của giải
+     (displayMode: nickname mặc định / fullName nếu giải cấu hình). */
+  const buildRegistrationExportData = () => {
     const isSingles = String(tour?.eventType || "").toLowerCase() === "single";
     const rows = registrations.flatMap((registration) => {
       const players = isSingles
@@ -3043,6 +2921,20 @@ export default function TournamentManagePage() {
         registrationCode: registration?.code ? String(registration.code) : "—",
       }));
     });
+    return { isSingles, rows };
+  };
+
+  const registrationExportFileName = (ext) =>
+    `registered_athletes_${(tour?.name || "tournament")
+      .replace(/[^\p{L}\p{N}]+/gu, "_")
+      .replace(/^_+|_+$/g, "")
+      .toLowerCase()}_${new Date()
+      .toISOString()
+      .slice(0, 19)
+      .replace(/[:T]/g, "-")}.${ext}`;
+
+  const handleExportRegistrationsPDF = async () => {
+    const { isSingles, rows } = buildRegistrationExportData();
 
     if (!rows.length) {
       toast.info(t("tournaments.manage.registrationExportEmpty"));
@@ -3098,13 +2990,7 @@ export default function TournamentManagePage() {
           fontSize: 10,
         },
       ];
-      const fname = `registered_athletes_${(tour?.name || "tournament")
-        .replace(/[^\p{L}\p{N}]+/gu, "_")
-        .replace(/^_+|_+$/g, "")
-        .toLowerCase()}_${new Date()
-        .toISOString()
-        .slice(0, 19)
-        .replace(/[:T]/g, "-")}.pdf`;
+      const fname = registrationExportFileName("pdf");
 
       pdfMake
         .createPdf({
@@ -3137,7 +3023,14 @@ export default function TournamentManagePage() {
     }
   };
 
-  const handleExportWord = async () => {
+  const handleExportRegistrationsWord = async () => {
+    const { isSingles, rows } = buildRegistrationExportData();
+
+    if (!rows.length) {
+      toast.info(t("tournaments.manage.registrationExportEmpty"));
+      return;
+    }
+
     try {
       setExporting(true);
       const docx = await import("docx");
@@ -3153,86 +3046,86 @@ export default function TournamentManagePage() {
         WidthType,
       } = docx;
 
-      const data = buildExportPayload();
-      const sections = [];
-
-      sections.push(
-        new Paragraph({
-          text: t("tournaments.manage.exportTitle", {
-            name: tour?.name || t("tournaments.manage.fallbackName"),
-          }),
-          heading: HeadingLevel.TITLE,
-        }),
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: t("tournaments.manage.exportSubtitle", {
-                type: getTypeLabel(t, tab),
-                time: formatDateTime(new Date(), locale),
-              }),
-              size: 18,
-            }),
-          ],
-        }),
-        new Paragraph({ text: "" }),
-      );
-
-      data.forEach((sec) => {
-        sections.push(
-          new Paragraph({
-            text: t("tournaments.manage.exportSectionTitle", {
-              name: sec.bracket?.name || "Bracket",
-              type: getTypeLabel(t, sec.bracket?.type),
-            }),
-            heading: HeadingLevel.HEADING_2,
-          }),
-        );
-        const head = [
-          t("tournaments.manage.exportHeaders.matchCode"),
-          t("tournaments.manage.exportHeaders.pairA"),
-          t("tournaments.manage.exportHeaders.pairB"),
-          t("tournaments.manage.exportHeaders.court"),
-          t("tournaments.manage.exportHeaders.order"),
-          t("tournaments.manage.exportHeaders.score"),
-        ].map(
-          (label) =>
-            new TableCell({
-              children: [new Paragraph({ text: label })],
-            }),
-        );
-        const rows = [
-          new TableRow({ children: head }),
-          ...sec.rows.map(
-            (r) =>
-              new TableRow({
-                children: r.map(
-                  (cell) =>
-                    new TableCell({
-                      width: { size: 1, type: WidthType.AUTO },
-                      children: [new Paragraph({ text: String(cell || "") })],
-                    }),
-                ),
-              }),
-          ),
-        ];
-        sections.push(
-          new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows }),
-          new Paragraph({ text: "" }),
-        );
+      const eventType = isSingles
+        ? t("tournaments.registration.eventSingles")
+        : t("tournaments.registration.eventDoubles");
+      const headers = t("tournaments.manage.registrationExportHeaders", {
+        returnObjects: true,
       });
 
+      const head = [
+        headers.index,
+        headers.athlete,
+        headers.phone,
+        headers.registrationCode,
+      ].map(
+        (label) =>
+          new TableCell({
+            children: [new Paragraph({ text: String(label ?? "") })],
+          }),
+      );
+      const tableRows = [
+        new TableRow({ children: head }),
+        ...rows.map(
+          (row, index) =>
+            new TableRow({
+              children: [
+                String(index + 1),
+                row.athlete,
+                row.phone,
+                row.registrationCode,
+              ].map(
+                (cell) =>
+                  new TableCell({
+                    width: { size: 1, type: WidthType.AUTO },
+                    children: [new Paragraph({ text: String(cell || "") })],
+                  }),
+              ),
+            }),
+        ),
+      ];
+
       const doc = new Document({
-        sections: [{ properties: {}, children: sections }],
+        sections: [
+          {
+            properties: {},
+            children: [
+              new Paragraph({
+                text: t("tournaments.manage.registrationExportTitle"),
+                heading: HeadingLevel.TITLE,
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: tour?.name || t("tournaments.manage.fallbackName"),
+                    bold: true,
+                  }),
+                ],
+              }),
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: t("tournaments.manage.registrationExportSubtitle", {
+                      type: eventType,
+                      count: rows.length,
+                      time: formatDateTime(new Date(), locale),
+                    }),
+                    size: 18,
+                  }),
+                ],
+              }),
+              new Paragraph({ text: "" }),
+              new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: tableRows,
+              }),
+            ],
+          },
+        ],
       });
       const blob = await Packer.toBlob(doc);
 
-      const fname = `tournament_${(tour?.name || "export")
-        .replace(/[^\p{L}\p{N}]+/gu, "_")
-        .replace(/^_+|_+$/g, "")
-        .toLowerCase()}_${tab}_${new Date()
-        .toISOString()
-        .slice(0, 19)
-        .replace(/[:T]/g, "-")}.docx`;
+      const fname = registrationExportFileName("docx");
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -3243,7 +3136,7 @@ export default function TournamentManagePage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
-      toast.error(t("tournaments.manage.exportWordFailed"));
+      toast.error(t("tournaments.manage.registrationExportWordFailed"));
       console.error(e);
     } finally {
       setExporting(false);
@@ -3318,17 +3211,13 @@ export default function TournamentManagePage() {
       setV2SettingsSection(nextSection);
     }
   }, [isManageV2, searchParams, v2SettingsOpen, v2SettingsSection]);
-  const onMobileExportPDF = async () => {
-    closeActionMenu();
-    await handleExportPDF();
-  };
   const onMobileExportRegistrationsPDF = async () => {
     closeActionMenu();
     await handleExportRegistrationsPDF();
   };
-  const onMobileExportWord = async () => {
+  const onMobileExportRegistrationsWord = async () => {
     closeActionMenu();
-    await handleExportWord();
+    await handleExportRegistrationsWord();
   };
 
   const v2SettingsItems = [
@@ -3609,29 +3498,22 @@ export default function TournamentManagePage() {
     }
 
     if (v2SettingsSection === "export") {
+      const registrationExportDisabled =
+        exporting || registrationsLoading || registrations.length === 0;
       return (
         <Stack spacing={2}>
           <Box>
             <Typography variant="h6">Xuất file</Typography>
             <Typography variant="body2" color="text.secondary">
-              Xuất dữ liệu theo tab bracket đang mở.
+              Xuất danh sách VĐV đã đăng ký (tên theo cài đặt hiển thị của
+              giải).
             </Typography>
           </Box>
           <Button
             variant="outlined"
             startIcon={<PictureAsPdfIcon />}
-            onClick={handleExportPDF}
-            disabled={exporting || bracketsOfTab.length === 0}
-          >
-            {exporting
-              ? t("tournaments.manage.exportPdfLoading")
-              : t("tournaments.manage.exportPdf")}
-          </Button>
-          <Button
-            variant="outlined"
-            startIcon={<PictureAsPdfIcon />}
             onClick={handleExportRegistrationsPDF}
-            disabled={exporting || registrationsLoading || registrations.length === 0}
+            disabled={registrationExportDisabled}
           >
             {exporting
               ? t("tournaments.manage.exportRegistrationPdfLoading")
@@ -3640,12 +3522,12 @@ export default function TournamentManagePage() {
           <Button
             variant="outlined"
             startIcon={<DescriptionIcon />}
-            onClick={handleExportWord}
-            disabled={exporting || bracketsOfTab.length === 0}
+            onClick={handleExportRegistrationsWord}
+            disabled={registrationExportDisabled}
           >
             {exporting
-              ? t("tournaments.manage.exportWordLoading")
-              : t("tournaments.manage.exportWord")}
+              ? t("tournaments.manage.exportRegistrationWordLoading")
+              : t("tournaments.manage.exportRegistrationWord")}
           </Button>
         </Stack>
       );
@@ -4345,9 +4227,7 @@ export default function TournamentManagePage() {
               onClick={openExportMenu}
               disabled={
                 exporting ||
-                (bracketsOfTab.length === 0 &&
-                  !registrationsLoading &&
-                  registrations.length === 0)
+                (!registrationsLoading && registrations.length === 0)
               }
             >
               {t("tournaments.manage.exportFiles")}
@@ -4358,21 +4238,6 @@ export default function TournamentManagePage() {
               onClose={closeExportMenu}
               keepMounted
             >
-              <MenuItem
-                onClick={handleExportPDF}
-                disabled={exporting || bracketsOfTab.length === 0}
-              >
-                <ListItemIcon>
-                  <PictureAsPdfIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText
-                  primary={
-                    exporting
-                      ? t("tournaments.manage.exportPdfLoading")
-                      : t("tournaments.manage.exportPdf")
-                  }
-                />
-              </MenuItem>
               <MenuItem
                 onClick={handleExportRegistrationsPDF}
                 disabled={exporting || registrationsLoading || registrations.length === 0}
@@ -4389,8 +4254,8 @@ export default function TournamentManagePage() {
                 />
               </MenuItem>
               <MenuItem
-                onClick={handleExportWord}
-                disabled={exporting || bracketsOfTab.length === 0}
+                onClick={handleExportRegistrationsWord}
+                disabled={exporting || registrationsLoading || registrations.length === 0}
               >
                 <ListItemIcon>
                   <DescriptionIcon fontSize="small" />
@@ -4398,8 +4263,8 @@ export default function TournamentManagePage() {
                 <ListItemText
                   primary={
                     exporting
-                      ? t("tournaments.manage.exportWordLoading")
-                      : t("tournaments.manage.exportWord")
+                      ? t("tournaments.manage.exportRegistrationWordLoading")
+                      : t("tournaments.manage.exportRegistrationWord")
                   }
                 />
               </MenuItem>
@@ -4609,21 +4474,6 @@ export default function TournamentManagePage() {
                 <Divider />
 
                 <MenuItem
-                  onClick={onMobileExportPDF}
-                  disabled={exporting || bracketsOfTab.length === 0}
-                >
-                  <ListItemIcon>
-                    <PictureAsPdfIcon fontSize="small" />
-                  </ListItemIcon>
-                  <ListItemText
-                    primary={
-                      exporting
-                        ? t("tournaments.manage.exportPdfLoading")
-                        : t("tournaments.manage.exportPdf")
-                    }
-                  />
-                </MenuItem>
-                <MenuItem
                   onClick={onMobileExportRegistrationsPDF}
                   disabled={exporting || registrationsLoading || registrations.length === 0}
                 >
@@ -4639,8 +4489,8 @@ export default function TournamentManagePage() {
                   />
                 </MenuItem>
                 <MenuItem
-                  onClick={onMobileExportWord}
-                  disabled={exporting || bracketsOfTab.length === 0}
+                  onClick={onMobileExportRegistrationsWord}
+                  disabled={exporting || registrationsLoading || registrations.length === 0}
                 >
                   <ListItemIcon>
                     <DescriptionIcon fontSize="small" />
@@ -4648,8 +4498,8 @@ export default function TournamentManagePage() {
                   <ListItemText
                     primary={
                       exporting
-                        ? t("tournaments.manage.exportWordLoading")
-                        : t("tournaments.manage.exportWord")
+                        ? t("tournaments.manage.exportRegistrationWordLoading")
+                        : t("tournaments.manage.exportRegistrationWord")
                     }
                   />
                 </MenuItem>
