@@ -520,6 +520,14 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
+    updateGroupStructure: builder.mutation({
+      query: ({ bracketId, groupId, expectedSize, removeRegistrationId }) => ({
+        url: `/api/admin/brackets/${bracketId}/groups/${groupId}/structure`,
+        method: "PATCH",
+        body: { expectedSize, removeRegistrationId },
+      }),
+    }),
+
     generateGroupMatchesForRegistration: builder.mutation({
       query: ({ bracketId, groupId, registrationId, doubleRound }) => ({
         url: `/api/admin/brackets/${bracketId}/groups/${groupId}/generate-matches`,
@@ -919,6 +927,7 @@ export const {
   useGetBracketQuery,
   useGenerateGroupMatchesMutation,
   useInsertRegistrationIntoGroupMutation,
+  useUpdateGroupStructureMutation,
   useGenerateGroupMatchesForRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
   useManagerUpdateRegPlayerAvatarMutation,

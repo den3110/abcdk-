@@ -166,6 +166,7 @@ import {
   generateGroupMatchesForTeam,
   getAdminBracketById,
   insertRegIntoGroupSlot,
+  updateGroupStructure,
 } from "../controllers/admin/adminBracketController.js";
 import {
   getUsersVersion,
@@ -1039,6 +1040,13 @@ router.post(
   protect,
   authorize("admin"),
   insertRegIntoGroupSlot,
+);
+
+router.patch(
+  "/brackets/:bracketId/groups/:groupId/structure",
+  protect,
+  authorize("admin"),
+  updateGroupStructure,
 );
 
 router.post(

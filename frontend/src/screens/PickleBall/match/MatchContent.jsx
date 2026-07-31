@@ -1554,10 +1554,7 @@ function EditTeamsDialog({
       }));
   }, [swapMatchOptions, currentRound]);
 
-  const options = useMemo(
-    () => [...winnerSourceOptions, BYE_OPTION, ...(data || [])],
-    [winnerSourceOptions, data],
-  );
+  const options = useMemo(() => [BYE_OPTION, ...(data || [])], [data]);
 
   const assignmentOptionLabel = (option) =>
     isWinnerSourceOption(option)
@@ -1679,54 +1676,110 @@ function EditTeamsDialog({
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 Chọn đội A
               </Typography>
-              <Autocomplete
-                disablePortal
-                loading={isFetching}
-                options={options}
-                value={selA}
-                onChange={(_, v) => setSelA(v)}
-                getOptionLabel={assignmentOptionLabel}
-                isOptionEqualToValue={isSameAssignmentOption}
-                groupBy={(option) =>
-                  isWinnerSourceOption(option)
-                    ? "Đội thắng từ vòng playoff trước"
-                    : "Đội cụ thể"
-                }
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    size="small"
-                    placeholder="Chọn đội A"
-                  />
-                )}
-              />
+              <Stack spacing={1}>
+                <Autocomplete
+                  disablePortal
+                  loading={isFetching}
+                  options={options}
+                  value={isWinnerSourceOption(selA) ? null : selA}
+                  onChange={(_, v) => setSelA(v)}
+                  getOptionLabel={(option) =>
+                    pairLabel(option, isSingle, displayMode)
+                  }
+                  isOptionEqualToValue={(option, value) =>
+                    idOf(option) === idOf(value)
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      size="small"
+                      placeholder="Chọn đội A"
+                    />
+                  )}
+                />
+                <Autocomplete
+                  disablePortal
+                  loading={isFetchingSwapMatches}
+                  options={winnerSourceOptions}
+                  value={isWinnerSourceOption(selA) ? selA : null}
+                  onChange={(_, v) => setSelA(v)}
+                  getOptionLabel={assignmentOptionLabel}
+                  isOptionEqualToValue={isSameAssignmentOption}
+                  disabled={
+                    !isFetchingSwapMatches && !winnerSourceOptions.length
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      size="small"
+                      label="Đội thắng từ trận trước"
+                      placeholder="Chọn W-V1-T1..."
+                      helperText={
+                        isFetchingSwapMatches
+                          ? "Đang tải các trận playoff trước đó..."
+                          : winnerSourceOptions.length
+                            ? "Chọn đội thắng từ một trận playoff trước đó."
+                            : "Chưa có trận playoff trước đó để chọn."
+                      }
+                    />
+                  )}
+                />
+              </Stack>
             </Box>
 
             <Box flex={1}>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 Chọn đội B
               </Typography>
-              <Autocomplete
-                disablePortal
-                loading={isFetching}
-                options={options}
-                value={selB}
-                onChange={(_, v) => setSelB(v)}
-                getOptionLabel={assignmentOptionLabel}
-                isOptionEqualToValue={isSameAssignmentOption}
-                groupBy={(option) =>
-                  isWinnerSourceOption(option)
-                    ? "Đội thắng từ vòng playoff trước"
-                    : "Đội cụ thể"
-                }
-                renderInput={(params) => (
-                  <TextField
-                    {...params}
-                    size="small"
-                    placeholder="Chọn đội B"
-                  />
-                )}
-              />
+              <Stack spacing={1}>
+                <Autocomplete
+                  disablePortal
+                  loading={isFetching}
+                  options={options}
+                  value={isWinnerSourceOption(selB) ? null : selB}
+                  onChange={(_, v) => setSelB(v)}
+                  getOptionLabel={(option) =>
+                    pairLabel(option, isSingle, displayMode)
+                  }
+                  isOptionEqualToValue={(option, value) =>
+                    idOf(option) === idOf(value)
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      size="small"
+                      placeholder="Chọn đội B"
+                    />
+                  )}
+                />
+                <Autocomplete
+                  disablePortal
+                  loading={isFetchingSwapMatches}
+                  options={winnerSourceOptions}
+                  value={isWinnerSourceOption(selB) ? selB : null}
+                  onChange={(_, v) => setSelB(v)}
+                  getOptionLabel={assignmentOptionLabel}
+                  isOptionEqualToValue={isSameAssignmentOption}
+                  disabled={
+                    !isFetchingSwapMatches && !winnerSourceOptions.length
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      size="small"
+                      label="Đội thắng từ trận trước"
+                      placeholder="Chọn W-V1-T1..."
+                      helperText={
+                        isFetchingSwapMatches
+                          ? "Đang tải các trận playoff trước đó..."
+                          : winnerSourceOptions.length
+                            ? "Chọn đội thắng từ một trận playoff trước đó."
+                            : "Chưa có trận playoff trước đó để chọn."
+                      }
+                    />
+                  )}
+                />
+              </Stack>
             </Box>
           </Stack>
 

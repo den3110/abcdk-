@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import Bracket from "../../models/bracketModel.js";
 import Registration from "../../models/registrationModel.js";
 import Match from "../../models/matchModel.js";
+import DrawSession from "../../models/drawSessionModel.js";
 import { emitTournamentInvalidate } from "../../socket/tournamentRealtime.js";
 
 const oid = (v) => new mongoose.Types.ObjectId(String(v));
@@ -285,6 +286,156 @@ export async function insertRegIntoGroupSlot(req, res) {
   } finally {
     session.endSession();
   }
+}
+
+/**
+ * PATCH /admin/brackets/:bracketId/groups/:groupId/structure
+ * body: { expectedSize: number, removeRegistrationId?: string }
+ *
+ * Chỉ cho phép chỉnh cơ cấu trước khi bốc thăm hoặc tạo trận.
+ * Khi bỏ đội, đồng thời gỡ đội đó khỏi regIds và slotPlan của đúng bảng.
+ */
+export async function updateGroupStructure(req, res) {
+  const { bracketId, groupId } = req.params;
+  const { expectedSize, removeRegistrationId } = req.body || {};
+  const nextSize = Number(expectedSize);
+
+  if (!mongoose.isValidObjectId(bracketId)) {
+    return res.status(400).json({ ok: false, message: "Bracket không hợp lệ." });
+  }
+  if (!Number.isInteger(nextSize) || nextSize < 1) {
+    return res.status(400).json({
+      ok: false,
+      message: "Số đội của bảng phải là số nguyên lớn hơn 0.",
+    });
+  }
+  if (
+    removeRegistrationId &&
+    !mongoose.isValidObjectId(removeRegistrationId)
+  ) {
+    return res.status(400).json({ ok: false, message: "Đội cần bỏ không hợp lệ." });
+  }
+
+  const dbSession = await mongoose.startSession();
+  let result;
+  try {
+    await dbSession.withTransaction(async () => {
+      const bracket = await Bracket.findById(bracketId).session(dbSession);
+      if (!bracket) {
+        const error = new Error("Không tìm thấy bracket.");
+        error.statusCode = 404;
+        throw error;
+      }
+      if (String(bracket.type || "").toLowerCase() !== "group") {
+        const error = new Error("Chỉ có thể chỉnh cơ cấu của vòng bảng.");
+        error.statusCode = 400;
+        throw error;
+      }
+      if (["drawn", "in_progress", "done"].includes(bracket.drawStatus)) {
+        const error = new Error(
+          "Vòng bảng đã được bốc hoặc đang diễn ra, không thể chỉnh cơ cấu.",
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+
+      const [matchesCount, activeDraw] = await Promise.all([
+        Match.countDocuments({ bracket: bracket._id }).session(dbSession),
+        DrawSession.findOne({ bracket: bracket._id, status: "active" })
+          .session(dbSession)
+          .select("_id"),
+      ]);
+      if (matchesCount > 0 || activeDraw) {
+        const error = new Error(
+          "Chỉ có thể chỉnh cơ cấu khi chưa bốc thăm và chưa tạo trận.",
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+
+      const group = findGroupFromParam(bracket, groupId);
+      if (!group) {
+        const error = new Error("Không tìm thấy bảng cần chỉnh.");
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const groupKeys = new Set([String(group._id), String(group.name)]);
+      const slotPlanInGroup = (bracket.slotPlan || []).filter((assignment) =>
+        groupKeys.has(String(assignment?.poolKey || "")),
+      );
+      const configuredRegistrationIds = new Set([
+        ...(group.regIds || []).map(String),
+        ...slotPlanInGroup
+          .map((assignment) => assignment?.registration || assignment?.regId)
+          .filter(Boolean)
+          .map(String),
+      ]);
+
+      let removed = false;
+      if (removeRegistrationId) {
+        const removeId = String(removeRegistrationId);
+        if (!configuredRegistrationIds.has(removeId)) {
+          const error = new Error("Đội này không thuộc bảng đã chọn.");
+          error.statusCode = 400;
+          throw error;
+        }
+        group.regIds = (group.regIds || []).filter(
+          (registrationId) => !same(registrationId, removeId),
+        );
+        bracket.slotPlan = (bracket.slotPlan || []).filter(
+          (assignment) =>
+            !(
+              groupKeys.has(String(assignment?.poolKey || "")) &&
+              same(assignment?.registration || assignment?.regId, removeId)
+            ),
+        );
+        configuredRegistrationIds.delete(removeId);
+        removed = true;
+      }
+
+      if (configuredRegistrationIds.size > nextSize) {
+        const error = new Error(
+          `Bảng vẫn còn ${configuredRegistrationIds.size} đội đã cơ cấu; hãy bỏ bớt đội hoặc đặt size tối thiểu ${configuredRegistrationIds.size}.`,
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+
+      group.expectedSize = nextSize;
+      bracket.teamsCount = (bracket.groups || []).reduce(
+        (total, item) => total + (item.regIds || []).length,
+        0,
+      );
+      bracket.matchesCount = 0;
+      bracket.drawStatus = (bracket.slotPlan || []).length
+        ? "preassigned"
+        : "planned";
+      await bracket.save({ session: dbSession });
+
+      result = {
+        ok: true,
+        tournamentId: String(bracket.tournament),
+        group: group.toObject(),
+        expectedSize: nextSize,
+        configuredTeams: configuredRegistrationIds.size,
+        removed,
+      };
+    });
+  } catch (error) {
+    return res
+      .status(error?.statusCode || 400)
+      .json({ ok: false, message: error.message });
+  } finally {
+    await dbSession.endSession();
+  }
+
+  emitTournamentInvalidate(req.app.get("io"), {
+    tournamentId: result.tournamentId,
+    bracketId,
+    reason: "group_structure_updated",
+  });
+  return res.json(result);
 }
 
 /**

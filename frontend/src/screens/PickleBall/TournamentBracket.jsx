@@ -81,6 +81,7 @@ import {
   useBackfillBracketRatingMutation,
   useGetRegistrationsQuery,
   useInsertRegistrationIntoGroupMutation,
+  useUpdateGroupStructureMutation,
   useGenerateGroupMatchesForRegistrationMutation,
 } from "../../slices/tournamentsApiSlice";
 import { toast } from "react-toastify";
@@ -106,6 +107,25 @@ const HighlightContext = createContext({ hovered: null, setHovered: () => {} });
 const GROUP_VIEW_STORAGE_KEY = "pickletour:tournament-bracket:group-view-mode";
 const BRACKET_UI_VERSION_STORAGE_KEY = "pickletour:tournament-bracket:uiVersion";
 const EMPTY_LIST = [];
+const registrationIdText = (value) => {
+  if (value == null) return "";
+  if (typeof value === "object") {
+    return String(value?._id || value?.id || value?.registration || value?.regId || "");
+  }
+  return String(value);
+};
+const configuredRegistrationIdsForGroup = (group, slotPlan = []) => {
+  const groupKeys = new Set([String(group?._id || ""), String(group?.name || "")]);
+  const ids = new Set((group?.regIds || []).map(registrationIdText).filter(Boolean));
+  (slotPlan || []).forEach((assignment) => {
+    if (!groupKeys.has(String(assignment?.poolKey || ""))) return;
+    const registrationId = registrationIdText(
+      assignment?.registration || assignment?.regId,
+    );
+    if (registrationId) ids.add(registrationId);
+  });
+  return Array.from(ids);
+};
 const BRACKET_NAV_WIDTH_SX = {
   width: { xs: "100%", md: "94vw", lg: "88vw" },
   maxWidth: { lg: "1680px" },
@@ -5462,6 +5482,8 @@ export default function TournamentBracket() {
     insertRegistrationIntoGroup,
     { isLoading: insertingRegistrationIntoGroup },
   ] = useInsertRegistrationIntoGroupMutation();
+  const [updateGroupStructure, { isLoading: updatingGroupStructure }] =
+    useUpdateGroupStructureMutation();
   const [
     generateGroupMatchesForRegistration,
     { isLoading: generatingGroupMatchesForRegistration },
@@ -5861,12 +5883,19 @@ export default function TournamentBracket() {
     readStoredGroupViewMode(),
   );
   const [groupTeamDialogOpen, setGroupTeamDialogOpen] = useState(false);
+  const [groupStructureDialogOpen, setGroupStructureDialogOpen] =
+    useState(false);
   const [selectedRegistrationId, setSelectedRegistrationId] = useState("");
   const [selectedTargetGroupId, setSelectedTargetGroupId] = useState("");
   const [selectedGroupSlotIndex, setSelectedGroupSlotIndex] = useState("1");
   const [autoGrowGroupSize, setAutoGrowGroupSize] = useState(true);
   const [generateMatchesAfterInsert, setGenerateMatchesAfterInsert] =
     useState(true);
+  const [selectedStructureGroupId, setSelectedStructureGroupId] = useState("");
+  const [selectedStructureExpectedSize, setSelectedStructureExpectedSize] =
+    useState("1");
+  const [selectedStructureRegistrationId, setSelectedStructureRegistrationId] =
+    useState("");
 
   const groupChoices = useMemo(
     () =>
@@ -5890,6 +5919,46 @@ export default function TournamentBracket() {
   const selectedTargetGroup = groupChoices.find(
     (choice) => choice.value === selectedTargetGroupId,
   );
+  const selectedStructureGroup = groupChoices.find(
+    (choice) => choice.value === selectedStructureGroupId,
+  );
+  const selectedStructureRegistrationIds = useMemo(
+    () =>
+      selectedStructureGroup
+        ? configuredRegistrationIdsForGroup(
+            selectedStructureGroup.group,
+            current?.slotPlan,
+          )
+        : [],
+    [selectedStructureGroup, current?.slotPlan],
+  );
+  const selectedStructureRegistrations = useMemo(
+    () =>
+      selectedStructureRegistrationIds.map((registrationId) => {
+        const registration = (registrations || []).find(
+          (item) =>
+            String(item?._id || item?.id || "") === String(registrationId),
+        );
+        return (
+          registration || {
+            _id: registrationId,
+            teamName: `Đội #${String(registrationId).slice(-6)}`,
+          }
+        );
+      }),
+    [registrations, selectedStructureRegistrationIds],
+  );
+  const selectedStructureProjectedTeamCount = Math.max(
+    0,
+    selectedStructureRegistrationIds.length -
+      (selectedStructureRegistrationId ? 1 : 0),
+  );
+  const selectedStructureExpectedSizeNumber = Number(
+    selectedStructureExpectedSize,
+  );
+  const selectedStructureSizeTooSmall =
+    Number.isInteger(selectedStructureExpectedSizeNumber) &&
+    selectedStructureExpectedSizeNumber < selectedStructureProjectedTeamCount;
   const registrationGroupById = useMemo(() => {
     const groups = new Map();
     (current?.groups || []).forEach((group, index) => {
@@ -5926,6 +5995,7 @@ export default function TournamentBracket() {
     selectedTargetGroupProjectedSize > selectedTargetGroupCapacity;
   const groupTeamActionBusy =
     insertingRegistrationIntoGroup || generatingGroupMatchesForRegistration;
+  const groupStructureActionBusy = updatingGroupStructure;
 
   const registrationOptionLabel = useCallback(
     (registration) => {
@@ -5955,6 +6025,32 @@ export default function TournamentBracket() {
     setAutoGrowGroupSize(true);
     setGenerateMatchesAfterInsert(true);
     setGroupTeamDialogOpen(true);
+  };
+
+  const openGroupStructureDialog = () => {
+    const choice = groupChoices[0];
+    if (!choice) return;
+    const count = configuredRegistrationIdsForGroup(
+      choice.group,
+      current?.slotPlan,
+    ).length;
+    const capacity = Number(choice.group?.expectedSize || 0);
+    setSelectedStructureGroupId(choice.value);
+    setSelectedStructureExpectedSize(String(Math.max(1, capacity || count || 1)));
+    setSelectedStructureRegistrationId("");
+    setGroupStructureDialogOpen(true);
+  };
+
+  const handleStructureGroupChange = (groupId) => {
+    const choice = groupChoices.find((item) => item.value === groupId);
+    const count = configuredRegistrationIdsForGroup(
+      choice?.group,
+      current?.slotPlan,
+    ).length;
+    const capacity = Number(choice?.group?.expectedSize || 0);
+    setSelectedStructureGroupId(groupId);
+    setSelectedStructureExpectedSize(String(Math.max(1, capacity || count || 1)));
+    setSelectedStructureRegistrationId("");
   };
 
   const handleInsertRegistrationIntoGroup = async () => {
@@ -6024,9 +6120,39 @@ export default function TournamentBracket() {
     }
   };
 
+  const handleUpdateGroupStructure = async () => {
+    if (!current?._id || !selectedStructureGroup) return;
+    try {
+      const result = await updateGroupStructure({
+        bracketId: current._id,
+        groupId: selectedStructureGroup.value,
+        expectedSize: Number(selectedStructureExpectedSize),
+        ...(selectedStructureRegistrationId
+          ? { removeRegistrationId: selectedStructureRegistrationId }
+          : {}),
+      }).unwrap();
+      await Promise.allSettled(
+        [refetchTour?.(), refetchBrackets?.(), refetchMatches?.()].filter(Boolean),
+      );
+      setGroupStructureDialogOpen(false);
+      toast.success(
+        result?.removed
+          ? `Đã bỏ đội khỏi bảng ${selectedStructureGroup.groupName} và cập nhật size thành ${result.expectedSize}.`
+          : `Đã cập nhật size bảng ${selectedStructureGroup.groupName} thành ${result.expectedSize}.`,
+      );
+    } catch (error) {
+      toast.error(
+        error?.data?.message ||
+          error?.error ||
+          "Cập nhật cơ cấu bảng thất bại",
+      );
+    }
+  };
+
   useEffect(() => {
     setBracketFullscreenOpen(false);
     setGroupTeamDialogOpen(false);
+    setGroupStructureDialogOpen(false);
   }, [current?._id]);
 
   // NEW: danh sách key tất cả bảng ở stage hiện tại
@@ -10216,14 +10342,24 @@ export default function TournamentBracket() {
               Thêm cộng/trừ điểm trình vào các trận
             </Button>
             {groupChoices.length > 0 && (
-              <Button
-                size="small"
-                color="primary"
-                variant="outlined"
-                onClick={openGroupTeamDialog}
-              >
-                Thêm đội vào bảng
-              </Button>
+              <>
+                <Button
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  onClick={openGroupTeamDialog}
+                >
+                  Thêm đội vào bảng
+                </Button>
+                <Button
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  onClick={openGroupStructureDialog}
+                >
+                  Điều chỉnh cơ cấu bảng
+                </Button>
+              </>
             )}
           </Stack>
         </Box>
@@ -10350,6 +10486,104 @@ export default function TournamentBracket() {
               onClick={handleInsertRegistrationIntoGroup}
             >
               {groupTeamActionBusy ? "Đang lưu..." : "Thêm đội"}
+            </Button>
+          </DialogActions>
+        </Dialog>
+      )}
+      {isSuperAdminUser && (
+        <Dialog
+          open={groupStructureDialogOpen}
+          onClose={() =>
+            !groupStructureActionBusy && setGroupStructureDialogOpen(false)
+          }
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Điều chỉnh cơ cấu bảng</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2} sx={{ pt: 0.5 }}>
+              <Alert severity="info">
+                Chỉ dùng khi vòng bảng chưa bốc thăm và chưa tạo trận. Tên bảng cùng
+                các cơ cấu khác được giữ nguyên.
+              </Alert>
+
+              <TextField
+                select
+                label="Bảng cần chỉnh"
+                value={selectedStructureGroupId}
+                onChange={(event) => handleStructureGroupChange(event.target.value)}
+                fullWidth
+              >
+                {groupChoices.map((choice) => (
+                  <MenuItem key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <TextField
+                label="Số đội của bảng"
+                type="number"
+                value={selectedStructureExpectedSize}
+                onChange={(event) =>
+                  setSelectedStructureExpectedSize(event.target.value)
+                }
+                inputProps={{ min: 1, step: 1 }}
+                helperText={`Đang có ${selectedStructureRegistrationIds.length} đội được cơ cấu trong bảng này.`}
+                fullWidth
+              />
+
+              <TextField
+                select
+                label="Bỏ đội khỏi bảng (tuỳ chọn)"
+                value={selectedStructureRegistrationId}
+                onChange={(event) =>
+                  setSelectedStructureRegistrationId(event.target.value)
+                }
+                helperText="Đội bị bỏ sẽ trở thành đội chưa xếp bảng; không bị xoá khỏi danh sách đăng ký giải."
+                disabled={!selectedStructureRegistrations.length}
+                fullWidth
+              >
+                <MenuItem value="">Không bỏ đội nào</MenuItem>
+                {selectedStructureRegistrations.map((registration) => {
+                  const registrationId = String(
+                    registration?._id || registration?.id || "",
+                  );
+                  return (
+                    <MenuItem key={registrationId} value={registrationId}>
+                      {registrationOptionLabel(registration)}
+                    </MenuItem>
+                  );
+                })}
+              </TextField>
+
+              {selectedStructureSizeTooSmall && (
+                <Alert severity="error">
+                  Size mới không thể nhỏ hơn {selectedStructureProjectedTeamCount} đội còn lại.
+                </Alert>
+              )}
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => setGroupStructureDialogOpen(false)}
+              disabled={groupStructureActionBusy}
+            >
+              Huỷ
+            </Button>
+            <Button
+              color="primary"
+              variant="contained"
+              disabled={
+                groupStructureActionBusy ||
+                !selectedStructureGroup ||
+                !Number.isInteger(selectedStructureExpectedSizeNumber) ||
+                selectedStructureExpectedSizeNumber < 1 ||
+                selectedStructureSizeTooSmall
+              }
+              onClick={handleUpdateGroupStructure}
+            >
+              {groupStructureActionBusy ? "Đang lưu..." : "Lưu cơ cấu"}
             </Button>
           </DialogActions>
         </Dialog>
