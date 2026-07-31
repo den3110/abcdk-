@@ -94,6 +94,7 @@ import {
   useUploadRegistrationPosterTemplateMutation,
   useSetRegistrationPosterTemplateUrlMutation,
   useUpdateOverlayMutation,
+  useGetRegistrationsQuery,
 } from "../../slices/tournamentsApiSlice";
 
 import {
@@ -134,6 +135,7 @@ import { formatDateTime } from "../../i18n/format";
 import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
+  getTournamentPlayerName,
 } from "../../utils/tournamentName";
 import {
   getMatchSideDisplayName,
@@ -1387,6 +1389,10 @@ export default function TournamentManagePage() {
     return !!tour?.isManager;
   }, [tour, me]);
   const canManage = isAdmin || isManager;
+  const {
+    data: registrations = [],
+    isLoading: registrationsLoading,
+  } = useGetRegistrationsQuery(id, { skip: !id || !canManage });
   const canReferee = !!verifyRefereeRes?.isReferee;
   const canOpenRefereeCenter = isAdmin || canReferee;
   const overlayNameStyleValue = useMemo(() => {
@@ -3024,6 +3030,113 @@ export default function TournamentManagePage() {
     }
   };
 
+  const handleExportRegistrationsPDF = async () => {
+    const isSingles = String(tour?.eventType || "").toLowerCase() === "single";
+    const rows = registrations.flatMap((registration) => {
+      const players = isSingles
+        ? [registration?.player1]
+        : [registration?.player1, registration?.player2];
+
+      return players.filter(Boolean).map((player) => ({
+        athlete: getTournamentPlayerName(player, displayMode, "—"),
+        phone: player?.phone || player?.user?.phone || "—",
+        registrationCode: registration?.code ? String(registration.code) : "—",
+      }));
+    });
+
+    if (!rows.length) {
+      toast.info(t("tournaments.manage.registrationExportEmpty"));
+      return;
+    }
+
+    try {
+      setExporting(true);
+      const { default: pdfMake } = await import("pdfmake/build/pdfmake");
+      const pdfFonts = await import("pdfmake/build/vfs_fonts");
+      pdfMake.vfs = pdfFonts.pdfMake?.vfs || pdfFonts.default || pdfFonts;
+
+      const eventType = isSingles
+        ? t("tournaments.registration.eventSingles")
+        : t("tournaments.registration.eventDoubles");
+      const title = t("tournaments.manage.registrationExportTitle");
+      const subtitle = t("tournaments.manage.registrationExportSubtitle", {
+        type: eventType,
+        count: rows.length,
+        time: formatDateTime(new Date(), locale),
+      });
+      const headers = t("tournaments.manage.registrationExportHeaders", {
+        returnObjects: true,
+      });
+      const content = [
+        { text: title, style: "title" },
+        {
+          text: tour?.name || t("tournaments.manage.fallbackName"),
+          style: "tournamentName",
+          margin: [0, 3, 0, 2],
+        },
+        { text: subtitle, style: "sub", margin: [0, 0, 0, 10] },
+        {
+          table: {
+            headerRows: 1,
+            widths: [32, "*", 100, 90],
+            body: [
+              [
+                headers.index,
+                headers.athlete,
+                headers.phone,
+                headers.registrationCode,
+              ],
+              ...rows.map((row, index) => [
+                String(index + 1),
+                row.athlete,
+                row.phone,
+                row.registrationCode,
+              ]),
+            ],
+          },
+          layout: "lightHorizontalLines",
+          fontSize: 10,
+        },
+      ];
+      const fname = `registered_athletes_${(tour?.name || "tournament")
+        .replace(/[^\p{L}\p{N}]+/gu, "_")
+        .replace(/^_+|_+$/g, "")
+        .toLowerCase()}_${new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[:T]/g, "-")}.pdf`;
+
+      pdfMake
+        .createPdf({
+          pageSize: "A4",
+          pageMargins: [30, 30, 30, 40],
+          defaultStyle: { font: "Roboto", fontSize: 10 },
+          styles: {
+            title: { fontSize: 16, bold: true },
+            tournamentName: { fontSize: 12, bold: true },
+            sub: { fontSize: 9, color: "#666" },
+          },
+          footer: (currentPage, pageCount) => ({
+            text: t("tournaments.manage.exportPage", {
+              current: currentPage,
+              total: pageCount,
+            }),
+            margin: [30, 0, 0, 20],
+            fontSize: 9,
+            color: "#666",
+          }),
+          content,
+        })
+        .download(fname);
+    } catch (error) {
+      toast.error(t("tournaments.manage.registrationExportPdfFailed"));
+      console.error(error);
+    } finally {
+      setExporting(false);
+      closeExportMenu();
+    }
+  };
+
   const handleExportWord = async () => {
     try {
       setExporting(true);
@@ -3208,6 +3321,10 @@ export default function TournamentManagePage() {
   const onMobileExportPDF = async () => {
     closeActionMenu();
     await handleExportPDF();
+  };
+  const onMobileExportRegistrationsPDF = async () => {
+    closeActionMenu();
+    await handleExportRegistrationsPDF();
   };
   const onMobileExportWord = async () => {
     closeActionMenu();
@@ -3509,6 +3626,16 @@ export default function TournamentManagePage() {
             {exporting
               ? t("tournaments.manage.exportPdfLoading")
               : t("tournaments.manage.exportPdf")}
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<PictureAsPdfIcon />}
+            onClick={handleExportRegistrationsPDF}
+            disabled={exporting || registrationsLoading || registrations.length === 0}
+          >
+            {exporting
+              ? t("tournaments.manage.exportRegistrationPdfLoading")
+              : t("tournaments.manage.exportRegistrationPdf")}
           </Button>
           <Button
             variant="outlined"
@@ -4216,7 +4343,12 @@ export default function TournamentManagePage() {
               size="small"
               startIcon={<FileDownloadIcon />}
               onClick={openExportMenu}
-              disabled={exporting || bracketsOfTab.length === 0}
+              disabled={
+                exporting ||
+                (bracketsOfTab.length === 0 &&
+                  !registrationsLoading &&
+                  registrations.length === 0)
+              }
             >
               {t("tournaments.manage.exportFiles")}
             </Button>
@@ -4238,6 +4370,21 @@ export default function TournamentManagePage() {
                     exporting
                       ? t("tournaments.manage.exportPdfLoading")
                       : t("tournaments.manage.exportPdf")
+                  }
+                />
+              </MenuItem>
+              <MenuItem
+                onClick={handleExportRegistrationsPDF}
+                disabled={exporting || registrationsLoading || registrations.length === 0}
+              >
+                <ListItemIcon>
+                  <PictureAsPdfIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText
+                  primary={
+                    exporting
+                      ? t("tournaments.manage.exportRegistrationPdfLoading")
+                      : t("tournaments.manage.exportRegistrationPdf")
                   }
                 />
               </MenuItem>
@@ -4473,6 +4620,21 @@ export default function TournamentManagePage() {
                       exporting
                         ? t("tournaments.manage.exportPdfLoading")
                         : t("tournaments.manage.exportPdf")
+                    }
+                  />
+                </MenuItem>
+                <MenuItem
+                  onClick={onMobileExportRegistrationsPDF}
+                  disabled={exporting || registrationsLoading || registrations.length === 0}
+                >
+                  <ListItemIcon>
+                    <PictureAsPdfIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={
+                      exporting
+                        ? t("tournaments.manage.exportRegistrationPdfLoading")
+                        : t("tournaments.manage.exportRegistrationPdf")
                     }
                   />
                 </MenuItem>
