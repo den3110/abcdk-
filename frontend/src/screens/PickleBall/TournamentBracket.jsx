@@ -6671,7 +6671,26 @@ export default function TournamentBracket() {
           if (!winSide) return "BYE";
 
           if (winSide) {
+            // Truy xuyên trận BYE chỉ để lấy TÊN ĐỘI THẬT; nếu kết quả vẫn là
+            // mã tham chiếu (W-/L-/V…) thì ưu tiên mã của CHÍNH trận nguồn
+            // (vd "W-V2-T9"), không lấy mã sâu hơn (vd "L-V1-T17")
+            const isRealTeamName = (value) =>
+              Boolean(value) &&
+              value !== pendingTeamLabel &&
+              !/^(BYE|TBD|Registration)$/.test(value) &&
+              !/^[WL]-/i.test(value) &&
+              !/^V\d/i.test(value);
+
             const carried = resolveSideLabel(pm, winSide);
+            if (isRealTeamName(carried)) return carried;
+
+            const winPair = pm[`pair${winSide}`];
+            if (winPair)
+              return pairLabelWithNick(winPair, eventType, displayMode);
+
+            const ownCode = getDisplayCodeForMatch(pm);
+            if (ownCode) return `${prevSourcePrefix}-${ownCode}`;
+
             if (carried && !/^(BYE|TBD|Registration)$/.test(carried))
               return carried;
 
@@ -6679,10 +6698,6 @@ export default function TournamentBracket() {
             const fromSeed = resolveSeedReferenceLabel(winSeed, pm);
             if (fromSeed && !/^(BYE|TBD|Registration)$/.test(fromSeed))
               return fromSeed;
-
-            const winPair = pm[`pair${winSide}`];
-            if (winPair)
-              return pairLabelWithNick(winPair, eventType, displayMode);
           }
 
           const carriedCode = getDisplayCodeForMatch(pm);
@@ -6746,8 +6761,24 @@ export default function TournamentBracket() {
               value &&
               value !== pendingTeamLabel &&
               !/^(BYE|TBD|Registration)$/.test(value);
+            // Như nhánh previous: chỉ truy xuyên khi ra tên đội thật, còn mã
+            // tham chiếu sâu thì nhường cho mã của chính trận nguồn
+            const isRealTeamName = (value) =>
+              isUsefulLabel(value) &&
+              !/^[WL]-/i.test(value) &&
+              !/^V\d/i.test(value);
 
             const carried = resolveSideLabel(sourceMatch, winSide);
+            if (isRealTeamName(carried)) return carried;
+
+            const carriedPair = sourceMatch[`pair${winSide}`];
+            if (carriedPair) {
+              return pairLabelWithNick(carriedPair, eventType, displayMode);
+            }
+
+            const ownCode = getDisplayCodeForMatch(sourceMatch);
+            if (ownCode) return `W-${ownCode}`;
+
             if (isUsefulLabel(carried)) return carried;
 
             const carriedSeed = sourceMatch[`seed${winSide}`];
@@ -6756,11 +6787,6 @@ export default function TournamentBracket() {
               sourceMatch,
             );
             if (isUsefulLabel(fromSeed)) return fromSeed;
-
-            const carriedPair = sourceMatch[`pair${winSide}`];
-            if (carriedPair) {
-              return pairLabelWithNick(carriedPair, eventType, displayMode);
-            }
           }
         }
 

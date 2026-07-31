@@ -1614,7 +1614,11 @@ function EditTeamsDialog({
       const byeKey = side === "A" ? "byeA" : "byeB";
       const seedKey = side === "A" ? "seedA" : "seedB";
       if (isWinnerSourceOption(value)) {
+        // clear pair/bye cũ — slot từng là BYE hay đội thật mà không xoá thì
+        // trận vẫn bị coi là bye/giữ đội cũ dù seed đã trỏ trận nguồn mới
         return {
+          [pairKey]: null,
+          [byeKey]: false,
           [seedKey]: {
             type: "stageMatchWinner",
             ref: { matchId: value.sourceMatchId },
