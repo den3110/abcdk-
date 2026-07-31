@@ -5,6 +5,7 @@ import {
   drawNext,
   drawCommit,
   drawCancel,
+  resetGroupBracket,
   getDrawSession,
   getDrawStatusByBracket,
   generateGroupMatches,
@@ -29,6 +30,7 @@ router.post("/brackets/:bracketId/group/generate-matches", protect, attachTourna
 router.post("/:drawId/next", protect, attachBracketIdFromDraw, attachTournamentFromBracket, requireTournamentManager, drawNext);
 router.post("/:drawId/commit", protect, attachBracketIdFromDraw, attachTournamentFromBracket, requireTournamentManager, drawCommit);
 router.post("/:drawId/cancel", protect, attachBracketIdFromDraw, attachTournamentFromBracket, requireTournamentManager, drawCancel);
+router.post("/brackets/:bracketId/group/reset", protect, attachTournamentFromBracket, requireTournamentManager, resetGroupBracket);
 router.get("/:drawId", protect, attachBracketIdFromDraw, attachTournamentFromBracket, requireTournamentManager, getDrawSession);
 
 router.post("/sessions/:drawId/po/preplan", protect, authorize("admin"), requireSuperAdmin, updatePoPreplan);

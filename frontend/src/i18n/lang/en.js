@@ -1521,6 +1521,17 @@ export default {
     revealNext: "Reveal next",
     commit: "Commit results",
     cancelSession: "Cancel session",
+    resetGroup: "Restore pre-draw state",
+    resetGroupTitle: "Restore the pre-draw state?",
+    resetGroupWarning:
+      "This restores the group stage to exactly its pre-draw state.",
+    resetGroupBody:
+      "The group names, sizes, and preconfigured structure are kept. Draw results, assignments created by the draw, draw/commit history, and unplayed matches are deleted. Restore is blocked when a match is live or finished.",
+    resetGroupConfirm: "Restore pre-draw state",
+    resetGroupLoading: "Restoring...",
+    resetGroupSuccess:
+      "The group stage was restored to its pre-draw state and {count} unplayed matches were deleted.",
+    resetGroupError: "Failed to restore the group stage.",
     commitGroupSuccess: "Group stage draw results saved.",
     commitRoundSuccess: "Draw results for this round have been saved.",
     commitError: "Failed to save draw results.",

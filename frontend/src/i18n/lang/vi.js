@@ -1520,6 +1520,17 @@ export default {
     revealNext: "Reveal tiếp",
     commit: "Ghi kết quả (Commit)",
     cancelSession: "Huỷ phiên",
+    resetGroup: "Khôi phục trước khi bốc",
+    resetGroupTitle: "Khôi phục về trước khi bốc?",
+    resetGroupWarning:
+      "Thao tác này đưa vòng bảng về đúng trạng thái trước khi bốc thăm.",
+    resetGroupBody:
+      "Tên bảng, số lượng đội và cơ cấu đã thiết lập sẵn được giữ nguyên. Kết quả bốc, đội đã được xếp do bốc thăm, lịch sử bốc/commit và các trận chưa diễn ra sẽ bị xoá. Không thể thực hiện nếu đã có trận đang diễn ra hoặc đã hoàn tất.",
+    resetGroupConfirm: "Khôi phục về trước khi bốc",
+    resetGroupLoading: "Đang khôi phục...",
+    resetGroupSuccess:
+      "Đã khôi phục về trước khi bốc và xoá {count} trận chưa diễn ra.",
+    resetGroupError: "Khôi phục vòng bảng thất bại.",
     commitGroupSuccess: "Đã ghi kết quả bốc thăm vòng bảng.",
     commitRoundSuccess: "Đã ghi kết quả bốc thăm vòng này.",
     commitError: "Ghi kết quả bốc thăm thất bại.",

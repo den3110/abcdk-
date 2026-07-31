@@ -1528,6 +1528,10 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
 
     const groupsFromBoard = (sess.board?.groups || []).map((g, i) => ({
       name: g.key || String.fromCharCode(65 + i),
+      expectedSize: Math.max(
+        0,
+        Number(g.size) || (Array.isArray(g.slots) ? g.slots.length : 0),
+      ),
       regIds: (g.slots || []).filter(Boolean),
     }));
 
@@ -1699,6 +1703,172 @@ export const drawCancel = expressAsyncHandler(async (req, res) => {
   res.json({ ok: true, session: sess });
 });
 
+/**
+ * POST /api/draw/brackets/:bracketId/group/reset
+ * Đưa vòng bảng về trạng thái chưa bốc, nhưng giữ nguyên cơ cấu, slot plan và kích thước các bảng.
+ * Không cho reset nếu đã có trận live/finished để tránh mất kết quả thi đấu.
+ */
+export const resetGroupBracket = expressAsyncHandler(async (req, res) => {
+  const { bracketId } = req.params;
+  const { confirm } = req.body || {};
+
+  if (!confirm) {
+    return res.status(400).json({
+      ok: false,
+      message: "Cần xác nhận làm mới vòng bảng.",
+    });
+  }
+  if (!mongoose.isValidObjectId(bracketId)) {
+    return res.status(400).json({ ok: false, message: "Bracket không hợp lệ." });
+  }
+
+  const bracket = await Bracket.findById(bracketId).select(
+    "_id tournament type",
+  );
+  if (!bracket) {
+    return res.status(404).json({ ok: false, message: "Không tìm thấy bracket." });
+  }
+  if (String(bracket.type || "").toLowerCase() !== "group") {
+    return res.status(400).json({
+      ok: false,
+      message: "Chỉ có thể làm mới bracket vòng bảng.",
+    });
+  }
+
+  const activeSession = await DrawSession.findOne({
+    bracket: bracket._id,
+    status: "active",
+  }).sort({ createdAt: -1 });
+
+  if (activeSession) {
+    const lockAccess = await ensureDrawControlAllowed({
+      tournamentId: bracket.tournament,
+      bracketId: bracket._id,
+      drawId: activeSession._id,
+      user: req.user,
+      socketId: String(req.body?.socketId || ""),
+    });
+    if (!lockAccess?.ok) {
+      return sendDrawLocked(
+        res,
+        lockAccess?.snapshot,
+        lockAccess?.message || "Draw is locked by another controller",
+      );
+    }
+  }
+
+  const protectedMatches = await Match.countDocuments({
+    bracket: bracket._id,
+    status: { $in: ["live", "finished"] },
+  });
+  if (protectedMatches > 0) {
+    return res.status(409).json({
+      ok: false,
+      message:
+        "Không thể làm mới vì vòng bảng đã có trận đang diễn ra hoặc đã hoàn tất.",
+    });
+  }
+
+  const dbSession = await mongoose.startSession();
+  let deletedMatches = 0;
+  let clearedSessions = 0;
+  try {
+    await dbSession.withTransaction(async () => {
+      const freshBracket = await Bracket.findById(bracket._id).session(dbSession);
+      if (!freshBracket) throw new Error("Không tìm thấy bracket.");
+
+      const unsafeMatches = await Match.countDocuments({
+        bracket: freshBracket._id,
+        status: { $in: ["live", "finished"] },
+      }).session(dbSession);
+      if (unsafeMatches > 0) {
+        const error = new Error(
+          "Không thể làm mới vì vòng bảng đã có trận đang diễn ra hoặc đã hoàn tất.",
+        );
+        error.statusCode = 409;
+        throw error;
+      }
+
+      const lastCommittedSession = await DrawSession.findOne({
+        bracket: freshBracket._id,
+        mode: "group",
+        status: "committed",
+      })
+        .sort({ createdAt: -1 })
+        .session(dbSession)
+        .lean();
+      const committedSizes = new Map(
+        (lastCommittedSession?.board?.groups || []).map((group, index) => [
+          String(group?.key || freshBracket.groups?.[index]?.name || index),
+          Math.max(
+            0,
+            Number(group?.size) ||
+              (Array.isArray(group?.slots) ? group.slots.length : 0),
+          ),
+        ]),
+      );
+      const restoredGroups = (freshBracket.groups || []).map((group, index) => {
+        const expectedSize = Math.max(
+          0,
+          Number(group?.expectedSize) ||
+            committedSizes.get(String(group?.name || index)) ||
+            (Array.isArray(group?.regIds) ? group.regIds.length : 0),
+        );
+        return {
+          name: group.name,
+          expectedSize,
+          regIds: [],
+        };
+      });
+
+      const deletedSessions = await DrawSession.deleteMany(
+        { bracket: freshBracket._id, mode: "group" },
+        { session: dbSession },
+      );
+      clearedSessions = deletedSessions.deletedCount || 0;
+
+      const deleted = await Match.deleteMany(
+        { bracket: freshBracket._id },
+        { session: dbSession },
+      );
+      deletedMatches = deleted.deletedCount || 0;
+
+      freshBracket.groups = restoredGroups;
+      freshBracket.teamsCount = 0;
+      freshBracket.matchesCount = 0;
+      freshBracket.drawStatus = "planned";
+      await freshBracket.save({ session: dbSession });
+    });
+  } catch (error) {
+    res.status(error?.statusCode || 500);
+    throw error;
+  } finally {
+    await dbSession.endSession();
+  }
+
+  const io = req.app.get("io");
+  if (activeSession) {
+    await releaseDrawControl({
+      tournamentId: bracket.tournament,
+      status: "canceled",
+    });
+  }
+  if (activeSession) {
+    activeSession.status = "canceled";
+    activeSession.canceledAt = new Date();
+    emitTerminal(io, activeSession, "canceled");
+  }
+
+  emitTournamentInvalidate(io, {
+    tournamentId: bracket.tournament,
+    bracketId: bracket._id,
+    reason: "group_bracket_reset",
+  });
+  await publishDrawLiveSnapshot(io, bracket.tournament, req.user);
+
+  return res.json({ ok: true, deletedMatches, clearedSessions });
+});
+
 export const takeoverTournamentDraw = expressAsyncHandler(async (req, res) => {
   const { tournamentId } = req.params;
   const io = req.app.get("io");
@@ -1755,10 +1925,11 @@ export const getDrawSession = expressAsyncHandler(async (req, res) => {
 export const getDrawStatusByBracket = expressAsyncHandler(async (req, res) => {
   const { bracketId } = req.params;
 
-  let sess = await DrawSession.findOne({
+  const activeSession = await DrawSession.findOne({
     bracket: new mongoose.Types.ObjectId(String(bracketId)),
     status: "active",
   }).sort({ createdAt: -1 });
+  let sess = activeSession;
 
   if (!sess) {
     sess = await DrawSession.findOne({

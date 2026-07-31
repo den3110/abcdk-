@@ -1370,6 +1370,25 @@ const BYE_OPTION = Object.freeze({
 
 const idOf = (x) => x?._id || x?.id || x?.value || x || null;
 const isByeOption = (x) => Boolean(x?.__bye || idOf(x) === BYE_OPTION_ID);
+const isWinnerSeed = (seed) =>
+  ["stageMatchWinner", "matchWinner"].includes(String(seed?.type || ""));
+const isWinnerSourceOption = (option) => Boolean(option?.__winnerSource);
+const winnerSourceOptionFromSeed = (seed) => {
+  if (!isWinnerSeed(seed)) return null;
+  const sourceMatchId = sid(
+    seed?.ref?.matchId ||
+      seed?.ref?.match ||
+      seed?.ref?.sourceMatchId ||
+      seed?.ref?.sourceMatch,
+  );
+  if (!sourceMatchId) return null;
+  return {
+    _id: `__WINNER__${sourceMatchId}`,
+    __winnerSource: true,
+    sourceMatchId,
+    label: String(seed?.label || "Đội thắng từ trận").trim(),
+  };
+};
 
 function pairLabel(reg, isSingle, displayMode = "nickname") {
   if (isByeOption(reg)) return "BYE";
@@ -1427,8 +1446,11 @@ function EditTeamsDialog({
   displayMode = "nickname",
   currentMatchId,
   currentBracketId,
+  currentRound,
   defaultA,
   defaultB,
+  defaultSeedA,
+  defaultSeedB,
   onSaved,
   patchMatch,
   swapMatchTeams,
@@ -1442,8 +1464,12 @@ function EditTeamsDialog({
   const effectiveTid =
     tournamentId || tidParam || tid || tId || idParam || tidQuery || null;
 
-  const [selA, setSelA] = useState(defaultA || null);
-  const [selB, setSelB] = useState(defaultB || null);
+  const [selA, setSelA] = useState(
+    () => winnerSourceOptionFromSeed(defaultSeedA) || defaultA || null,
+  );
+  const [selB, setSelB] = useState(
+    () => winnerSourceOptionFromSeed(defaultSeedB) || defaultB || null,
+  );
   const [swapTarget, setSwapTarget] = useState(null);
   const [q, setQ] = useState("");
   const dq = useDebounced(q, 350);
@@ -1452,12 +1478,12 @@ function EditTeamsDialog({
 
   useEffect(() => {
     if (open) {
-      setSelA(defaultA || null);
-      setSelB(defaultB || null);
+      setSelA(winnerSourceOptionFromSeed(defaultSeedA) || defaultA || null);
+      setSelB(winnerSourceOptionFromSeed(defaultSeedB) || defaultB || null);
       setSwapTarget(null);
       setQ("");
     }
-  }, [open, defaultA, defaultB]);
+  }, [open, defaultA, defaultB, defaultSeedA, defaultSeedB]);
 
   const [triggerSearch, { data = [], isFetching }] =
     useLazySearchRegistrationsQuery();
@@ -1466,8 +1492,6 @@ function EditTeamsDialog({
     if (!open || !effectiveTid) return;
     triggerSearch({ id: effectiveTid, q: dq, limit: 200 });
   }, [open, effectiveTid, dq, triggerSearch]);
-
-  const options = useMemo(() => [BYE_OPTION, ...(data || [])], [data]);
 
   const { data: swapMatches = [], isFetching: isFetchingSwapMatches } =
     useListTournamentMatchesQuery(
@@ -1512,6 +1536,45 @@ function EditTeamsDialog({
     return `V${round}-T${order}`;
   };
 
+  const winnerSourceOptions = useMemo(() => {
+    const targetRound = Number(currentRound);
+    return swapMatchOptions
+      .filter((match) => {
+        const sourceRound = Number(match?.round);
+        return (
+          !Number.isFinite(targetRound) ||
+          (Number.isFinite(sourceRound) && sourceRound < targetRound)
+        );
+      })
+      .map((match) => ({
+        _id: `__WINNER__${sid(match)}`,
+        __winnerSource: true,
+        sourceMatchId: sid(match),
+        label: `W-${matchCodeLabel(match)}`,
+      }));
+  }, [swapMatchOptions, currentRound]);
+
+  const options = useMemo(
+    () => [...winnerSourceOptions, BYE_OPTION, ...(data || [])],
+    [winnerSourceOptions, data],
+  );
+
+  const assignmentOptionLabel = (option) =>
+    isWinnerSourceOption(option)
+      ? String(option?.label || "Đội thắng từ trận")
+      : pairLabel(option, isSingle, displayMode);
+
+  const isSameAssignmentOption = (option, value) => {
+    if (isWinnerSourceOption(option) || isWinnerSourceOption(value)) {
+      return (
+        isWinnerSourceOption(option) &&
+        isWinnerSourceOption(value) &&
+        String(option.sourceMatchId) === String(value.sourceMatchId)
+      );
+    }
+    return idOf(option) === idOf(value);
+  };
+
   const matchSideLabel = (match, side) => {
     const pair = side === "A" ? match?.pairA : match?.pairB;
     if (pair) return pairLabel(pair, isSingle, displayMode);
@@ -1543,11 +1606,27 @@ function EditTeamsDialog({
       const pairKey = side === "A" ? "pairA" : "pairB";
       const byeKey = side === "A" ? "byeA" : "byeB";
       const seedKey = side === "A" ? "seedA" : "seedB";
+      if (isWinnerSourceOption(value)) {
+        return {
+          [seedKey]: {
+            type: "stageMatchWinner",
+            ref: { matchId: value.sourceMatchId },
+            label: assignmentOptionLabel(value),
+          },
+        };
+      }
       if (isByeOption(value)) {
         return {
           [pairKey]: null,
           [byeKey]: true,
           [seedKey]: { type: "bye", ref: null, label: "BYE" },
+        };
+      }
+      if (!value) {
+        return {
+          [pairKey]: null,
+          [byeKey]: false,
+          [seedKey]: null,
         };
       }
       return { [pairKey]: idOf(value), [byeKey]: false };
@@ -1606,8 +1685,13 @@ function EditTeamsDialog({
                 options={options}
                 value={selA}
                 onChange={(_, v) => setSelA(v)}
-                getOptionLabel={(o) => pairLabel(o, isSingle, displayMode)}
-                isOptionEqualToValue={(o, v) => idOf(o) === idOf(v)}
+                getOptionLabel={assignmentOptionLabel}
+                isOptionEqualToValue={isSameAssignmentOption}
+                groupBy={(option) =>
+                  isWinnerSourceOption(option)
+                    ? "Đội thắng từ vòng playoff trước"
+                    : "Đội cụ thể"
+                }
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -1628,8 +1712,13 @@ function EditTeamsDialog({
                 options={options}
                 value={selB}
                 onChange={(_, v) => setSelB(v)}
-                getOptionLabel={(o) => pairLabel(o, isSingle, displayMode)}
-                isOptionEqualToValue={(o, v) => idOf(o) === idOf(v)}
+                getOptionLabel={assignmentOptionLabel}
+                isOptionEqualToValue={isSameAssignmentOption}
+                groupBy={(option) =>
+                  isWinnerSourceOption(option)
+                    ? "Đội thắng từ vòng playoff trước"
+                    : "Đội cụ thể"
+                }
                 renderInput={(params) => (
                   <TextField
                     {...params}
@@ -3784,6 +3873,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         displayMode={displayMode}
         currentMatchId={lockedId}
         currentBracketId={mm?.bracket?._id || mm?.bracket || ""}
+        currentRound={mm?.round}
         defaultA={
           localPatch?.pairA ??
           mm?.pairA ??
@@ -3794,6 +3884,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
           mm?.pairB ??
           (isByeSeed(localPatch?.seedB ?? mm?.seedB) ? BYE_OPTION : null)
         }
+        defaultSeedA={localPatch?.seedA ?? mm?.seedA ?? null}
+        defaultSeedB={localPatch?.seedB ?? mm?.seedB ?? null}
         onSaved={handleTeamsSavedLocal}
         patchMatch={patchTeams}
         swapMatchTeams={swapMatchTeams}

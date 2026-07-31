@@ -466,6 +466,17 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (_res, _err, arg) => [{ type: "Draw", id: arg.drawId }],
     }),
 
+    resetGroupBracket: builder.mutation({
+      query: ({ bracketId, socketId } = {}) => ({
+        url: `/api/draw/brackets/${bracketId}/group/reset`,
+        method: "POST",
+        body: { confirm: true, ...(socketId ? { socketId } : {}) },
+      }),
+      invalidatesTags: (_res, _err, { bracketId }) => [
+        { type: "Draw", id: bracketId },
+      ],
+    }),
+
     takeoverTournamentDraw: builder.mutation({
       query: ({ tournamentId, socketId } = {}) => ({
         url: `/api/draw/tournaments/${tournamentId}/takeover`,
@@ -493,6 +504,28 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         body: { mode, matches, rules },
       }),
       invalidatesTags: (r, e, arg) => [{ type: "Matches", id: arg.bracketId }],
+    }),
+
+    insertRegistrationIntoGroup: builder.mutation({
+      query: ({
+        bracketId,
+        groupId,
+        registrationId,
+        slotIndex,
+        autoGrowExpectedSize,
+      }) => ({
+        url: `/api/admin/brackets/${bracketId}/groups/${groupId}/insert-slot`,
+        method: "POST",
+        body: { registrationId, slotIndex, autoGrowExpectedSize },
+      }),
+    }),
+
+    generateGroupMatchesForRegistration: builder.mutation({
+      query: ({ bracketId, groupId, registrationId, doubleRound }) => ({
+        url: `/api/admin/brackets/${bracketId}/groups/${groupId}/generate-matches`,
+        method: "POST",
+        body: { registrationId, doubleRound },
+      }),
     }),
 
     managerReplaceRegPlayer: builder.mutation({
@@ -877,6 +910,7 @@ export const {
   useCancelDrawMutation,
   useFinalizeKoMutation,
   useDrawCancelMutation,
+  useResetGroupBracketMutation,
   useDrawCommitMutation,
   useDrawNextMutation,
   useStartDrawMutation,
@@ -884,6 +918,8 @@ export const {
   useStopTournamentDrawMutation,
   useGetBracketQuery,
   useGenerateGroupMatchesMutation,
+  useInsertRegistrationIntoGroupMutation,
+  useGenerateGroupMatchesForRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
   useManagerUpdateRegPlayerAvatarMutation,
   useListPublicMatchesByTournamentQuery,

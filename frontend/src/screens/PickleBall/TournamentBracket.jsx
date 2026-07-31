@@ -45,6 +45,9 @@ import {
   Skeleton,
   ToggleButton,
   ToggleButtonGroup,
+  Autocomplete,
+  TextField,
+  MenuItem,
 } from "@mui/material";
 import { useSelector } from "react-redux"; // NEW
 import {
@@ -76,6 +79,9 @@ import {
   useRevokeBracketRatingMutation,
   useRestoreBracketRatingMutation,
   useBackfillBracketRatingMutation,
+  useGetRegistrationsQuery,
+  useInsertRegistrationIntoGroupMutation,
+  useGenerateGroupMatchesForRegistrationMutation,
 } from "../../slices/tournamentsApiSlice";
 import { toast } from "react-toastify";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
@@ -5452,6 +5458,14 @@ export default function TournamentBracket() {
     useRestoreBracketRatingMutation();
   const [backfillBracketRatingMut, { isLoading: backfillingBracketRating }] =
     useBackfillBracketRatingMutation();
+  const [
+    insertRegistrationIntoGroup,
+    { isLoading: insertingRegistrationIntoGroup },
+  ] = useInsertRegistrationIntoGroupMutation();
+  const [
+    generateGroupMatchesForRegistration,
+    { isLoading: generatingGroupMatchesForRegistration },
+  ] = useGenerateGroupMatchesForRegistrationMutation();
   const [searchParams, setSearchParams] = useSearchParams();
   const explicitBracketUiVersion =
     searchParams.get("ui") || searchParams.get("bracketUi") || "";
@@ -5498,6 +5512,13 @@ export default function TournamentBracket() {
     refetch: refetchMatches,
   } = useListTournamentMatchesQuery({ tournamentId: tourId, view: "bracket" });
   const allMatchesFetched = allMatchesFetchedData ?? EMPTY_LIST;
+  const {
+    data: registrationsData,
+    isLoading: loadingRegistrations,
+  } = useGetRegistrationsQuery(tourId, {
+    skip: !isSuperAdminUser || !tourId,
+  });
+  const registrations = registrationsData ?? EMPTY_LIST;
 
   const loading = l1 || l2 || l3;
   const error = e1 || e2 || e3;
@@ -5839,9 +5860,173 @@ export default function TournamentBracket() {
   const [groupViewMode, setGroupViewMode] = useState(() =>
     readStoredGroupViewMode(),
   );
+  const [groupTeamDialogOpen, setGroupTeamDialogOpen] = useState(false);
+  const [selectedRegistrationId, setSelectedRegistrationId] = useState("");
+  const [selectedTargetGroupId, setSelectedTargetGroupId] = useState("");
+  const [selectedGroupSlotIndex, setSelectedGroupSlotIndex] = useState("1");
+  const [autoGrowGroupSize, setAutoGrowGroupSize] = useState(true);
+  const [generateMatchesAfterInsert, setGenerateMatchesAfterInsert] =
+    useState(true);
+
+  const groupChoices = useMemo(
+    () =>
+      (current?.groups || [])
+        .map((group, index) => {
+          const value = String(group?._id || group?.name || "");
+          if (!value) return null;
+          const count = Array.isArray(group?.regIds) ? group.regIds.length : 0;
+          const capacity = Number(group?.expectedSize || 0);
+          const groupName = group?.name || String(index + 1);
+          return {
+            value,
+            group,
+            groupName,
+            label: `Bảng ${groupName} (${count}/${capacity || "—"} đội)`,
+          };
+        })
+        .filter(Boolean),
+    [current],
+  );
+  const selectedTargetGroup = groupChoices.find(
+    (choice) => choice.value === selectedTargetGroupId,
+  );
+  const registrationGroupById = useMemo(() => {
+    const groups = new Map();
+    (current?.groups || []).forEach((group, index) => {
+      const value = String(group?._id || group?.name || "");
+      const groupName = group?.name || String(index + 1);
+      (group?.regIds || []).forEach((registrationId) => {
+        groups.set(String(registrationId), { value, groupName });
+      });
+    });
+    return groups;
+  }, [current]);
+  const selectedRegistration = (registrations || []).find(
+    (registration) =>
+      String(registration?._id || registration?.id || "") ===
+      selectedRegistrationId,
+  );
+  const selectedRegistrationSourceGroup = selectedRegistrationId
+    ? registrationGroupById.get(selectedRegistrationId)
+    : null;
+  const selectedTargetGroupProjectedSize = selectedTargetGroup
+    ? Math.max(
+        0,
+        (selectedTargetGroup.group?.regIds || []).length -
+          (selectedRegistrationSourceGroup?.value === selectedTargetGroup.value
+            ? 1
+            : 0),
+      ) + 1
+    : 0;
+  const selectedTargetGroupCapacity = Number(
+    selectedTargetGroup?.group?.expectedSize || 0,
+  );
+  const selectedTargetGroupNeedsGrowth =
+    selectedTargetGroupCapacity > 0 &&
+    selectedTargetGroupProjectedSize > selectedTargetGroupCapacity;
+  const groupTeamActionBusy =
+    insertingRegistrationIntoGroup || generatingGroupMatchesForRegistration;
+
+  const registrationOptionLabel = useCallback(
+    (registration) => {
+      const registrationId = String(registration?._id || registration?.id || "");
+      const code = registration?.code ? `#${registration.code} · ` : "";
+      const teamName =
+        safePairName(
+          registration,
+          tour?.eventType || "double",
+          displayMode,
+        ) ||
+        registration?.teamName ||
+        registration?.name ||
+        "Đội chưa đặt tên";
+      const groupName = registrationGroupById.get(registrationId)?.groupName;
+      return `${code}${teamName} — ${
+        groupName ? `đang ở bảng ${groupName}` : "chưa xếp bảng"
+      }`;
+    },
+    [displayMode, registrationGroupById, tour?.eventType],
+  );
+
+  const openGroupTeamDialog = () => {
+    setSelectedRegistrationId("");
+    setSelectedTargetGroupId(groupChoices[0]?.value || "");
+    setSelectedGroupSlotIndex("1");
+    setAutoGrowGroupSize(true);
+    setGenerateMatchesAfterInsert(true);
+    setGroupTeamDialogOpen(true);
+  };
+
+  const handleInsertRegistrationIntoGroup = async () => {
+    if (!current?._id || !selectedTargetGroup || !selectedRegistrationId) return;
+
+    const currentEntries = selectedTargetGroup.group?.regIds || [];
+    const maxSlotIndex = Math.max(
+      1,
+      currentEntries.length -
+        (selectedRegistrationSourceGroup?.value === selectedTargetGroup.value
+          ? 1
+          : 0) +
+        1,
+    );
+    const slotIndex = Math.max(
+      1,
+      Math.min(Number(selectedGroupSlotIndex) || 1, maxSlotIndex),
+    );
+
+    try {
+      await insertRegistrationIntoGroup({
+        bracketId: current._id,
+        groupId: selectedTargetGroup.value,
+        registrationId: selectedRegistrationId,
+        slotIndex,
+        autoGrowExpectedSize: autoGrowGroupSize,
+      }).unwrap();
+
+      let createdMatches = 0;
+      let generateError = null;
+      if (generateMatchesAfterInsert) {
+        try {
+          const generated = await generateGroupMatchesForRegistration({
+            bracketId: current._id,
+            groupId: selectedTargetGroup.value,
+            registrationId: selectedRegistrationId,
+          }).unwrap();
+          createdMatches = Number(generated?.created || 0);
+        } catch (error) {
+          generateError = error;
+        }
+      }
+
+      await Promise.allSettled(
+        [refetchTour?.(), refetchBrackets?.(), refetchMatches?.()].filter(Boolean),
+      );
+      setGroupTeamDialogOpen(false);
+
+      if (generateError) {
+        toast.warning(
+          `Đã thêm đội vào bảng ${selectedTargetGroup.groupName}, nhưng chưa thể bù lịch trận: ${
+            generateError?.data?.message || generateError?.error || "Vui lòng thử lại"
+          }`,
+        );
+        return;
+      }
+
+      toast.success(
+        generateMatchesAfterInsert
+          ? `Đã thêm đội vào bảng ${selectedTargetGroup.groupName} và tạo ${createdMatches} trận còn thiếu.`
+          : `Đã thêm đội vào bảng ${selectedTargetGroup.groupName}.`,
+      );
+    } catch (error) {
+      toast.error(
+        error?.data?.message || error?.error || "Thêm đội vào bảng thất bại",
+      );
+    }
+  };
 
   useEffect(() => {
     setBracketFullscreenOpen(false);
+    setGroupTeamDialogOpen(false);
   }, [current?._id]);
 
   // NEW: danh sách key tất cả bảng ở stage hiện tại
@@ -10030,8 +10215,144 @@ export default function TournamentBracket() {
             >
               Thêm cộng/trừ điểm trình vào các trận
             </Button>
+            {groupChoices.length > 0 && (
+              <Button
+                size="small"
+                color="primary"
+                variant="outlined"
+                onClick={openGroupTeamDialog}
+              >
+                Thêm đội vào bảng
+              </Button>
+            )}
           </Stack>
         </Box>
+      )}
+      {isSuperAdminUser && (
+        <Dialog
+          open={groupTeamDialogOpen}
+          onClose={() => !groupTeamActionBusy && setGroupTeamDialogOpen(false)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>Thêm đội vào bảng đấu</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={2} sx={{ pt: 0.5 }}>
+              <Alert severity="info">
+                Chọn đội, bảng đích và vị trí. Nếu đội đã nằm trong một bảng khác,
+                hệ thống sẽ chuyển đội sang bảng mới để tránh bị trùng.
+              </Alert>
+
+              <Autocomplete
+                options={registrations}
+                loading={loadingRegistrations}
+                value={selectedRegistration || null}
+                onChange={(_event, registration) =>
+                  setSelectedRegistrationId(
+                    String(registration?._id || registration?.id || ""),
+                  )
+                }
+                getOptionLabel={registrationOptionLabel}
+                isOptionEqualToValue={(option, value) =>
+                  String(option?._id || option?.id || "") ===
+                  String(value?._id || value?.id || "")
+                }
+                noOptionsText={
+                  loadingRegistrations ? "Đang tải danh sách đội..." : "Không có đội phù hợp"
+                }
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    label="Đội đăng ký"
+                    placeholder="Tìm theo tên đội hoặc mã đăng ký"
+                    required
+                  />
+                )}
+              />
+
+              <TextField
+                select
+                label="Bảng đích"
+                value={selectedTargetGroupId}
+                onChange={(event) => setSelectedTargetGroupId(event.target.value)}
+                fullWidth
+              >
+                {groupChoices.map((choice) => (
+                  <MenuItem key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+
+              <TextField
+                label="Vị trí trong bảng"
+                type="number"
+                value={selectedGroupSlotIndex}
+                onChange={(event) => setSelectedGroupSlotIndex(event.target.value)}
+                inputProps={{ min: 1 }}
+                helperText="Vị trí 1 là đầu bảng; các đội phía sau sẽ được đẩy xuống."
+                fullWidth
+              />
+
+              {selectedRegistrationSourceGroup && selectedTargetGroup &&
+                selectedRegistrationSourceGroup.value !== selectedTargetGroup.value && (
+                  <Alert severity="info">
+                    Đội này đang ở bảng {selectedRegistrationSourceGroup.groupName} và sẽ được
+                    chuyển sang bảng {selectedTargetGroup.groupName}.
+                  </Alert>
+                )}
+
+              {selectedTargetGroupNeedsGrowth && (
+                <Alert severity={autoGrowGroupSize ? "warning" : "error"}>
+                  Bảng {selectedTargetGroup?.groupName} hiện giới hạn {selectedTargetGroupCapacity} đội.
+                  Thao tác này sẽ thành {selectedTargetGroupProjectedSize} đội.
+                </Alert>
+              )}
+
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={autoGrowGroupSize}
+                    onChange={(event) => setAutoGrowGroupSize(event.target.checked)}
+                  />
+                }
+                label="Tự tăng số đội tối đa của bảng nếu cần"
+              />
+              <FormControlLabel
+                control={
+                  <Checkbox
+                    checked={generateMatchesAfterInsert}
+                    onChange={(event) =>
+                      setGenerateMatchesAfterInsert(event.target.checked)
+                    }
+                  />
+                }
+                label="Tạo các trận còn thiếu cho đội này sau khi thêm"
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => setGroupTeamDialogOpen(false)}
+              disabled={groupTeamActionBusy}
+            >
+              Hủy
+            </Button>
+            <Button
+              color="primary"
+              variant="contained"
+              disabled={
+                groupTeamActionBusy ||
+                loadingRegistrations ||
+                !selectedRegistrationId ||
+                !selectedTargetGroup
+              }
+              onClick={handleInsertRegistrationIntoGroup}
+            >
+              {groupTeamActionBusy ? "Đang lưu..." : "Thêm đội"}
+            </Button>
+          </DialogActions>
+        </Dialog>
       )}
       <Dialog
         open={revokeOpen}

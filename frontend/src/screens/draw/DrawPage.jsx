@@ -40,6 +40,7 @@ import CasinoIcon from "@mui/icons-material/Casino";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CancelIcon from "@mui/icons-material/Cancel";
+import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
@@ -64,6 +65,7 @@ import {
   useDrawNextMutation,
   useDrawCommitMutation,
   useDrawCancelMutation,
+  useResetGroupBracketMutation,
   useGetDrawStatusQuery,
   useGetRegistrationsQuery,
   useGetBracketQuery,
@@ -2744,6 +2746,8 @@ export default function DrawPage() {
   const [drawNext, { isLoading: revealing }] = useDrawNextMutation();
   const [drawCommit, { isLoading: committing }] = useDrawCommitMutation();
   const [drawCancel, { isLoading: canceling }] = useDrawCancelMutation();
+  const [resetGroupBracket, { isLoading: resettingGroupBracket }] =
+    useResetGroupBracketMutation();
   const [assignByes] = useAssignByesMutation();
   const [takeoverTournamentDraw, { isLoading: takingOver }] =
     useTakeoverTournamentDrawMutation();
@@ -2986,6 +2990,7 @@ export default function DrawPage() {
   const [state, setState] = useState("idle"); // idle|running|committed|canceled
   const [reveals, setReveals] = useState([]);
   const [planned, setPlanned] = useState(null);
+  const [resetGroupBracketOpen, setResetGroupBracketOpen] = useState(false);
 
   // draw doc (board & pool)
   const [drawDoc, setDrawDoc] = useState(null);
@@ -3625,6 +3630,64 @@ export default function DrawPage() {
   ]);
 
   const canOperate = Boolean(drawId && state === "running");
+
+  const handleResetGroupBracket = useCallback(async () => {
+    if (!selBracketId) return;
+
+    try {
+      const result = await resetGroupBracket({
+        bracketId: selBracketId,
+        socketId: socket?.id || "",
+      }).unwrap();
+
+      clearCardDeckFromStorage(selBracketId, drawType, selectRoundValue);
+      prevRevealsRef.current = [];
+      lastRevealActionRef.current = false;
+      setDrawId(null);
+      setState("idle");
+      setReveals([]);
+      setPlanned(null);
+      setDrawDoc(null);
+      setShowDoneBanner(false);
+      setCardOpen(false);
+      setCardQueue([]);
+      setCardSnapshot([]);
+      setCardGoneIds([]);
+      setLastHighlight(null);
+      setOverlayOpen(false);
+
+      await Promise.allSettled(
+        [refetchBracket?.(), refetchMatches?.(), refetchDrawStatus?.()].filter(
+          Boolean,
+        ),
+      );
+      setResetGroupBracketOpen(false);
+      toast.success(
+        t("draw.resetGroupSuccess", {
+          count: Number(result?.deletedMatches || 0),
+        }),
+      );
+    } catch (e) {
+      if (e?.status === 423 || e?.data?.snapshot) {
+        handleDrawLockError(e, t("draw.resetGroupError"));
+      } else {
+        toast.error(
+          e?.data?.message || e?.error || t("draw.resetGroupError"),
+        );
+      }
+    }
+  }, [
+    selBracketId,
+    socket?.id,
+    resetGroupBracket,
+    drawType,
+    selectRoundValue,
+    refetchBracket,
+    refetchMatches,
+    refetchDrawStatus,
+    handleDrawLockError,
+    t,
+  ]);
 
   // === Classic "Reveal tiếp" (giữ nguyên hành vi hiện tại) ===
   // === Classic "Reveal tiếp" (GIỜ dùng resp.next để biết ngay tên + vị trí) ===
@@ -4503,6 +4566,21 @@ export default function DrawPage() {
             >
               {t("draw.startDraw")}
             </Button>
+            {drawType === "group" && (
+              <Button
+                color="warning"
+                variant="outlined"
+                startIcon={<RestartAltIcon />}
+                disabled={
+                  !selBracketId ||
+                  resettingGroupBracket ||
+                  !canControlCurrent
+                }
+                onClick={() => setResetGroupBracketOpen(true)}
+              >
+                {t("draw.resetGroup")}
+              </Button>
+            )}
             <Button
               variant="outlined"
               startIcon={<PlayArrowIcon />}
@@ -4621,6 +4699,43 @@ export default function DrawPage() {
           </Stack>
         </Stack>
       </Paper>
+
+      <Dialog
+        open={resetGroupBracketOpen}
+        onClose={() =>
+          !resettingGroupBracket && setResetGroupBracketOpen(false)
+        }
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>{t("draw.resetGroupTitle")}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 0.5 }}>
+            <Alert severity="warning">{t("draw.resetGroupWarning")}</Alert>
+            <Typography variant="body2" color="text.secondary">
+              {t("draw.resetGroupBody")}
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setResetGroupBracketOpen(false)}
+            disabled={resettingGroupBracket}
+          >
+            {t("common.cancel")}
+          </Button>
+          <Button
+            color="warning"
+            variant="contained"
+            disabled={resettingGroupBracket}
+            onClick={handleResetGroupBracket}
+          >
+            {resettingGroupBracket
+              ? t("draw.resetGroupLoading")
+              : t("draw.resetGroupConfirm")}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mt: 2 }}>
         {/* Reveal board */}
