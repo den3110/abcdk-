@@ -1720,11 +1720,14 @@ const clampMatchRules = (rule, fallback = DEFAULT_MATCH_RULES) => {
         ? fallback.winByTwo
         : DEFAULT_MATCH_RULES.winByTwo;
   const capMode = String(source?.cap?.mode || fallback?.cap?.mode || "none");
-  const capPoints = Number.isFinite(Number(source?.cap?.points))
-    ? Number(source.cap.points)
-    : Number.isFinite(Number(fallback?.cap?.points))
-      ? Number(fallback.cap.points)
-      : null;
+  // schema Match bắt cap.points min 1 / null; chú ý Number(null) === 0 nên
+  // config lưu points null mà không lọc sẽ thành 0 → save nào cũng ValidationError
+  const capPointsOf = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) && num >= 1 ? num : null;
+  };
+  const capPoints =
+    capPointsOf(source?.cap?.points) ?? capPointsOf(fallback?.cap?.points);
 
   return {
     bestOf,
@@ -2142,6 +2145,15 @@ const ensureRoundElimBracketMatches = async (tournamentId) => {
           roundRule.cap?.points !== undefined
         ) {
           patch.capPoints = roundRule.cap.points;
+        }
+        // tự vá trận từng được insert qua bulkWrite (bỏ validation) với
+        // rules.cap.points = 0 — để nguyên thì mọi save() sau của trận đều
+        // ValidationError (schema min 1), sập cả view bracket
+        if (
+          typeof existingMatch?.rules?.cap?.points === "number" &&
+          existingMatch.rules.cap.points < 1
+        ) {
+          patch["rules.cap.points"] = null;
         }
         if (
           roundNum > 1 &&
