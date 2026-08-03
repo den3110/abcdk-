@@ -148,9 +148,44 @@ function AssignRefDialog({
     assignedForSingle,
   ]);
 
+  const displayedReferees = useMemo(() => {
+    const byId = new Map();
+
+    (referees || []).forEach((u) => {
+      if (!u?._id) return;
+      byId.set(String(u._id), u);
+    });
+
+    const normalizedQuery = debouncedQ.toLowerCase();
+    const matchesQuery = (u) => {
+      if (!normalizedQuery) return true;
+      return [
+        u?.nickname,
+        u?.nickName,
+        u?.displayName,
+        u?.fullName,
+        u?.name,
+        u?.email,
+        u?.phone,
+      ].some((value) =>
+        String(value || "").toLowerCase().includes(normalizedQuery),
+      );
+    };
+
+    // A referee can be assigned directly to a match without being in the
+    // tournament referee scope. Keep that current assignment visible.
+    (assignedForSingle || []).forEach((u) => {
+      if (!u?._id || !matchesQuery(u)) return;
+      const id = String(u._id);
+      if (!byId.has(id)) byId.set(id, u);
+    });
+
+    return Array.from(byId.values());
+  }, [referees, assignedForSingle, debouncedQ]);
+
   const allIdsOnPage = useMemo(
-    () => (referees || []).map((u) => String(u._id)),
-    [referees],
+    () => displayedReferees.map((u) => String(u._id)),
+    [displayedReferees],
   );
 
   const toggle = (id) =>
@@ -207,7 +242,7 @@ function AssignRefDialog({
     [assignedForSingle],
   );
   const isBusy = isLoading || isFetching || assignedLoading || assignedFetching;
-  const hasReferees = (referees?.length || 0) > 0;
+  const hasReferees = displayedReferees.length > 0;
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
   return (
@@ -451,7 +486,7 @@ function AssignRefDialog({
                     </Typography>
                     <Chip
                       size="small"
-                      label={`${referees?.length || 0} kết quả`}
+                      label={`${displayedReferees.length} kết quả`}
                       variant="outlined"
                     />
                   </Stack>
@@ -506,7 +541,7 @@ function AssignRefDialog({
                   </Box>
                 ) : (
                   <List dense disablePadding>
-                    {referees.map((u) => {
+                    {displayedReferees.map((u) => {
                       const id = String(u._id);
                       const checked = selectedSet.has(id);
                       const contact = u?.email || u?.phone || "";
