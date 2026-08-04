@@ -235,6 +235,33 @@ app.use(
     },
   }),
 );
+// Nginx cấu hình `proxy_pass http://backend/` (có trailing slash) → strip
+// prefix `/api/` khỏi request trước khi forward. Backend mount toàn bộ ở
+// `/api/*` nên trực tiếp request stripped path sẽ 404.
+// Middleware này thêm lại `/api` cho request không có prefix, giữ nguyên
+// đường đến các endpoint không phải API (uploads, socket.io, agendash…).
+const NON_API_PREFIXES = [
+  "/api",
+  "/socket.io",
+  "/uploads",
+  "/upload",
+  "/admin/agendash",
+  "/.well-known",
+  "/favicon",
+  "/dl",
+];
+app.use((req, res, next) => {
+  const url = req.url || "/";
+  if (url === "/") return next();
+  for (const p of NON_API_PREFIXES) {
+    if (url === p || url.startsWith(p + "/") || url.startsWith(p + "?")) {
+      return next();
+    }
+  }
+  req.url = "/api" + url;
+  next();
+});
+
 app.use("/api/users", userRoutes);
 app.use("/api/checkpoints", checkpointRoutes);
 app.use("/api/tournaments", tournamentRoute);
