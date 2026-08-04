@@ -7,6 +7,7 @@ import FeedPost, { REACTION_TYPES } from "../models/feedPostModel.js";
 import FeedComment from "../models/feedCommentModel.js";
 import FeedReport, { REPORT_REASONS } from "../models/feedReportModel.js";
 import User from "../models/userModel.js";
+import Ranking from "../models/rankingModel.js";
 import { encodeCursor, decodeCursor } from "../utils/cursor.js";
 import { getIO } from "../socket/index.js";
 import {
@@ -28,11 +29,55 @@ function extractTags(content = "") {
 }
 function extractMentionsRaw(content = "") {
   const set = new Set();
-  const re = /(?:^|\s)@([a-z0-9_.\-\p{L}]{2,32})/giu;
+  // Bắt @ + 1-3 từ (cho phép nickname/tên có dấu cách như "Tùng Xíu", "Nguyen Van A")
+  const re = /(?:^|\s)@([\p{L}\p{N}._-]{2,}(?:\s[\p{L}\p{N}._-]+){0,2})/giu;
   let m;
-  while ((m = re.exec(content))) set.add(m[1]);
-  return Array.from(set).slice(0, 20);
+  while ((m = re.exec(content))) {
+    const full = m[1];
+    const parts = full.split(/\s+/);
+    // Thêm tất cả prefix (3 từ, 2 từ, 1 từ) để resolveMentionUserIds lookup
+    // và giữ candidate nào khớp thực tế trong DB.
+    for (let i = parts.length; i > 0; i--) {
+      set.add(parts.slice(0, i).join(" "));
+    }
+  }
+  return Array.from(set).slice(0, 30);
 }
+// Batch fetch điểm trình đơn/đôi cho danh sách userId → Map(userId → {single, double})
+async function getScoresForUsers(userIds = []) {
+  const map = new Map();
+  if (!userIds.length) return map;
+  const rows = await Ranking.find({ user: { $in: userIds } })
+    .select("user single double")
+    .lean();
+  for (const r of rows) {
+    map.set(String(r.user), {
+      single: Number(r.single) || 0,
+      double: Number(r.double) || 0,
+    });
+  }
+  return map;
+}
+
+// Enrich posts array: gắn score vào author (và mentions nếu cần) - mutate in place
+async function attachAuthorScores(posts) {
+  if (!posts?.length) return;
+  const ids = new Set();
+  for (const p of posts) {
+    const a = p?.author;
+    if (a?._id) ids.add(String(a._id));
+  }
+  if (!ids.size) return;
+  const scoreMap = await getScoresForUsers(Array.from(ids));
+  for (const p of posts) {
+    const a = p?.author;
+    if (a?._id) {
+      const s = scoreMap.get(String(a._id));
+      if (s) a.score = s;
+    }
+  }
+}
+
 async function resolveMentionUserIds(nicknames) {
   if (!nicknames?.length) return [];
   const users = await User.find({
@@ -148,6 +193,7 @@ export const listFeed = asyncHandler(async (req, res) => {
 
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map((d) => toPostDTO(d, viewer?._id));
+  await attachAuthorScores(items);
   const nextCursor = hasMore
     ? encodeCursor({ lastId: String(docs[limit - 1]._id) })
     : null;
@@ -170,7 +216,9 @@ export const getPost = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy bài viết");
   }
-  res.json(toPostDTO(post, viewer?._id));
+  const dto = toPostDTO(post, viewer?._id);
+  await attachAuthorScores([dto]);
+  res.json(dto);
 });
 
 // POST /api/feed  { content, media?, linkedTournament?, visibility? }
@@ -192,8 +240,26 @@ export const createPost = asyncHandler(async (req, res) => {
   }
 
   const tags = extractTags(content);
-  const mentionNicks = extractMentionsRaw(content);
-  const mentions = await resolveMentionUserIds(mentionNicks);
+
+  // Ưu tiên mentions client gửi lên (user đã chọn từ @mention popup) — tránh
+  // regex re-parse dính nickname trùng. Fallback về extract từ content nếu client
+  // không gửi (backward compat).
+  let mentions = [];
+  const explicitMentions = Array.isArray(req.body?.mentions)
+    ? req.body.mentions
+        .filter((id) => mongoose.isValidObjectId(id))
+        .map((id) => new mongoose.Types.ObjectId(String(id)))
+    : null;
+  if (explicitMentions && explicitMentions.length) {
+    // Verify các ID này thực sự tồn tại (chống spam invalid IDs)
+    const valid = await User.find({ _id: { $in: explicitMentions } })
+      .select("_id")
+      .lean();
+    mentions = valid.map((u) => u._id);
+  } else {
+    const mentionNicks = extractMentionsRaw(content);
+    mentions = await resolveMentionUserIds(mentionNicks);
+  }
 
   const post = await FeedPost.create({
     author,

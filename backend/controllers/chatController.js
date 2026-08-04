@@ -56,6 +56,8 @@ function toMessageDTO(msg) {
     content: m.content,
     attachments: m.attachments || [],
     replyTo: m.replyTo,
+    mentions: m.mentions || [],
+    linkedTournament: m.linkedTournament || null,
     readBy: m.readBy || [],
     systemKind: m.systemKind || null,
     editedAt: m.editedAt,
@@ -281,7 +283,9 @@ export const listMessages = asyncHandler(async (req, res) => {
   const docs = await ChatMessage.find(q)
     .sort({ _id: -1 })
     .limit(limit + 1)
-    .populate("sender", USER_FIELDS);
+    .populate("sender", USER_FIELDS)
+    .populate("mentions", USER_FIELDS)
+    .populate("linkedTournament", "_id name image");
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map(toMessageDTO);
   const nextCursor = hasMore
@@ -311,7 +315,18 @@ export const sendMessage = asyncHandler(async (req, res) => {
     req.body?.replyTo && mongoose.isValidObjectId(req.body.replyTo)
       ? req.body.replyTo
       : null;
-  if (!content.trim() && !attachments.length) {
+  const linkedTournament =
+    req.body?.linkedTournament &&
+    mongoose.isValidObjectId(req.body.linkedTournament)
+      ? req.body.linkedTournament
+      : null;
+  const mentions = Array.isArray(req.body?.mentions)
+    ? req.body.mentions
+        .filter((id) => mongoose.isValidObjectId(id))
+        .map((id) => new mongoose.Types.ObjectId(String(id)))
+        .slice(0, 20)
+    : [];
+  if (!content.trim() && !attachments.length && !linkedTournament) {
     res.status(400);
     throw new Error("Tin nhắn không thể trống");
   }
@@ -322,6 +337,8 @@ export const sendMessage = asyncHandler(async (req, res) => {
     content,
     attachments,
     replyTo,
+    mentions,
+    linkedTournament,
     readBy: [viewer._id],
   });
 
@@ -338,10 +355,10 @@ export const sendMessage = asyncHandler(async (req, res) => {
   conv.hiddenFor = [];
   await conv.save();
 
-  const populated = await ChatMessage.findById(msg._id).populate(
-    "sender",
-    USER_FIELDS
-  );
+  const populated = await ChatMessage.findById(msg._id)
+    .populate("sender", USER_FIELDS)
+    .populate("mentions", USER_FIELDS)
+    .populate("linkedTournament", "_id name image");
   const dto = toMessageDTO(populated);
 
   emitToConv(cid, "chat:message:new", { conversationId: String(cid), message: dto });
@@ -474,7 +491,9 @@ export const adminListMessages = asyncHandler(async (req, res) => {
   const docs = await ChatMessage.find(q)
     .sort({ _id: -1 })
     .limit(limit + 1)
-    .populate("sender", USER_FIELDS);
+    .populate("sender", USER_FIELDS)
+    .populate("mentions", USER_FIELDS)
+    .populate("linkedTournament", "_id name image");
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map(toMessageDTO);
   const nextCursor = hasMore

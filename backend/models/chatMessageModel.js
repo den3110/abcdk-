@@ -38,6 +38,14 @@ const chatMessageSchema = new Schema(
       ref: "ChatMessage",
       default: null,
     },
+    // Users được @ tag trong content — link tới hồ sơ
+    mentions: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    // Giải đấu được gắn kèm — hiện card + link
+    linkedTournament: {
+      type: Schema.Types.ObjectId,
+      ref: "Tournament",
+      default: null,
+    },
     // readBy: users đã xem tính đến message này
     readBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
     // Metadata cho system message (ví dụ: "X đã tham gia giải")
