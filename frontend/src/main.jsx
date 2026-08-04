@@ -45,6 +45,10 @@ import TournamentRegistration from "./screens/PickleBall/TournamentRegistration.
 import TournamentCheckin from "./screens/PickleBall/TournamentCheckin.jsx";
 import TournamentBracket from "./screens/PickleBall/TournamentBracket.jsx";
 import RankingList from "./screens/RankingsScreen.jsx";
+import FeedPage from "./screens/FeedPage.jsx";
+import MessagesPage from "./screens/MessagesPage.jsx";
+import FriendsPage from "./screens/FriendsPage.jsx";
+import NotificationsPage from "./screens/NotificationsPage.jsx";
 import LevelPointPage from "./screens/PickleBall/LevelPoint.jsx";
 import ContactPage from "./screens/ContactScreen.jsx";
 import CookiesPage from "./screens/CookiesPage.jsx";
@@ -164,6 +168,10 @@ const router = sentryCreateBrowserRouter(
           element={<TournamentSchedule />}
         />
         <Route path="/pickle-ball/rankings" element={<RankingList />} />
+        <Route path="/feed" element={<FeedPage />} />
+        <Route path="/messages" element={<MessagesPage />} />
+        <Route path="/friends" element={<FriendsPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/status" element={<StatusPage />} />
         <Route path="/cookies" element={<CookiesPage />} />

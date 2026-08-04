@@ -117,9 +117,10 @@ const EXTRA_CSS = `
 @keyframes pkZoomIn { from { opacity: 0; transform: scale(.93); } to { opacity: 1; transform: none; } }
 
 /* ===== bảng xếp hạng (RankingsPage) ===== */
-.pk-rankgrid { display: grid; grid-template-columns: 58px minmax(0,1.6fr) 130px 92px 92px 84px; align-items: center; }
+/* 7 cột: rank | user | province | double | single | tours | actions */
+.pk-rankgrid { display: grid; grid-template-columns: 58px minmax(0,1.6fr) 130px 92px 92px 84px 56px; align-items: center; }
 @media (max-width: 860px) {
-  .pk-rankgrid { grid-template-columns: 44px minmax(0,1fr) 86px 86px; }
+  .pk-rankgrid { grid-template-columns: 44px minmax(0,1fr) 86px 86px 48px; }
   .pk-col-hide { display: none !important; }
 }
 @media (max-width: 760px) {

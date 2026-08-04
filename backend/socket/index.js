@@ -1431,7 +1431,17 @@ export function initSocket(
 
   const io = new Server(httpServer, {
     path,
-    cors: { origin: whitelist, credentials: true },
+    // Cho phép request không có Origin (mobile RN app, curl) + origin trong whitelist.
+    // Trước đây whitelist là mảng cứng → RN không có origin bị chặn -> "websocket error".
+    cors: {
+      origin: (origin, cb) => {
+        if (!origin) return cb(null, true); // mobile / server-to-server
+        if (Array.isArray(whitelist) && whitelist.includes(origin))
+          return cb(null, true);
+        return cb(null, false);
+      },
+      credentials: true,
+    },
     transports: SOCKET_TRANSPORTS,
     serveClient: false,
     perMessageDeflate: false,
@@ -1735,6 +1745,42 @@ export function initSocket(
           finish(error, true);
         }
       });
+
+    // Auto-join per-user room để nhận notification riêng (chat, feed, ...)
+    try {
+      const uid = socket.data?.userId;
+      if (uid) socket.join(`user:${uid}`);
+    } catch (err) {
+      console.error("[socket] auto-join user room error:", err?.message || err);
+    }
+
+    // Chat: client emit "chat:subscribe" với { conversationId } — backend verify
+    // participant rồi join room chat:${cid}. Emit tương ứng để leave.
+    socket.on("chat:subscribe", async ({ conversationId } = {}) => {
+      try {
+        const uid = socket.data?.userId;
+        if (!uid || !conversationId) return;
+        // Import động để tránh circular
+        const { default: ChatConversation } = await import(
+          "../models/chatConversationModel.js"
+        );
+        const conv = await ChatConversation.findById(conversationId)
+          .select("participants")
+          .lean();
+        if (!conv) return;
+        const isParticipant = (conv.participants || [])
+          .map((p) => String(p))
+          .includes(String(uid));
+        if (isParticipant) socket.join(`chat:${conversationId}`);
+      } catch (err) {
+        console.error("[socket] chat:subscribe error:", err?.message || err);
+      }
+    });
+    socket.on("chat:unsubscribe", ({ conversationId } = {}) => {
+      try {
+        if (conversationId) socket.leave(`chat:${conversationId}`);
+      } catch {}
+    });
 
     // nhận subscribe realtime từ admin tab
     socket.on("presence:watch", async () => {

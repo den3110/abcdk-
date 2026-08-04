@@ -20,6 +20,10 @@ import { useLogoutMutation } from "../../slices/usersApiSlice.js";
 const NAV_LINKS = [
   ["Giải đấu", "/pickle-ball/tournaments"],
   ["Bảng xếp hạng", "/pickle-ball/rankings"],
+  ["Bảng tin", "/feed"],
+  ["Nhắn tin", "/messages"],
+  ["Bạn bè", "/friends"],
+  ["Thông báo", "/notifications"],
   ["Trực tiếp", "/live"],
   ["Câu lạc bộ", "/clubs"],
   ["Liên hệ", "/contact"],

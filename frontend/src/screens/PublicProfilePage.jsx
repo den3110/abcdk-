@@ -57,6 +57,8 @@ import { useLanguage } from "../context/LanguageContext";
 import { useRegisterChatBotPageSnapshot } from "../context/ChatBotPageContext.jsx";
 import { formatDate, formatDateTime } from "../i18n/format";
 import { getGenderLabel } from "../i18n/uiOptions";
+import FriendActions from "../components/FriendActions.jsx";
+import OpenMessageButton from "../components/OpenMessageButton.jsx";
 
 /* ---------- CONSTANTS & UTILS ---------- */
 const AVA_PLACE = "";
@@ -764,8 +766,10 @@ export default function PublicProfilePage() {
             </Stack>
           </Box>
 
-          {/* Action Button */}
-          <Box>
+          {/* Action Buttons */}
+          <Stack direction="row" spacing={1} flexWrap="wrap" gap={1}>
+            <OpenMessageButton userId={base?._id} compact={false} label="Nhắn tin" />
+            <FriendActions userId={base?._id} />
             <Button
               variant="contained"
               startIcon={<ShareIcon />}
@@ -774,7 +778,7 @@ export default function PublicProfilePage() {
             >
               {t("publicProfile.share")}
             </Button>
-          </Box>
+          </Stack>
         </Paper>
       </Container>
     </Box>

@@ -24,6 +24,9 @@ import SiteFooter from "./SiteFooter.jsx";
 import PickleMark from "./PickleMark.jsx";
 import { A, GrayPill } from "./ui.jsx";
 import { useGetRankingsListQuery } from "../../slices/rankingsApiSlice.js";
+import { useOpenDmMutation } from "../../slices/messagesApiSlice.js";
+import { useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
 
 /* ------------------------------- helpers ------------------------------- */
 const Container = ({ children, style }) => (
@@ -344,6 +347,42 @@ function Toolbar({ qInput, setQInput, filter, setFilter }) {
 }
 
 /* -------------------------------- table -------------------------------- */
+function MessageIconBtn({ userId }) {
+  const me = useSelector((s) => s.auth?.userInfo);
+  const navigate = useNavigate();
+  const [openDm, { isLoading }] = useOpenDmMutation();
+  if (!me || !userId || String(userId) === String(me._id)) return null;
+  const onClick = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      const conv = await openDm(userId).unwrap();
+      navigate(`/messages?c=${conv._id}`);
+    } catch {}
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={isLoading}
+      title="Nhắn tin"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 30,
+        height: 30,
+        borderRadius: 8,
+        border: "1px solid rgba(255,255,255,0.12)",
+        background: "rgba(61,135,255,0.14)",
+        color: "#3E9EFB",
+        cursor: "pointer",
+      }}
+    >
+      💬
+    </button>
+  );
+}
+
 function RankRow({ r, fallbackRank, showGlobal }) {
   // Bảng mặc định: số vị trí (liền mạch khi phân trang). Khi search/lọc: hạng chính thức.
   const rank = showGlobal ? Number(r?.globalRank) || null : fallbackRank;
@@ -380,6 +419,9 @@ function RankRow({ r, fallbackRank, showGlobal }) {
       <div style={{ padding: "0 16px", textAlign: "right", color: "#C9CDD2", fontWeight: 650, fontSize: 14.5 }}>{fmtScore(r?.single)}</div>
       <div className="pk-col-hide" style={{ padding: "0 16px", textAlign: "right", color: "#8F959C", fontSize: 13.5 }}>
         {Number(r?.totalTours || 0)}
+      </div>
+      <div style={{ padding: "0 12px", display: "flex", justifyContent: "flex-end" }}>
+        <MessageIconBtn userId={r?.user?._id} />
       </div>
     </A>
   );
@@ -502,8 +544,15 @@ export default function RankingsPage() {
                       background: "color-mix(in srgb, var(--color-text-primary) 4%, transparent)",
                     }}
                   >
-                    {["#", "Vận động viên", "Tỉnh / Thành", "Điểm đôi", "Điểm đơn", "Giải"].map((h, i) => (
-                      <div key={h} className={i === 2 || i === 5 ? "pk-col-hide" : undefined} style={{ padding: "0 16px", textAlign: i >= 3 ? "right" : "left" }}>
+                    {["#", "Vận động viên", "Tỉnh / Thành", "Điểm đôi", "Điểm đơn", "Giải", ""].map((h, i) => (
+                      <div
+                        key={h + i}
+                        className={i === 2 || i === 5 ? "pk-col-hide" : undefined}
+                        style={{
+                          padding: "0 16px",
+                          textAlign: i === 6 ? "right" : i >= 3 ? "right" : "left",
+                        }}
+                      >
                         <Text type="supporting" color="secondary" weight="semibold">{h}</Text>
                       </div>
                     ))}
