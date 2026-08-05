@@ -8,6 +8,7 @@ import FeedComment from "../models/feedCommentModel.js";
 import FeedReport, { REPORT_REASONS } from "../models/feedReportModel.js";
 import User from "../models/userModel.js";
 import Ranking from "../models/rankingModel.js";
+import { attachTournamentRegCounts } from "../utils/enrichTournament.js";
 import { encodeCursor, decodeCursor } from "../utils/cursor.js";
 import { getIO } from "../socket/index.js";
 import {
@@ -188,12 +189,12 @@ export const listFeed = asyncHandler(async (req, res) => {
     .sort({ _id: -1 })
     .limit(limit + 1)
     .populate("author", AUTHOR_FIELDS)
-    .populate("linkedTournament", "_id name image")
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
     .populate("mentions", AUTHOR_FIELDS);
 
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map((d) => toPostDTO(d, viewer?._id));
-  await attachAuthorScores(items);
+  await Promise.all([attachAuthorScores(items), attachTournamentRegCounts(items)]);
   const nextCursor = hasMore
     ? encodeCursor({ lastId: String(docs[limit - 1]._id) })
     : null;
@@ -206,7 +207,7 @@ export const getPost = asyncHandler(async (req, res) => {
   const viewer = req.user;
   const post = await FeedPost.findById(req.params.id)
     .populate("author", AUTHOR_FIELDS)
-    .populate("linkedTournament", "_id name image")
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
     .populate("mentions", AUTHOR_FIELDS);
   if (!post || post.deletedAt) {
     res.status(404);
@@ -217,7 +218,10 @@ export const getPost = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy bài viết");
   }
   const dto = toPostDTO(post, viewer?._id);
-  await attachAuthorScores([dto]);
+  await Promise.all([
+    attachAuthorScores([dto]),
+    attachTournamentRegCounts([dto]),
+  ]);
   res.json(dto);
 });
 
@@ -272,7 +276,7 @@ export const createPost = asyncHandler(async (req, res) => {
   });
   const populated = await FeedPost.findById(post._id)
     .populate("author", AUTHOR_FIELDS)
-    .populate("linkedTournament", "_id name image")
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
     .populate("mentions", AUTHOR_FIELDS);
 
   const dto = toPostDTO(populated, author);
@@ -322,7 +326,7 @@ export const updatePost = asyncHandler(async (req, res) => {
 
   const populated = await FeedPost.findById(post._id)
     .populate("author", AUTHOR_FIELDS)
-    .populate("linkedTournament", "_id name image")
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
     .populate("mentions", AUTHOR_FIELDS);
 
   const dto = toPostDTO(populated, viewer._id);

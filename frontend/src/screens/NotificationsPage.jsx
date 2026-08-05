@@ -65,7 +65,7 @@ export default function NotificationsPage() {
         await markRead(n._id).unwrap();
       } catch {}
     }
-    if (n.url) navigate(n.url);
+    if (n.url) navigate(normalizeNotifUrl(n.url));
   };
 
   return (

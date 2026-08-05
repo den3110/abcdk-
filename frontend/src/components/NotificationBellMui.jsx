@@ -28,6 +28,18 @@ import {
 } from "../slices/notificationCenterApiSlice.js";
 import { socket } from "../lib/socket.js";
 
+// Backend gửi url style mobile (VD /messages/:cid). Web dùng /messages?c=:cid.
+// Cũng handle /feed/post/:id (mobile) → /feed (web, tạm — chưa có detail page).
+function normalizeNotifUrl(url) {
+  if (!url) return "/notifications";
+  const s = String(url);
+  const chatMatch = s.match(/^\/messages\/([^/?#]+)(.*)?$/);
+  if (chatMatch) return `/messages?c=${chatMatch[1]}${chatMatch[2] || ""}`;
+  const postMatch = s.match(/^\/feed\/post\/([^/?#]+)(.*)?$/);
+  if (postMatch) return `/feed`; // TODO: /feed/:postId khi web có post detail
+  return s;
+}
+
 const fmtTime = (iso) => {
   if (!iso) return "";
   const d = new Date(iso);
@@ -106,7 +118,7 @@ export default function NotificationBellMui() {
         } catch {}
         refetchCount();
       }
-      if (n.url) navigate(n.url);
+      if (n.url) navigate(normalizeNotifUrl(n.url));
       else navigate("/notifications");
     },
     [markRead, navigate, refetchCount]

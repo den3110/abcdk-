@@ -59,6 +59,7 @@ import ScoreBadges from "../components/feed/ScoreBadges.jsx";
 import MentionAutocomplete from "../components/feed/MentionAutocomplete.jsx";
 import TournamentPickerDialog from "../components/feed/TournamentPickerDialog.jsx";
 import FriendSuggestionsCard from "../components/feed/FriendSuggestionsCard.jsx";
+import TournamentBubbleCard from "../components/feed/TournamentBubbleCard.jsx";
 
 /* ─────────── constants ─────────── */
 const REACTION_EMOJI = {
@@ -666,40 +667,7 @@ function PostCard({ post, me }) {
           </Stack>
         )}
         {post.linkedTournament && (
-          <Card
-            variant="outlined"
-            sx={{
-              mt: 1.5,
-              cursor: "pointer",
-              bgcolor: "#FFFBEB",
-              borderColor: "#FDE68A",
-              "&:hover": { bgcolor: "#FEF3C7" },
-            }}
-            onClick={() => nav(`/tournament/${post.linkedTournament._id}`)}
-          >
-            <Stack direction="row" spacing={1.2} alignItems="center" sx={{ p: 1.2 }}>
-              {post.linkedTournament.image ? (
-                <Avatar src={post.linkedTournament.image} variant="rounded" />
-              ) : (
-                <Avatar variant="rounded" sx={{ bgcolor: "#FEF3C7" }}>
-                  <Trophy size={18} color="#F59E0B" />
-                </Avatar>
-              )}
-              <Box flex={1} minWidth={0}>
-                <Typography
-                  variant="caption"
-                  fontWeight={800}
-                  sx={{ color: "#B45309", letterSpacing: 0.5 }}
-                >
-                  GIẢI ĐẤU
-                </Typography>
-                <Typography variant="body2" fontWeight={700} noWrap>
-                  {post.linkedTournament.name}
-                </Typography>
-              </Box>
-              <ChevronRight size={18} color="#94A3B8" />
-            </Stack>
-          </Card>
+          <TournamentBubbleCard tour={post.linkedTournament} variant="feed" />
         )}
         {post.media?.length > 0 && (
           <Box

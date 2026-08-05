@@ -36,6 +36,7 @@ import {
 import MentionText from "../feed/MentionText.jsx";
 import MentionAutocomplete from "../feed/MentionAutocomplete.jsx";
 import TournamentPickerDialog from "../feed/TournamentPickerDialog.jsx";
+import TournamentBubbleCard from "../feed/TournamentBubbleCard.jsx";
 import { socket } from "../../lib/socket.js";
 
 const authorName = (u) => u?.nickname || u?.name || "Người dùng";
@@ -98,45 +99,10 @@ function Bubble({ msg, isMine, onDelete, canDelete }) {
             />
           ))}
         {msg.linkedTournament && (
-          <Box
-            component={RouterLink}
-            to={`/tournament/${msg.linkedTournament._id}`}
-            sx={{
-              mt: 0.75,
-              display: "flex",
-              alignItems: "center",
-              gap: 0.75,
-              p: 0.75,
-              borderRadius: 1.5,
-              bgcolor: isMine ? "rgba(255,255,255,0.15)" : "#FFFBEB",
-              border: 1,
-              borderColor: isMine ? "rgba(255,255,255,0.28)" : "#FDE68A",
-              textDecoration: "none",
-              color: "inherit",
-              maxWidth: 220,
-            }}
-          >
-            <Avatar
-              src={msg.linkedTournament.image || ""}
-              variant="rounded"
-              sx={{
-                width: 30,
-                height: 30,
-                bgcolor: "#FEF3C7",
-              }}
-            >
-              <Trophy size={14} color="#F59E0B" />
-            </Avatar>
-            <Box flex={1} minWidth={0}>
-              <Typography variant="caption" fontWeight={800} sx={{ display: "block", opacity: 0.85 }}>
-                GIẢI ĐẤU
-              </Typography>
-              <Typography variant="caption" fontWeight={700} noWrap>
-                {msg.linkedTournament.name}
-              </Typography>
-            </Box>
-            <ChevronRight size={14} />
-          </Box>
+          <TournamentBubbleCard
+            tour={msg.linkedTournament}
+            variant={isMine ? "chatMine" : "chat"}
+          />
         )}
       </Box>
     </Box>

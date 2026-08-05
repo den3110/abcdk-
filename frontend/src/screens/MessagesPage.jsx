@@ -38,6 +38,7 @@ import { socket } from "../lib/socket.js";
 import MentionText from "../components/feed/MentionText.jsx";
 import MentionAutocomplete from "../components/feed/MentionAutocomplete.jsx";
 import TournamentPickerDialog from "../components/feed/TournamentPickerDialog.jsx";
+import TournamentBubbleCard from "../components/feed/TournamentBubbleCard.jsx";
 import { Chip } from "@mui/material";
 
 const authorName = (u) => u?.nickname || u?.name || "Người dùng";
@@ -177,54 +178,10 @@ function MessageBubble({ msg, isMine, onDelete, canDelete }) {
           )
         )}
         {msg.linkedTournament && (
-          <Box
-            component="a"
-            href={`/tournament/${msg.linkedTournament._id}`}
-            sx={{
-              mt: 0.75,
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              p: 1,
-              borderRadius: 2,
-              bgcolor: isMine ? "rgba(255,255,255,0.15)" : "#FFFBEB",
-              border: 1,
-              borderColor: isMine ? "rgba(255,255,255,0.28)" : "#FDE68A",
-              textDecoration: "none",
-              color: "inherit",
-              maxWidth: 260,
-            }}
-          >
-            {msg.linkedTournament.image ? (
-              <Avatar
-                src={msg.linkedTournament.image}
-                variant="rounded"
-                sx={{ width: 36, height: 36 }}
-              />
-            ) : (
-              <Avatar variant="rounded" sx={{ bgcolor: "#FEF3C7", width: 36, height: 36 }}>
-                <Trophy size={18} color="#F59E0B" />
-              </Avatar>
-            )}
-            <Box flex={1} minWidth={0}>
-              <Typography
-                variant="caption"
-                fontWeight={800}
-                sx={{
-                  color: isMine ? "#FEF3C7" : "#B45309",
-                  textTransform: "uppercase",
-                  letterSpacing: 0.5,
-                  display: "block",
-                }}
-              >
-                Giải đấu
-              </Typography>
-              <Typography variant="body2" fontWeight={700} noWrap>
-                {msg.linkedTournament.name}
-              </Typography>
-            </Box>
-            <ChevronRight size={16} />
-          </Box>
+          <TournamentBubbleCard
+            tour={msg.linkedTournament}
+            variant={isMine ? "chatMine" : "chat"}
+          />
         )}
       </Box>
     </Box>

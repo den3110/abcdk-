@@ -10,6 +10,7 @@ import User from "../models/userModel.js";
 import { encodeCursor, decodeCursor } from "../utils/cursor.js";
 import { getIO } from "../socket/index.js";
 import { notifyChatMessage } from "../services/chatNotifier.js";
+import { attachTournamentRegCounts } from "../utils/enrichTournament.js";
 
 const USER_FIELDS = "_id name nickname avatar role";
 
@@ -285,9 +286,10 @@ export const listMessages = asyncHandler(async (req, res) => {
     .limit(limit + 1)
     .populate("sender", USER_FIELDS)
     .populate("mentions", USER_FIELDS)
-    .populate("linkedTournament", "_id name image");
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs");
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map(toMessageDTO);
+  await attachTournamentRegCounts(items);
   const nextCursor = hasMore
     ? encodeCursor({ lastId: String(docs[limit - 1]._id) })
     : null;
@@ -358,8 +360,9 @@ export const sendMessage = asyncHandler(async (req, res) => {
   const populated = await ChatMessage.findById(msg._id)
     .populate("sender", USER_FIELDS)
     .populate("mentions", USER_FIELDS)
-    .populate("linkedTournament", "_id name image");
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs");
   const dto = toMessageDTO(populated);
+  await attachTournamentRegCounts([dto]);
 
   emitToConv(cid, "chat:message:new", { conversationId: String(cid), message: dto });
   // Cũng emit "chat:conversation:updated" để list tự bump lên top
@@ -493,9 +496,10 @@ export const adminListMessages = asyncHandler(async (req, res) => {
     .limit(limit + 1)
     .populate("sender", USER_FIELDS)
     .populate("mentions", USER_FIELDS)
-    .populate("linkedTournament", "_id name image");
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs");
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map(toMessageDTO);
+  await attachTournamentRegCounts(items);
   const nextCursor = hasMore
     ? encodeCursor({ lastId: String(docs[limit - 1]._id) })
     : null;
