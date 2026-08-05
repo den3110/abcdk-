@@ -240,6 +240,7 @@ function ChatPanel({ conversationId, me, onBack }) {
   const [selectedMentions, setSelectedMentions] = useState([]);
   const fileRef = useRef(null);
   const scrollRef = useRef(null);
+  const submittingRef = useRef(false);
   const { data: convo } = useListConversationsQuery({});
   const conv = useMemo(
     () => (convo?.items || []).find((c) => String(c._id) === String(conversationId)),
@@ -350,24 +351,36 @@ function ChatPanel({ conversationId, me, onBack }) {
   };
 
   const submit = async () => {
+    if (submittingRef.current) return;
     if (!text.trim() && !attachments.length && !linkedTournament) return;
-    const stillPresent = selectedMentions
+    submittingRef.current = true;
+    const payloadText = text.trim();
+    const payloadAttach = attachments;
+    const payloadMentions = selectedMentions
       .filter((m) => text.includes(`@${m.display}`))
       .map((m) => m._id);
+    const payloadTour = linkedTournament?._id || null;
+    // Clear input NGAY để tránh double submit từ Enter thứ 2 gõ liền tay
+    setText("");
+    setAttachments([]);
+    setLinkedTournament(null);
+    setSelectedMentions([]);
     try {
       await sendMessage({
         cid: conversationId,
-        content: text.trim(),
-        attachments,
-        mentions: stillPresent,
-        linkedTournament: linkedTournament?._id || null,
+        content: payloadText,
+        attachments: payloadAttach,
+        mentions: payloadMentions,
+        linkedTournament: payloadTour,
       }).unwrap();
-      setText("");
-      setAttachments([]);
-      setLinkedTournament(null);
-      setSelectedMentions([]);
     } catch (err) {
       toast.error(err?.data?.message || "Gửi thất bại");
+      // Restore text nếu gửi lỗi
+      setText(payloadText);
+      setAttachments(payloadAttach);
+      setLinkedTournament(linkedTournament);
+    } finally {
+      submittingRef.current = false;
     }
   };
 

@@ -159,6 +159,7 @@ export default function FloatingChatWindow({
   const navigate = useNavigate();
   const scrollRef = useRef(null);
   const fileRef = useRef(null);
+  const submittingRef = useRef(false);
 
   const { data: conv } = useGetConversationQuery(conversationId, {
     skip: !conversationId,
@@ -267,24 +268,34 @@ export default function FloatingChatWindow({
   };
 
   const submit = async () => {
+    if (submittingRef.current) return;
     if (!text.trim() && !attachments.length && !linkedTournament) return;
-    const stillPresent = selectedMentions
+    submittingRef.current = true;
+    const payloadText = text.trim();
+    const payloadAttach = attachments;
+    const payloadTour = linkedTournament?._id || null;
+    const payloadMentions = selectedMentions
       .filter((m) => text.includes(`@${m.display}`))
       .map((m) => m._id);
+    setText("");
+    setAttachments([]);
+    setLinkedTournament(null);
+    setSelectedMentions([]);
     try {
       await sendMessage({
         cid: conversationId,
-        content: text.trim(),
-        attachments,
-        mentions: stillPresent,
-        linkedTournament: linkedTournament?._id || null,
+        content: payloadText,
+        attachments: payloadAttach,
+        mentions: payloadMentions,
+        linkedTournament: payloadTour,
       }).unwrap();
-      setText("");
-      setAttachments([]);
-      setLinkedTournament(null);
-      setSelectedMentions([]);
     } catch (err) {
       toast.error(err?.data?.message || "Gửi thất bại");
+      setText(payloadText);
+      setAttachments(payloadAttach);
+      setLinkedTournament(linkedTournament);
+    } finally {
+      submittingRef.current = false;
     }
   };
 
