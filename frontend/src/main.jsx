@@ -169,6 +169,7 @@ const router = sentryCreateBrowserRouter(
         />
         <Route path="/pickle-ball/rankings" element={<RankingList />} />
         <Route path="/feed" element={<FeedPage />} />
+        <Route path="/feed/post/:postId" element={<FeedPage />} />
         <Route path="/messages" element={<MessagesPage />} />
         <Route path="/friends" element={<FriendsPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />

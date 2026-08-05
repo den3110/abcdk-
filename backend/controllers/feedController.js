@@ -79,6 +79,76 @@ async function attachAuthorScores(posts) {
   }
 }
 
+// Batch fetch 2 bình luận top-level mới nhất cho mỗi post → gắn `recentComments`
+// (order oldest → newest, kiểu Facebook: preview 2 cuối trước khung composer).
+// Aggregation 1 query duy nhất cho cả danh sách, populate author sau.
+async function attachRecentComments(posts, viewerId) {
+  if (!posts?.length) return;
+  const postIds = posts
+    .map((p) => (p?._id ? new mongoose.Types.ObjectId(String(p._id)) : null))
+    .filter(Boolean);
+  if (!postIds.length) return;
+
+  const rows = await FeedComment.aggregate([
+    {
+      $match: {
+        post: { $in: postIds },
+        parent: null,
+        isHidden: false,
+        deletedAt: null,
+      },
+    },
+    { $sort: { post: 1, createdAt: -1 } },
+    {
+      $group: {
+        _id: "$post",
+        latest: { $push: "$$ROOT" },
+      },
+    },
+    { $project: { latest: { $slice: ["$latest", 2] } } },
+  ]);
+
+  // Gom tất cả authorIds → populate 1 lượt
+  const authorIds = new Set();
+  for (const r of rows) {
+    for (const c of r.latest || []) {
+      if (c.author) authorIds.add(String(c.author));
+    }
+  }
+  const authorMap = new Map();
+  if (authorIds.size) {
+    const authors = await User.find({ _id: { $in: Array.from(authorIds) } })
+      .select(AUTHOR_FIELDS)
+      .lean();
+    for (const a of authors) authorMap.set(String(a._id), a);
+  }
+
+  const byPost = new Map();
+  for (const r of rows) {
+    const list = (r.latest || [])
+      .slice()
+      // reverse để oldest → newest (Facebook layout)
+      .reverse()
+      .map((c) => ({
+        _id: c._id,
+        post: c.post,
+        parent: c.parent,
+        author: authorMap.get(String(c.author)) || null,
+        content: c.content,
+        mentions: c.mentions || [],
+        reactionCount: c.reactionCount || 0,
+        replyCount: c.replyCount || 0,
+        createdAt: c.createdAt,
+        updatedAt: c.updatedAt,
+      }));
+    byPost.set(String(r._id), list);
+  }
+
+  for (const p of posts) {
+    p.recentComments = byPost.get(String(p._id)) || [];
+  }
+}
+
 async function resolveMentionUserIds(nicknames) {
   if (!nicknames?.length) return [];
   const users = await User.find({
@@ -194,7 +264,11 @@ export const listFeed = asyncHandler(async (req, res) => {
 
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map((d) => toPostDTO(d, viewer?._id));
-  await Promise.all([attachAuthorScores(items), attachTournamentRegCounts(items)]);
+  await Promise.all([
+    attachAuthorScores(items),
+    attachTournamentRegCounts(items),
+    attachRecentComments(items, viewer?._id),
+  ]);
   const nextCursor = hasMore
     ? encodeCursor({ lastId: String(docs[limit - 1]._id) })
     : null;
@@ -221,6 +295,7 @@ export const getPost = asyncHandler(async (req, res) => {
   await Promise.all([
     attachAuthorScores([dto]),
     attachTournamentRegCounts([dto]),
+    attachRecentComments([dto], viewer?._id),
   ]);
   res.json(dto);
 });
@@ -380,6 +455,25 @@ export const reactPost = asyncHandler(async (req, res) => {
     reactionCount: post.reactionCount,
     myReaction: result.removed ? null : type,
   });
+});
+
+// POST /api/feed/:id/share — tăng shareCount, chỉ dùng cho tracking
+// (link chia sẻ thật sự do client tự copy / gọi Share API).
+export const sharePost = asyncHandler(async (req, res) => {
+  const post = await FeedPost.findByIdAndUpdate(
+    req.params.id,
+    { $inc: { shareCount: 1 } },
+    { new: true, projection: { shareCount: 1 } },
+  );
+  if (!post) {
+    res.status(404);
+    throw new Error("Không tìm thấy bài viết");
+  }
+  emitToPost(post._id, "feed:share:updated", {
+    postId: post._id,
+    shareCount: post.shareCount,
+  });
+  res.json({ postId: post._id, shareCount: post.shareCount });
 });
 
 // POST /api/feed/comments/:cid/reactions  { type }

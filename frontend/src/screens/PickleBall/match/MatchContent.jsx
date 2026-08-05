@@ -44,10 +44,14 @@ import {
   Search as SearchIcon,
   SwapHoriz as SwapIcon,
   Clear as ClearIcon,
+  Stadium as StadiumIcon,
+  Gavel as GavelIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 import { seedLabel, nameWithNick } from "../TournamentBracket";
 import PublicProfileDialog from "../../../components/PublicProfileDialog";
+import AssignCourtStationDialog from "../../../components/AssignCourtStationDialog";
+import AssignRefDialog from "../../../components/AssignRefDialog";
 import { FeedStylePlayerDialog } from "../../../components/video";
 import {
   useAdminPatchMatchMutation,
@@ -2951,6 +2955,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     }
   };
 
+  // Gán sân / gán trọng tài (admin + manager)
+  const [assignCourtOpen, setAssignCourtOpen] = useState(false);
+  const [assignRefOpen, setAssignRefOpen] = useState(false);
+
   // Chỉnh đội
   const [teamsOpen, setTeamsOpen] = useState(false);
   const openTeamsEditor = useCallback(
@@ -3920,6 +3928,30 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                   Chỉnh đội A/B
                 </Button>
               )}
+
+              {canEdit && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<StadiumIcon />}
+                  onClick={() => setAssignCourtOpen(true)}
+                  disabled={patching || verifyingMgr || !lockedId || !tournamentId}
+                >
+                  Gán sân
+                </Button>
+              )}
+
+              {canEdit && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<GavelIcon />}
+                  onClick={() => setAssignRefOpen(true)}
+                  disabled={patching || verifyingMgr || !lockedId || !tournamentId}
+                >
+                  Gán trọng tài
+                </Button>
+              )}
             </Stack>
           </>
         )}
@@ -3952,6 +3984,35 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         swapMatchTeams={swapMatchTeams}
         patching={teamEditorBusy}
       />
+
+      {/* Gán sân — admin/manager */}
+      {tournamentId && (
+        <AssignCourtStationDialog
+          open={assignCourtOpen}
+          onClose={() => setAssignCourtOpen(false)}
+          match={mm}
+          tournamentId={tournamentId}
+          canOverride={isAdmin}
+          onAssigned={() => {
+            setAssignCourtOpen(false);
+            debouncedRefresh();
+          }}
+        />
+      )}
+
+      {/* Gán trọng tài — admin/manager */}
+      {tournamentId && (
+        <AssignRefDialog
+          open={assignRefOpen}
+          onClose={() => setAssignRefOpen(false)}
+          match={mm}
+          tournamentId={tournamentId}
+          onChanged={() => {
+            setAssignRefOpen(false);
+            debouncedRefresh();
+          }}
+        />
+      )}
 
       {/* Popup hồ sơ VĐV */}
       <PublicProfileDialog

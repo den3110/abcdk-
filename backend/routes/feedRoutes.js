@@ -15,6 +15,7 @@ import {
   updatePost,
   deletePost,
   reactPost,
+  sharePost,
   reactComment,
   listComments,
   createComment,
@@ -158,9 +159,11 @@ router.delete("/comments/:cid", protect, deleteComment);
 router.post("/comments/:cid/reactions", protect, rlReaction, reactComment);
 router.post("/comments/:cid/reports", protect, rlReport, reportTarget("comment"));
 
-// POST reactions + reports
+// POST reactions + reports + share
 router.post("/:id/reactions", protect, rlReaction, reactPost);
 router.post("/:id/reports", protect, rlReport, reportTarget("post"));
+// Share: cho phép guest cũng ping (dùng optionalAuth). Chỉ tracking shareCount.
+router.post("/:id/share", optionalAuth, sharePost);
 
 // POST CRUD
 router.post("/", protect, rlPost, createPost);

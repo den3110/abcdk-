@@ -36,17 +36,21 @@ import {
   Trophy,
   X as XIcon,
   ChevronRight,
+  Share2,
+  ArrowLeft,
 } from "lucide-react";
 import { useSelector } from "react-redux";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 
 import SEOHead from "../components/SEOHead.jsx";
 import {
   useListFeedQuery,
+  useGetFeedPostQuery,
   useCreateFeedPostMutation,
   useDeleteFeedPostMutation,
   useReactFeedPostMutation,
+  useShareFeedPostMutation,
   useUploadFeedMediaMutation,
   useListFeedCommentsQuery,
   useCreateFeedCommentMutation,
@@ -578,15 +582,52 @@ function CommentItem({
 }
 
 /* ─────────── PostCard ─────────── */
-function PostCard({ post, me }) {
+function PostCard({ post, me, defaultShowComments = false }) {
   const nav = useNavigate();
   const [react] = useReactFeedPostMutation();
   const [deletePost] = useDeleteFeedPostMutation();
   const [reportPost] = useReportFeedPostMutation();
-  const [showComments, setShowComments] = useState(false);
+  const [sharePost] = useShareFeedPostMutation();
+  const [showComments, setShowComments] = useState(defaultShowComments);
   const [menuAnchor, setMenuAnchor] = useState(false);
   const isMine = String(post.author?._id) === String(me?._id);
   const canModerate = isMine || isAdminRole(me);
+
+  const handleShare = async () => {
+    const url = `${window.location.origin}/feed/post/${post._id}`;
+    const shareData = {
+      title:
+        (post.author?.nickname || post.author?.name || "Bài viết") +
+        " · PickleTour",
+      text: (post.content || "").slice(0, 200),
+      url,
+    };
+    let sharedOk = false;
+    try {
+      if (navigator.share && navigator.canShare?.(shareData) !== false) {
+        await navigator.share(shareData);
+        sharedOk = true;
+      } else {
+        await navigator.clipboard.writeText(url);
+        toast.success("Đã sao chép liên kết bài viết");
+        sharedOk = true;
+      }
+    } catch (err) {
+      // AbortError khi user huỷ share sheet — không toast lỗi
+      if (err?.name !== "AbortError") {
+        try {
+          await navigator.clipboard.writeText(url);
+          toast.success("Đã sao chép liên kết bài viết");
+          sharedOk = true;
+        } catch {
+          toast.error("Không chia sẻ được. Hãy copy URL trên thanh địa chỉ.");
+        }
+      }
+    }
+    if (sharedOk) {
+      sharePost(post._id).catch(() => {});
+    }
+  };
 
   const handleReact = async (type) => {
     try {
@@ -733,15 +774,18 @@ function PostCard({ post, me }) {
         <Stack
           direction="row"
           spacing={3}
-          sx={{ mt: 1, color: "text.secondary", fontSize: 13 }}
+          sx={{ mt: 1, color: "text.secondary", fontSize: 13, flexWrap: "wrap" }}
         >
           <span>{post.reactionCount || 0} lượt cảm xúc</span>
           <span>{post.commentCount || 0} bình luận</span>
+          {(post.shareCount || 0) > 0 && (
+            <span>{post.shareCount} lượt chia sẻ</span>
+          )}
         </Stack>
 
         <Divider sx={{ my: 1 }} />
 
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }} useFlexGap>
           <ReactionBar post={post} onReact={handleReact} />
           <Button
             size="small"
@@ -753,6 +797,14 @@ function PostCard({ post, me }) {
           </Button>
           <Button
             size="small"
+            startIcon={<Share2 size={16} />}
+            onClick={handleShare}
+            sx={{ textTransform: "none", color: "text.secondary" }}
+          >
+            Chia sẻ
+          </Button>
+          <Button
+            size="small"
             startIcon={<Flag size={16} />}
             onClick={handleReport}
             sx={{ textTransform: "none", color: "text.secondary" }}
@@ -760,6 +812,85 @@ function PostCard({ post, me }) {
             Báo cáo
           </Button>
         </Stack>
+
+        {/* Preview 2 bình luận gần nhất — chỉ hiện khi thread chưa mở */}
+        {!showComments && post.recentComments?.length > 0 && (
+          <Stack spacing={1} sx={{ mt: 1.5 }}>
+            {post.recentComments.map((c) => (
+              <Stack
+                key={c._id}
+                direction="row"
+                spacing={1}
+                alignItems="flex-start"
+              >
+                <Avatar
+                  src={c.author?.avatar || ""}
+                  sx={{
+                    width: 28,
+                    height: 28,
+                    cursor: "pointer",
+                    fontSize: 13,
+                  }}
+                  onClick={() =>
+                    c.author?._id && nav(`/profile/${c.author._id}`)
+                  }
+                >
+                  {authorName(c.author)[0]?.toUpperCase()}
+                </Avatar>
+                <Box
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    bgcolor: "action.hover",
+                    borderRadius: 2,
+                    px: 1.5,
+                    py: 0.75,
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    fontWeight={700}
+                    sx={{
+                      cursor: "pointer",
+                      "&:hover": { textDecoration: "underline" },
+                    }}
+                    onClick={() =>
+                      c.author?._id && nav(`/profile/${c.author._id}`)
+                    }
+                  >
+                    {authorName(c.author)}
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    sx={{ wordBreak: "break-word" }}
+                  >
+                    <MentionText
+                      content={c.content}
+                      mentions={c.mentions}
+                    />
+                  </Typography>
+                </Box>
+              </Stack>
+            ))}
+            {(post.commentCount || 0) > post.recentComments.length && (
+              <Button
+                size="small"
+                onClick={() => setShowComments(true)}
+                sx={{
+                  textTransform: "none",
+                  alignSelf: "flex-start",
+                  color: "text.secondary",
+                  fontWeight: 600,
+                  fontSize: 12,
+                  ml: 4.5,
+                }}
+              >
+                Xem thêm {post.commentCount - post.recentComments.length} bình
+                luận
+              </Button>
+            )}
+          </Stack>
+        )}
 
         {showComments && (
           <CommentThread postId={post._id} me={me} canModerate={canModerate} />
@@ -805,13 +936,18 @@ function PostCard({ post, me }) {
 export default function FeedPage() {
   const me = useSelector((s) => s.auth?.userInfo);
   const navigate = useNavigate();
+  const { postId } = useParams();
   const [tagFilter, setTagFilter] = useState("");
   const [cursor, setCursor] = useState(null);
-  const { data, isFetching, refetch } = useListFeedQuery({
-    tag: tagFilter || undefined,
-    cursor,
-    limit: 10,
-  });
+  const singlePostQ = useGetFeedPostQuery(postId, { skip: !postId });
+  const { data, isFetching, refetch } = useListFeedQuery(
+    {
+      tag: tagFilter || undefined,
+      cursor,
+      limit: 10,
+    },
+    { skip: !!postId },
+  );
   const hasMore = Boolean(data?.hasMore);
   const nextCursor = data?.nextCursor;
   const sentinelRef = useRef(null);
@@ -856,6 +992,60 @@ export default function FeedPage() {
         <Button variant="contained" onClick={() => navigate("/login")}>
           Đăng nhập
         </Button>
+      </Box>
+    );
+  }
+
+  // Single-post view (/feed/post/:postId)
+  if (postId) {
+    const singlePost = singlePostQ.data;
+    const singleAuthorName =
+      singlePost?.author?.nickname ||
+      singlePost?.author?.name ||
+      "Bài viết";
+    return (
+      <Box
+        sx={{
+          maxWidth: 720,
+          width: "100%",
+          mx: "auto",
+          px: { xs: 1, md: 2 },
+          py: 2,
+          overflowX: "hidden",
+        }}
+      >
+        <SEOHead
+          title={`${singleAuthorName} · Bảng tin | Pickletour`}
+          description={
+            (singlePost?.content || "").slice(0, 160) ||
+            "Bài viết trên Bảng tin PickleTour"
+          }
+          ogImage={
+            singlePost?.media?.find((m) => m.type === "image")?.url ||
+            singlePost?.author?.avatar
+          }
+          path={`/feed/post/${postId}`}
+        />
+        <Button
+          startIcon={<ArrowLeft size={16} />}
+          onClick={() => navigate("/feed")}
+          sx={{ textTransform: "none", mb: 1.5 }}
+        >
+          Về Bảng tin
+        </Button>
+        {singlePostQ.isLoading && (
+          <Box textAlign="center" py={4}>
+            <CircularProgress />
+          </Box>
+        )}
+        {singlePostQ.error && (
+          <Box textAlign="center" py={4} color="text.secondary">
+            Không tìm thấy bài viết hoặc bài đã bị xoá.
+          </Box>
+        )}
+        {singlePost && (
+          <PostCard post={singlePost} me={me} defaultShowComments />
+        )}
       </Box>
     );
   }
