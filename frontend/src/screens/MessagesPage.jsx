@@ -20,7 +20,7 @@ import {
   ChevronRight,
   ChevronLeft,
 } from "lucide-react";
-import { useSelector } from "react-redux";
+import { useDispatch, useSelector } from "react-redux";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 
@@ -32,7 +32,9 @@ import {
   useMarkReadMutation,
   useDeleteMessageMutation,
   useUploadChatMediaMutation,
+  messagesApiSlice,
 } from "../slices/messagesApiSlice.js";
+import { socket } from "../lib/socket.js";
 import MentionText from "../components/feed/MentionText.jsx";
 import MentionAutocomplete from "../components/feed/MentionAutocomplete.jsx";
 import TournamentPickerDialog from "../components/feed/TournamentPickerDialog.jsx";
@@ -230,6 +232,7 @@ function MessageBubble({ msg, isMine, onDelete, canDelete }) {
 }
 
 function ChatPanel({ conversationId, me, onBack }) {
+  const dispatch = useDispatch();
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [linkedTournament, setLinkedTournament] = useState(null);
@@ -255,11 +258,68 @@ function ChatPanel({ conversationId, me, onBack }) {
     if (conversationId) markRead(conversationId);
   }, [conversationId, markRead]);
 
+  // Socket realtime: subscribe room + listen chat:message:new & chat:message:deleted
   useEffect(() => {
-    // Poll làm realtime tạm (socket refactor sau)
-    const iv = setInterval(() => refetch(), 4000);
-    return () => clearInterval(iv);
-  }, [refetch]);
+    if (!conversationId) return;
+    if (!socket.connected) {
+      try {
+        socket.connect();
+      } catch {}
+    }
+    try {
+      socket.emit("chat:subscribe", { conversationId: String(conversationId) });
+    } catch {}
+
+    const onNew = (payload) => {
+      if (String(payload?.conversationId) !== String(conversationId)) return;
+      const newMsg = payload?.message;
+      if (!newMsg) return;
+      dispatch(
+        messagesApiSlice.util.updateQueryData(
+          "listMessages",
+          { cid: String(conversationId) },
+          (draft) => {
+            if (!draft?.items) return;
+            if (
+              draft.items.find((m) => String(m._id) === String(newMsg._id))
+            )
+              return;
+            draft.items.unshift(newMsg);
+          }
+        )
+      );
+      // Mark read khi user đang mở conversation
+      markRead(conversationId);
+    };
+    const onDeleted = (payload) => {
+      if (String(payload?.conversationId) !== String(conversationId)) return;
+      dispatch(
+        messagesApiSlice.util.updateQueryData(
+          "listMessages",
+          { cid: String(conversationId) },
+          (draft) => {
+            if (!draft?.items) return;
+            const idx = draft.items.findIndex(
+              (m) => String(m._id) === String(payload.messageId)
+            );
+            if (idx >= 0)
+              draft.items[idx].deletedAt = new Date().toISOString();
+          }
+        )
+      );
+    };
+    socket.on("chat:message:new", onNew);
+    socket.on("chat:message:deleted", onDeleted);
+    return () => {
+      try {
+        socket.emit("chat:unsubscribe", {
+          conversationId: String(conversationId),
+        });
+      } catch {}
+      socket.off("chat:message:new", onNew);
+      socket.off("chat:message:deleted", onDeleted);
+    };
+  }, [conversationId, dispatch, markRead]);
 
   // Scroll xuống cuối (newest) sau khi list update. Vì list trả về DESC,
   // ta reverse trước khi render.

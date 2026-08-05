@@ -16,6 +16,7 @@ import { A, WhitePill, imgSrc } from "./ui.jsx";
 import { setPkTheme, usePkTheme } from "./theme.js";
 import { logout as logoutAction } from "../../slices/authSlice.js";
 import { useLogoutMutation } from "../../slices/usersApiSlice.js";
+import NotificationBell from "./NotificationBell.jsx";
 
 const NAV_LINKS = [
   ["Giải đấu", "/pickle-ball/tournaments"],
@@ -23,7 +24,6 @@ const NAV_LINKS = [
   ["Bảng tin", "/feed"],
   ["Nhắn tin", "/messages"],
   ["Bạn bè", "/friends"],
-  ["Thông báo", "/notifications"],
   ["Trực tiếp", "/live"],
   ["Câu lạc bộ", "/clubs"],
   ["Liên hệ", "/contact"],
@@ -245,6 +245,7 @@ export default function SiteNav() {
         </nav>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <ThemeToggle />
+          {userInfo && <NotificationBell />}
           {userInfo ? (
             <UserMenu userInfo={userInfo} />
           ) : (
