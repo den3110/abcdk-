@@ -315,7 +315,12 @@ const App = () => {
     isLiveWatchPage ||
     isAstryxHomeRoute ||
     isOverlayStudioPage;
-  const hideMobileBottomNav = isAstryxHomeRoute;
+  // /messages page fullscreen trên mobile khi user đã chọn 1 conversation
+  // (?c=xxx) — hide site header + bottom nav để chat chiếm trọn viewport.
+  const isMessagesConvView =
+    location.pathname.startsWith("/messages") &&
+    /(?:^|[?&])c=[^&]+/.test(location.search || "");
+  const hideMobileBottomNav = isAstryxHomeRoute || isMessagesConvView;
   const shouldShowPikora =
     pikoraEnabled &&
     !isAuthPage &&
@@ -385,7 +390,17 @@ const App = () => {
       <CheckpointRealtimeGate />
       <SentryRuntimeSync />
       <NativeWebViewAuthBridge />
-      {!isFullScreenLayout && <Header />}
+      {!isFullScreenLayout && (
+        <Box
+          sx={
+            isMessagesConvView
+              ? { display: { xs: "none", md: "block" } }
+              : undefined
+          }
+        >
+          <Header />
+        </Box>
+      )}
       <ToastContainer theme={isDark ? "dark" : "light"} />
       {/* Floating chat launcher (Messenger-style). Ẩn trên trang /messages
           (đã có full page rồi) và các fullscreen layout auth/live. */}
@@ -405,7 +420,8 @@ const App = () => {
               },
               display: "flex",
               flexDirection: "column",
-              pb: { xs: 10, md: 0 },
+              // Không cần padding bottom cho MobileBottomNav khi ta đã hide nó
+              pb: isMessagesConvView ? 0 : { xs: 10, md: 0 },
             }}
           >
             <Box sx={{ flex: 1, minWidth: 0 }}>

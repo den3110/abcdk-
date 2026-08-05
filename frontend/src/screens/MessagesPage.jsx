@@ -628,9 +628,12 @@ export default function MessagesPage() {
     <Box
       sx={{
         display: "flex",
-        // fit viewport (trừ site header + margin), input chat luôn nằm trong vùng
-        // nhìn thấy không cần scroll trang
-        height: { xs: "calc(100dvh - 72px)", md: "calc(100dvh - 96px)" },
+        // Mobile: fullscreen 100dvh (App.jsx đã hide site Header + MobileBottomNav
+        // khi có ?c=xxx). Desktop: trừ site header + margin.
+        height: {
+          xs: cid ? "100dvh" : "calc(100dvh - 56px)",
+          md: "calc(100dvh - 96px)",
+        },
         maxWidth: 1280,
         width: "100%",
         mx: "auto",
