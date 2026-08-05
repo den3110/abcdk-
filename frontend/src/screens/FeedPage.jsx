@@ -159,8 +159,8 @@ function Composer({ me, onPosted }) {
   };
 
   return (
-    <Card sx={{ borderRadius: 3, mb: 2 }}>
-      <CardContent>
+    <Card sx={{ borderRadius: 3, mb: 2, overflow: "hidden", maxWidth: "100%" }}>
+      <CardContent sx={{ px: { xs: 1.5, sm: 2 }, overflow: "hidden" }}>
         <Stack direction="row" spacing={1.5} alignItems="flex-start">
           <Avatar src={me?.avatar || ""} sx={{ width: 44, height: 44 }}>
             {authorName(me)[0]?.toUpperCase()}
@@ -613,8 +613,8 @@ function PostCard({ post, me }) {
   };
 
   return (
-    <Card sx={{ borderRadius: 3, mb: 2 }}>
-      <CardContent>
+    <Card sx={{ borderRadius: 3, mb: 2, overflow: "hidden", maxWidth: "100%" }}>
+      <CardContent sx={{ px: { xs: 1.5, sm: 2 }, overflow: "hidden" }}>
         <Stack direction="row" spacing={1.5} alignItems="center">
           <Avatar
             src={post.author?.avatar || ""}
@@ -855,7 +855,16 @@ export default function FeedPage() {
   }
 
   return (
-    <Box sx={{ maxWidth: 1200, mx: "auto", px: { xs: 1, md: 2 }, py: 2 }}>
+    <Box
+      sx={{
+        maxWidth: 1200,
+        width: "100%",
+        mx: "auto",
+        px: { xs: 1, md: 2 },
+        py: 2,
+        overflowX: "hidden",
+      }}
+    >
       <SEOHead
         title="Bảng tin | Pickletour"
         description="Chia sẻ khoảnh khắc, video, thảo luận trong cộng đồng Pickleball."
@@ -864,13 +873,21 @@ export default function FeedPage() {
       <Box
         sx={{
           display: "grid",
-          gridTemplateColumns: { xs: "1fr", md: "minmax(0,1fr) 320px" },
+          gridTemplateColumns: { xs: "minmax(0,1fr)", md: "minmax(0,1fr) 320px" },
           gap: { xs: 0, md: 3 },
           alignItems: "start",
         }}
       >
         {/* Feed column */}
-        <Box sx={{ maxWidth: { xs: "100%", md: 680 }, width: "100%", mx: { xs: "auto", md: 0 }, ml: { md: "auto" } }}>
+        <Box
+          sx={{
+            maxWidth: { xs: "100%", md: 680 },
+            width: "100%",
+            minWidth: 0,
+            mx: { xs: "auto", md: 0 },
+            ml: { md: "auto" },
+          }}
+        >
           <Stack
             direction="row"
             alignItems="center"

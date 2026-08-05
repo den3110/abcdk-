@@ -78,7 +78,7 @@ export default function TournamentBubbleCard({
           <Trophy size={22} color="#F59E0B" />
         </Avatar>
       )}
-      <Box flex={1} minWidth={0}>
+      <Box flex={1} minWidth={0} sx={{ overflow: "hidden" }}>
         <Typography
           variant="caption"
           fontWeight={800}
@@ -108,12 +108,29 @@ export default function TournamentBubbleCard({
           {tour.name}
         </Typography>
         {tour.location && (
-          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.4 }}>
-            <MapPin size={12} color={isMine ? "#DBEAFE" : "#94A3B8"} />
+          <Stack
+            direction="row"
+            spacing={0.5}
+            alignItems="flex-start"
+            sx={{ mt: 0.4, minWidth: 0 }}
+          >
+            <MapPin
+              size={12}
+              color={isMine ? "#DBEAFE" : "#94A3B8"}
+              style={{ marginTop: 2, flexShrink: 0 }}
+            />
             <Typography
               variant="caption"
-              sx={{ color: subColor, fontSize: 11 }}
-              noWrap
+              sx={{
+                color: subColor,
+                fontSize: 11,
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden",
+                minWidth: 0,
+                wordBreak: "break-word",
+              }}
             >
               {tour.location}
             </Typography>
