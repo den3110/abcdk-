@@ -281,6 +281,7 @@ export default function FloatingChatWindow({
     setAttachments([]);
     setLinkedTournament(null);
     setSelectedMentions([]);
+    setTimeout(() => setText(""), 30);
     try {
       await sendMessage({
         cid: conversationId,
@@ -533,10 +534,10 @@ export default function FloatingChatWindow({
                     )
                   }
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      submit();
-                    }
+                    if (e.key !== "Enter" || e.shiftKey) return;
+                    if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
+                    e.preventDefault();
+                    submit();
                   }}
                   placeholder="Aa (Enter = gửi, Shift+Enter = xuống dòng)"
                   multiline

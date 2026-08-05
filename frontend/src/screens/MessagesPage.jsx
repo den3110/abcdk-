@@ -365,6 +365,8 @@ function ChatPanel({ conversationId, me, onBack }) {
     setAttachments([]);
     setLinkedTournament(null);
     setSelectedMentions([]);
+    // Fallback: nếu IME onChange async fire sau Enter → clear lại
+    setTimeout(() => setText(""), 30);
     try {
       await sendMessage({
         cid: conversationId,
@@ -580,10 +582,11 @@ function ChatPanel({ conversationId, me, onBack }) {
               )
             }
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
+              if (e.key !== "Enter" || e.shiftKey) return;
+              // IME safety: skip khi Vietnamese/CJK IME đang compose
+              if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
+              e.preventDefault();
+              submit();
             }}
             placeholder="Nhập tin nhắn… (Enter = gửi, Shift+Enter = xuống dòng, @ để nhắc)"
             multiline
