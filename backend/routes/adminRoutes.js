@@ -3,6 +3,7 @@ import express from "express";
 import {
   getUsers,
   updateUserRole,
+  updateUserCoach,
   deleteUser,
   reviewUserKyc,
   updateUserInfo,
@@ -465,6 +466,7 @@ router.post(
 router.get("/users", getUsersWithRank);
 router.post("/users", adminCreateUser);
 router.put("/users/:id/role", updateUserRole);
+router.put("/users/:id/coach", updateUserCoach);
 router.patch("/users/:id/super-admin", requireSuperAdmin, updateUserSuperAdmin);
 router.delete("/users/:id", deleteUser);
 router.put("/users/:id", updateUserInfo);

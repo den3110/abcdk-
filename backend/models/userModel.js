@@ -289,6 +289,14 @@ const userSchema = new mongoose.Schema(
       type: String,
       enum: ["user", "referee", "courtOwner", "admin"],
       default: "user",
+      index: true,
+    },
+    // ✅ Cờ huấn luyện viên — có thể co-exist với admin/referee/user (không phải role
+    // exclusive). Bật/tắt độc lập từ admin panel.
+    isCoach: {
+      type: Boolean,
+      default: false,
+      index: true,
     },
     // ✅ Super user – quyền cao nhất, thường dùng cho owner hệ thống
     isSuperUser: {
@@ -299,6 +307,16 @@ const userSchema = new mongoose.Schema(
     /* ------- Năng lực chấm trình ------- */
     evaluator: { type: EvaluatorSchema, default: () => ({}) },
     referee: { type: RefereeScopeSchema, default: () => ({ tournaments: [] }) },
+    /* ------- Huấn luyện viên ------- */
+    // Chỉ có ý nghĩa khi role === "coach". User bình thường bỏ qua khối này.
+    coachProfile: {
+      headline: { type: String, default: "", maxlength: 120 },
+      experienceYears: { type: Number, default: 0, min: 0, max: 100 },
+      specialties: { type: [String], default: [] },
+      hourlyRate: { type: Number, default: 0, min: 0 },
+      // Cho phép hiển thị công khai trong danh sách /coaches
+      isPublic: { type: Boolean, default: true },
+    },
     /* ------- Đăng ký: metadata nền tảng ------- */
     signupMeta: { type: SignupMetaSchema, default: () => ({}) },
 

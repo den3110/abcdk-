@@ -94,6 +94,7 @@ export default function Header() {
     () => [
       { label: t("header.nav.tournaments"), path: "/pickle-ball/tournaments" },
       { label: t("header.nav.rankings"), path: "/pickle-ball/rankings" },
+      { label: "Huấn luyện viên", path: "/coaches" },
       // Nhắn tin đã có bubble floating góc phải → không cần link nav.
       // Đặt sân đã ẩn khỏi nav (chuyển vào menu Thêm nếu cần).
       ...(userInfo ? [{ label: "Bảng tin", path: "/feed" }] : []),

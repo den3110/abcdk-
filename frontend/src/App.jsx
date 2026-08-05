@@ -293,6 +293,7 @@ const App = () => {
     "/",
     "/pickle-ball/tournaments",
     "/pickle-ball/rankings",
+    "/coaches",
     "/feed",
     "/messages",
     "/friends",

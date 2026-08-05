@@ -131,6 +131,57 @@ export const updateUserSuperAdmin = asyncHandler(async (req, res) => {
 });
 
 /**
+ * PUT /api/admin/users/:id/coach
+ * body: { isCoach: boolean, coachProfile?: { headline, experienceYears, specialties, hourlyRate, isPublic } }
+ * Bật/tắt cờ Huấn luyện viên (co-exist với role admin/referee/user).
+ * Private/Admin
+ */
+export const updateUserCoach = asyncHandler(async (req, res) => {
+  const { isCoach, coachProfile } = req.body || {};
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    res.status(404);
+    throw new Error("User không tồn tại");
+  }
+
+  if (typeof isCoach === "boolean") user.isCoach = isCoach;
+
+  if (coachProfile && typeof coachProfile === "object") {
+    user.coachProfile = user.coachProfile || {};
+    if (typeof coachProfile.headline === "string")
+      user.coachProfile.headline = coachProfile.headline.slice(0, 120);
+    if (Number.isFinite(Number(coachProfile.experienceYears)))
+      user.coachProfile.experienceYears = Math.max(
+        0,
+        Math.min(100, Number(coachProfile.experienceYears)),
+      );
+    if (Array.isArray(coachProfile.specialties))
+      user.coachProfile.specialties = coachProfile.specialties
+        .slice(0, 10)
+        .map((s) => String(s).slice(0, 60));
+    if (Number.isFinite(Number(coachProfile.hourlyRate)))
+      user.coachProfile.hourlyRate = Math.max(
+        0,
+        Number(coachProfile.hourlyRate),
+      );
+    if (typeof coachProfile.isPublic === "boolean")
+      user.coachProfile.isPublic = coachProfile.isPublic;
+  }
+
+  await user.save();
+  res.json({
+    message: user.isCoach
+      ? "Đã bật quyền huấn luyện viên"
+      : "Đã tắt quyền huấn luyện viên",
+    user: {
+      _id: user._id,
+      isCoach: Boolean(user.isCoach),
+      coachProfile: user.coachProfile || {},
+    },
+  });
+});
+
+/**
  * DELETE /api/admin/users/:id
  * Private/Admin
  */

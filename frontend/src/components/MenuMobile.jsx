@@ -35,6 +35,7 @@ import AdminPanelSettingsRoundedIcon from "@mui/icons-material/AdminPanelSetting
 import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
 import ChatRoundedIcon from "@mui/icons-material/ChatBubbleRounded";
 import PeopleRoundedIcon from "@mui/icons-material/PeopleRounded";
+import SportsTennisRoundedIcon from "@mui/icons-material/SportsTennisRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import { useDispatch } from "react-redux";
 
@@ -231,6 +232,7 @@ export default function MobileBottomNav() {
         },
         { label: "Nhắn tin", icon: <ChatRoundedIcon />, path: "/messages" },
         { label: "Bạn bè", icon: <PeopleRoundedIcon />, path: "/friends" },
+        { label: "Huấn luyện viên", icon: <SportsTennisRoundedIcon />, path: "/coaches" },
         { label: "Câu lạc bộ", icon: <GroupsRoundedIcon />, path: "/clubs" },
         { label: "Live", icon: <NewspaperRoundedIcon />, path: "/live" },
         { label: "Hỗ trợ", icon: <SupportAgentRoundedIcon />, path: "/support" }
