@@ -37,12 +37,25 @@ import MentionText from "../feed/MentionText.jsx";
 import MentionAutocomplete from "../feed/MentionAutocomplete.jsx";
 import TournamentPickerDialog from "../feed/TournamentPickerDialog.jsx";
 import TournamentBubbleCard from "../feed/TournamentBubbleCard.jsx";
+import {
+  shouldShowTimeSeparator,
+  fmtSeparator,
+  fmtBubbleTime,
+} from "./chatTime.js";
+import { Tooltip } from "@mui/material";
+import { Fragment } from "react";
 import { socket } from "../../lib/socket.js";
 
 const authorName = (u) => u?.nickname || u?.name || "Người dùng";
 
 function Bubble({ msg, isMine, onDelete, canDelete }) {
   return (
+    <Tooltip
+      title={fmtBubbleTime(msg.createdAt)}
+      placement={isMine ? "left" : "right"}
+      arrow
+      enterDelay={300}
+    >
     <Box
       sx={{
         display: "flex",
@@ -106,6 +119,7 @@ function Bubble({ msg, isMine, onDelete, canDelete }) {
         )}
       </Box>
     </Box>
+    </Tooltip>
   );
 }
 
@@ -371,17 +385,34 @@ export default function FloatingChatWindow({
                 <CircularProgress size={20} />
               </Box>
             )}
-            {items.map((m) => {
+            {items.map((m, idx) => {
               const isMine = String(m.sender?._id) === String(me?._id);
               const canDelete = isMine || me?.role === "admin";
+              const showTime = shouldShowTimeSeparator(m, items[idx - 1]);
               return (
-                <Bubble
-                  key={m._id}
-                  msg={m}
-                  isMine={isMine}
-                  onDelete={() => handleDelete(m._id)}
-                  canDelete={canDelete}
-                />
+                <Fragment key={m._id}>
+                  {showTime && (
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        display: "block",
+                        textAlign: "center",
+                        color: "text.secondary",
+                        my: 1,
+                        fontSize: 10,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {fmtSeparator(m.createdAt)}
+                    </Typography>
+                  )}
+                  <Bubble
+                    msg={m}
+                    isMine={isMine}
+                    onDelete={() => handleDelete(m._id)}
+                    canDelete={canDelete}
+                  />
+                </Fragment>
               );
             })}
             {!isFetching && items.length === 0 && (
