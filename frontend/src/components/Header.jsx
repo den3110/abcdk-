@@ -31,6 +31,7 @@ import { useLogoutMutation } from "../slices/usersApiSlice";
 import { useThemeMode } from "../context/ThemeContext.jsx";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { useCommandPalette } from "../context/CommandPaletteContext.jsx";
+import NotificationBellMui from "./NotificationBellMui.jsx";
 import LogoAnimationMorph from "./LogoAnimationMorph.jsx";
 import LanguageSwitcher from "./LanguageSwitcher.jsx";
 
@@ -93,10 +94,17 @@ export default function Header() {
     () => [
       { label: t("header.nav.tournaments"), path: "/pickle-ball/tournaments" },
       { label: t("header.nav.rankings"), path: "/pickle-ball/rankings" },
+      // Chỉ hiện với user đã đăng nhập (features cần auth)
+      ...(userInfo
+        ? [
+            { label: "Bảng tin", path: "/feed" },
+            { label: "Nhắn tin", path: "/messages" },
+          ]
+        : []),
       // Tạm thời chỉ hiện "Đặt sân" cho admin
       ...(isAdmin ? [{ label: "Đặt sân", path: "/courts" }] : []),
     ],
-    [t, isAdmin],
+    [t, isAdmin, userInfo],
   );
 
   const [canGoBack, setCanGoBack] = useState(false);
@@ -759,6 +767,8 @@ export default function Header() {
                     {isDark ? <LightModeIcon /> : <DarkModeIcon />}
                   </IconButton>
                 </Tooltip>
+
+                <NotificationBellMui />
 
                 <Tooltip title={t("header.actions.account")}>
                   <IconButton
