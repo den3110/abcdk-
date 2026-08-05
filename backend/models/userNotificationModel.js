@@ -42,15 +42,29 @@ const userNotificationSchema = new Schema(
     url: { type: String, default: "" },
     // Payload thêm (id post/comment/conversation/edge tuỳ context)
     data: { type: Schema.Types.Mixed, default: {} },
+    // Gộp notif cùng nguồn (VD nhiều tin nhắn cùng conversation) → hiển thị 1 dòng + badge
+    count: { type: Number, default: 1 },
     isRead: { type: Boolean, default: false, index: true },
     readAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
-// list newest-first + filter unread
-userNotificationSchema.index({ user: 1, _id: -1 });
-userNotificationSchema.index({ user: 1, isRead: 1, _id: -1 });
+// list newest-first + filter unread. Sort chính là createdAt để notif upsert
+// (chat gộp) bubble lên top khi có msg mới.
+userNotificationSchema.index({ user: 1, createdAt: -1, _id: -1 });
+userNotificationSchema.index({ user: 1, isRead: 1, createdAt: -1 });
+// Fast upsert lookup: unread notif cùng conversation của cùng user
+userNotificationSchema.index(
+  { user: 1, type: 1, "data.conversationId": 1, isRead: 1 },
+  {
+    partialFilterExpression: {
+      type: "CHAT_MESSAGE_NEW",
+      isRead: false,
+    },
+    name: "chat_unread_by_convo",
+  }
+);
 
 const UserNotification =
   mongoose.models.UserNotification ||

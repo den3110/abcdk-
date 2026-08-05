@@ -13,17 +13,7 @@ import {
   notificationCenterApiSlice,
 } from "../../slices/notificationCenterApiSlice.js";
 import { socket } from "../../lib/socket.js";
-
-// Backend gửi url style mobile (/messages/:cid). Web dùng /messages?c=:cid.
-function normalizeNotifUrl(url) {
-  if (!url) return "/notifications";
-  const s = String(url);
-  const chatMatch = s.match(/^\/messages\/([^/?#]+)(.*)?$/);
-  if (chatMatch) return `/messages?c=${chatMatch[1]}${chatMatch[2] || ""}`;
-  const postMatch = s.match(/^\/feed\/post\/([^/?#]+)(.*)?$/);
-  if (postMatch) return `/feed`;
-  return s;
-}
+import { normalizeNotifUrl } from "../../utils/notifUrl.js";
 
 const fmtTime = (iso) => {
   if (!iso) return "";
@@ -67,29 +57,33 @@ export default function NotificationBell() {
       } catch {}
     }
     const onNew = (payload) => {
-      // Optimistic: tăng count + prepend vào cache list nếu đã fetch
-      dispatch(
-        notificationCenterApiSlice.util.updateQueryData(
-          "notifUnreadCount",
-          undefined,
-          (draft) => {
-            if (draft) draft.count = (draft.count || 0) + 1;
-            else return { count: 1 };
-          }
-        )
-      );
+      // Backend gửi `isNewUnread=false` khi chỉ upsert notif đã unread sẵn
+      // (VD tin nhắn tiếp theo cùng cuộc hội thoại) — count tổng không tăng.
+      const isNewUnread = payload?.isNewUnread !== false;
+      if (isNewUnread) {
+        dispatch(
+          notificationCenterApiSlice.util.updateQueryData(
+            "notifUnreadCount",
+            undefined,
+            (draft) => {
+              if (draft) draft.count = (draft.count || 0) + 1;
+              else return { count: 1 };
+            }
+          )
+        );
+      }
       dispatch(
         notificationCenterApiSlice.util.updateQueryData(
           "listNotifs",
           { limit: 8 },
           (draft) => {
             if (!draft?.items) return;
-            if (
-              !draft.items.find((i) => String(i._id) === String(payload?._id))
-            ) {
-              draft.items.unshift(payload);
-              draft.items = draft.items.slice(0, 8);
-            }
+            const idx = draft.items.findIndex(
+              (i) => String(i._id) === String(payload?._id)
+            );
+            if (idx >= 0) draft.items.splice(idx, 1);
+            draft.items.unshift(payload);
+            draft.items = draft.items.slice(0, 8);
           }
         )
       );
@@ -320,9 +314,30 @@ export default function NotificationBell() {
                         fontWeight: n.isRead ? 500 : 700,
                         color: "light-dark(#26282B, #E6E8EA)",
                         lineHeight: 1.35,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
                       }}
                     >
-                      {n.title || "Thông báo"}
+                      <span style={{ minWidth: 0 }}>
+                        {n.title || "Thông báo"}
+                      </span>
+                      {n.count > 1 && (
+                        <span
+                          style={{
+                            padding: "1px 6px",
+                            borderRadius: 999,
+                            background: "#1877F2",
+                            color: "#fff",
+                            fontSize: 10,
+                            fontWeight: 800,
+                            lineHeight: 1.5,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {n.count > 99 ? "99+" : n.count}
+                        </span>
+                      )}
                     </div>
                     {n.body && (
                       <div

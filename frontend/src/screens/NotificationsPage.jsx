@@ -20,6 +20,7 @@ import {
   useMarkAllNotifReadMutation,
   useMarkNotifReadMutation,
 } from "../slices/notificationCenterApiSlice.js";
+import { normalizeNotifUrl } from "../utils/notifUrl.js";
 
 const fmt = (iso) => {
   if (!iso) return "";
@@ -138,10 +139,33 @@ export default function NotificationsPage() {
                 <Typography
                   variant="body2"
                   fontWeight={n.isRead ? 500 : 800}
-                  sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                  sx={{ display: "flex", alignItems: "center", gap: 0.75 }}
                 >
-                  {n.actor ? `${authorName(n.actor)} · ` : ""}
-                  {n.title}
+                  {(() => {
+                    const actorLabel = n.actor ? authorName(n.actor) : "";
+                    const title = n.title || "";
+                    // Bỏ prefix "actor · " nếu title đã trùng tên actor (VD chat: title = tên actor)
+                    if (actorLabel && title && title === actorLabel) return title;
+                    if (actorLabel && title) return `${actorLabel} · ${title}`;
+                    return actorLabel || title || "Thông báo";
+                  })()}
+                  {n.count > 1 && (
+                    <Box
+                      component="span"
+                      sx={{
+                        px: 0.75,
+                        py: 0.1,
+                        borderRadius: 999,
+                        bgcolor: "primary.main",
+                        color: "primary.contrastText",
+                        fontSize: 11,
+                        fontWeight: 800,
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      {n.count > 99 ? "99+" : n.count}
+                    </Box>
+                  )}
                   {!n.isRead && (
                     <Box
                       sx={{

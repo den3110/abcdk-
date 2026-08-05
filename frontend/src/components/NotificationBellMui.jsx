@@ -27,18 +27,7 @@ import {
   notificationCenterApiSlice,
 } from "../slices/notificationCenterApiSlice.js";
 import { socket } from "../lib/socket.js";
-
-// Backend gửi url style mobile (VD /messages/:cid). Web dùng /messages?c=:cid.
-// Cũng handle /feed/post/:id (mobile) → /feed (web, tạm — chưa có detail page).
-function normalizeNotifUrl(url) {
-  if (!url) return "/notifications";
-  const s = String(url);
-  const chatMatch = s.match(/^\/messages\/([^/?#]+)(.*)?$/);
-  if (chatMatch) return `/messages?c=${chatMatch[1]}${chatMatch[2] || ""}`;
-  const postMatch = s.match(/^\/feed\/post\/([^/?#]+)(.*)?$/);
-  if (postMatch) return `/feed`; // TODO: /feed/:postId khi web có post detail
-  return s;
-}
+import { normalizeNotifUrl } from "../utils/notifUrl.js";
 
 const fmtTime = (iso) => {
   if (!iso) return "";
@@ -79,28 +68,33 @@ export default function NotificationBellMui() {
       } catch {}
     }
     const onNew = (payload) => {
-      dispatch(
-        notificationCenterApiSlice.util.updateQueryData(
-          "notifUnreadCount",
-          undefined,
-          (draft) => {
-            if (draft) draft.count = (draft.count || 0) + 1;
-            else return { count: 1 };
-          }
-        )
-      );
+      // Backend gửi `isNewUnread=false` khi chỉ upsert notif đang unread sẵn
+      // (VD tin nhắn tiếp theo cùng cuộc hội thoại) — count tổng KHÔNG tăng.
+      const isNewUnread = payload?.isNewUnread !== false;
+      if (isNewUnread) {
+        dispatch(
+          notificationCenterApiSlice.util.updateQueryData(
+            "notifUnreadCount",
+            undefined,
+            (draft) => {
+              if (draft) draft.count = (draft.count || 0) + 1;
+              else return { count: 1 };
+            }
+          )
+        );
+      }
       dispatch(
         notificationCenterApiSlice.util.updateQueryData(
           "listNotifs",
           { limit: 8 },
           (draft) => {
             if (!draft?.items) return;
-            if (
-              !draft.items.find((i) => String(i._id) === String(payload?._id))
-            ) {
-              draft.items.unshift(payload);
-              draft.items = draft.items.slice(0, 8);
-            }
+            const idx = draft.items.findIndex(
+              (i) => String(i._id) === String(payload?._id)
+            );
+            if (idx >= 0) draft.items.splice(idx, 1); // remove old position
+            draft.items.unshift(payload);
+            draft.items = draft.items.slice(0, 8);
           }
         )
       );
@@ -258,9 +252,34 @@ export default function NotificationBellMui() {
                   <Typography
                     variant="body2"
                     fontWeight={n.isRead ? 500 : 700}
-                    sx={{ lineHeight: 1.35 }}
+                    sx={{
+                      lineHeight: 1.35,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 0.75,
+                    }}
                   >
-                    {n.title || "Thông báo"}
+                    <Box component="span" sx={{ minWidth: 0, flex: "0 1 auto" }}>
+                      {n.title || "Thông báo"}
+                    </Box>
+                    {n.count > 1 && (
+                      <Box
+                        component="span"
+                        sx={{
+                          px: 0.75,
+                          py: 0.05,
+                          borderRadius: 999,
+                          bgcolor: "primary.main",
+                          color: "primary.contrastText",
+                          fontSize: 10,
+                          fontWeight: 800,
+                          lineHeight: 1.5,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {n.count > 99 ? "99+" : n.count}
+                      </Box>
+                    )}
                   </Typography>
                   {n.body && (
                     <Typography

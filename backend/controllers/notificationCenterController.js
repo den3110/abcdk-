@@ -16,19 +16,31 @@ export const listNotifications = asyncHandler(async (req, res) => {
 
   const q = { user: viewer._id };
   if (unreadOnly) q.isRead = false;
-  if (cursor?.payload?.lastId && mongoose.isValidObjectId(cursor.payload.lastId)) {
-    q._id = { $lt: new mongoose.Types.ObjectId(cursor.payload.lastId) };
+  // Cursor dùng cặp (createdAt, _id) để tie-break khi cùng thời điểm
+  if (cursor?.payload?.lastAt && cursor?.payload?.lastId) {
+    q.$or = [
+      { createdAt: { $lt: new Date(cursor.payload.lastAt) } },
+      {
+        createdAt: new Date(cursor.payload.lastAt),
+        _id: { $lt: new mongoose.Types.ObjectId(cursor.payload.lastId) },
+      },
+    ];
   }
 
+  // Sort theo createdAt để notif upsert (chat gộp) bubble lên top khi có msg mới.
   const docs = await UserNotification.find(q)
-    .sort({ _id: -1 })
+    .sort({ createdAt: -1, _id: -1 })
     .limit(limit + 1)
     .populate("actor", ACTOR_FIELDS);
 
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit);
-  const nextCursor = hasMore
-    ? encodeCursor({ lastId: String(docs[limit - 1]._id) })
+  const lastDoc = items[items.length - 1];
+  const nextCursor = hasMore && lastDoc
+    ? encodeCursor({
+        lastAt: lastDoc.createdAt.toISOString(),
+        lastId: String(lastDoc._id),
+      })
     : null;
   res.json({ items, nextCursor, hasMore });
 });

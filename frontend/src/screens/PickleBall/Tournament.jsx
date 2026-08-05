@@ -117,7 +117,7 @@ const StatusBadge = styled(Box)(({ theme, status }) => {
 const StatBox = styled(Box)(({ theme }) => ({
   padding: theme.spacing(2),
   borderRadius: 16,
-  minWidth: 160,
+  minWidth: 0,
   flex: 1,
   backgroundColor: theme.palette.background.paper,
   border: `1px solid ${theme.palette.divider}`,
@@ -125,6 +125,9 @@ const StatBox = styled(Box)(({ theme }) => ({
   flexDirection: "column",
   gap: 4,
   boxShadow: theme.shadows[1],
+  [theme.breakpoints.up("md")]: {
+    minWidth: 160,
+  },
 }));
 
 const TABS = ["upcoming", "ongoing", "finished"];
@@ -844,10 +847,10 @@ export default function TournamentDashboard() {
 
           <Stack
             direction="row"
-            spacing={2}
+            spacing={{ xs: 1, md: 2 }}
             sx={{
               width: { xs: "100%", md: "auto" },
-              overflowX: "auto",
+              overflowX: { xs: "visible", md: "auto" },
               pb: 1,
               // Hide scrollbar
               "&::-webkit-scrollbar": { display: "none" },

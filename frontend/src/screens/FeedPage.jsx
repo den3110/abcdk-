@@ -366,20 +366,26 @@ function ReactionBar({ post, onReact }) {
 function CommentThread({ postId, me, canModerate }) {
   const [reply, setReply] = useState("");
   const [replyTarget, setReplyTarget] = useState(null); // top-level comment id
+  const submittingRef = useRef(false);
   const { data, isFetching } = useListFeedCommentsQuery({ postId });
   const [createComment] = useCreateFeedCommentMutation();
   const [deleteComment] = useDeleteFeedCommentMutation();
   const [reportComment] = useReportFeedCommentMutation();
 
   const submit = async (parent = null) => {
-    const content = parent ? reply : reply;
+    if (submittingRef.current) return;
+    const content = reply;
     if (!content?.trim()) return;
+    submittingRef.current = true;
     try {
       await createComment({ postId, content: content.trim(), parent }).unwrap();
       setReply("");
+      setTimeout(() => setReply(""), 30);
       setReplyTarget(null);
     } catch (err) {
       toast.error(err?.data?.message || "Không gửi được");
+    } finally {
+      submittingRef.current = false;
     }
   };
 
