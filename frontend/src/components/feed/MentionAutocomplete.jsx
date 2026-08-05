@@ -16,6 +16,7 @@ export default function MentionAutocomplete({
   value,
   onChange,
   onPickMention,
+  onKeyDown,
   placeholder,
   multiline = true,
   minRows = 2,
@@ -89,6 +90,7 @@ export default function MentionAutocomplete({
         inputRef={inputRef}
         value={value}
         onChange={handleChange}
+        onKeyDown={onKeyDown}
         placeholder={placeholder}
         multiline={multiline}
         minRows={multiline ? minRows : undefined}

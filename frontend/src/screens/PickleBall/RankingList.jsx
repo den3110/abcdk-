@@ -92,6 +92,8 @@ import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext";
 import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext";
 import { formatDate } from "../../i18n/format";
+import FriendActionButton from "../../components/social/FriendActionButton";
+import MessageActionButton from "../../components/social/MessageActionButton";
 
 /* ================= LAZY LOADING AVATAR COMPONENT ================= */
 const ChampionCrown = memo(({ size = 26 }) => (
@@ -3141,6 +3143,8 @@ export default function RankingList() {
                         >
                           {t("rankings.actions.profile")}
                         </Button>
+                        <MessageActionButton userId={u?._id} size="small" />
+                        <FriendActionButton userId={u?._id} size="small" />
                         {canGrade && (
                           <Button
                             size="small"

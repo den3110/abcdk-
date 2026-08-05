@@ -94,17 +94,11 @@ export default function Header() {
     () => [
       { label: t("header.nav.tournaments"), path: "/pickle-ball/tournaments" },
       { label: t("header.nav.rankings"), path: "/pickle-ball/rankings" },
-      // Chỉ hiện với user đã đăng nhập (features cần auth)
-      ...(userInfo
-        ? [
-            { label: "Bảng tin", path: "/feed" },
-            { label: "Nhắn tin", path: "/messages" },
-          ]
-        : []),
-      // Tạm thời chỉ hiện "Đặt sân" cho admin
-      ...(isAdmin ? [{ label: "Đặt sân", path: "/courts" }] : []),
+      // Nhắn tin đã có bubble floating góc phải → không cần link nav.
+      // Đặt sân đã ẩn khỏi nav (chuyển vào menu Thêm nếu cần).
+      ...(userInfo ? [{ label: "Bảng tin", path: "/feed" }] : []),
     ],
-    [t, isAdmin, userInfo],
+    [t, userInfo],
   );
 
   const [canGoBack, setCanGoBack] = useState(false);

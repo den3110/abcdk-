@@ -566,7 +566,13 @@ function ChatPanel({ conversationId, me, onBack }) {
                     ]
               )
             }
-            placeholder="Nhập tin nhắn… (gõ @ để nhắc)"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder="Nhập tin nhắn… (Enter = gửi, Shift+Enter = xuống dòng, @ để nhắc)"
             multiline
             minRows={1}
             maxRows={5}

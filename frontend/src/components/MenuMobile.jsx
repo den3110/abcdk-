@@ -1,374 +1,395 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Badge,
-  Box,
-  Stack,
-  Typography,
-  alpha,
-  useMediaQuery,
-  useTheme,
-} from "@mui/material";
+// Mobile bottom nav — style Facebook-like giống bản mobile app.
+// 6 tab: Trang chủ / Bảng tin / Giải đấu / Xếp hạng / Thông báo / Khác
+// - Flat edge-to-edge, không floating pill
+// - Per-tab accent colors, active pill sau icon, badge unread cho Thông báo
+// - "Khác" mở bottom sheet chứa các link phụ (my-tournaments, clubs, support,
+//   profile, admin, ...)
+import { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
-import HomeIcon from "@mui/icons-material/HomeRounded";
-import EmojiEventsIcon from "@mui/icons-material/EmojiEventsRounded";
-import AssessmentIcon from "@mui/icons-material/AssessmentRounded";
-import PersonIcon from "@mui/icons-material/PersonRounded";
-import EventAvailableIcon from "@mui/icons-material/EventAvailableRounded";
-import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettingsRounded";
-import GroupsIcon from "@mui/icons-material/GroupsRounded";
-import NewspaperIcon from "@mui/icons-material/NewspaperRounded";
-import SupportAgentIcon from "@mui/icons-material/SupportAgentRounded";
+import {
+  Avatar,
+  Badge,
+  Box,
+  Divider,
+  Drawer,
+  IconButton,
+  List,
+  ListItemButton,
+  ListItemIcon,
+  ListItemText,
+  Stack,
+  Typography,
+} from "@mui/material";
+import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
+import EmojiEventsRoundedIcon from "@mui/icons-material/EmojiEventsRounded";
+import NewspaperRoundedIcon from "@mui/icons-material/NewspaperRounded";
+import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
+import NotificationsRoundedIcon from "@mui/icons-material/NotificationsRounded";
+import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
+import PersonRoundedIcon from "@mui/icons-material/PersonRounded";
+import EventAvailableRoundedIcon from "@mui/icons-material/EventAvailableRounded";
+import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
+import SupportAgentRoundedIcon from "@mui/icons-material/SupportAgentRounded";
+import AdminPanelSettingsRoundedIcon from "@mui/icons-material/AdminPanelSettingsRounded";
+import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
+import ChatRoundedIcon from "@mui/icons-material/ChatBubbleRounded";
+import PeopleRoundedIcon from "@mui/icons-material/PeopleRounded";
+import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
+import { useDispatch } from "react-redux";
 
-import { useLanguage } from "../context/LanguageContext.jsx";
+import { useNotifUnreadCountQuery } from "../slices/notificationCenterApiSlice.js";
+import { useLogoutMutation } from "../slices/usersApiSlice.js";
+import { logout as logoutAction } from "../slices/authSlice.js";
 
-const CLUB_BADGE_START = new Date(2025, 9, 5, 0, 0, 0, 0);
-const CLUB_BADGE_END = new Date(2025, 10, 5, 23, 59, 59, 999);
-
-const getEffectiveBackgroundColor = (element) => {
-  if (!element) return [255, 255, 255];
-  const style = window.getComputedStyle(element);
-  const color = style.backgroundColor;
-  const rgb = color.match(/\d+/g);
-
-  if (!rgb || (rgb.length === 4 && parseInt(rgb[3], 10) === 0)) {
-    return element.parentElement
-      ? getEffectiveBackgroundColor(element.parentElement)
-      : [255, 255, 255];
-  }
-
-  return [parseInt(rgb[0], 10), parseInt(rgb[1], 10), parseInt(rgb[2], 10)];
+// Per-tab accent colors — palette đồng bộ với mobile FacebookTabBar
+const ACCENT = {
+  home: "#1877F2", // blue
+  feed: "#8B5CF6", // purple
+  tournaments: "#F59E0B", // gold
+  rankings: "#10B981", // emerald
+  notifications: "#EF4444", // red
+  more: "#64748B", // slate
 };
 
-const isColorDark = (rgb) => {
-  const brightness = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
-  return brightness < 128;
-};
+const GRADIENT = "linear-gradient(90deg,#1877F2,#8B5CF6,#F59E0B,#10B981,#EF4444)";
 
-const normalizeRole = (role) =>
-  String(role || "")
-    .trim()
-    .toLowerCase();
-
-const isAdminUser = (user) => {
-  if (!user) return false;
-
+const normalizeRole = (r) => String(r || "").trim().toLowerCase();
+const isAdminUser = (u) => {
+  if (!u) return false;
   const roles = new Set(
-    Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : [],
+    Array.isArray(u?.roles) ? u.roles.map(normalizeRole) : []
   );
-
-  if (user?.role) roles.add(normalizeRole(user.role));
-  if (user?.isAdmin) roles.add("admin");
-
+  if (u?.role) roles.add(normalizeRole(u.role));
+  if (u?.isAdmin) roles.add("admin");
   return roles.has("admin");
 };
 
-export default function MobileBottomNav() {
-  const theme = useTheme();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const navRef = useRef(null);
-  const { t } = useLanguage();
-
-  const [isDarkOverlay, setIsDarkOverlay] = useState(false);
-
-  const detectBackground = useCallback(() => {
-    if (!navRef.current) return;
-
-    const rect = navRef.current.getBoundingClientRect();
-    const centerY = rect.top + rect.height / 2;
-    const samplePoints = [0.1, 0.3, 0.5, 0.7, 0.9].map(
-      (ratio) => window.innerWidth * ratio,
-    );
-
-    let darkCount = 0;
-    samplePoints.forEach((x) => {
-      const elements = document.elementsFromPoint(x, centerY);
-      const target = elements.find(
-        (element) => !navRef.current.contains(element),
-      );
-      if (!target) return;
-      if (isColorDark(getEffectiveBackgroundColor(target))) {
-        darkCount += 1;
-      }
-    });
-
-    setIsDarkOverlay(darkCount / samplePoints.length > 0.5);
-  }, []);
-
-  useEffect(() => {
-    let ticking = false;
-
-    const onScroll = () => {
-      if (ticking) return;
-      window.requestAnimationFrame(() => {
-        detectBackground();
-        ticking = false;
-      });
-      ticking = true;
-    };
-
-    window.addEventListener("scroll", onScroll);
-    window.addEventListener("resize", onScroll);
-
-    let debounceTimer;
-    const observer = new MutationObserver(() => {
-      clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        detectBackground();
-      }, 200);
-    });
-
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-    });
-
-    detectBackground();
-
-    const retryTimers = [
-      setTimeout(detectBackground, 300),
-      setTimeout(detectBackground, 800),
-    ];
-
-    return () => {
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-      observer.disconnect();
-      clearTimeout(debounceTimer);
-      retryTimers.forEach(clearTimeout);
-    };
-  }, [detectBackground]);
-
-  const user = useSelector(
-    (state) => state.auth?.userInfo || state.userLogin?.userInfo || null,
-  );
-  const isAdmin = isAdminUser(user);
-  const isSmallScreen = useMediaQuery("(max-width:380px)");
-
-  const showClubNewBadge = useMemo(() => {
-    const now = new Date();
-    return now >= CLUB_BADGE_START && now <= CLUB_BADGE_END;
-  }, []);
-
-  const items = useMemo(() => {
-    const base = [
-      { label: t("mobileNav.home"), icon: <HomeIcon />, path: "/" },
-      {
-        label: t("mobileNav.tournaments"),
-        icon: <EmojiEventsIcon />,
-        path: "/pickle-ball/tournaments",
-      },
-      {
-        label: t("mobileNav.news"),
-        icon: <NewspaperIcon />,
-        path: "/news",
-      },
-      {
-        label: t("mobileNav.rankings"),
-        icon: <AssessmentIcon />,
-        path: "/pickle-ball/rankings",
-      },
-      {
-        label: t("mobileNav.mine"),
-        icon: <EventAvailableIcon />,
-        path: "/my-tournaments",
-      },
-      {
-        label: t("mobileNav.profile"),
-        icon: <PersonIcon />,
-        path: "/profile",
-      },
-    ];
-
-    if (user) {
-      const clubIcon = showClubNewBadge ? (
-        <Badge
-          color="error"
-          variant="dot"
-          sx={{
-            "& .MuiBadge-badge": {
-              top: 2,
-              right: 2,
-              border: `2px solid ${theme.palette.background.paper}`,
-            },
-          }}
-        >
-          <GroupsIcon />
-        </Badge>
-      ) : (
-        <GroupsIcon />
-      );
-
-      base.splice(base.length - 1, 0, {
-        label: t("mobileNav.clubs"),
-        icon: clubIcon,
-        path: "/clubs",
-      });
-      base.splice(base.length - 1, 0, {
-        label: "Hỗ trợ",
-        icon: <SupportAgentIcon />,
-        path: "/support",
-      });
-    }
-
-    if (isAdmin) {
-      base.splice(base.length - 1, 0, {
-        label: t("mobileNav.admin"),
-        icon: <AdminPanelSettingsIcon />,
-        path: "/admin",
-      });
-    }
-
-    return base;
-  }, [isAdmin, showClubNewBadge, t, theme, user]);
-
-  const activeIndex = useMemo(() => {
-    let bestIndex = 0;
-    let bestLength = -1;
-
-    items.forEach((item, index) => {
-      if (item.path === "/" && location.pathname === "/") {
-        bestIndex = index;
-        bestLength = item.path.length;
-        return;
-      }
-
-      if (
-        item.path !== "/" &&
-        (location.pathname === item.path ||
-          location.pathname.startsWith(`${item.path}/`))
-      ) {
-        if (item.path.length > bestLength) {
-          bestIndex = index;
-          bestLength = item.path.length;
-        }
-      }
-    });
-
-    return bestIndex;
-  }, [items, location.pathname]);
-
-  const glassBackground = isDarkOverlay
-    ? "rgba(35, 35, 35, 0.2)"
-    : "rgba(255, 255, 255, 0.2)";
-  const glassBorder = isDarkOverlay
-    ? "rgba(255, 255, 255, 0.15)"
-    : "rgba(255, 255, 255, 0.4)";
-  const inactiveColor = isDarkOverlay
-    ? "rgba(255, 255, 255, 0.6)"
-    : theme.palette.text.secondary;
-  const activePillBg = isDarkOverlay
-    ? "rgba(255, 255, 255, 0.2)"
-    : alpha(theme.palette.primary.main, 0.15);
-  const activeIconColor = isDarkOverlay
-    ? "#90caf9"
-    : theme.palette.primary.main;
+function TabItem({ tab, active, onPress, badge }) {
+  const accent = ACCENT[tab.key];
+  const iconColor = active ? accent : "#8A8F98";
 
   return (
     <Box
-      ref={navRef}
+      onClick={onPress}
       sx={{
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        zIndex: 1199,
-        display: { xs: "flex", md: "none" },
+        flex: 1,
+        minWidth: 0,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
         justifyContent: "center",
-        pointerEvents: "none",
+        cursor: "pointer",
+        py: 0.5,
+        px: 0.25,
+        WebkitTapHighlightColor: "transparent",
       }}
     >
-      <Stack
-        direction="row"
+      <Box
         sx={{
-          pointerEvents: "auto",
-          width: "calc(100% - 32px)",
-          maxWidth: 550,
-          margin: "0 auto",
-          mb: `calc(12px + env(safe-area-inset-bottom))`,
-          height: 64,
-          borderRadius: 9999,
-          background: glassBackground,
-          backdropFilter: "blur(20px) saturate(180%)",
-          WebkitBackdropFilter: "blur(20px) saturate(180%)",
-          border: `1px solid ${glassBorder}`,
-          boxShadow: isDarkOverlay
-            ? "0 20px 40px rgba(0,0,0,0.6)"
-            : "0 10px 30px rgba(0,0,0,0.15)",
-          alignItems: "center",
-          justifyContent: "space-around",
-          padding: "0 8px",
-          transition:
-            "background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease",
+          position: "relative",
+          width: 48,
+          height: 32,
+          display: "grid",
+          placeItems: "center",
         }}
       >
-        {items.map((item, index) => {
-          const active = index === activeIndex;
-
-          return (
-            <Box
-              key={item.path}
-              onClick={() => {
-                window.scrollTo({ top: 0, behavior: "smooth" });
-                if (!active) navigate(item.path);
-              }}
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: 16,
+            bgcolor: active ? `${accent}22` : "transparent",
+            transform: active ? "scale(1)" : "scale(0.9)",
+            opacity: active ? 1 : 0,
+            transition: "all .2s cubic-bezier(.2,.8,.2,1.2)",
+          }}
+        />
+        <Box
+          sx={{
+            position: "relative",
+            display: "grid",
+            placeItems: "center",
+            transform: active ? "scale(1)" : "scale(0.94)",
+            transition: "transform .2s cubic-bezier(.2,.8,.2,1.2)",
+            color: iconColor,
+            "& svg": { fontSize: 24 },
+          }}
+        >
+          {badge != null && badge > 0 ? (
+            <Badge
+              badgeContent={badge > 99 ? "99+" : badge}
+              color="error"
+              overlap="circular"
               sx={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                flex: 1,
-                cursor: "pointer",
-                minWidth: 0,
-                transition: "all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1.2)",
-                transform: active ? "scale(1.05)" : "scale(1)",
-                color: active ? activeIconColor : inactiveColor,
-                opacity: isSmallScreen && !active ? 0.7 : 1,
-                "&:active": { transform: "scale(0.95)" },
-                WebkitTapHighlightColor: "transparent",
+                "& .MuiBadge-badge": {
+                  fontSize: 9,
+                  minWidth: 16,
+                  height: 16,
+                  fontWeight: 800,
+                  border: "2px solid",
+                  borderColor: "background.paper",
+                },
               }}
             >
-              <Box
-                sx={{
-                  padding: "6px 16px",
-                  borderRadius: 9999,
-                  marginBottom: "2px",
-                  transition: "background-color 0.3s ease",
-                  backgroundColor: active ? activePillBg : "transparent",
-                  "& svg": {
-                    fontSize: "1.5rem",
-                    display: "block",
-                    filter: active
-                      ? `drop-shadow(0 2px 4px ${alpha(activeIconColor, 0.4)})`
-                      : "none",
-                  },
-                }}
-              >
-                {item.icon}
-              </Box>
-
-              <Typography
-                variant="caption"
-                sx={{
-                  fontSize: "0.6rem",
-                  fontWeight: active ? 700 : 500,
-                  letterSpacing: "0.4px",
-                  transition: "all 0.2s",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  maxWidth: "100%",
-                  display: items.length > 5 && !active ? "none" : "block",
-                }}
-              >
-                {item.label}
-              </Typography>
-            </Box>
-          );
-        })}
-      </Stack>
+              {tab.icon}
+            </Badge>
+          ) : (
+            tab.icon
+          )}
+        </Box>
+      </Box>
+      <Typography
+        sx={{
+          fontSize: 10,
+          fontWeight: active ? 800 : 600,
+          color: active ? accent : "#8A8F98",
+          mt: 0.5,
+          letterSpacing: 0.2,
+          maxWidth: "100%",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {tab.label}
+      </Typography>
     </Box>
+  );
+}
+
+export default function MobileBottomNav() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
+  const user = useSelector((s) => s.auth?.userInfo);
+  const isAdmin = isAdminUser(user);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [logoutApi] = useLogoutMutation();
+
+  const { data: unread } = useNotifUnreadCountQuery(undefined, {
+    skip: !user,
+    pollingInterval: 60000,
+  });
+  const unreadCount = Number(unread?.count || 0);
+
+  const tabs = useMemo(
+    () => [
+      { key: "home", label: "Trang chủ", icon: <HomeRoundedIcon />, path: "/" },
+      { key: "feed", label: "Bảng tin", icon: <NewspaperRoundedIcon />, path: "/feed" },
+      {
+        key: "tournaments",
+        label: "Giải đấu",
+        icon: <EmojiEventsRoundedIcon />,
+        path: "/pickle-ball/tournaments",
+      },
+      {
+        key: "rankings",
+        label: "Xếp hạng",
+        icon: <AssessmentRoundedIcon />,
+        path: "/pickle-ball/rankings",
+      },
+      {
+        key: "notifications",
+        label: "Thông báo",
+        icon: <NotificationsRoundedIcon />,
+        path: "/notifications",
+      },
+      { key: "more", label: "Khác", icon: <MoreHorizRoundedIcon />, path: null },
+    ],
+    []
+  );
+
+  const activeKey = useMemo(() => {
+    const p = location.pathname;
+    if (p === "/") return "home";
+    if (p.startsWith("/feed")) return "feed";
+    if (p.startsWith("/pickle-ball/tournaments")) return "tournaments";
+    if (p.startsWith("/pickle-ball/rankings")) return "rankings";
+    if (p.startsWith("/notifications")) return "notifications";
+    return null;
+  }, [location.pathname]);
+
+  const handleTab = (tab) => {
+    if (tab.key === "more") {
+      setMoreOpen(true);
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    if (location.pathname !== tab.path) navigate(tab.path);
+  };
+
+  const moreItems = useMemo(() => {
+    const base = [];
+    if (user) {
+      base.push(
+        { label: "Hồ sơ", icon: <PersonRoundedIcon />, path: "/profile" },
+        {
+          label: "Giải của tôi",
+          icon: <EventAvailableRoundedIcon />,
+          path: "/my-tournaments",
+        },
+        { label: "Nhắn tin", icon: <ChatRoundedIcon />, path: "/messages" },
+        { label: "Bạn bè", icon: <PeopleRoundedIcon />, path: "/friends" },
+        { label: "Câu lạc bộ", icon: <GroupsRoundedIcon />, path: "/clubs" },
+        { label: "Live", icon: <NewspaperRoundedIcon />, path: "/live" },
+        { label: "Hỗ trợ", icon: <SupportAgentRoundedIcon />, path: "/support" }
+      );
+    }
+    if (isAdmin) {
+      base.push({
+        label: "Quản trị",
+        icon: <AdminPanelSettingsRoundedIcon />,
+        path: "/admin",
+      });
+    }
+    return base;
+  }, [user, isAdmin]);
+
+  const handleLogout = async () => {
+    setMoreOpen(false);
+    try {
+      await logoutApi().unwrap();
+    } catch {}
+    dispatch(logoutAction());
+    navigate("/login");
+  };
+
+  return (
+    <>
+      <Box
+        sx={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1199,
+          display: { xs: "block", md: "none" },
+          bgcolor: "background.paper",
+          borderTop: "1px solid",
+          borderColor: "divider",
+          boxShadow: "0 -3px 12px rgba(0,0,0,0.08)",
+          pb: "env(safe-area-inset-bottom)",
+        }}
+      >
+        {/* Gradient top accent strip */}
+        <Box sx={{ height: 2, background: GRADIENT }} />
+        <Stack
+          direction="row"
+          sx={{
+            pt: 0.5,
+            px: 0,
+            alignItems: "center",
+          }}
+        >
+          {tabs.map((tab) => (
+            <TabItem
+              key={tab.key}
+              tab={tab}
+              active={activeKey === tab.key}
+              onPress={() => handleTab(tab)}
+              badge={tab.key === "notifications" ? unreadCount : undefined}
+            />
+          ))}
+        </Stack>
+      </Box>
+
+      {/* Bottom sheet "Khác" */}
+      <Drawer
+        anchor="bottom"
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        PaperProps={{
+          sx: {
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
+            maxHeight: "80vh",
+          },
+        }}
+      >
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+          sx={{
+            px: 2,
+            py: 1.5,
+            borderBottom: 1,
+            borderColor: "divider",
+          }}
+        >
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            {user && (
+              <Avatar src={user?.avatar || ""} sx={{ width: 40, height: 40 }}>
+                {(user?.nickname || user?.name || "?")[0]?.toUpperCase()}
+              </Avatar>
+            )}
+            <Box>
+              <Typography variant="subtitle1" fontWeight={800}>
+                {user?.nickname || user?.name || "Khách"}
+              </Typography>
+              {user?.email && (
+                <Typography variant="caption" color="text.secondary">
+                  {user.email}
+                </Typography>
+              )}
+            </Box>
+          </Stack>
+          <IconButton onClick={() => setMoreOpen(false)} size="small">
+            <CloseRoundedIcon />
+          </IconButton>
+        </Stack>
+        <List sx={{ py: 0 }}>
+          {moreItems.map((it) => (
+            <ListItemButton
+              key={it.path}
+              onClick={() => {
+                setMoreOpen(false);
+                navigate(it.path);
+              }}
+              sx={{ py: 1.25 }}
+            >
+              <ListItemIcon sx={{ minWidth: 40, color: "text.primary" }}>
+                {it.icon}
+              </ListItemIcon>
+              <ListItemText primary={it.label} />
+            </ListItemButton>
+          ))}
+          {user && (
+            <>
+              <Divider sx={{ my: 0.5 }} />
+              <ListItemButton onClick={handleLogout} sx={{ py: 1.25 }}>
+                <ListItemIcon sx={{ minWidth: 40, color: "error.main" }}>
+                  <LogoutRoundedIcon />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Đăng xuất"
+                  primaryTypographyProps={{ color: "error.main", fontWeight: 600 }}
+                />
+              </ListItemButton>
+            </>
+          )}
+          {!user && (
+            <ListItemButton
+              onClick={() => {
+                setMoreOpen(false);
+                navigate("/login");
+              }}
+              sx={{ py: 1.25 }}
+            >
+              <ListItemText
+                primary="Đăng nhập"
+                primaryTypographyProps={{
+                  color: "primary.main",
+                  fontWeight: 700,
+                  textAlign: "center",
+                }}
+              />
+            </ListItemButton>
+          )}
+        </List>
+        <Box sx={{ pb: "env(safe-area-inset-bottom)" }} />
+      </Drawer>
+    </>
   );
 }

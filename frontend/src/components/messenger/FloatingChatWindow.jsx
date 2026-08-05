@@ -521,7 +521,13 @@ export default function FloatingChatWindow({
                           ]
                     )
                   }
-                  placeholder="Aa"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      submit();
+                    }
+                  }}
+                  placeholder="Aa (Enter = gửi, Shift+Enter = xuống dòng)"
                   multiline
                   minRows={1}
                   maxRows={4}
