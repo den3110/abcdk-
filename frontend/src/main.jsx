@@ -202,6 +202,8 @@ const router = sentryCreateBrowserRouter(
           element={<ResetPasswordScreen />}
         />
         <Route path="/user/:id" element={<PublicProfilePage />} />
+        {/* Alias — mobile app + notification URL dùng /profile/:id */}
+        <Route path="/profile/:id" element={<PublicProfilePage />} />
         <Route path="" element={<PrivateRoute />}>
           <Route path="/tournament/:id/draw" element={<DrawPage />} />
           <Route

@@ -50,6 +50,7 @@ import {
   useGetPublicProfileQuery,
   useGetRatingHistoryQuery,
   useGetMatchHistoryQuery,
+  useGetUserAchievementsQuery,
 } from "../slices/usersApiSlice";
 import { ZoomableWrapper } from "../components/Zoom";
 import SEOHead from "../components/SEOHead";
@@ -411,6 +412,7 @@ export default function PublicProfilePage() {
   const ratePerPage = 10;
   const needsMatches = tab === 1;
   const needsRatings = tab === 2;
+  const needsAchievements = tab === 3;
 
   useEffect(() => {
     setTab(0);
@@ -425,6 +427,9 @@ export default function PublicProfilePage() {
   );
   const matchQ = useGetMatchHistoryQuery(
     needsMatches ? { id, page: pageMatch, limit: matchPerPage } : skipToken,
+  );
+  const achQ = useGetUserAchievementsQuery(
+    needsAchievements ? { id } : skipToken,
   );
 
   const base = useMemo(() => baseQ.data || {}, [baseQ.data]);
@@ -1067,6 +1072,281 @@ export default function PublicProfilePage() {
     </Stack>
   );
 
+  const achSummary = achQ.data?.summary || {};
+  const achTournaments = Array.isArray(achQ.data?.perTournament)
+    ? achQ.data.perTournament
+    : [];
+  const achBrackets = Array.isArray(achQ.data?.perBracket)
+    ? achQ.data.perBracket
+    : [];
+
+  const AchStatCard = ({ label, value, icon, color = "primary.main" }) => (
+    <Card
+      variant="outlined"
+      sx={{
+        borderRadius: 3,
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        p: 2,
+        bgcolor: alpha(
+          typeof color === "string" && color.includes(".")
+            ? theme.palette[color.split(".")[0]]?.[color.split(".")[1]] ||
+                theme.palette.primary.main
+            : color,
+          0.06,
+        ),
+      }}
+    >
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <Box sx={{ color, display: "flex" }}>{icon}</Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="h5" fontWeight={800} sx={{ lineHeight: 1.2 }}>
+            {value ?? 0}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {label}
+          </Typography>
+        </Box>
+      </Stack>
+    </Card>
+  );
+
+  const AchievementsTab = (
+    <Stack spacing={2}>
+      {achQ.isLoading ? (
+        <Stack spacing={1.5}>
+          <Skeleton variant="rounded" height={100} />
+          <Skeleton variant="rounded" height={220} />
+        </Stack>
+      ) : achQ.error ? (
+        <Alert severity="error" sx={{ borderRadius: 3 }}>
+          {achQ.error?.data?.message || "Không tải được thành tích"}
+        </Alert>
+      ) : (
+        <>
+          {/* Summary grid */}
+          <Grid container spacing={1.5}>
+            <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <AchStatCard
+                label="Vô địch"
+                value={achSummary.titles}
+                icon={<EmojiEventsIcon sx={{ fontSize: 28 }} />}
+                color="warning.main"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <AchStatCard
+                label="Chung kết"
+                value={achSummary.finals}
+                icon={<EmojiEventsIcon sx={{ fontSize: 28 }} />}
+                color="info.main"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <AchStatCard
+                label="Podium (Top 3)"
+                value={achSummary.podiums}
+                icon={<EmojiEventsIcon sx={{ fontSize: 28 }} />}
+                color="success.main"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <AchStatCard
+                label="Chuỗi thắng dài nhất"
+                value={achSummary.longestWinStreak}
+                icon={<TrendingUpIcon sx={{ fontSize: 28 }} />}
+                color="primary.main"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <AchStatCard
+                label="Chuỗi thắng hiện tại"
+                value={achSummary.currentStreak}
+                icon={<TrendingUpIcon sx={{ fontSize: 28 }} />}
+                color="secondary.main"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <AchStatCard
+                label="Tổng trận"
+                value={achSummary.totalPlayed}
+                icon={<SportsTennisIcon sx={{ fontSize: 28 }} />}
+                color="text.primary"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <AchStatCard
+                label="Thắng"
+                value={achSummary.wins}
+                icon={<SportsTennisIcon sx={{ fontSize: 28 }} />}
+                color="success.main"
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 4, md: 3 }}>
+              <AchStatCard
+                label="Tỷ lệ thắng"
+                value={
+                  achSummary.winRate != null
+                    ? `${Math.round(Number(achSummary.winRate) * 100)}%`
+                    : "0%"
+                }
+                icon={<TrendingUpIcon sx={{ fontSize: 28 }} />}
+                color="info.main"
+              />
+            </Grid>
+          </Grid>
+
+          {achSummary.careerBestLabel && (
+            <Card
+              variant="outlined"
+              sx={{
+                borderRadius: 3,
+                p: 2,
+                bgcolor: alpha(theme.palette.warning.main, 0.08),
+                borderColor: alpha(theme.palette.warning.main, 0.3),
+              }}
+            >
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <EmojiEventsIcon
+                  sx={{ fontSize: 32, color: "warning.main" }}
+                />
+                <Box>
+                  <Typography variant="caption" color="text.secondary">
+                    Thành tích cao nhất sự nghiệp
+                  </Typography>
+                  <Typography variant="h6" fontWeight={800}>
+                    {achSummary.careerBestLabel}
+                  </Typography>
+                </Box>
+              </Stack>
+            </Card>
+          )}
+
+          {/* Per-tournament */}
+          {achTournaments.length > 0 && (
+            <Card variant="outlined" sx={{ borderRadius: 3 }}>
+              <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>
+                  Giải đấu nổi bật
+                </Typography>
+                <Stack spacing={1}>
+                  {achTournaments.map((tr, idx) => (
+                    <Paper
+                      key={`${tr.tournamentId || idx}`}
+                      variant="outlined"
+                      sx={{
+                        p: 1.5,
+                        borderRadius: 2,
+                        display: "flex",
+                        flexDirection: { xs: "column", sm: "row" },
+                        gap: 1,
+                        alignItems: { sm: "center" },
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography
+                          variant="body2"
+                          fontWeight={700}
+                          sx={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {tr.tournamentName || "Giải đấu"}
+                        </Typography>
+                        {tr.bracketName && (
+                          <Typography variant="caption" color="text.secondary">
+                            {tr.bracketName}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Stack
+                        direction="row"
+                        spacing={0.5}
+                        flexWrap="wrap"
+                        useFlexGap
+                      >
+                        {tr.careerBestLabel && (
+                          <Chip
+                            size="small"
+                            color="warning"
+                            icon={<EmojiEventsIcon />}
+                            label={tr.careerBestLabel}
+                          />
+                        )}
+                        {tr.stats?.played != null && (
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={`${tr.stats.wins ?? 0}T · ${
+                              tr.stats.losses ?? 0
+                            }B / ${tr.stats.played} trận`}
+                          />
+                        )}
+                      </Stack>
+                    </Paper>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Per-bracket (nếu không có perTournament) */}
+          {achTournaments.length === 0 && achBrackets.length > 0 && (
+            <Card variant="outlined" sx={{ borderRadius: 3 }}>
+              <CardContent sx={{ p: { xs: 2, sm: 3 } }}>
+                <Typography variant="h6" fontWeight={700} sx={{ mb: 1.5 }}>
+                  Kết quả theo bracket
+                </Typography>
+                <Stack spacing={1}>
+                  {achBrackets.slice(0, 20).map((br, idx) => (
+                    <Paper
+                      key={`${br.bracketId || idx}`}
+                      variant="outlined"
+                      sx={{
+                        p: 1.5,
+                        borderRadius: 2,
+                        display: "flex",
+                        flexDirection: { xs: "column", sm: "row" },
+                        gap: 1,
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography variant="body2" fontWeight={600}>
+                          {br.tournamentName || "Giải"} · {br.bracketName || "Bracket"}
+                        </Typography>
+                      </Box>
+                      {br.stats?.played != null && (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={`${br.stats.wins ?? 0}T · ${
+                            br.stats.losses ?? 0
+                          }B`}
+                        />
+                      )}
+                    </Paper>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          )}
+
+          {achTournaments.length === 0 && achBrackets.length === 0 && (
+            <Alert severity="info" sx={{ borderRadius: 3 }}>
+              Chưa có thành tích giải đấu nào.
+            </Alert>
+          )}
+        </>
+      )}
+    </Stack>
+  );
+
   if (baseQ.isLoading)
     return (
       <Container sx={{ pt: 4 }}>
@@ -1210,6 +1490,7 @@ export default function PublicProfilePage() {
                 label={t("publicProfile.tabs.ratings")}
                 iconPosition="start"
               />
+              <Tab label="Thành tích" iconPosition="start" />
             </Tabs>
           </Stack>
 
@@ -1453,6 +1734,7 @@ export default function PublicProfilePage() {
 
             {tab === 1 && MatchHistoryTab}
             {tab === 2 && RatingHistoryTab}
+            {tab === 3 && AchievementsTab}
           </Box>
         </Box>
       </Container>

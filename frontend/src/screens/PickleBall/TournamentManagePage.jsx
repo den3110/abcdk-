@@ -113,6 +113,7 @@ import ManageRefereesDialog from "../../components/RefereeManagerDialog";
 import TournamentManagersDialog from "../../components/TournamentManagersDialog";
 import LiveSetupDialog from "../../components/LiveSetupDialog";
 import TournamentCourtLiveMonitorDialog from "../../components/TournamentCourtLiveMonitorDialog";
+import TournamentCourtLiveMonitorWatcher from "../../components/TournamentCourtLiveMonitorWatcher";
 import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 import TeamTournamentManageView from "../../components/teamTournament/TeamTournamentManageView";
 import SEOHead from "../../components/SEOHead";
@@ -5460,6 +5461,11 @@ export default function TournamentManagePage() {
         canOverride={isAdmin}
         onUpdated={handleCourtClustersUpdated}
       />
+
+      {/* Watcher chạy nền: poll monitor + toast khi máy live crash — không
+          cần user mở dialog "Quản lý live sân". Toast state chia sẻ toastId
+          với dialog để tránh double-fire. */}
+      {id && <TournamentCourtLiveMonitorWatcher tournamentId={id} />}
 
       <TournamentCourtLiveMonitorDialog
         open={courtLiveMonitorOpen}

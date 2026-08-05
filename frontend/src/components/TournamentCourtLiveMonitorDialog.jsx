@@ -26,9 +26,9 @@ import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import WifiOffIcon from "@mui/icons-material/WifiOff";
-import { toast } from "react-toastify";
 import { useSocket } from "../context/SocketContext";
 import { useSocketRoomSet } from "../hook/useSocketRoomSet";
+import { useCourtLiveCrashToasts } from "../hook/useCourtLiveCrashToasts";
 import { useGetTournamentCourtLiveMonitorQuery } from "../slices/courtClustersAdminApiSlice";
 
 const REFRESH_DEBOUNCE_MS = 250;
@@ -242,7 +242,6 @@ export default function TournamentCourtLiveMonitorDialog({
   tournamentId,
 }) {
   const socket = useSocket();
-  const toastStateRef = useRef(new Map());
   const refreshTimerRef = useRef(null);
 
   const {
@@ -332,28 +331,15 @@ export default function TournamentCourtLiveMonitorDialog({
     };
   }, []);
 
-  useEffect(() => {
-    if (!open) {
-      toastStateRef.current = new Map();
-      return;
-    }
-
-    const nextState = new Map();
-    stations.forEach((station) => {
-      const stationId = sid(station?._id);
-      if (!stationId) return;
-      const lostSignal = Boolean(station?.monitor?.lostSignal);
-      nextState.set(stationId, lostSignal);
-      if (lostSignal && toastStateRef.current.get(stationId) !== true) {
-        toast.error(
-          station?.monitor?.message ||
-            "Máy live mất tín hiệu, có dấu hiệu crash. Hãy kiểm tra thiết bị và mở lại live.",
-          { toastId: `court-live-lost-${stationId}` },
-        );
-      }
-    });
-    toastStateRef.current = nextState;
-  }, [open, stations]);
+  // Toast crash được emit ở TournamentCourtLiveMonitorWatcher (mount ở page
+  // TournamentManagePage) để chạy nền ngay cả khi dialog chưa mở. Dialog chỉ
+  // fallback khi dùng độc lập ngoài trang manage (VD admin panel khác) —
+  // dùng chung `toastIdPrefix` với watcher để không double-fire.
+  useCourtLiveCrashToasts({
+    stations: open ? stations : [],
+    enabled: open,
+    toastIdPrefix: "court-live-lost",
+  });
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg" keepMounted>
