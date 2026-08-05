@@ -3,6 +3,16 @@
 > **Dành cho:** đội nhận bàn giao (đọc bởi người + Claude/AI agent để tự setup).
 > **Ngày lập:** 2026-08-03. Lập tự động từ khảo sát code, có ghi chú những chỗ cần xác nhận lại với người bàn giao.
 >
+> ⚠️ **QUAN TRỌNG:** file này là bản gốc từ 2026-08-03. Trạng thái mới nhất
+> (session 2026-08-04 và 2026-08-05) — deploy status, keystore Android, iOS
+> TestFlight, tính năng mới (Bảng tin/Nhắn tin/Bạn bè/Thông báo), fix nginx
+> `/api` prefix, Messenger bubble, notification bell — nằm ở **`HANDOFF.md`**.
+> Đọc HANDOFF.md **TRƯỚC** để nắm state hiện tại, xong quay lại HANDOVER.md
+> để hiểu kiến trúc + credentials gốc.
+>
+> ⚠️ **VPS SSH password**: file này ghi `Hoang@0726` — ĐÚNG. HANDOFF cũ có chỗ
+> ghi `Hoang@072026` là SAI.
+>
 > **Sản phẩm:** PickleTour (`https://pickletour.vn`) — nền tảng giải đấu pickleball cho thị trường Việt Nam: quản lý giải, bốc thăm, sơ đồ nhánh, chấm trận trọng tài realtime, điểm trình/BXH, CLB, đặt sân, livestream + ghi hình, tin tức AI, chatbot Pikora, app mobile.
 >
 > ⚠️ Tên repo là `mern-auth` và `readme.md` gốc là README của starter cũ — **bỏ qua**, không phản ánh dự án thật.
