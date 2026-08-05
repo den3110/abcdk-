@@ -58,6 +58,7 @@ import MentionText from "../components/feed/MentionText.jsx";
 import ScoreBadges from "../components/feed/ScoreBadges.jsx";
 import MentionAutocomplete from "../components/feed/MentionAutocomplete.jsx";
 import TournamentPickerDialog from "../components/feed/TournamentPickerDialog.jsx";
+import FriendSuggestionsCard from "../components/feed/FriendSuggestionsCard.jsx";
 
 /* ─────────── constants ─────────── */
 const REACTION_EMOJI = {
@@ -886,60 +887,90 @@ export default function FeedPage() {
   }
 
   return (
-    <Box sx={{ maxWidth: 680, mx: "auto", p: 2 }}>
+    <Box sx={{ maxWidth: 1200, mx: "auto", px: { xs: 1, md: 2 }, py: 2 }}>
       <SEOHead
         title="Bảng tin | Pickletour"
         description="Chia sẻ khoảnh khắc, video, thảo luận trong cộng đồng Pickleball."
       />
-      <Typography variant="h5" fontWeight={800} sx={{ mb: 2 }}>
-        Bảng tin
-      </Typography>
 
-      <Composer me={me} onPosted={handleRefresh} />
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: { xs: "1fr", md: "minmax(0,1fr) 320px" },
+          gap: { xs: 0, md: 3 },
+          alignItems: "start",
+        }}
+      >
+        {/* Feed column */}
+        <Box sx={{ maxWidth: { xs: "100%", md: 680 }, width: "100%", mx: { xs: "auto", md: 0 }, ml: { md: "auto" } }}>
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+            sx={{ mb: 2 }}
+          >
+            <Typography variant="h5" fontWeight={800}>
+              Bảng tin
+            </Typography>
+            <Select
+              size="small"
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              displayEmpty
+              sx={{ minWidth: 140 }}
+            >
+              <MenuItem value="">Tất cả hashtag</MenuItem>
+              <MenuItem value="pickleball">#pickleball</MenuItem>
+              <MenuItem value="highlight">#highlight</MenuItem>
+              <MenuItem value="training">#training</MenuItem>
+            </Select>
+          </Stack>
 
-      <Stack direction="row" spacing={1} sx={{ mb: 2 }} alignItems="center">
-        <Typography variant="body2" color="text.secondary">
-          Lọc theo hashtag:
-        </Typography>
-        <Select
-          size="small"
-          value={tagFilter}
-          onChange={(e) => setTagFilter(e.target.value)}
-          displayEmpty
+          <Composer me={me} onPosted={handleRefresh} />
+
+          {isFetching && !data && (
+            <Box textAlign="center" py={4}>
+              <CircularProgress />
+            </Box>
+          )}
+          {data?.items?.length === 0 && (
+            <Box textAlign="center" py={4} color="text.secondary">
+              Chưa có bài viết. Hãy là người đầu tiên chia sẻ 👋
+            </Box>
+          )}
+          {(data?.items || []).map((p) => (
+            <PostCard key={p._id} post={p} me={me} />
+          ))}
+          {isFetching && cursor && (
+            <Box textAlign="center" py={2}>
+              <CircularProgress size={24} />
+            </Box>
+          )}
+          {!hasMore && (data?.items?.length || 0) > 0 && (
+            <Typography
+              sx={{
+                textAlign: "center",
+                color: "text.secondary",
+                py: 2,
+                fontSize: 12,
+              }}
+            >
+              — Đã xem hết bài viết —
+            </Typography>
+          )}
+          <Box ref={sentinelRef} sx={{ height: 1 }} />
+        </Box>
+
+        {/* Right sidebar — chỉ hiện trên desktop */}
+        <Box
+          sx={{
+            display: { xs: "none", md: "block" },
+            width: "100%",
+          }}
         >
-          <MenuItem value="">Tất cả</MenuItem>
-          <MenuItem value="pickleball">#pickleball</MenuItem>
-          <MenuItem value="highlight">#highlight</MenuItem>
-          <MenuItem value="training">#training</MenuItem>
-        </Select>
-      </Stack>
-
-      {isFetching && !data && (
-        <Box textAlign="center" py={4}>
-          <CircularProgress />
+          <FriendSuggestionsCard />
         </Box>
-      )}
-      {data?.items?.length === 0 && (
-        <Box textAlign="center" py={4} color="text.secondary">
-          Chưa có bài viết. Hãy là người đầu tiên chia sẻ 👋
-        </Box>
-      )}
-      {(data?.items || []).map((p) => (
-        <PostCard key={p._id} post={p} me={me} />
-      ))}
-      {isFetching && cursor && (
-        <Box textAlign="center" py={2}>
-          <CircularProgress size={24} />
-        </Box>
-      )}
-      {!hasMore && (data?.items?.length || 0) > 0 && (
-        <Typography
-          sx={{ textAlign: "center", color: "text.secondary", py: 2, fontSize: 12 }}
-        >
-          — Đã xem hết bài viết —
-        </Typography>
-      )}
-      <Box ref={sentinelRef} sx={{ height: 1 }} />
+      </Box>
     </Box>
   );
 }

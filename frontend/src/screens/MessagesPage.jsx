@@ -1,5 +1,5 @@
 // screens/MessagesPage.jsx — Nhắn tin (web) 2 pane: sidebar conversations + main chat.
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   Avatar,
   Badge,
@@ -12,7 +12,14 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { Send, Trash2, Trophy, X as XIcon, ChevronRight } from "lucide-react";
+import {
+  Send,
+  Trash2,
+  Trophy,
+  X as XIcon,
+  ChevronRight,
+  ChevronLeft,
+} from "lucide-react";
 import { useSelector } from "react-redux";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -222,7 +229,7 @@ function MessageBubble({ msg, isMine, onDelete, canDelete }) {
   );
 }
 
-function ChatPanel({ conversationId, me }) {
+function ChatPanel({ conversationId, me, onBack }) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState([]);
   const [linkedTournament, setLinkedTournament] = useState(null);
@@ -336,18 +343,45 @@ function ChatPanel({ conversationId, me }) {
       ? `BTC · ${conv.tournament?.name || "Giải đấu"}`
       : authorName(other);
 
+  // Auto-scroll xuống cuối khi có tin nhắn mới hoặc mở conversation
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [items.length, conversationId]);
+
   return (
-    <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-      <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider" }}>
-        <Typography variant="h6" fontWeight={700}>
+    <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <Stack
+        direction="row"
+        spacing={1}
+        alignItems="center"
+        sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider" }}
+      >
+        {onBack && (
+          <IconButton
+            onClick={onBack}
+            size="small"
+            sx={{ display: { xs: "inline-flex", md: "none" } }}
+          >
+            <ChevronLeft size={20} />
+          </IconButton>
+        )}
+        {other && (
+          <Avatar src={other.avatar || ""} sx={{ width: 36, height: 36 }}>
+            {authorName(other)[0]?.toUpperCase()}
+          </Avatar>
+        )}
+        <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }} noWrap>
           {title}
         </Typography>
-      </Box>
+      </Stack>
       <Box
         ref={scrollRef}
         sx={{
           flex: 1,
           overflowY: "auto",
+          minHeight: 0,
           px: 2,
           py: 1.5,
           bgcolor: "background.default",
@@ -528,14 +562,18 @@ export default function MessagesPage() {
     <Box
       sx={{
         display: "flex",
-        height: "calc(100vh - 80px)",
+        // fit viewport (trừ site header + margin), input chat luôn nằm trong vùng
+        // nhìn thấy không cần scroll trang
+        height: { xs: "calc(100dvh - 72px)", md: "calc(100dvh - 96px)" },
         maxWidth: 1280,
+        width: "100%",
         mx: "auto",
-        border: 1,
+        my: { xs: 0, md: 2 },
+        border: { xs: 0, md: 1 },
         borderColor: "divider",
-        borderRadius: 2,
+        borderRadius: { xs: 0, md: 2 },
         overflow: "hidden",
-        mt: 2,
+        bgcolor: "background.paper",
       }}
     >
       <SEOHead
@@ -544,11 +582,16 @@ export default function MessagesPage() {
       />
       <Box
         sx={{
-          width: 320,
-          borderRight: 1,
+          width: { xs: "100%", md: 320 },
+          borderRight: { xs: 0, md: 1 },
           borderColor: "divider",
-          display: "flex",
+          // Ẩn sidebar trên mobile khi đã chọn conversation, ưu tiên chat panel
+          display: {
+            xs: cid ? "none" : "flex",
+            md: "flex",
+          },
           flexDirection: "column",
+          flexShrink: 0,
         }}
       >
         <Box sx={{ px: 2, py: 1.5, borderBottom: 1, borderColor: "divider" }}>
@@ -559,16 +602,15 @@ export default function MessagesPage() {
         <Box sx={{ flex: 1, overflowY: "auto" }}>
           {isFetching && <CircularProgress size={20} sx={{ m: 2 }} />}
           {(data?.items || []).map((c) => (
-            <>
+            <React.Fragment key={c._id}>
               <ConversationRow
-                key={c._id}
                 conv={c}
                 me={me}
                 active={String(c._id) === String(cid)}
                 onSelect={() => setSearchParams({ c: String(c._id) })}
               />
               <Divider />
-            </>
+            </React.Fragment>
           ))}
           {(data?.items || []).length === 0 && !isFetching && (
             <Box sx={{ p: 3, color: "text.secondary" }}>
@@ -579,7 +621,39 @@ export default function MessagesPage() {
           )}
         </Box>
       </Box>
-      <ChatPanel conversationId={cid} me={me} />
+      {/* Chat panel — trên mobile chỉ hiện khi đã chọn conversation */}
+      <Box
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          display: {
+            xs: cid ? "flex" : "none",
+            md: "flex",
+          },
+          flexDirection: "column",
+        }}
+      >
+        {cid ? (
+          <ChatPanel conversationId={cid} me={me} onBack={() => setSearchParams({})} />
+        ) : (
+          <Box
+            sx={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexDirection: "column",
+              color: "text.secondary",
+              gap: 1,
+            }}
+          >
+            <Typography variant="h6">Chọn một cuộc trò chuyện</Typography>
+            <Typography variant="body2">
+              Chọn hội thoại bên trái hoặc bắt đầu chat từ profile của người khác.
+            </Typography>
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 }

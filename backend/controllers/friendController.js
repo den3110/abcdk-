@@ -3,6 +3,7 @@ import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import Friendship from "../models/friendshipModel.js";
 import User from "../models/userModel.js";
+import Ranking from "../models/rankingModel.js";
 import { encodeCursor, decodeCursor } from "../utils/cursor.js";
 import { getIO } from "../socket/index.js";
 import { sendToUserIds } from "../services/notifications/expoPush.js";
@@ -341,4 +342,92 @@ export const getCounts = asyncHandler(async (req, res) => {
     }),
   ]);
   res.json({ friends, incoming, outgoing });
+});
+
+/**
+ * GET /api/friends/suggestions?limit=10
+ * Gợi ý kết bạn: ưu tiên cùng tỉnh + điểm trình gần (single/double ±0.5),
+ * loại bỏ chính user + user đã có edge (pending/accepted/blocked).
+ */
+export const listSuggestions = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 10, 1), 30);
+
+  // Lấy province + score của viewer
+  const [me, myRanking] = await Promise.all([
+    User.findById(viewer._id).select("_id province").lean(),
+    Ranking.findOne({ user: viewer._id }).select("single double").lean(),
+  ]);
+  const myProvince = String(me?.province || "").trim();
+  const myS = Number(myRanking?.single || 0);
+  const myD = Number(myRanking?.double || 0);
+
+  // ID đã có edge với viewer
+  const edges = await Friendship.find({
+    $or: [{ requester: viewer._id }, { addressee: viewer._id }],
+  })
+    .select("requester addressee")
+    .lean();
+  const excludeIds = new Set([String(viewer._id)]);
+  for (const e of edges) {
+    excludeIds.add(String(e.requester));
+    excludeIds.add(String(e.addressee));
+  }
+
+  // Query 1: same province, active user, exclude edges
+  const sameProvinceQuery = {
+    _id: { $nin: Array.from(excludeIds).map((id) => new mongoose.Types.ObjectId(id)) },
+    isDeleted: { $ne: true },
+    isBanned: { $ne: true },
+  };
+  if (myProvince) sameProvinceQuery.province = myProvince;
+
+  const sameProvince = await User.find(sameProvinceQuery)
+    .select("_id name nickname avatar province")
+    .limit(limit * 3)
+    .lean();
+
+  // Nếu chưa đủ, fetch thêm không giới hạn tỉnh
+  let others = [];
+  if (sameProvince.length < limit) {
+    others = await User.find({
+      _id: {
+        $nin: [
+          ...Array.from(excludeIds).map((id) => new mongoose.Types.ObjectId(id)),
+          ...sameProvince.map((u) => u._id),
+        ],
+      },
+      isDeleted: { $ne: true },
+      isBanned: { $ne: true },
+    })
+      .select("_id name nickname avatar province")
+      .limit(limit * 2)
+      .lean();
+  }
+
+  const candidateIds = [...sameProvince, ...others].map((u) => u._id);
+  const rankings = await Ranking.find({ user: { $in: candidateIds } })
+    .select("user single double")
+    .lean();
+  const scoreMap = new Map(
+    rankings.map((r) => [String(r.user), { single: Number(r.single) || 0, double: Number(r.double) || 0 }])
+  );
+
+  // Chấm điểm gợi ý: cùng tỉnh +50, khoảng cách skill (single+double) càng nhỏ càng tốt
+  const scored = [...sameProvince, ...others].map((u) => {
+    const score = scoreMap.get(String(u._id)) || { single: 0, double: 0 };
+    let s = 0;
+    if (myProvince && u.province === myProvince) s += 50;
+    if (myS > 0 && score.single > 0) {
+      s += Math.max(0, 20 - Math.abs(myS - score.single) * 10);
+    }
+    if (myD > 0 && score.double > 0) {
+      s += Math.max(0, 20 - Math.abs(myD - score.double) * 10);
+    }
+    return { user: { ...u, score }, sortKey: s };
+  });
+
+  scored.sort((a, b) => b.sortKey - a.sortKey);
+  const items = scored.slice(0, limit).map((x) => x.user);
+  res.json({ items });
 });

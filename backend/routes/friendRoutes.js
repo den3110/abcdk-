@@ -10,6 +10,7 @@ import {
   listRequests,
   getStatus,
   getCounts,
+  listSuggestions,
 } from "../controllers/friendController.js";
 
 const router = express.Router();
@@ -18,6 +19,7 @@ router.use(protect);
 router.get("/", listFriends);
 router.get("/requests", listRequests);
 router.get("/counts", getCounts);
+router.get("/suggestions", listSuggestions);
 router.get("/status/:userId", getStatus);
 router.post("/request", sendRequest);
 router.post("/:id/accept", acceptRequest);

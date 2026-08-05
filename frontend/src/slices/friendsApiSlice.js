@@ -21,6 +21,13 @@ export const friendsApiSlice = apiSlice.injectEndpoints({
       query: () => ({ url: `/api/friends/counts`, method: "GET" }),
       providesTags: [{ type: "FriendCounts", id: "ME" }],
     }),
+    friendSuggestions: builder.query({
+      query: ({ limit = 10 } = {}) => ({
+        url: `/api/friends/suggestions?limit=${limit}`,
+        method: "GET",
+      }),
+      providesTags: [{ type: "Friend", id: "SUGGESTIONS" }],
+    }),
     friendStatus: builder.query({
       query: (userId) => ({
         url: `/api/friends/status/${userId}`,
@@ -85,6 +92,7 @@ export const {
   useListFriendsQuery,
   useListFriendRequestsQuery,
   useFriendCountsQuery,
+  useFriendSuggestionsQuery,
   useFriendStatusQuery,
   useSendFriendRequestMutation,
   useAcceptFriendMutation,
