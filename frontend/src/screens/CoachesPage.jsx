@@ -36,6 +36,31 @@ import { useOpenDmMutation } from "../slices/messagesApiSlice.js";
 
 const authorName = (u) => u?.nickname || u?.name || "Huấn luyện viên";
 
+// tierColor từ Ranking model được lưu dưới dạng CSS named color ("blue" /
+// "yellow" / "red" / "grey") — alpha() của MUI không parse được named color,
+// phải map sang hex trước khi gọi alpha().
+const TIER_HEX = {
+  blue: "#3B82F6",
+  yellow: "#F59E0B",
+  orange: "#F97316",
+  red: "#EF4444",
+  green: "#22C55E",
+  grey: "#94A3B8",
+  gray: "#94A3B8",
+  purple: "#A855F7",
+  cyan: "#06B6D4",
+  black: "#0F172A",
+  white: "#F8FAFC",
+};
+const HEX_RE = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
+const safeColor = (c, fallback) => {
+  if (!c) return fallback;
+  const s = String(c).trim();
+  if (HEX_RE.test(s)) return s;
+  if (s.startsWith("rgb") || s.startsWith("hsl")) return s;
+  return TIER_HEX[s.toLowerCase()] || fallback;
+};
+
 function ScoreChip({ label, value, color }) {
   return (
     <Box
@@ -166,22 +191,22 @@ function CoachCard({ coach, viewer, onMessage }) {
             value={coach.double}
             color={theme.palette.secondary.main}
           />
-          {coach.tierLabel && (
-            <Chip
-              size="small"
-              label={coach.tierLabel}
-              sx={{
-                bgcolor: alpha(coach.tierColor || theme.palette.warning.main, 0.15),
-                color: coach.tierColor || theme.palette.warning.main,
-                fontWeight: 700,
-                border: "1px solid",
-                borderColor: alpha(
-                  coach.tierColor || theme.palette.warning.main,
-                  0.35,
-                ),
-              }}
-            />
-          )}
+          {coach.tierLabel && (() => {
+            const tierHex = safeColor(coach.tierColor, theme.palette.warning.main);
+            return (
+              <Chip
+                size="small"
+                label={coach.tierLabel}
+                sx={{
+                  bgcolor: alpha(tierHex, 0.15),
+                  color: tierHex,
+                  fontWeight: 700,
+                  border: "1px solid",
+                  borderColor: alpha(tierHex, 0.35),
+                }}
+              />
+            );
+          })()}
         </Stack>
 
         <Stack spacing={0.5} sx={{ mt: 0.5 }}>
