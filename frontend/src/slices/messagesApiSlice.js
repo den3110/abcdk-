@@ -49,10 +49,10 @@ export const messagesApiSlice = apiSlice.injectEndpoints({
       providesTags: (r, e, { cid }) => [{ type: "ChatMessages", id: cid }],
     }),
     sendMessage: builder.mutation({
-      query: ({ cid, content, attachments, replyTo }) => ({
+      query: ({ cid, content, attachments, replyTo, mentions, linkedTournament }) => ({
         url: `/api/chat/conversations/${cid}/messages`,
         method: "POST",
-        body: { content, attachments, replyTo },
+        body: { content, attachments, replyTo, mentions, linkedTournament },
       }),
       invalidatesTags: (r, e, { cid }) => [
         { type: "ChatMessages", id: cid },

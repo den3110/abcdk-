@@ -12,7 +12,7 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { Send, Trash2 } from "lucide-react";
+import { Send, Trash2, Trophy, X as XIcon, ChevronRight } from "lucide-react";
 import { useSelector } from "react-redux";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -26,6 +26,10 @@ import {
   useDeleteMessageMutation,
   useUploadChatMediaMutation,
 } from "../slices/messagesApiSlice.js";
+import MentionText from "../components/feed/MentionText.jsx";
+import MentionAutocomplete from "../components/feed/MentionAutocomplete.jsx";
+import TournamentPickerDialog from "../components/feed/TournamentPickerDialog.jsx";
+import { Chip } from "@mui/material";
 
 const authorName = (u) => u?.nickname || u?.name || "Người dùng";
 const fmtTime = (iso) => {
@@ -151,9 +155,67 @@ function MessageBubble({ msg, isMine, onDelete, canDelete }) {
             </Box>
           ))}
         {!!msg.content && (
-          <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-            {msg.deletedAt ? "(tin nhắn đã xoá)" : msg.content}
-          </Typography>
+          msg.deletedAt ? (
+            <Typography variant="body2" sx={{ fontStyle: "italic", opacity: 0.7 }}>
+              (tin nhắn đã xoá)
+            </Typography>
+          ) : (
+            <MentionText
+              content={msg.content}
+              mentions={msg.mentions}
+              sx={{ display: "block", fontSize: "0.875rem", color: "inherit" }}
+            />
+          )
+        )}
+        {msg.linkedTournament && (
+          <Box
+            component="a"
+            href={`/tournament/${msg.linkedTournament._id}`}
+            sx={{
+              mt: 0.75,
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              p: 1,
+              borderRadius: 2,
+              bgcolor: isMine ? "rgba(255,255,255,0.15)" : "#FFFBEB",
+              border: 1,
+              borderColor: isMine ? "rgba(255,255,255,0.28)" : "#FDE68A",
+              textDecoration: "none",
+              color: "inherit",
+              maxWidth: 260,
+            }}
+          >
+            {msg.linkedTournament.image ? (
+              <Avatar
+                src={msg.linkedTournament.image}
+                variant="rounded"
+                sx={{ width: 36, height: 36 }}
+              />
+            ) : (
+              <Avatar variant="rounded" sx={{ bgcolor: "#FEF3C7", width: 36, height: 36 }}>
+                <Trophy size={18} color="#F59E0B" />
+              </Avatar>
+            )}
+            <Box flex={1} minWidth={0}>
+              <Typography
+                variant="caption"
+                fontWeight={800}
+                sx={{
+                  color: isMine ? "#FEF3C7" : "#B45309",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                  display: "block",
+                }}
+              >
+                Giải đấu
+              </Typography>
+              <Typography variant="body2" fontWeight={700} noWrap>
+                {msg.linkedTournament.name}
+              </Typography>
+            </Box>
+            <ChevronRight size={16} />
+          </Box>
         )}
       </Box>
     </Box>
@@ -163,6 +225,9 @@ function MessageBubble({ msg, isMine, onDelete, canDelete }) {
 function ChatPanel({ conversationId, me }) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState([]);
+  const [linkedTournament, setLinkedTournament] = useState(null);
+  const [tournamentPickerOpen, setTournamentPickerOpen] = useState(false);
+  const [selectedMentions, setSelectedMentions] = useState([]);
   const fileRef = useRef(null);
   const scrollRef = useRef(null);
   const { data: convo } = useListConversationsQuery({});
@@ -218,15 +283,22 @@ function ChatPanel({ conversationId, me }) {
   };
 
   const submit = async () => {
-    if (!text.trim() && !attachments.length) return;
+    if (!text.trim() && !attachments.length && !linkedTournament) return;
+    const stillPresent = selectedMentions
+      .filter((m) => text.includes(`@${m.display}`))
+      .map((m) => m._id);
     try {
       await sendMessage({
         cid: conversationId,
         content: text.trim(),
         attachments,
+        mentions: stillPresent,
+        linkedTournament: linkedTournament?._id || null,
       }).unwrap();
       setText("");
       setAttachments([]);
+      setLinkedTournament(null);
+      setSelectedMentions([]);
     } catch (err) {
       toast.error(err?.data?.message || "Gửi thất bại");
     }
@@ -353,7 +425,24 @@ function ChatPanel({ conversationId, me }) {
             ))}
           </Stack>
         )}
-        <Stack direction="row" spacing={1} alignItems="center">
+        {linkedTournament && (
+          <Chip
+            icon={<Trophy size={14} />}
+            label={linkedTournament.name}
+            onDelete={() => setLinkedTournament(null)}
+            deleteIcon={<XIcon size={14} />}
+            sx={{
+              alignSelf: "flex-start",
+              mb: 1,
+              bgcolor: "#FFF7ED",
+              color: "#B45309",
+              fontWeight: 600,
+              border: 1,
+              borderColor: "#FED7AA",
+            }}
+          />
+        )}
+        <Stack direction="row" spacing={1} alignItems="flex-end">
           <input
             ref={fileRef}
             type="file"
@@ -363,30 +452,51 @@ function ChatPanel({ conversationId, me }) {
             onChange={handlePickFiles}
           />
           <IconButton onClick={() => fileRef.current?.click()}>📎</IconButton>
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Nhập tin nhắn…"
+          <IconButton
+            onClick={() => setTournamentPickerOpen(true)}
+            sx={{ color: "#F59E0B" }}
+            title="Gắn giải đấu"
+          >
+            <Trophy size={20} />
+          </IconButton>
+          <MentionAutocomplete
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={setText}
+            onPickMention={(u) =>
+              setSelectedMentions((prev) =>
+                prev.some((m) => m._id === String(u._id))
+                  ? prev
+                  : [
+                      ...prev,
+                      { _id: String(u._id), display: u.nickname || u.name },
+                    ]
+              )
+            }
+            placeholder="Nhập tin nhắn… (gõ @ để nhắc)"
             multiline
+            minRows={1}
             maxRows={5}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
-            }}
           />
           <IconButton
             color="primary"
             onClick={submit}
-            disabled={sending || (!text.trim() && !attachments.length)}
+            disabled={
+              sending ||
+              (!text.trim() && !attachments.length && !linkedTournament)
+            }
           >
             <Send size={18} />
           </IconButton>
         </Stack>
       </Box>
+      <TournamentPickerDialog
+        open={tournamentPickerOpen}
+        onClose={() => setTournamentPickerOpen(false)}
+        onPick={(t) => {
+          setLinkedTournament(t);
+          setTournamentPickerOpen(false);
+        }}
+      />
     </Box>
   );
 }

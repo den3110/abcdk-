@@ -1,7 +1,7 @@
 // screens/FeedPage.jsx — Bảng tin (feed) cho web.
 // Dùng MUI + RTK Query. UI tối giản, tương thích cả v1 lẫn Astryx v2
 // (v2 wrap trong ShadowFrame ở SiteNav, ta chỉ render nội dung).
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Avatar,
   Box,
@@ -33,6 +33,9 @@ import {
   Flag,
   Trash2,
   Pin,
+  Trophy,
+  X as XIcon,
+  ChevronRight,
 } from "lucide-react";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
@@ -51,6 +54,10 @@ import {
   useReportFeedPostMutation,
   useReportFeedCommentMutation,
 } from "../slices/feedApiSlice.js";
+import MentionText from "../components/feed/MentionText.jsx";
+import ScoreBadges from "../components/feed/ScoreBadges.jsx";
+import MentionAutocomplete from "../components/feed/MentionAutocomplete.jsx";
+import TournamentPickerDialog from "../components/feed/TournamentPickerDialog.jsx";
 
 /* ─────────── constants ─────────── */
 const REACTION_EMOJI = {
@@ -100,11 +107,14 @@ function Composer({ me, onPosted }) {
   const [content, setContent] = useState("");
   const [media, setMedia] = useState([]);
   const [posting, setPosting] = useState(false);
+  const [linkedTournament, setLinkedTournament] = useState(null);
+  const [tournamentPickerOpen, setTournamentPickerOpen] = useState(false);
+  const [selectedMentions, setSelectedMentions] = useState([]);
   const fileRef = useRef(null);
   const [uploadMedia] = useUploadFeedMediaMutation();
   const [createPost] = useCreateFeedPostMutation();
 
-  const canPost = (content.trim() || media.length) && !posting;
+  const canPost = (content.trim() || media.length || linkedTournament) && !posting;
 
   const handleFiles = async (e) => {
     const files = Array.from(e.target.files || []).slice(0, 10);
@@ -124,10 +134,20 @@ function Composer({ me, onPosted }) {
   const submit = async () => {
     if (!canPost) return;
     setPosting(true);
+    const stillPresent = selectedMentions
+      .filter((m) => content.includes(`@${m.display}`))
+      .map((m) => m._id);
     try {
-      await createPost({ content: content.trim(), media }).unwrap();
+      await createPost({
+        content: content.trim(),
+        media,
+        linkedTournament: linkedTournament?._id || null,
+        mentions: stillPresent,
+      }).unwrap();
       setContent("");
       setMedia([]);
+      setLinkedTournament(null);
+      setSelectedMentions([]);
       onPosted?.();
     } catch (err) {
       toast.error(err?.data?.message || "Đăng thất bại");
@@ -144,17 +164,37 @@ function Composer({ me, onPosted }) {
             {authorName(me)[0]?.toUpperCase()}
           </Avatar>
           <Stack flex={1} spacing={1}>
-            <TextField
-              multiline
-              minRows={2}
-              maxRows={8}
-              placeholder={`${authorName(me)} ơi, bạn muốn chia sẻ gì?`}
+            <MentionAutocomplete
               value={content}
-              onChange={(e) => setContent(e.target.value)}
-              fullWidth
-              variant="outlined"
-              size="small"
+              onChange={setContent}
+              onPickMention={(u) =>
+                setSelectedMentions((prev) =>
+                  prev.some((m) => m._id === String(u._id))
+                    ? prev
+                    : [
+                        ...prev,
+                        { _id: String(u._id), display: u.nickname || u.name },
+                      ]
+                )
+              }
+              placeholder={`${authorName(me)} ơi, bạn muốn chia sẻ gì? (gõ @ để nhắc bạn)`}
             />
+            {linkedTournament && (
+              <Chip
+                icon={<Trophy size={14} />}
+                label={linkedTournament.name}
+                onDelete={() => setLinkedTournament(null)}
+                deleteIcon={<XIcon size={14} />}
+                sx={{
+                  alignSelf: "flex-start",
+                  bgcolor: "#FFF7ED",
+                  color: "#B45309",
+                  fontWeight: 600,
+                  border: 1,
+                  borderColor: "#FED7AA",
+                }}
+              />
+            )}
             {media.length > 0 && (
               <Box
                 sx={{
@@ -233,6 +273,15 @@ function Composer({ me, onPosted }) {
                   <ImagePlus size={20} />
                 </IconButton>
               </Tooltip>
+              <Tooltip title="Gắn giải đấu">
+                <IconButton
+                  size="small"
+                  onClick={() => setTournamentPickerOpen(true)}
+                  sx={{ color: "#F59E0B" }}
+                >
+                  <Trophy size={20} />
+                </IconButton>
+              </Tooltip>
               <Box flex={1} />
               <Button
                 variant="contained"
@@ -246,6 +295,14 @@ function Composer({ me, onPosted }) {
           </Stack>
         </Stack>
       </CardContent>
+      <TournamentPickerDialog
+        open={tournamentPickerOpen}
+        onClose={() => setTournamentPickerOpen(false)}
+        onPick={(t) => {
+          setLinkedTournament(t);
+          setTournamentPickerOpen(false);
+        }}
+      />
     </Card>
   );
 }
@@ -422,7 +479,9 @@ function CommentItem({
       <Stack direction="row" spacing={1} alignItems="flex-start">
         <Avatar
           src={comment.author?.avatar || ""}
-          sx={{ width: 32, height: 32 }}
+          sx={{ width: 32, height: 32, cursor: "pointer" }}
+          component="a"
+          href={comment.author?._id ? `/profile/${comment.author._id}` : undefined}
         >
           {authorName(comment.author)[0]?.toUpperCase()}
         </Avatar>
@@ -430,12 +489,24 @@ function CommentItem({
           <Box
             sx={{ bgcolor: "action.hover", borderRadius: 2, px: 1.5, py: 0.75 }}
           >
-            <Typography variant="body2" fontWeight={600}>
+            <Typography
+              variant="body2"
+              fontWeight={600}
+              component="a"
+              href={comment.author?._id ? `/profile/${comment.author._id}` : undefined}
+              sx={{
+                color: "inherit",
+                textDecoration: "none",
+                "&:hover": { textDecoration: "underline" },
+              }}
+            >
               {authorName(comment.author)}
             </Typography>
-            <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-              {comment.content}
-            </Typography>
+            <MentionText
+              content={comment.content}
+              mentions={comment.mentions}
+              sx={{ display: "block", fontSize: "0.875rem" }}
+            />
           </Box>
           <Stack direction="row" spacing={2} sx={{ mt: 0.5, ml: 1 }}>
             <Typography variant="caption" color="text.secondary">
@@ -500,6 +571,7 @@ function CommentItem({
 
 /* ─────────── PostCard ─────────── */
 function PostCard({ post, me }) {
+  const nav = useNavigate();
   const [react] = useReactFeedPostMutation();
   const [deletePost] = useDeleteFeedPostMutation();
   const [reportPost] = useReportFeedPostMutation();
@@ -544,17 +616,33 @@ function PostCard({ post, me }) {
         <Stack direction="row" spacing={1.5} alignItems="center">
           <Avatar
             src={post.author?.avatar || ""}
-            sx={{ width: 44, height: 44 }}
+            sx={{ width: 44, height: 44, cursor: "pointer" }}
+            onClick={() =>
+              post.author?._id && nav(`/profile/${post.author._id}`)
+            }
           >
             {authorName(post.author)[0]?.toUpperCase()}
           </Avatar>
-          <Box flex={1}>
-            <Typography variant="subtitle2" fontWeight={700}>
-              {authorName(post.author)}{" "}
+          <Box flex={1} minWidth={0}>
+            <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap">
+              <Typography
+                variant="subtitle2"
+                fontWeight={700}
+                sx={{ cursor: "pointer", "&:hover": { textDecoration: "underline" } }}
+                onClick={() =>
+                  post.author?._id && nav(`/profile/${post.author._id}`)
+                }
+              >
+                {authorName(post.author)}
+              </Typography>
+              <ScoreBadges
+                single={post.author?.score?.single}
+                double={post.author?.score?.double}
+              />
               {post.isPinned && (
-                <Chip size="small" icon={<Pin size={12} />} label="Ghim" sx={{ ml: 0.5, height: 20 }} />
+                <Chip size="small" icon={<Pin size={12} />} label="Ghim" sx={{ height: 20 }} />
               )}
-            </Typography>
+            </Stack>
             <Typography variant="caption" color="text.secondary">
               {fmtTime(post.createdAt)}
             </Typography>
@@ -565,9 +653,9 @@ function PostCard({ post, me }) {
         </Stack>
 
         {post.content && (
-          <Typography sx={{ mt: 1.5, whiteSpace: "pre-wrap" }}>
-            {post.content}
-          </Typography>
+          <Box sx={{ mt: 1.5 }}>
+            <MentionText content={post.content} mentions={post.mentions} />
+          </Box>
         )}
         {post.tags?.length > 0 && (
           <Stack direction="row" spacing={0.5} sx={{ mt: 1, flexWrap: "wrap" }}>
@@ -575,6 +663,42 @@ function PostCard({ post, me }) {
               <Chip key={t} size="small" label={`#${t}`} variant="outlined" />
             ))}
           </Stack>
+        )}
+        {post.linkedTournament && (
+          <Card
+            variant="outlined"
+            sx={{
+              mt: 1.5,
+              cursor: "pointer",
+              bgcolor: "#FFFBEB",
+              borderColor: "#FDE68A",
+              "&:hover": { bgcolor: "#FEF3C7" },
+            }}
+            onClick={() => nav(`/tournament/${post.linkedTournament._id}`)}
+          >
+            <Stack direction="row" spacing={1.2} alignItems="center" sx={{ p: 1.2 }}>
+              {post.linkedTournament.image ? (
+                <Avatar src={post.linkedTournament.image} variant="rounded" />
+              ) : (
+                <Avatar variant="rounded" sx={{ bgcolor: "#FEF3C7" }}>
+                  <Trophy size={18} color="#F59E0B" />
+                </Avatar>
+              )}
+              <Box flex={1} minWidth={0}>
+                <Typography
+                  variant="caption"
+                  fontWeight={800}
+                  sx={{ color: "#B45309", letterSpacing: 0.5 }}
+                >
+                  GIẢI ĐẤU
+                </Typography>
+                <Typography variant="body2" fontWeight={700} noWrap>
+                  {post.linkedTournament.name}
+                </Typography>
+              </Box>
+              <ChevronRight size={18} color="#94A3B8" />
+            </Stack>
+          </Card>
         )}
         {post.media?.length > 0 && (
           <Box
@@ -707,9 +831,43 @@ export default function FeedPage() {
   const me = useSelector((s) => s.auth?.userInfo);
   const navigate = useNavigate();
   const [tagFilter, setTagFilter] = useState("");
+  const [cursor, setCursor] = useState(null);
   const { data, isFetching, refetch } = useListFeedQuery({
     tag: tagFilter || undefined,
+    cursor,
+    limit: 10,
   });
+  const hasMore = Boolean(data?.hasMore);
+  const nextCursor = data?.nextCursor;
+  const sentinelRef = useRef(null);
+
+  // Reset cursor khi đổi tag filter
+  useEffect(() => {
+    setCursor(null);
+  }, [tagFilter]);
+
+  const handleRefresh = useCallback(() => {
+    setCursor(null);
+    refetch();
+  }, [refetch]);
+
+  const loadMore = useCallback(() => {
+    if (isFetching || !hasMore || !nextCursor || nextCursor === cursor) return;
+    setCursor(nextCursor);
+  }, [isFetching, hasMore, nextCursor, cursor]);
+
+  // IntersectionObserver để trigger loadMore khi sentinel vào viewport
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) loadMore();
+      },
+      { rootMargin: "600px" }
+    );
+    io.observe(sentinelRef.current);
+    return () => io.disconnect();
+  }, [loadMore]);
 
   if (!me) {
     return (
@@ -737,7 +895,7 @@ export default function FeedPage() {
         Bảng tin
       </Typography>
 
-      <Composer me={me} onPosted={refetch} />
+      <Composer me={me} onPosted={handleRefresh} />
 
       <Stack direction="row" spacing={1} sx={{ mb: 2 }} alignItems="center">
         <Typography variant="body2" color="text.secondary">
@@ -769,6 +927,19 @@ export default function FeedPage() {
       {(data?.items || []).map((p) => (
         <PostCard key={p._id} post={p} me={me} />
       ))}
+      {isFetching && cursor && (
+        <Box textAlign="center" py={2}>
+          <CircularProgress size={24} />
+        </Box>
+      )}
+      {!hasMore && (data?.items?.length || 0) > 0 && (
+        <Typography
+          sx={{ textAlign: "center", color: "text.secondary", py: 2, fontSize: 12 }}
+        >
+          — Đã xem hết bài viết —
+        </Typography>
+      )}
+      <Box ref={sentinelRef} sx={{ height: 1 }} />
     </Box>
   );
 }
