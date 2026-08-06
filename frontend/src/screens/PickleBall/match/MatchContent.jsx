@@ -46,12 +46,14 @@ import {
   Clear as ClearIcon,
   Stadium as StadiumIcon,
   Gavel as GavelIcon,
+  Tune as TuneIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 import { seedLabel, nameWithNick } from "../TournamentBracket";
 import PublicProfileDialog from "../../../components/PublicProfileDialog";
 import AssignCourtStationDialog from "../../../components/AssignCourtStationDialog";
 import AssignRefDialog from "../../../components/AssignRefDialog";
+import MatchSettingsDialog from "../../../components/MatchSettingsDialog";
 import { FeedStylePlayerDialog } from "../../../components/video";
 import {
   useAdminPatchMatchMutation,
@@ -2958,6 +2960,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   // Gán sân / gán trọng tài (admin + manager)
   const [assignCourtOpen, setAssignCourtOpen] = useState(false);
   const [assignRefOpen, setAssignRefOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Chỉnh đội
   const [teamsOpen, setTeamsOpen] = useState(false);
@@ -3952,6 +3955,19 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                   Gán trọng tài
                 </Button>
               )}
+
+              {canEdit && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  color="warning"
+                  startIcon={<TuneIcon />}
+                  onClick={() => setSettingsOpen(true)}
+                  disabled={patching || verifyingMgr || !lockedId}
+                >
+                  Cài đặt trận
+                </Button>
+              )}
             </Stack>
           </>
         )}
@@ -4013,6 +4029,14 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
           }}
         />
       )}
+
+      {/* Cài đặt trận — chỉnh BO / pointsToWin / winByTwo / cap */}
+      <MatchSettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        match={mm}
+        onSaved={debouncedRefresh}
+      />
 
       {/* Popup hồ sơ VĐV */}
       <PublicProfileDialog

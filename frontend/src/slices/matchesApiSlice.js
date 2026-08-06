@@ -23,6 +23,23 @@ export const matchesApiSlice = apiSlice.injectEndpoints({
         return tags;
       },
     }),
+    // Update rules (bestOf, pointsToWin, winByTwo, cap) — dùng cho dialog
+    // "Cài đặt trận" trong MatchContent modal.
+    updateMatchSettings: builder.mutation({
+      query: ({ matchId, ...body }) => ({
+        url: `/api/matches/${matchId}/update`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (res, err, { matchId }) => {
+        const tags = [{ type: "Match", id: matchId }];
+        const tournamentId = res?.tournament || res?.tournamentId;
+        if (tournamentId) {
+          tags.push({ type: "TournamentMatches", id: tournamentId });
+        }
+        return tags;
+      },
+    }),
     adminSwapMatchTeams: builder.mutation({
       query: ({ id, targetMatchId }) => ({
         url: `/api/matches/${id}/admin/swap-teams`,
@@ -46,5 +63,6 @@ export const matchesApiSlice = apiSlice.injectEndpoints({
 
 export const {
   useAdminPatchMatchMutation,
+  useUpdateMatchSettingsMutation,
   useAdminSwapMatchTeamsMutation,
 } = matchesApiSlice;
