@@ -123,16 +123,10 @@
       fbq('init', '28469951482590991');
       fbq('track', 'PageView');
     </script>
-    <noscript>
-      <img
-        height="1"
-        width="1"
-        style="display:none"
-        alt=""
-        src="https://www.facebook.com/tr?id=28469951482590991&amp;ev=PageView&amp;noscript=1"
-      />
-    </noscript>
     <!-- End Facebook Pixel Code -->
+    <!-- Noscript fallback bỏ đi vì SPA yêu cầu JS mới chạy được; ngoài ra
+         parse5 (Vite HTML parser) không cho phép <img> trong <noscript>
+         khi noscript nằm trong <head> (HTML5 spec strict). -->
   </head>
   <body>
     <div id="root"></div>
