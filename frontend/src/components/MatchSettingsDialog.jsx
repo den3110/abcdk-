@@ -43,6 +43,9 @@ export default function MatchSettingsDialog({ open, onClose, match, onSaved }) {
   const [winByTwo, setWinByTwo] = useState(true);
   const [capMode, setCapMode] = useState("none");
   const [capPoints, setCapPoints] = useState("");
+  const [timeoutPerGame, setTimeoutPerGame] = useState(2);
+  const [timeoutMinutes, setTimeoutMinutes] = useState(1);
+  const [medicalTimeouts, setMedicalTimeouts] = useState(1);
   const [updateSettings, { isLoading }] = useUpdateMatchSettingsMutation();
 
   useEffect(() => {
@@ -55,7 +58,16 @@ export default function MatchSettingsDialog({ open, onClose, match, onSaved }) {
     setCapPoints(
       r.cap?.points != null && r.cap.points !== "" ? String(r.cap.points) : "",
     );
-  }, [open, match?.rules]);
+    setTimeoutPerGame(clampInt(match?.timeoutPerGame ?? 2, 0, 10));
+    setTimeoutMinutes(clampInt(match?.timeoutMinutes ?? 1, 0, 10));
+    setMedicalTimeouts(clampInt(match?.medicalTimeouts ?? 1, 0, 10));
+  }, [
+    open,
+    match?.rules,
+    match?.timeoutPerGame,
+    match?.timeoutMinutes,
+    match?.medicalTimeouts,
+  ]);
 
   const canSave = !isLoading && [11, 15, 21].includes(Number(pointsToWin));
 
@@ -82,6 +94,9 @@ export default function MatchSettingsDialog({ open, onClose, match, onSaved }) {
         pointsToWin: Number(pointsToWin),
         winByTwo: Boolean(winByTwo),
         cap,
+        timeoutPerGame: clampInt(timeoutPerGame, 0, 10),
+        timeoutMinutes: clampInt(timeoutMinutes, 0, 10),
+        medicalTimeouts: clampInt(medicalTimeouts, 0, 10),
       }).unwrap();
       toast.success("Đã lưu cài đặt trận");
       onSaved?.();
@@ -186,6 +201,61 @@ export default function MatchSettingsDialog({ open, onClose, match, onSaved }) {
               }}
             />
           )}
+
+          <Divider />
+          <Typography
+            variant="caption"
+            fontWeight={700}
+            sx={{
+              textTransform: "uppercase",
+              letterSpacing: 0.6,
+              color: "text.secondary",
+            }}
+          >
+            Timeout & y tế
+          </Typography>
+
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+            <TextField
+              size="small"
+              label="Số lượt timeout / đội / set"
+              type="number"
+              value={timeoutPerGame}
+              onChange={(e) =>
+                setTimeoutPerGame(clampInt(e.target.value, 0, 10))
+              }
+              inputProps={{ min: 0, max: 10 }}
+              fullWidth
+              helperText="Mỗi đội có bao nhiêu timeout / set"
+            />
+            <TextField
+              size="small"
+              label="Số phút / timeout"
+              type="number"
+              value={timeoutMinutes}
+              onChange={(e) =>
+                setTimeoutMinutes(clampInt(e.target.value, 0, 10))
+              }
+              inputProps={{ min: 0, max: 10 }}
+              fullWidth
+              InputProps={{
+                endAdornment: <InputAdornment position="end">phút</InputAdornment>,
+              }}
+              helperText="Thời gian tối đa 1 timeout"
+            />
+            <TextField
+              size="small"
+              label="Số lượt nghỉ y tế / trận"
+              type="number"
+              value={medicalTimeouts}
+              onChange={(e) =>
+                setMedicalTimeouts(clampInt(e.target.value, 0, 10))
+              }
+              inputProps={{ min: 0, max: 10 }}
+              fullWidth
+              helperText="Tổng số lần nghỉ y tế cả 2 đội"
+            />
+          </Stack>
         </Stack>
       </DialogContent>
       <DialogActions>
