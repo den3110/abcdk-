@@ -424,7 +424,7 @@ const createSchema = Joi.object({
     .default("double")
     .label(FIELD_LABELS.eventType),
   tournamentMode: Joi.string()
-    .valid("standard", "team")
+    .valid("standard", "team", "mlp")
     .default("standard")
     .label(FIELD_LABELS.tournamentMode),
   nameDisplayMode: Joi.string()
@@ -509,7 +509,7 @@ const updateSchema = Joi.object({
     .valid("single", "double")
     .label(FIELD_LABELS.eventType),
   tournamentMode: Joi.string()
-    .valid("standard", "team")
+    .valid("standard", "team", "mlp")
     .label(FIELD_LABELS.tournamentMode),
   nameDisplayMode: Joi.string()
     .valid("nickname", "fullName")
