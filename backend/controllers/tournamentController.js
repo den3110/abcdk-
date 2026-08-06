@@ -3017,6 +3017,23 @@ const getTournaments = asyncHandler(async (req, res) => {
       normalizeTournamentPublicUrls(req, t)
     )
   );
+
+  // Enrich `isReferee` cho từng giải dựa vào user.referee.tournaments[].
+  // Frontend mobile dùng flag này để hiển thị nút "Chấm trận" thay "Đăng ký".
+  const refereeTourIds = new Set();
+  const refTours = req.user?.referee?.tournaments;
+  if (Array.isArray(refTours)) {
+    for (const x of refTours) {
+      const id = x?._id || x?.tournament?._id || x?.tournament || x;
+      if (id) refereeTourIds.add(String(id));
+    }
+  }
+  if (refereeTourIds.size) {
+    for (const t of tournaments) {
+      if (refereeTourIds.has(String(t._id))) t.isReferee = true;
+    }
+  }
+
   res.status(200);
   setNoStoreHeaders(res);
   res.json(tournaments);
