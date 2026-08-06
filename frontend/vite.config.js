@@ -154,9 +154,18 @@ export default defineConfig(async ({ mode }) => {
         },
       },
     },
+    // Drop console/debugger ở output — dùng esbuild để nhẹ RAM (default) hoặc
+    // terser nếu VITE_MINIFY=terser (nén tốt hơn ~5-10% nhưng tốn RAM gấp đôi
+    // → VPS 8GB RAM bị OOM SIGKILL khi build).
+    esbuild: {
+      drop:
+        process.env.VITE_MINIFY === "terser"
+          ? undefined
+          : ["console", "debugger"],
+    },
     build: {
       sourcemap: enableSentrySourcemaps ? "hidden" : false,
-      minify: "terser",
+      minify: process.env.VITE_MINIFY === "terser" ? "terser" : "esbuild",
       terserOptions: {
         compress: { drop_console: true, drop_debugger: true },
       },

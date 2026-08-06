@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node --max_old_space_size=8192 ./node_modules/vite/bin/vite.js build",
+    "build": "node --max_old_space_size=6144 ./node_modules/vite/bin/vite.js build",
     "build:deploy": "yarn build && rsync -a --delete dist/ /var/www/pickletour.vn/ && echo '✓ deployed to /var/www/pickletour.vn/'",
     "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
