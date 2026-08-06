@@ -38,9 +38,12 @@ import {
   Print as PrintIcon,
   Stadium as StadiumIcon,
   HowToReg as RefereeIcon,
+  Campaign as AnnounceIcon,
 } from "@mui/icons-material";
+import { toast } from "react-toastify";
 
 import { useLanguage } from "../../../context/LanguageContext";
+import { announceMatch } from "../../../utils/matchAnnouncement.js";
 
 const StatusDetailItem = memo(function StatusDetailItem({ label, children }) {
   return (
@@ -283,6 +286,33 @@ export const ActionChipsLocalized = memo(function ActionChipsLocalized({
   const st = String(match?.status || "").toLowerCase();
   const canAssignCourt = !(st === "live" || st === "finished");
   const canStartMatch = Boolean(canStartReferee && onStartReferee);
+  // Trận đã có sân → hiện nút "Thông báo VĐV" phát voice mời VĐV về sân.
+  // Cover đủ tên field như courtLabel() helper trong TournamentManagePage.
+  const hasCourt = Boolean(
+    match?.courtStationLabel ||
+      match?.courtStationName ||
+      match?.courtLabel ||
+      match?.courtName ||
+      match?.courtStation ||
+      match?.courtAssigned ||
+      match?.assignedCourt ||
+      match?.court?.name ||
+      match?.court?.label ||
+      match?.court?.code ||
+      (typeof match?.court === "string" && match.court) ||
+      match?.courtCode ||
+      match?.courtTitle,
+  );
+  const canAnnounce = hasCourt && st !== "finished";
+
+  const handleAnnounce = async () => {
+    try {
+      const text = await announceMatch(match);
+      toast.success(text, { autoClose: 6000 });
+    } catch (err) {
+      toast.error(err?.message || "Không phát được thông báo");
+    }
+  };
 
   return (
     <Box
@@ -326,6 +356,17 @@ export const ActionChipsLocalized = memo(function ActionChipsLocalized({
           icon={<StadiumIcon />}
           label={t("tournaments.manage.assignCourt")}
           onClick={() => onAssignCourt(match)}
+        />
+      )}
+      {canAnnounce && (
+        <Chip
+          size="small"
+          color="success"
+          variant="filled"
+          icon={<AnnounceIcon />}
+          label="Thông báo VĐV"
+          onClick={handleAnnounce}
+          sx={{ fontWeight: 700 }}
         />
       )}
       <Chip
