@@ -41,6 +41,86 @@ const TeamFactionSchema = new mongoose.Schema(
 );
 
 /**
+ * MLP config — cấu hình cho tournamentMode="mlp".
+ * Mỗi dual match (team vs team) gồm N sub-matches (slots) tuỳ config,
+ * cộng dồn điểm slot thắng → team thắng dual. Nếu hoà → DreamBreaker.
+ */
+const MlpSlotSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true, trim: true, maxlength: 20 }, // "WD","MD","XD1","XD2"
+    label: { type: String, default: "", maxlength: 60 }, // "Đôi nữ"
+    matchType: {
+      type: String,
+      enum: ["single", "double"],
+      default: "double",
+    },
+    // Ràng buộc giới tính khi chọn VĐV từ roster team.
+    // any = không ràng buộc; male/female = toàn nam/nữ; mixed = 1 nam + 1 nữ (double only)
+    genderRule: {
+      type: String,
+      enum: ["any", "male", "female", "mixed"],
+      default: "any",
+    },
+    order: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+const MlpCapSchema = new mongoose.Schema(
+  {
+    mode: {
+      type: String,
+      enum: ["none", "hard", "soft"],
+      default: "none",
+    },
+    points: { type: Number, min: 1, default: null },
+  },
+  { _id: false }
+);
+
+const MlpDreamBreakerSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: true },
+    pointsToWin: { type: Number, default: 21, min: 1, max: 99 },
+    // Cứ N điểm ghi được thì rotate sang VĐV kế tiếp trong lineup.
+    // MLP chính thức = 4.
+    rotationEveryPoints: { type: Number, default: 4, min: 1, max: 21 },
+    winByTwo: { type: Boolean, default: false }, // MLP chính thức = false
+  },
+  { _id: false }
+);
+
+const MlpConfigSchema = new mongoose.Schema(
+  {
+    // Roster limits — BTC không ép giới tính, chỉ min/max size.
+    minRosterSize: { type: Number, default: 4, min: 1, max: 30 },
+    maxRosterSize: { type: Number, default: 8, min: 1, max: 30 },
+    // Danh sách sub-matches trong 1 dual match (thứ tự = order).
+    slots: {
+      type: [MlpSlotSchema],
+      default: () => [
+        { key: "WD", label: "Đôi nữ", matchType: "double", genderRule: "female", order: 0 },
+        { key: "MD", label: "Đôi nam", matchType: "double", genderRule: "male", order: 1 },
+        { key: "XD1", label: "Đôi hỗn hợp 1", matchType: "double", genderRule: "mixed", order: 2 },
+        { key: "XD2", label: "Đôi hỗn hợp 2", matchType: "double", genderRule: "mixed", order: 3 },
+      ],
+    },
+    // Luật tính điểm áp dụng cho MỌI sub-match (BTC có thể override cho từng match sau).
+    pointsToWin: { type: Number, default: 21, enum: [11, 15, 21] },
+    winByTwo: { type: Boolean, default: true },
+    cap: { type: MlpCapSchema, default: () => ({ mode: "none", points: null }) },
+    // Rally scoring (MLP dùng), khác side-out truyền thống.
+    rallyScoring: { type: Boolean, default: true },
+    // DreamBreaker khi hoà số slot.
+    dreamBreaker: {
+      type: MlpDreamBreakerSchema,
+      default: () => ({}),
+    },
+  },
+  { _id: false }
+);
+
+/**
  * ✅ NEW: toạ độ địa lý cho giải (dùng cho WeatherKit, map…)
  * - location: string địa chỉ hiển thị (đã có sẵn)
  * - locationGeo: thông tin toạ độ, lấy từ AI / geocoder
@@ -90,7 +170,7 @@ const tournamentSchema = new mongoose.Schema(
     eventType: { type: String, enum: ["single", "double"], default: "double" },
     tournamentMode: {
       type: String,
-      enum: ["standard", "team"],
+      enum: ["standard", "team", "mlp"],
       default: "standard",
       index: true,
     },
@@ -198,6 +278,12 @@ const tournamentSchema = new mongoose.Schema(
         type: [TeamFactionSchema],
         default: [],
       },
+    },
+
+    // Chỉ dùng khi tournamentMode === "mlp".
+    mlpConfig: {
+      type: MlpConfigSchema,
+      default: () => ({}),
     },
 
     requireKyc: { type: Boolean, default: true },
