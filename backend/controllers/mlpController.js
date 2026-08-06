@@ -69,14 +69,16 @@ export const updateMlpConfig = asyncHandler(async (req, res) => {
     cfg.pointsToWin = Number(body.pointsToWin);
   if (typeof body.winByTwo === "boolean") cfg.winByTwo = body.winByTwo;
   if (body.cap && typeof body.cap === "object") {
-    cfg.cap = {
-      mode: ["none", "hard", "soft"].includes(body.cap.mode)
-        ? body.cap.mode
-        : "none",
-      points: Number.isFinite(Number(body.cap.points))
-        ? Number(body.cap.points)
-        : null,
-    };
+    const mode = ["none", "hard", "soft"].includes(body.cap.mode)
+      ? body.cap.mode
+      : "none";
+    let points = null;
+    if (mode !== "none") {
+      const raw = body.cap.points;
+      const n = raw == null || raw === "" ? NaN : Number(raw);
+      points = Number.isFinite(n) && n >= 1 ? Math.min(99, Math.floor(n)) : null;
+    }
+    cfg.cap = { mode, points };
   }
   if (typeof body.rallyScoring === "boolean")
     cfg.rallyScoring = body.rallyScoring;
