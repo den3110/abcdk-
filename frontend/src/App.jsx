@@ -270,6 +270,16 @@ const App = () => {
   const { pikoraEnabled } = useFrontendUiVersion();
   const astryxUiOn = useAstryxUi();
 
+  // Facebook Pixel: fire PageView mỗi lần SPA đổi route (script trong
+  // index.html chỉ fire lần load đầu; SPA navigate không reload page).
+  useEffect(() => {
+    if (typeof window !== "undefined" && typeof window.fbq === "function") {
+      try {
+        window.fbq("track", "PageView");
+      } catch {}
+    }
+  }, [location.pathname, location.search]);
+
   // Define routes that should have a full-screen layout (no header/footer)
   const isAuthPage = [
     "/login",
