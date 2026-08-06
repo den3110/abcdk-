@@ -3799,7 +3799,7 @@ export default function TournamentManagePage() {
           <Button
             variant="contained"
             size="large"
-            component={RouterLink}
+            component={Link}
             to={`/tournament/${id}/mlp/teams`}
           >
             Quản lý Teams
@@ -3808,7 +3808,7 @@ export default function TournamentManagePage() {
             variant="contained"
             size="large"
             color="secondary"
-            component={RouterLink}
+            component={Link}
             to={`/tournament/${id}/mlp/duals`}
           >
             Duals & Scoring
