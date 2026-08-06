@@ -3789,6 +3789,35 @@ export default function TournamentManagePage() {
     );
   }
 
+  if (String(tour?.tournamentMode || "").toLowerCase() === "mlp") {
+    return (
+      <Box sx={{ p: { xs: 2, md: 4 } }}>
+        <Typography variant="h4" fontWeight={900} gutterBottom>
+          Giải MLP: {tour?.name}
+        </Typography>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+          <Button
+            variant="contained"
+            size="large"
+            component={RouterLink}
+            to={`/tournament/${id}/mlp/teams`}
+          >
+            Quản lý Teams
+          </Button>
+          <Button
+            variant="contained"
+            size="large"
+            color="secondary"
+            component={RouterLink}
+            to={`/tournament/${id}/mlp/duals`}
+          >
+            Duals & Scoring
+          </Button>
+        </Stack>
+      </Box>
+    );
+  }
+
   /* ---------- UI ---------- */
   const manageActionGroupSx = {
     display: "flex",

@@ -386,6 +386,8 @@ export const apiSlice = createApi({
     "CoachAch",
     "AdminCoachApp",
     "AdminCoachAch",
+    "MlpTeam",
+    "MlpDual",
     "User",
     "Match",
     "Bracket",
