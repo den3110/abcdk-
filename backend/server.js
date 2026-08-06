@@ -27,6 +27,7 @@ import notifyRoutes from "./routes/notifyRoutes.js";
 import cmsRoutes from "./routes/cmsRoutes.js";
 import feedRoutes from "./routes/feedRoutes.js";
 import coachRoutes from "./routes/coachRoutes.js";
+import coachAdminRoutes from "./routes/coachAdminRoutes.js";
 import adminFeedRoutes from "./routes/adminFeedRoutes.js";
 import chatRoutes from "./routes/chatRoutes.js";
 import adminChatRoutes from "./routes/adminChatRoutes.js";
@@ -280,6 +281,7 @@ app.use("/api/admin/chat", adminChatRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/friends", friendRoutes);
 app.use("/api/coaches", coachRoutes);
+app.use("/api/admin/coaches", coachAdminRoutes);
 app.use("/api/notifications", notificationCenterRoutes);
 app.use("/api/setting", adminRoutes);
 

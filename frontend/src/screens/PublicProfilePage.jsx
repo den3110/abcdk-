@@ -60,6 +60,7 @@ import { formatDate, formatDateTime } from "../i18n/format";
 import { getGenderLabel } from "../i18n/uiOptions";
 import FriendActions from "../components/FriendActions.jsx";
 import OpenMessageButton from "../components/OpenMessageButton.jsx";
+import CoachAchievementsSection from "../components/coaches/CoachAchievementsSection.jsx";
 
 /* ---------- CONSTANTS & UTILS ---------- */
 const AVA_PLACE = "";
@@ -1450,6 +1451,18 @@ export default function PublicProfilePage() {
       <Container maxWidth="lg">
         {/* 2. Statistics Grid */}
         {StatsSection}
+
+        {/* Coach section — hiển thị nếu user là HLV, hoặc chính chủ để add mới */}
+        {(base?.isCoach || isSelf) && (
+          <Box sx={{ mt: 4 }}>
+            <CoachAchievementsSection
+              userId={baseId || id}
+              isSelf={isSelf}
+              isAdminViewer={isAdminViewer}
+              isCoach={!!base?.isCoach}
+            />
+          </Box>
+        )}
 
         {/* 3. Content Tabs */}
         <Box sx={{ mt: 10 }}>

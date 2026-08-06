@@ -2736,6 +2736,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
   }
 
   return res.json({
+    _id: user._id,
     nickname: user.nickname,
     gender: user.gender,
     province: user.province,
@@ -2744,6 +2745,8 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     bio: user.bio || "",
     avatar: user.avatar || "",
     cccdStatus: user.cccdStatus || "unverified",
+    isCoach: !!user.isCoach,
+    coachProfile: user.coachProfile || null,
     summary: await sanitizeRatingsObj(
       req.user,
       req.params.id,

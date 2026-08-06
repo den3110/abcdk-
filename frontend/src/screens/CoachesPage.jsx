@@ -31,8 +31,12 @@ import SEOHead from "../components/SEOHead.jsx";
 import {
   useListCoachesQuery,
   useListCoachProvincesQuery,
+  useApplyToBeCoachMutation,
+  useGetMyCoachApplicationQuery,
+  useCancelMyCoachApplicationMutation,
 } from "../slices/coachesApiSlice.js";
 import { useOpenDmMutation } from "../slices/messagesApiSlice.js";
+import CoachApplicationDialog from "../components/coaches/CoachApplicationDialog.jsx";
 
 const authorName = (u) => u?.nickname || u?.name || "Huấn luyện viên";
 
@@ -294,7 +298,23 @@ export default function CoachesPage() {
   const [debouncedQ, setDebouncedQ] = useState("");
   const [province, setProvince] = useState("");
   const [cursor, setCursor] = useState(null);
+  const [applyOpen, setApplyOpen] = useState(false);
   const sentinelRef = useRef(null);
+  const isCoach = !!viewer?.isCoach;
+  const { data: myApp } = useGetMyCoachApplicationQuery(undefined, {
+    skip: !viewer || isCoach,
+  });
+  const [cancelApp] = useCancelMyCoachApplicationMutation();
+
+  const handleCancelApp = async () => {
+    if (!window.confirm("Huỷ đơn đăng ký HLV?")) return;
+    try {
+      await cancelApp().unwrap();
+      toast.success("Đã huỷ đơn");
+    } catch (err) {
+      toast.error(err?.data?.message || "Huỷ thất bại");
+    }
+  };
 
   // Debounce search
   useEffect(() => {
@@ -366,14 +386,71 @@ export default function CoachesPage() {
       />
 
       {/* Header */}
-      <Stack spacing={0.5} sx={{ mb: 2 }}>
-        <Typography variant="h4" fontWeight={900}>
-          Huấn luyện viên
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Danh sách HLV chính thức, sắp xếp theo điểm trình. Bấm để xem hồ sơ, nhắn tin hoặc gọi trực tiếp.
-        </Typography>
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        justifyContent="space-between"
+        alignItems={{ xs: "flex-start", sm: "flex-end" }}
+        spacing={1.5}
+        sx={{ mb: 2 }}
+      >
+        <Box>
+          <Typography variant="h4" fontWeight={900}>
+            Huấn luyện viên
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Danh sách HLV chính thức, sắp xếp theo điểm trình. Bấm để xem hồ sơ,
+            nhắn tin hoặc gọi trực tiếp.
+          </Typography>
+        </Box>
+        {viewer && !isCoach && (
+          <>
+            {myApp?.status === "pending" ? (
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Chip
+                  size="small"
+                  color="warning"
+                  label="Đơn HLV đang chờ duyệt"
+                />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="warning"
+                  onClick={handleCancelApp}
+                >
+                  Huỷ đơn
+                </Button>
+              </Stack>
+            ) : myApp?.status === "rejected" ? (
+              <Stack spacing={0.5} alignItems="flex-end">
+                <Chip
+                  size="small"
+                  color="error"
+                  label="Đơn HLV đã bị từ chối"
+                />
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={() => setApplyOpen(true)}
+                >
+                  Đăng ký lại
+                </Button>
+              </Stack>
+            ) : (
+              <Button
+                variant="contained"
+                onClick={() => setApplyOpen(true)}
+                sx={{ whiteSpace: "nowrap" }}
+              >
+                Đăng ký làm HLV
+              </Button>
+            )}
+          </>
+        )}
       </Stack>
+      <CoachApplicationDialog
+        open={applyOpen}
+        onClose={() => setApplyOpen(false)}
+      />
 
       {/* Filters */}
       <Stack
