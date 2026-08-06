@@ -1,6 +1,6 @@
 // screens/PickleBall/MlpTeamsPage.jsx
 // Quản lý team MLP: list + create + edit + approve.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
@@ -64,18 +64,37 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
   const [captain, setCaptain] = useState(team?.captain || null);
   const [players, setPlayers] = useState(team?.players || []);
   const [q, setQ] = useState("");
-  const [searchTrigger, searchResult] = useLazySearchUserQuery();
+  const [searchTrigger, { data: searchData = [], isFetching: searching }] =
+    useLazySearchUserQuery();
   const [create, { isLoading: creating }] = useCreateMlpTeamMutation();
   const [update, { isLoading: updating }] = useUpdateMlpTeamMutation();
 
   const busy = creating || updating;
+
+  // Debounce search: gõ 350ms mới gọi API, tránh spam.
+  // API nhận STRING (không phải object), response là ARRAY.
+  useEffect(() => {
+    const s = q.trim();
+    if (s.length < 2) return;
+    const timer = setTimeout(() => {
+      searchTrigger(s);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [q, searchTrigger]);
+
+  const searchResults = useMemo(() => {
+    if (!Array.isArray(searchData)) return [];
+    // Ẩn user đã có trong roster
+    const inRoster = new Set(players.map((p) => String(p._id || p)));
+    return searchData.filter((u) => !inRoster.has(String(u._id)));
+  }, [searchData, players]);
 
   const addPlayer = (user) => {
     if (!user?._id) return;
     if (players.some((p) => String(p._id || p) === String(user._id))) return;
     setPlayers([...players, user]);
     if (!captain) setCaptain(user);
-    setQ("");
+    setQ(""); // clear để tìm VĐV tiếp theo
   };
   const removePlayer = (id) =>
     setPlayers(players.filter((p) => String(p._id || p) !== String(id)));
@@ -166,57 +185,96 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
             Roster ({players.length}/{maxRoster})
           </Typography>
 
-          <TextField
-            size="small"
-            label="Tìm VĐV thêm vào roster"
-            value={q}
-            onChange={(e) => {
-              const v = e.target.value;
-              setQ(v);
-              if (v.trim().length >= 2) searchTrigger({ q: v.trim() });
-            }}
-            placeholder="Gõ tên/nickname/SĐT..."
-            fullWidth
-          />
-          {searchResult?.data?.items?.length > 0 && q.trim() && (
-            <Box
-              sx={{
-                maxHeight: 180,
-                overflow: "auto",
-                border: 1,
-                borderColor: "divider",
-                borderRadius: 2,
+          <Box sx={{ position: "relative" }}>
+            <TextField
+              size="small"
+              label="Tìm VĐV theo tên / biệt danh / SĐT"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Gõ tối thiểu 2 ký tự..."
+              fullWidth
+              InputProps={{
+                endAdornment: searching ? (
+                  <CircularProgress size={16} />
+                ) : null,
               }}
-            >
-              {searchResult.data.items.slice(0, 8).map((u) => (
-                <Stack
-                  key={u._id}
-                  direction="row"
-                  alignItems="center"
-                  spacing={1}
-                  sx={{
-                    p: 0.75,
-                    cursor: "pointer",
-                    "&:hover": { bgcolor: "action.hover" },
-                  }}
-                  onClick={() => addPlayer(u)}
-                >
-                  <Avatar src={u.avatar || ""} sx={{ width: 28, height: 28 }}>
-                    {(u.nickname || u.name || "?")[0]?.toUpperCase()}
-                  </Avatar>
-                  <Box flex={1}>
-                    <Typography variant="body2" fontWeight={600}>
-                      {u.name || u.nickname}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {u.nickname} · {u.phone} · {u.gender || ""}
-                    </Typography>
+            />
+            {q.trim().length >= 2 && (
+              <Box
+                sx={{
+                  mt: 0.5,
+                  maxHeight: 240,
+                  overflow: "auto",
+                  border: 1,
+                  borderColor: "divider",
+                  borderRadius: 2,
+                  bgcolor: "background.paper",
+                }}
+              >
+                {searching && searchResults.length === 0 ? (
+                  <Box sx={{ p: 1.5, textAlign: "center" }}>
+                    <CircularProgress size={18} />
                   </Box>
-                  <UserPlus size={16} />
-                </Stack>
-              ))}
-            </Box>
-          )}
+                ) : searchResults.length === 0 ? (
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: "block", p: 1.5, textAlign: "center" }}
+                  >
+                    Không tìm thấy VĐV. Thử tên / biệt danh / SĐT khác.
+                  </Typography>
+                ) : (
+                  searchResults.slice(0, 10).map((u) => (
+                    <Stack
+                      key={u._id}
+                      direction="row"
+                      alignItems="center"
+                      spacing={1}
+                      sx={{
+                        p: 1,
+                        cursor: "pointer",
+                        borderBottom: 1,
+                        borderColor: "divider",
+                        "&:hover": { bgcolor: "action.hover" },
+                        "&:last-of-type": { borderBottom: 0 },
+                      }}
+                      onClick={() => addPlayer(u)}
+                    >
+                      <Avatar
+                        src={u.avatar || ""}
+                        sx={{ width: 36, height: 36 }}
+                      >
+                        {(u.nickname || u.name || "?")[0]?.toUpperCase()}
+                      </Avatar>
+                      <Box flex={1} minWidth={0}>
+                        <Typography
+                          variant="body2"
+                          fontWeight={700}
+                          noWrap
+                        >
+                          {u.name || u.nickname || "—"}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{
+                            display: "flex",
+                            gap: 0.75,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          {u.nickname && <span>@{u.nickname}</span>}
+                          {u.phone && <span>· {u.phone}</span>}
+                          {u.gender && <span>· {u.gender}</span>}
+                        </Typography>
+                      </Box>
+                      <UserPlus size={18} />
+                    </Stack>
+                  ))
+                )}
+              </Box>
+            )}
+          </Box>
 
           <Stack spacing={0.5}>
             {players.map((p) => {
