@@ -407,6 +407,7 @@ export const apiSlice = createApi({
     "TournamentManagers",
     "OverlayTemplates",
     "TournamentOverlay",
+    "OverlayGeneratorKey",
     "Rankings",
     "Tournaments",
     "REFEREE_MATCHES",

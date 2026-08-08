@@ -67,6 +67,21 @@ export const overlayApiSlice = apiSlice.injectEndpoints({
         { type: "TournamentOverlay", id: tourId },
       ],
     }),
+    // Admin-only: quản lý ANTHROPIC_API_KEY của generator
+    getOverlayGeneratorKeyStatus: builder.query({
+      query: () => ({
+        url: "/api/admin/overlay-generator/keystatus",
+      }),
+      providesTags: [{ type: "OverlayGeneratorKey", id: "STATUS" }],
+    }),
+    setOverlayGeneratorKey: builder.mutation({
+      query: ({ apiKey }) => ({
+        url: "/api/admin/overlay-generator/setkey",
+        method: "POST",
+        body: { apiKey },
+      }),
+      invalidatesTags: [{ type: "OverlayGeneratorKey", id: "STATUS" }],
+    }),
   }),
   overrideExisting: false,
 });
@@ -79,4 +94,6 @@ export const {
   useGenerateTournamentOverlayMutation,
   useDeployTournamentOverlayMutation,
   useClearTournamentOverlayMutation,
+  useGetOverlayGeneratorKeyStatusQuery,
+  useSetOverlayGeneratorKeyMutation,
 } = overlayApiSlice;

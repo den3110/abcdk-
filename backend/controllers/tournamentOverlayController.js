@@ -222,3 +222,54 @@ export const clearOverlay = asyncHandler(async (req, res) => {
   await tour.save();
   res.json({ success: true });
 });
+
+/* ═════════════════ Admin-only: quản lý ANTHROPIC_API_KEY của generator ═════════════════ */
+// GET /api/admin/overlay-generator/keystatus
+export const getGeneratorKeyStatus = asyncHandler(async (req, res) => {
+  if (!isAdmin(req.user)) {
+    res.status(403);
+    throw new Error("Chỉ admin được xem trạng thái key");
+  }
+  try {
+    const resp = await fetch(`${GENERATOR_URL}/api/keystatus`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!resp.ok) {
+      return res.status(502).json({
+        error: `Generator trả HTTP ${resp.status}`,
+        generatorUrl: GENERATOR_URL,
+      });
+    }
+    const payload = await resp.json();
+    return res.json({ ...payload, generatorUrl: GENERATOR_URL });
+  } catch (err) {
+    return res.status(502).json({
+      error:
+        err?.name === "AbortError"
+          ? "Generator không phản hồi (timeout)"
+          : err?.message || "Không kết nối được generator",
+      generatorUrl: GENERATOR_URL,
+    });
+  }
+});
+
+// POST /api/admin/overlay-generator/setkey  body: { apiKey }
+// Forward tới generator /api/setkey — generator sẽ validate key qua Anthropic
+// và lưu vào /root/overlay-generator/.env.
+export const setGeneratorKey = asyncHandler(async (req, res) => {
+  if (!isAdmin(req.user)) {
+    res.status(403);
+    throw new Error("Chỉ admin được đổi API key");
+  }
+  const apiKey = String(req.body?.apiKey || "").trim();
+  if (!apiKey) {
+    res.status(400);
+    throw new Error("Thiếu apiKey");
+  }
+  const payload = await callGenerator(
+    "/api/setkey",
+    { apiKey },
+    15_000
+  );
+  res.json(payload);
+});
