@@ -5,6 +5,8 @@ import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import Tournament from "../models/tournamentModel.js";
 import Court from "../models/courtModel.js";
+import CourtStation from "../models/courtStationModel.js";
+import CourtCluster from "../models/courtClusterModel.js";
 
 const GENERATOR_URL = (
   process.env.OVERLAY_GENERATOR_URL || "http://127.0.0.1:3131"
@@ -35,7 +37,7 @@ async function fetchTournamentOr404(req, res) {
     throw new Error("Tournament ID không hợp lệ");
   }
   const tour = await Tournament.findById(req.params.id).select(
-    "name image overlayUrl createdBy managers tournamentMode"
+    "name image overlayUrl createdBy managers tournamentMode allowedCourtClusterIds"
   );
   if (!tour) {
     res.status(404);
@@ -135,13 +137,60 @@ export const getOverlayStatus = asyncHandler(async (req, res) => {
   }
 
   // Danh sách sân active của giải — dùng để render link overlay?courtId=... cho từng sân.
-  const courts = await Court.find({
-    tournament: tour._id,
-    isActive: true,
-  })
-    .select("_id name cluster order")
-    .sort({ cluster: 1, order: 1, name: 1 })
-    .lean();
+  // Có 2 mô hình sân đang cùng tồn tại:
+  //   1) CourtStation (mới) — thuộc CourtCluster; tournament link qua allowedCourtClusterIds
+  //   2) Court (cũ) — link trực tiếp tournament
+  // Gộp cả 2 để tương thích ngược, dedup theo _id.
+  const clusterIds = Array.isArray(tour.allowedCourtClusterIds)
+    ? tour.allowedCourtClusterIds
+    : [];
+  const [stations, legacyCourts, clusters] = await Promise.all([
+    clusterIds.length
+      ? CourtStation.find({
+          clusterId: { $in: clusterIds },
+          isActive: true,
+        })
+          .select("_id name code order clusterId")
+          .sort({ clusterId: 1, order: 1, name: 1 })
+          .lean()
+      : Promise.resolve([]),
+    Court.find({
+      tournament: tour._id,
+      isActive: true,
+    })
+      .select("_id name cluster order")
+      .sort({ cluster: 1, order: 1, name: 1 })
+      .lean(),
+    clusterIds.length
+      ? CourtCluster.find({ _id: { $in: clusterIds } })
+          .select("_id name")
+          .lean()
+      : Promise.resolve([]),
+  ]);
+
+  const clusterNameById = new Map(
+    clusters.map((c) => [String(c._id), c.name || ""])
+  );
+
+  const merged = [
+    ...stations.map((s) => ({
+      _id: String(s._id),
+      name: s.name,
+      cluster: clusterNameById.get(String(s.clusterId)) || "Main",
+      order: s.order || 0,
+    })),
+    ...legacyCourts.map((c) => ({
+      _id: String(c._id),
+      name: c.name,
+      cluster: c.cluster || "Main",
+      order: c.order || 0,
+    })),
+  ];
+
+  // Dedup theo _id (phòng khi 1 giải có cả 2 hệ)
+  const dedup = Array.from(
+    new Map(merged.map((c) => [c._id, c])).values()
+  );
 
   res.json({
     generatorUrl: GENERATOR_URL,
@@ -152,12 +201,7 @@ export const getOverlayStatus = asyncHandler(async (req, res) => {
       posterUrl: tour.image || "",
       tournamentName: tour.name || "",
     },
-    courts: courts.map((c) => ({
-      _id: String(c._id),
-      name: c.name,
-      cluster: c.cluster || "Main",
-      order: c.order || 0,
-    })),
+    courts: dedup,
   });
 });
 

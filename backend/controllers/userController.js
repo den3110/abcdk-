@@ -2460,14 +2460,12 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   }
 
   /* --------------------- Cooldown đổi nickname --------------------- */
-  // Admin/superAdmin được bypass để hỗ trợ vận hành.
-  const isPrivileged =
-    req.user?.role === "admin" || req.user?.role === "superAdmin";
+  // Áp dụng cho tất cả user (kể cả admin). Admin muốn sửa nickname phải
+  // thao tác qua trang admin (admin.pickletour.vn/admin/users) — endpoint riêng.
   if (
     nickname !== undefined &&
     nickname &&
-    nickname !== user.nickname &&
-    !isPrivileged
+    nickname !== user.nickname
   ) {
     const settings = await getSystemSettingsRuntime();
     const cooldownDays = Number(
@@ -2482,9 +2480,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
         const daysLeft = Math.ceil(msLeft / 86_400_000);
         res.status(400);
         throw new Error(
-          `Bạn chỉ có thể đổi biệt danh sau mỗi ${cooldownDays} ngày. Vui lòng thử lại sau ${daysLeft} ngày (${nextAllowedAt.toLocaleDateString(
-            "vi-VN"
-          )}).`
+          `Tài khoản của bạn đã đạt giới hạn đổi tên, vui lòng chờ ${daysLeft} ngày để tiếp tục thực hiện hoặc liên hệ với admin.`
         );
       }
     }
@@ -2528,8 +2524,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (nickname !== undefined) {
     const nicknameChanged = nickname !== user.nickname;
     user.nickname = nickname;
-    // Chỉ mark timestamp cho user thường — admin bypass cooldown thì cũng không reset timer.
-    if (nicknameChanged && !isPrivileged) {
+    if (nicknameChanged) {
       user.nicknameChangedAt = new Date();
     }
   }
