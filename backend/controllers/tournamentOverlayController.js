@@ -4,6 +4,7 @@
 import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import Tournament from "../models/tournamentModel.js";
+import Court from "../models/courtModel.js";
 
 const GENERATOR_URL = (
   process.env.OVERLAY_GENERATOR_URL || "http://127.0.0.1:3131"
@@ -132,6 +133,16 @@ export const getOverlayStatus = asyncHandler(async (req, res) => {
   } catch {
     /* generator down — trả set:false */
   }
+
+  // Danh sách sân active của giải — dùng để render link overlay?courtId=... cho từng sân.
+  const courts = await Court.find({
+    tournament: tour._id,
+    isActive: true,
+  })
+    .select("_id name cluster order")
+    .sort({ cluster: 1, order: 1, name: 1 })
+    .lean();
+
   res.json({
     generatorUrl: GENERATOR_URL,
     keySet: !!key.set,
@@ -141,6 +152,12 @@ export const getOverlayStatus = asyncHandler(async (req, res) => {
       posterUrl: tour.image || "",
       tournamentName: tour.name || "",
     },
+    courts: courts.map((c) => ({
+      _id: String(c._id),
+      name: c.name,
+      cluster: c.cluster || "Main",
+      order: c.order || 0,
+    })),
   });
 });
 

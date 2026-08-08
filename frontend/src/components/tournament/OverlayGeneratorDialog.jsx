@@ -213,38 +213,136 @@ export default function OverlayGeneratorDialog({
           </Alert>
         )}
 
-        {status?.currentUrl && !genResult && (
+        {status?.currentUrl && (
           <Alert severity="info" sx={{ mb: 2 }} icon={false}>
-            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-              <Typography variant="body2" fontWeight={600}>
-                Overlay hiện tại của giải:
-              </Typography>
-              <MuiLink
-                href={status.currentUrl}
-                target="_blank"
-                rel="noreferrer"
-                sx={{ wordBreak: "break-all" }}
+            <Stack spacing={1.2}>
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                flexWrap="wrap"
               >
-                {status.currentUrl}
-              </MuiLink>
-              <Tooltip title="Mở">
-                <IconButton
-                  size="small"
+                <Typography variant="body2" fontWeight={700}>
+                  Overlay hiện tại của giải:
+                </Typography>
+                <MuiLink
                   href={status.currentUrl}
                   target="_blank"
                   rel="noreferrer"
+                  sx={{ wordBreak: "break-all" }}
                 >
-                  <OpenInNewIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Copy">
-                <IconButton
-                  size="small"
-                  onClick={() => copyUrl(status.currentUrl)}
-                >
-                  <ContentCopyIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
+                  {status.currentUrl}
+                </MuiLink>
+                <Tooltip title="Mở">
+                  <IconButton
+                    size="small"
+                    href={status.currentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <OpenInNewIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Copy">
+                  <IconButton
+                    size="small"
+                    onClick={() => copyUrl(status.currentUrl)}
+                  >
+                    <ContentCopyIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+
+              {Array.isArray(status.courts) && status.courts.length > 0 ? (
+                <Box>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: "block", mb: 0.5 }}
+                  >
+                    Link overlay theo từng sân ({status.courts.length}):
+                  </Typography>
+                  <Stack spacing={0.5}>
+                    {status.courts.map((c) => {
+                      const url = `${status.currentUrl}${
+                        status.currentUrl.includes("?") ? "&" : "?"
+                      }courtId=${c._id}`;
+                      return (
+                        <Stack
+                          key={c._id}
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          sx={{
+                            bgcolor: "background.paper",
+                            border: "1px solid",
+                            borderColor: "divider",
+                            borderRadius: 1,
+                            px: 1,
+                            py: 0.5,
+                          }}
+                        >
+                          <Typography
+                            variant="body2"
+                            fontWeight={700}
+                            sx={{
+                              minWidth: 90,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {c.name}
+                          </Typography>
+                          {c.cluster && c.cluster !== "Main" && (
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ flexShrink: 0 }}
+                            >
+                              {c.cluster}
+                            </Typography>
+                          )}
+                          <MuiLink
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            sx={{
+                              fontSize: 12,
+                              wordBreak: "break-all",
+                              flex: 1,
+                              minWidth: 0,
+                            }}
+                          >
+                            {url}
+                          </MuiLink>
+                          <Tooltip title="Mở overlay sân này">
+                            <IconButton
+                              size="small"
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <OpenInNewIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Copy link">
+                            <IconButton
+                              size="small"
+                              onClick={() => copyUrl(url)}
+                            >
+                              <ContentCopyIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      );
+                    })}
+                  </Stack>
+                </Box>
+              ) : (
+                <Typography variant="caption" color="text.secondary">
+                  Giải chưa có sân nào — thêm sân trong "Quản lý sân" để có link
+                  overlay theo từng sân.
+                </Typography>
+              )}
             </Stack>
           </Alert>
         )}
