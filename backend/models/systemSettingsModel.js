@@ -103,6 +103,16 @@ const SystemSettingsSchema = new mongoose.Schema(
       sessionTTLHours: { type: Number, default: 72, min: 1, max: 720 },
     },
 
+    profile: {
+      // Số ngày user phải chờ giữa 2 lần đổi nickname. 0 = không giới hạn.
+      nicknameChangeCooldownDays: {
+        type: Number,
+        default: 60,
+        min: 0,
+        max: 365,
+      },
+    },
+
     uploads: {
       maxAvatarSizeMB: { type: Number, default: 5, min: 1, max: 50 },
       avatarLogoEnabled: { type: Boolean, default: true },

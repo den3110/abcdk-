@@ -181,6 +181,8 @@ const userSchema = new mongoose.Schema(
         return this.role === "user";
       },
     },
+    // Lần gần nhất user đổi nickname — dùng cho rate-limit (SystemSettings.profile.nicknameChangeCooldownDays).
+    nicknameChangedAt: { type: Date, default: null },
     phone: { type: String, unique: true, sparse: true, trim: true },
     phoneVerified: { type: Boolean, default: false },
     phoneVerifiedAt: { type: Date, default: null },

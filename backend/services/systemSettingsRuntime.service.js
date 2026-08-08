@@ -18,6 +18,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   },
   kyc: { enabled: true, autoApprove: false, faceMatchThreshold: 0.78 },
   security: { enforce2FAForAdmins: false, sessionTTLHours: 72 },
+  profile: { nicknameChangeCooldownDays: 60 },
   uploads: {
     maxAvatarSizeMB: 5,
     avatarLogoEnabled: true,
@@ -182,6 +183,10 @@ export function normalizeSystemSettings(doc = {}) {
     security: {
       ...DEFAULT_SYSTEM_SETTINGS.security,
       ...(source.security || {}),
+    },
+    profile: {
+      ...DEFAULT_SYSTEM_SETTINGS.profile,
+      ...(source.profile || {}),
     },
     uploads: {
       ...DEFAULT_SYSTEM_SETTINGS.uploads,

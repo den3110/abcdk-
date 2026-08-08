@@ -38,6 +38,7 @@ import { normalize_for_search } from "../utils/vnSearchNormalizer.js";
 import { makeLoginOtpToken } from "./userLoginController.js";
 import { toPublicUrl as toClientPublicUrl } from "../utils/publicUrl.js";
 import { queueUserAvatarOptimizationById } from "../services/userAvatarOptimization.service.js";
+import { getSystemSettingsRuntime } from "../services/systemSettingsRuntime.service.js";
 import { syncRegistrationProfileSnapshot } from "../services/registrationProfileSync.service.js";
 import {
   assertCapTokenOrThrow,
@@ -2458,6 +2459,37 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     cccd = undefined;
   }
 
+  /* --------------------- Cooldown đổi nickname --------------------- */
+  // Admin/superAdmin được bypass để hỗ trợ vận hành.
+  const isPrivileged =
+    req.user?.role === "admin" || req.user?.role === "superAdmin";
+  if (
+    nickname !== undefined &&
+    nickname &&
+    nickname !== user.nickname &&
+    !isPrivileged
+  ) {
+    const settings = await getSystemSettingsRuntime();
+    const cooldownDays = Number(
+      settings?.profile?.nicknameChangeCooldownDays ?? 60
+    );
+    if (cooldownDays > 0 && user.nicknameChangedAt) {
+      const nextAllowedAt = new Date(
+        user.nicknameChangedAt.getTime() + cooldownDays * 86_400_000
+      );
+      if (nextAllowedAt > new Date()) {
+        const msLeft = nextAllowedAt.getTime() - Date.now();
+        const daysLeft = Math.ceil(msLeft / 86_400_000);
+        res.status(400);
+        throw new Error(
+          `Bạn chỉ có thể đổi biệt danh sau mỗi ${cooldownDays} ngày. Vui lòng thử lại sau ${daysLeft} ngày (${nextAllowedAt.toLocaleDateString(
+            "vi-VN"
+          )}).`
+        );
+      }
+    }
+  }
+
   /* --------------------- Kiểm tra trùng lặp --------------------- */
   const checks = [];
   if (email && email !== user.email) checks.push({ email });
@@ -2493,7 +2525,14 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 
   /* ------------------------ Cập nhật field ----------------------- */
   if (name !== undefined) user.name = name;
-  if (nickname !== undefined) user.nickname = nickname;
+  if (nickname !== undefined) {
+    const nicknameChanged = nickname !== user.nickname;
+    user.nickname = nickname;
+    // Chỉ mark timestamp cho user thường — admin bypass cooldown thì cũng không reset timer.
+    if (nicknameChanged && !isPrivileged) {
+      user.nicknameChangedAt = new Date();
+    }
+  }
   if (phone !== undefined) user.phone = phone;
   if (dob !== undefined) user.dob = dob ? new Date(dob) : null;
   if (province !== undefined) user.province = province;
