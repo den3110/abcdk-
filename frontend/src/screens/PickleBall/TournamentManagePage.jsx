@@ -74,6 +74,7 @@ import {
   HowToReg as RefereeIcon,
   SportsScore as ScoreboardIcon,
   Movie as MovieIcon,
+  AutoFixHigh as AutoFixHighIcon,
   LiveTv as LiveMonitorIcon,
   Print as PrintIcon,
   AutoAwesome as AutoAwesomeIcon,
@@ -119,6 +120,7 @@ import TeamTournamentManageView from "../../components/teamTournament/TeamTourna
 import SEOHead from "../../components/SEOHead";
 import RefereeScoreDialog from "../../components/referee/RefereeScoreDialog";
 import OverlayWidgetsPanel from "../../components/overlay/OverlayWidgetsPanel";
+import OverlayGeneratorDialog from "../../components/tournament/OverlayGeneratorDialog";
 import {
   ActionChipsLocalized,
   BulkVideoDialogLocalized,
@@ -2031,6 +2033,7 @@ export default function TournamentManagePage() {
   const [managerMgrOpen, setManagerMgrOpen] = useState(false);
   const [manageCourtClustersOpen, setManageCourtClustersOpen] = useState(false);
   const [refMgrOpen, setRefMgrOpen] = useState(false);
+  const [overlayGenOpen, setOverlayGenOpen] = useState(false);
   const openManageCourts = useCallback(
     () => setManageCourtClustersOpen(true),
     [],
@@ -3813,7 +3816,23 @@ export default function TournamentManagePage() {
           >
             Duals & Scoring
           </Button>
+          <Button
+            variant="outlined"
+            size="large"
+            color="warning"
+            startIcon={<AutoFixHighIcon />}
+            onClick={() => setOverlayGenOpen(true)}
+          >
+            Tạo overlay
+          </Button>
         </Stack>
+        <OverlayGeneratorDialog
+          open={overlayGenOpen}
+          onClose={() => setOverlayGenOpen(false)}
+          tourId={id}
+          defaultName={tour?.name || ""}
+          defaultPosterUrl={tour?.image || ""}
+        />
       </Box>
     );
   }
@@ -4151,6 +4170,22 @@ export default function TournamentManagePage() {
                 onClick={openLiveSetup}
               >
                 {t("tournaments.manage.liveSetup")}
+              </Button>
+            </Tooltip>
+
+            {/* Tạo scoreboard overlay từ poster + tên giải (Claude vision) */}
+            <Tooltip
+              title="Tạo scoreboard overlay từ poster của giải bằng AI"
+              arrow
+            >
+              <Button
+                variant="outlined"
+                size="small"
+                color="warning"
+                startIcon={<AutoFixHighIcon />}
+                onClick={() => setOverlayGenOpen(true)}
+              >
+                Tạo overlay
               </Button>
             </Tooltip>
 
@@ -5519,6 +5554,14 @@ export default function TournamentManagePage() {
         onChanged={() => {
           refetchTour?.();
         }}
+      />
+
+      <OverlayGeneratorDialog
+        open={overlayGenOpen}
+        onClose={() => setOverlayGenOpen(false)}
+        tourId={id}
+        defaultName={tour?.name || ""}
+        defaultPosterUrl={tour?.image || ""}
       />
 
       {/* Thiết lập LIVE TOÀN GIẢI */}

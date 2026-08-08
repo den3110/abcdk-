@@ -156,6 +156,8 @@ const tournamentSchema = new mongoose.Schema(
       maxlength: 32,
     },
     image: { type: String, default: null, required: true },
+    // URL scoreboard overlay đã generate + deploy (VD https://scoreboard.pickletour.vn/xxx.html).
+    overlayUrl: { type: String, default: "", trim: true },
     registrationPosterConfig: {
       type: mongoose.Schema.Types.Mixed,
       default: null,

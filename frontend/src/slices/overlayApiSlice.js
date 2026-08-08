@@ -32,6 +32,41 @@ export const overlayApiSlice = apiSlice.injectEndpoints({
         ];
       },
     }),
+    // === Tournament overlay generator (admin/manager) ===
+    getTournamentOverlayStatus: builder.query({
+      query: (tourId) => ({
+        url: `/api/admin/tournaments/${tourId}/overlay/status`,
+      }),
+      providesTags: (r, e, tourId) => [
+        { type: "TournamentOverlay", id: tourId },
+      ],
+    }),
+    generateTournamentOverlay: builder.mutation({
+      query: ({ tourId, ...body }) => ({
+        url: `/api/admin/tournaments/${tourId}/overlay/generate`,
+        method: "POST",
+        body,
+      }),
+    }),
+    deployTournamentOverlay: builder.mutation({
+      query: ({ tourId, ...body }) => ({
+        url: `/api/admin/tournaments/${tourId}/overlay/deploy`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (r, e, { tourId }) => [
+        { type: "TournamentOverlay", id: tourId },
+      ],
+    }),
+    clearTournamentOverlay: builder.mutation({
+      query: (tourId) => ({
+        url: `/api/admin/tournaments/${tourId}/overlay`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (r, e, tourId) => [
+        { type: "TournamentOverlay", id: tourId },
+      ],
+    }),
   }),
   overrideExisting: false,
 });
@@ -40,4 +75,8 @@ export const {
   useGetPublicGuideLinkQuery,
   useGetOverlayConfigQuery,
   useLazyGetOverlayConfigQuery,
+  useGetTournamentOverlayStatusQuery,
+  useGenerateTournamentOverlayMutation,
+  useDeployTournamentOverlayMutation,
+  useClearTournamentOverlayMutation,
 } = overlayApiSlice;
