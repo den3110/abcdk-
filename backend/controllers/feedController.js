@@ -7,6 +7,8 @@ import FeedPost, { REACTION_TYPES } from "../models/feedPostModel.js";
 import FeedComment from "../models/feedCommentModel.js";
 import FeedReport, { REPORT_REASONS } from "../models/feedReportModel.js";
 import User from "../models/userModel.js";
+import { getBlockedIdSet } from "./friendController.js";
+import { sendTelegramMessage } from "../services/telegram.service.js";
 import Ranking from "../models/rankingModel.js";
 import { attachTournamentRegCounts } from "../utils/enrichTournament.js";
 import { encodeCursor, decodeCursor } from "../utils/cursor.js";
@@ -89,15 +91,22 @@ async function attachRecentComments(posts, viewerId) {
     .filter(Boolean);
   if (!postIds.length) return;
 
+  // Ẩn comment của user đã chặn / bị chặn khỏi preview — Apple 1.2
+  const blocked = await getBlockedIdSet(viewerId);
+  const match = {
+    post: { $in: postIds },
+    parent: null,
+    isHidden: false,
+    deletedAt: null,
+  };
+  if (blocked.size) {
+    match.author = {
+      $nin: Array.from(blocked).map((id) => new mongoose.Types.ObjectId(id)),
+    };
+  }
+
   const rows = await FeedComment.aggregate([
-    {
-      $match: {
-        post: { $in: postIds },
-        parent: null,
-        isHidden: false,
-        deletedAt: null,
-      },
-    },
+    { $match: match },
     { $sort: { post: 1, createdAt: -1 } },
     {
       $group: {
@@ -251,6 +260,21 @@ export const listFeed = asyncHandler(async (req, res) => {
     q.linkedTournament = tournament;
   if (pinned) q.isPinned = true;
 
+  // Loại bỏ bài của user mà viewer đã chặn (hoặc bị chặn) — Apple 1.2
+  const blocked = await getBlockedIdSet(viewer?._id);
+  if (blocked.size) {
+    if (q.author) {
+      // Nếu đang lọc theo author cụ thể mà author đó nằm trong blocked → trả rỗng.
+      if (blocked.has(String(q.author))) {
+        return res.json({ items: [], nextCursor: null, hasMore: false });
+      }
+    } else {
+      q.author = {
+        $nin: Array.from(blocked).map((id) => new mongoose.Types.ObjectId(id)),
+      };
+    }
+  }
+
   if (cursor?.payload?.lastId && mongoose.isValidObjectId(cursor.payload.lastId)) {
     q._id = { $lt: new mongoose.Types.ObjectId(cursor.payload.lastId) };
   }
@@ -290,6 +314,14 @@ export const getPost = asyncHandler(async (req, res) => {
   if (post.isHidden && !isAdmin(viewer)) {
     res.status(404);
     throw new Error("Không tìm thấy bài viết");
+  }
+  // Ẩn khỏi user đã chặn (hoặc bị chặn) — Apple 1.2
+  if (viewer?._id && post.author?._id) {
+    const blocked = await getBlockedIdSet(viewer._id);
+    if (blocked.has(String(post.author._id))) {
+      res.status(404);
+      throw new Error("Không tìm thấy bài viết");
+    }
   }
   const dto = toPostDTO(post, viewer?._id);
   await Promise.all([
@@ -522,6 +554,12 @@ export const listComments = asyncHandler(async (req, res) => {
 
   const cursor = decodeCursor(req.query.cursor);
   const q = { post: postId, parent, deletedAt: null, isHidden: false };
+  const blocked = await getBlockedIdSet(viewer?._id);
+  if (blocked.size) {
+    q.author = {
+      $nin: Array.from(blocked).map((id) => new mongoose.Types.ObjectId(id)),
+    };
+  }
   if (cursor?.payload?.lastId && mongoose.isValidObjectId(cursor.payload.lastId)) {
     q._id = { $lt: new mongoose.Types.ObjectId(cursor.payload.lastId) };
   }
@@ -554,6 +592,14 @@ export const createComment = asyncHandler(async (req, res) => {
   if (!post || post.deletedAt || post.isHidden) {
     res.status(404);
     throw new Error("Không tìm thấy bài viết");
+  }
+  // Chặn comment nếu viewer và author bị blocked lẫn nhau — Apple 1.2
+  if (post.author && String(post.author) !== String(viewer._id)) {
+    const blocked = await getBlockedIdSet(viewer._id);
+    if (blocked.has(String(post.author))) {
+      res.status(403);
+      throw new Error("Không thể bình luận: đã chặn hoặc bị chặn.");
+    }
   }
   // Reply gắn về top-level: nếu client gửi parent = reply, promote lên parent gốc
   let parent = null;
@@ -687,6 +733,18 @@ export const reportTarget = (targetType) =>
 
     // tăng counter cho post (giúp admin filter nhanh)
     await FeedPost.updateOne({ _id: postId }, { $inc: { reportCount: 1 } });
+
+    // Notify admin — Apple 1.2 yêu cầu developer được thông báo về content xấu
+    const reporterName = viewer?.nickname || viewer?.name || String(viewer?._id);
+    sendTelegramMessage(
+      `[REPORT ${targetType.toUpperCase()}] ${reporterName} (${
+        viewer._id
+      }) báo cáo ${targetType} ${targetId} — lý do: ${reason}${
+        req.body?.note ? `\nGhi chú: ${String(req.body.note).slice(0, 300)}` : ""
+      }\nLink admin: /admin/feed/reports`
+    ).catch((err) =>
+      console.error("[report] telegram notify failed:", err?.message)
+    );
 
     res.status(201).json({ success: true });
   });

@@ -8,6 +8,7 @@ import { encodeCursor, decodeCursor } from "../utils/cursor.js";
 import { getIO } from "../socket/index.js";
 import { sendToUserIds } from "../services/notifications/expoPush.js";
 import { createInAppNotifications } from "../services/inAppNotify.js";
+import { sendTelegramMessage } from "../services/telegram.service.js";
 
 const USER_FIELDS = "_id name nickname avatar role";
 
@@ -240,6 +241,139 @@ export const removeEdge = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
+/* ─────────────────────── BLOCK / UNBLOCK ─────────────────────── */
+
+// POST /api/friends/block/:userId
+// Chặn 1 user: xoá friendship cũ (nếu có) rồi tạo edge status="blocked",
+// requester = viewer, addressee = peer, blockedBy = viewer.
+export const blockUser = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const peerId = req.params.userId;
+  if (!mongoose.isValidObjectId(peerId)) {
+    res.status(400);
+    throw new Error("userId không hợp lệ");
+  }
+  if (String(peerId) === String(viewer._id)) {
+    res.status(400);
+    throw new Error("Không thể tự chặn chính mình");
+  }
+  const peer = await User.findById(peerId).select("_id nickname name");
+  if (!peer) {
+    res.status(404);
+    throw new Error("Không tìm thấy user");
+  }
+
+  let edge = await findEdge(viewer._id, peerId);
+  if (edge) {
+    if (edge.status === "blocked") {
+      // Đã bị chặn — nếu chính viewer đang chặn thì idempotent OK,
+      // nếu peer chặn viewer thì cấm (không cho override).
+      if (String(edge.blockedBy) === String(viewer._id)) {
+        return res.json({ status: "blocked", edgeId: edge._id });
+      }
+      res.status(403);
+      throw new Error("User này đã chặn bạn");
+    }
+    edge.status = "blocked";
+    edge.blockedBy = viewer._id;
+    edge.acceptedAt = null;
+    await edge.save();
+  } else {
+    edge = await Friendship.create({
+      requester: viewer._id,
+      addressee: peerId,
+      status: "blocked",
+      blockedBy: viewer._id,
+    });
+  }
+
+  // Emit realtime để viewer app cập nhật ngay (feed/chat filter lại)
+  emitToUser(viewer._id, "friend:blocked", {
+    userId: String(peerId),
+    edgeId: String(edge._id),
+  });
+  emitToUser(peerId, "friend:blocked-by", {
+    userId: String(viewer._id),
+  });
+
+  // Notify admin/developer (Apple Guideline 1.2 yêu cầu)
+  const viewerName = await pickName(viewer._id);
+  const peerName = peer.nickname || peer.name || "user";
+  sendTelegramMessage(
+    `[BLOCK] ${viewerName} (${viewer._id}) chặn ${peerName} (${peer._id})`
+  ).catch((err) => console.error("[block] telegram notify failed:", err?.message));
+
+  res.json({ status: "blocked", edgeId: edge._id });
+});
+
+// DELETE /api/friends/block/:userId
+export const unblockUser = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const peerId = req.params.userId;
+  if (!mongoose.isValidObjectId(peerId)) {
+    res.status(400);
+    throw new Error("userId không hợp lệ");
+  }
+  const edge = await findEdge(viewer._id, peerId);
+  if (!edge || edge.status !== "blocked") {
+    return res.json({ success: true });
+  }
+  if (String(edge.blockedBy) !== String(viewer._id)) {
+    res.status(403);
+    throw new Error("Bạn không phải người chặn user này");
+  }
+  await edge.deleteOne();
+  emitToUser(viewer._id, "friend:unblocked", { userId: String(peerId) });
+  res.json({ success: true });
+});
+
+// GET /api/friends/blocked
+export const listBlocked = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const docs = await Friendship.find({
+    status: "blocked",
+    blockedBy: viewer._id,
+  })
+    .sort({ _id: -1 })
+    .limit(200)
+    .populate("requester", USER_FIELDS)
+    .populate("addressee", USER_FIELDS);
+  const items = docs.map((d) => {
+    const isReq = String(d.requester?._id || d.requester) === String(viewer._id);
+    const peer = isReq ? d.addressee : d.requester;
+    return {
+      edgeId: d._id,
+      user: peer,
+      blockedAt: d.updatedAt,
+    };
+  });
+  res.json({ items });
+});
+
+/**
+ * Helper dùng chung: trả về Set<string> các userId mà viewer:
+ *   - đã chặn (blockedBy = viewer)
+ *   - hoặc bị chặn bởi (blockedBy = peer)
+ * Dùng để filter feed/chat/comments 2 chiều.
+ */
+export async function getBlockedIdSet(viewerId) {
+  if (!viewerId || !mongoose.isValidObjectId(viewerId)) return new Set();
+  const rows = await Friendship.find({
+    status: "blocked",
+    $or: [{ requester: viewerId }, { addressee: viewerId }],
+  })
+    .select("requester addressee")
+    .lean();
+  const s = new Set();
+  const vid = String(viewerId);
+  for (const r of rows) {
+    const other =
+      String(r.requester) === vid ? String(r.addressee) : String(r.requester);
+    s.add(other);
+  }
+  return s;
+}
+
 /* ─────────────────────── LISTINGS ─────────────────────── */
 
 // GET /api/friends  (accepted)
@@ -320,7 +454,11 @@ export const getStatus = asyncHandler(async (req, res) => {
     });
   }
   if (edge.status === "blocked")
-    return res.json({ status: "blocked", edgeId: edge._id });
+    return res.json({
+      status: "blocked",
+      edgeId: edge._id,
+      blockedBy: edge.blockedBy ? String(edge.blockedBy) : null,
+    });
   return res.json({ status: "none" });
 });
 

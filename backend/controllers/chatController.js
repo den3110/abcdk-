@@ -11,6 +11,7 @@ import { encodeCursor, decodeCursor } from "../utils/cursor.js";
 import { getIO } from "../socket/index.js";
 import { notifyChatMessage } from "../services/chatNotifier.js";
 import { attachTournamentRegCounts } from "../utils/enrichTournament.js";
+import { getBlockedIdSet } from "./friendController.js";
 
 const USER_FIELDS = "_id name nickname avatar role";
 
@@ -90,6 +91,20 @@ export const listConversations = asyncHandler(async (req, res) => {
     hiddenFor: { $ne: viewer._id },
     isBlocked: false,
   };
+  // Loại DM với user đã chặn (hoặc bị chặn) — Apple 1.2
+  const blocked = await getBlockedIdSet(viewer._id);
+  if (blocked.size) {
+    q.$nor = [
+      {
+        type: "dm",
+        participants: {
+          $in: Array.from(blocked).map(
+            (id) => new mongoose.Types.ObjectId(id)
+          ),
+        },
+      },
+    ];
+  }
   if (cursor?.payload?.lastAt) {
     q.lastMessageAt = { $lt: new Date(cursor.payload.lastAt) };
   }
@@ -126,6 +141,13 @@ export const openDmConversation = asyncHandler(async (req, res) => {
   if (!peer) {
     res.status(404);
     throw new Error("Không tìm thấy user");
+  }
+
+  // Chặn tạo/mở DM giữa 2 user đang có quan hệ blocked (bất kỳ hướng) — Apple 1.2
+  const blocked = await getBlockedIdSet(viewer._id);
+  if (blocked.has(String(peerId))) {
+    res.status(403);
+    throw new Error("Không thể nhắn tin: đã chặn hoặc bị chặn.");
   }
 
   const sorted = [String(viewer._id), String(peerId)].sort();
@@ -308,6 +330,19 @@ export const sendMessage = asyncHandler(async (req, res) => {
   if (conv.isBlocked) {
     res.status(403);
     throw new Error("Hội thoại đã bị khoá");
+  }
+  // Chặn gửi nếu là DM giữa 2 user đang blocked lẫn nhau — Apple 1.2
+  if (conv.type === "dm") {
+    const other = (conv.participants || [])
+      .map((p) => String(p?._id || p))
+      .find((p) => p !== String(viewer._id));
+    if (other) {
+      const blocked = await getBlockedIdSet(viewer._id);
+      if (blocked.has(other)) {
+        res.status(403);
+        throw new Error("Không thể gửi tin nhắn: đã chặn hoặc bị chặn.");
+      }
+    }
   }
   const content = String(req.body?.content || "").slice(0, 4000);
   const attachments = Array.isArray(req.body?.attachments)
