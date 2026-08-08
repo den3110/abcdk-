@@ -10,6 +10,12 @@ import {
   updateUserSuperAdmin,
 } from "../controllers/admin/adminController.js";
 import {
+  listNicknameRequests,
+  approveNicknameRequest,
+  rejectNicknameRequest,
+  resetNicknameCooldown,
+} from "../controllers/admin/adminNicknameController.js";
+import {
   adminListVenues,
   adminGetVenue,
   adminSetVenueStatus,
@@ -471,6 +477,12 @@ router.patch("/users/:id/super-admin", requireSuperAdmin, updateUserSuperAdmin);
 router.delete("/users/:id", deleteUser);
 router.put("/users/:id", updateUserInfo);
 router.put("/users/:id/kyc", reviewUserKyc); // approve / reject
+
+// ===== Duyệt đổi biệt danh + reset cooldown =====
+router.get("/nickname-requests", listNicknameRequests);
+router.post("/nickname-requests/:id/approve", approveNicknameRequest);
+router.post("/nickname-requests/:id/reject", rejectNicknameRequest);
+router.post("/users/:id/reset-nickname-cooldown", resetNicknameCooldown);
 
 // ===== Quản lý đặt sân (venues/bookings) =====
 router.get("/venues", adminListVenues);

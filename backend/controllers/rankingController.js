@@ -2126,6 +2126,7 @@ export const getRankings = asyncHandler(async (req, res) => {
     cccd: 1,
     cccdImages: 1,
     note: 1,
+    nicknameChangedAt: 1,
   };
   const userProject = isAdminForProjection
     ? { ...baseUserProject, ...adminExtraProject }
@@ -2658,6 +2659,7 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
     cccd: 1,
     cccdImages: 1,
     note: 1,
+    nicknameChangedAt: 1,
   };
   const userProject = isAdminForProjection
     ? { ...baseUserProject, ...adminExtraProject }
@@ -2969,6 +2971,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     cccd: 1,
     cccdImages: 1,
     note: 1,
+    nicknameChangedAt: 1,
   };
   const userProject = isAdminForProjection
     ? { ...baseUserProject, ...adminExtraProject }
@@ -3332,6 +3335,7 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
     cccd: 1,
     cccdImages: 1,
     note: 1,
+    nicknameChangedAt: 1,
   };
   const userProject = isAdminForProjection
     ? { ...baseUserProject, ...adminExtraProject }

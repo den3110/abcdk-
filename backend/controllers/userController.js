@@ -39,6 +39,8 @@ import { makeLoginOtpToken } from "./userLoginController.js";
 import { toPublicUrl as toClientPublicUrl } from "../utils/publicUrl.js";
 import { queueUserAvatarOptimizationById } from "../services/userAvatarOptimization.service.js";
 import { getSystemSettingsRuntime } from "../services/systemSettingsRuntime.service.js";
+import NicknameChangeRequest from "../models/nicknameChangeRequestModel.js";
+import { sendTelegramMessage } from "../services/telegram.service.js";
 import { syncRegistrationProfileSnapshot } from "../services/registrationProfileSync.service.js";
 import {
   assertCapTokenOrThrow,
@@ -2459,9 +2461,15 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     cccd = undefined;
   }
 
-  /* --------------------- Cooldown đổi nickname --------------------- */
-  // Áp dụng cho tất cả user (kể cả admin). Admin muốn sửa nickname phải
-  // thao tác qua trang admin (admin.pickletour.vn/admin/users) — endpoint riêng.
+  /* --------------------- Cooldown + duyệt đổi nickname --------------------- */
+  // Áp dụng cho tất cả user (kể cả admin) qua endpoint user.
+  // Admin muốn sửa hộ user khác → trang /admin/users (endpoint riêng).
+  //
+  // Luồng: kiểm cooldown trước → nếu qua cooldown → KHÔNG apply nickname luôn,
+  // tạo NicknameChangeRequest chờ admin duyệt. Cooldown chỉ tính khi
+  // request được duyệt (approve).
+  let nicknameChangeRequestPending = false;
+  let nicknameChangeRequestNewName = null;
   if (
     nickname !== undefined &&
     nickname &&
@@ -2476,14 +2484,32 @@ const updateUserProfile = asyncHandler(async (req, res) => {
         user.nicknameChangedAt.getTime() + cooldownDays * 86_400_000
       );
       if (nextAllowedAt > new Date()) {
-        const msLeft = nextAllowedAt.getTime() - Date.now();
-        const daysLeft = Math.ceil(msLeft / 86_400_000);
+        const daysLeft = Math.ceil(
+          (nextAllowedAt.getTime() - Date.now()) / 86_400_000
+        );
         res.status(400);
         throw new Error(
           `Tài khoản của bạn đã đạt giới hạn đổi tên, vui lòng chờ ${daysLeft} ngày để tiếp tục thực hiện hoặc liên hệ với admin.`
         );
       }
     }
+
+    // Kiểm request pending trùng — user chỉ có 1 request pending tại 1 lúc
+    const existingPending = await NicknameChangeRequest.findOne({
+      user: user._id,
+      status: "pending",
+    });
+    if (existingPending) {
+      res.status(400);
+      throw new Error(
+        `Bạn đã có yêu cầu đổi biệt danh sang "${existingPending.newNickname}" đang chờ admin duyệt. Vui lòng chờ.`
+      );
+    }
+
+    // Đánh dấu để KHÔNG apply nickname xuống DB — sẽ tạo request sau save.
+    nicknameChangeRequestPending = true;
+    nicknameChangeRequestNewName = nickname;
+    nickname = undefined; // ngăn đoạn Cập nhật field bên dưới ghi nickname mới
   }
 
   /* --------------------- Kiểm tra trùng lặp --------------------- */
@@ -2556,6 +2582,37 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     queueUserAvatarOptimizationById(updatedUser._id);
   }
 
+  // Nếu có yêu cầu đổi nickname → tạo request pending (sau khi user đã save).
+  let nicknamePendingRequest = null;
+  if (nicknameChangeRequestPending && nicknameChangeRequestNewName) {
+    // Kiểm trùng nickname với user khác trước khi tạo request để user biết sớm
+    const dupNick = await User.findOne({
+      _id: { $ne: user._id },
+      nickname: nicknameChangeRequestNewName,
+    }).select("_id");
+    if (dupNick) {
+      res.status(400);
+      throw new Error("Nickname đã có người dùng, hãy chọn tên khác");
+    }
+    nicknamePendingRequest = await NicknameChangeRequest.create({
+      user: updatedUser._id,
+      oldNickname: updatedUser.nickname || "",
+      newNickname: nicknameChangeRequestNewName,
+      status: "pending",
+      requestedAt: new Date(),
+      snapshot: {
+        name: updatedUser.name || "",
+        phone: updatedUser.phone || "",
+        email: updatedUser.email || "",
+        province: updatedUser.province || "",
+      },
+    });
+    // Notify admin qua Telegram (best effort)
+    sendTelegramMessage(
+      `[NICKNAME] ${updatedUser.name || updatedUser.nickname} (${updatedUser._id}) xin đổi biệt danh: "${updatedUser.nickname || "-"}" → "${nicknameChangeRequestNewName}". Duyệt tại /admin/nickname-requests`
+    ).catch(() => {});
+  }
+
   // ✅ ADD: ghi audit log (không log giá trị password, chỉ đánh dấu "đã đổi")
   try {
     const after = updatedUser.toObject({ depopulate: true });
@@ -2607,6 +2664,15 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     createdAt: updatedUser.createdAt,
     updatedAt: updatedUser.updatedAt,
     gender: updatedUser.gender,
+    // Nếu có xin đổi nickname → client cần toast riêng
+    nicknamePendingRequest: nicknamePendingRequest
+      ? {
+          _id: nicknamePendingRequest._id,
+          newNickname: nicknamePendingRequest.newNickname,
+          message:
+            "Yêu cầu đổi biệt danh đã được gửi. Admin sẽ duyệt trong thời gian sớm nhất.",
+        }
+      : null,
   });
 });
 
