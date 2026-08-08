@@ -40,7 +40,7 @@ import { toPublicUrl as toClientPublicUrl } from "../utils/publicUrl.js";
 import { queueUserAvatarOptimizationById } from "../services/userAvatarOptimization.service.js";
 import { getSystemSettingsRuntime } from "../services/systemSettingsRuntime.service.js";
 import NicknameChangeRequest from "../models/nicknameChangeRequestModel.js";
-import { sendTelegramMessage } from "../services/telegram.service.js";
+import { notifyNewNicknameRequest } from "../services/telegram/notifyNicknameRequest.js";
 import { syncRegistrationProfileSnapshot } from "../services/registrationProfileSync.service.js";
 import {
   assertCapTokenOrThrow,
@@ -2607,10 +2607,10 @@ const updateUserProfile = asyncHandler(async (req, res) => {
         province: updatedUser.province || "",
       },
     });
-    // Notify admin qua Telegram (best effort)
-    sendTelegramMessage(
-      `[NICKNAME] ${updatedUser.name || updatedUser.nickname} (${updatedUser._id}) xin đổi biệt danh: "${updatedUser.nickname || "-"}" → "${nicknameChangeRequestNewName}". Duyệt tại /admin/nickname-requests`
-    ).catch(() => {});
+    // Notify admin qua Telegram (best effort) — có inline button Duyệt/Từ chối
+    notifyNewNicknameRequest(nicknamePendingRequest, updatedUser).catch(
+      (err) => console.warn("[notifyNewNicknameRequest] failed:", err?.message)
+    );
   }
 
   // ✅ ADD: ghi audit log (không log giá trị password, chỉ đánh dấu "đã đổi")

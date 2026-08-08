@@ -16,6 +16,11 @@ import Tournament from "../models/tournamentModel.js";
 import Registration from "../models/registrationModel.js";
 import { notifyComplaintStatusChange } from "../services/telegram/notifyNewComplaint.js";
 import { notifyKycReviewed } from "../services/telegram/telegramNotifyKyc.js";
+import {
+  approveRequest as approveNicknameServiceRequest,
+  rejectRequest as rejectNicknameServiceRequest,
+} from "../services/nicknameRequest.service.js";
+import { buildResultHtml as buildNicknameResultHtml } from "../services/telegram/notifyNicknameRequest.js";
 import SportConnectService from "../services/sportconnect.service.js";
 import { replySafe } from "../utils/telegramSafe.js";
 import {
@@ -512,6 +517,75 @@ export async function initKycBot(app) {
           await notifyKycReviewed(user, action);
         } catch (e) {
           console.warn("[notifyKycReviewed] failed:", e?.message);
+        }
+      }),
+    );
+
+    // ===== Nickname change: Duyệt / Từ chối =====
+    bot.action(
+      /^nick:(approve|reject):([a-fA-F0-9]{24})$/,
+      safe("nick:approve|reject", async (ctx) => {
+        const [, action, reqId] = ctx.match || [];
+        await ctx.answerCbQuery("Đang xử lý…");
+
+        const actorLabel = ctx.from?.username
+          ? "@" + ctx.from.username
+          : [ctx.from?.first_name, ctx.from?.last_name]
+              .filter(Boolean)
+              .join(" ") ||
+            ("id:" + ctx.from?.id);
+
+        const result =
+          action === "approve"
+            ? await approveNicknameServiceRequest(reqId, null)
+            : await rejectNicknameServiceRequest(
+                reqId,
+                null,
+                `Từ chối qua Telegram bởi ${actorLabel}`
+              );
+
+        if (!result.ok) {
+          await ctx.answerCbQuery(result.error || "Thao tác thất bại", {
+            show_alert: true,
+          });
+          // Nếu request đã bị xử lý trước đó → gỡ luôn keyboard
+          if (/đã (approved|rejected|cancelled)/i.test(result.error || "")) {
+            try {
+              await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+            } catch {}
+          }
+          return;
+        }
+
+        await ctx.answerCbQuery(
+          action === "approve" ? "Đã duyệt ✅" : "Đã từ chối ❌"
+        );
+
+        // Edit message gốc: gỡ inline_keyboard + thêm dòng kết quả
+        try {
+          const actionLabel =
+            action === "approve"
+              ? "✅ ĐÃ DUYỆT đổi biệt danh sang"
+              : "❌ TỪ CHỐI đổi biệt danh sang";
+          const originalText =
+            ctx.update?.callback_query?.message?.text || "";
+          const resultHtml = buildNicknameResultHtml({
+            request: result.request,
+            resolvedBy: actorLabel,
+            actionLabel,
+          });
+          // Giữ nội dung cũ (dạng plain), thêm block kết quả HTML bên dưới
+          const combined =
+            (originalText ? originalText.replace(/</g, "&lt;") + "\n\n" : "") +
+            "━━━━━━━━━━\n" +
+            resultHtml;
+          await ctx.editMessageText(combined, {
+            parse_mode: "HTML",
+            reply_markup: { inline_keyboard: [] },
+            disable_web_page_preview: true,
+          });
+        } catch (e) {
+          console.warn("[nick:editMessage] failed:", e?.message);
         }
       }),
     );

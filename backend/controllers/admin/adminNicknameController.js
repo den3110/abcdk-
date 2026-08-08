@@ -4,8 +4,10 @@ import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import NicknameChangeRequest from "../../models/nicknameChangeRequestModel.js";
 import User from "../../models/userModel.js";
-import { createInAppNotifications } from "../../services/inAppNotify.js";
-import { sendToUserIds } from "../../services/notifications/expoPush.js";
+import {
+  approveRequest,
+  rejectRequest,
+} from "../../services/nicknameRequest.service.js";
 
 /* ─────────────────── LIST + GET ─────────────────── */
 
@@ -54,118 +56,28 @@ export const listNicknameRequests = asyncHandler(async (req, res) => {
 
 // POST /api/admin/nickname-requests/:id/approve
 export const approveNicknameRequest = asyncHandler(async (req, res) => {
-  const reqDoc = await NicknameChangeRequest.findById(req.params.id);
-  if (!reqDoc) {
-    res.status(404);
-    throw new Error("Không tìm thấy yêu cầu");
-  }
-  if (reqDoc.status !== "pending") {
+  const result = await approveRequest(req.params.id, req.user?._id);
+  if (!result.ok) {
     res.status(400);
-    throw new Error(`Yêu cầu đã ${reqDoc.status}, không thể duyệt lại`);
+    throw new Error(result.error || "Duyệt thất bại");
   }
-
-  const user = await User.findById(reqDoc.user);
-  if (!user) {
-    res.status(404);
-    throw new Error("User không còn tồn tại");
-  }
-
-  // Recheck duplicate lúc duyệt (nickname unique)
-  const dup = await User.findOne({
-    _id: { $ne: user._id },
-    nickname: reqDoc.newNickname,
-  }).select("_id");
-  if (dup) {
-    reqDoc.status = "rejected";
-    reqDoc.resolvedBy = req.user._id;
-    reqDoc.resolvedAt = new Date();
-    reqDoc.rejectionReason = "Nickname đã có người dùng khác";
-    await reqDoc.save();
-    res.status(400);
-    throw new Error(
-      "Nickname đã có người khác dùng — đã tự động từ chối yêu cầu này."
-    );
-  }
-
-  // Apply đổi nickname + đánh dấu cooldown
-  const oldNickname = user.nickname || "";
-  user.nickname = reqDoc.newNickname;
-  user.nicknameChangedAt = new Date();
-  await user.save();
-
-  reqDoc.oldNickname = oldNickname;
-  reqDoc.status = "approved";
-  reqDoc.resolvedBy = req.user._id;
-  reqDoc.resolvedAt = new Date();
-  await reqDoc.save();
-
-  // Notify user
-  createInAppNotifications({
-    recipients: [String(user._id)],
-    actorId: req.user._id,
-    type: "NICKNAME_APPROVED",
-    title: "Đổi biệt danh thành công",
-    body: `Biệt danh của bạn đã được đổi thành "${reqDoc.newNickname}".`,
-    url: `/profile/${user._id}`,
-    data: { requestId: String(reqDoc._id) },
-  }).catch(() => {});
-  sendToUserIds(
-    [String(user._id)],
-    {
-      title: "Đổi biệt danh thành công",
-      body: `Biệt danh đã được cập nhật thành "${reqDoc.newNickname}".`,
-      data: { url: `/profile/${user._id}`, kind: "NICKNAME_APPROVED" },
-    },
-    { ttl: 3600 }
-  ).catch(() => {});
-
-  res.json({ success: true, request: reqDoc });
+  res.json({ success: true, request: result.request });
 });
 
 /* ─────────────────── REJECT ─────────────────── */
 
 // POST /api/admin/nickname-requests/:id/reject  body: { reason }
 export const rejectNicknameRequest = asyncHandler(async (req, res) => {
-  const reqDoc = await NicknameChangeRequest.findById(req.params.id);
-  if (!reqDoc) {
-    res.status(404);
-    throw new Error("Không tìm thấy yêu cầu");
-  }
-  if (reqDoc.status !== "pending") {
+  const result = await rejectRequest(
+    req.params.id,
+    req.user?._id,
+    req.body?.reason
+  );
+  if (!result.ok) {
     res.status(400);
-    throw new Error(`Yêu cầu đã ${reqDoc.status}, không thể từ chối lại`);
+    throw new Error(result.error || "Từ chối thất bại");
   }
-  const reason = String(req.body?.reason || "").slice(0, 500).trim();
-
-  reqDoc.status = "rejected";
-  reqDoc.resolvedBy = req.user._id;
-  reqDoc.resolvedAt = new Date();
-  reqDoc.rejectionReason = reason || "Tên không hợp lệ";
-  await reqDoc.save();
-
-  // KHÔNG đụng vào user.nickname và user.nicknameChangedAt → user không mất lần đổi
-
-  // Notify user
-  createInAppNotifications({
-    recipients: [String(reqDoc.user)],
-    actorId: req.user._id,
-    type: "NICKNAME_REJECTED",
-    title: "Yêu cầu đổi biệt danh bị từ chối",
-    body: `Yêu cầu đổi sang "${reqDoc.newNickname}" đã bị từ chối. Lý do: ${reqDoc.rejectionReason}`,
-    url: `/profile`,
-    data: { requestId: String(reqDoc._id) },
-  }).catch(() => {});
-  sendToUserIds(
-    [String(reqDoc.user)],
-    {
-      title: "Yêu cầu đổi biệt danh bị từ chối",
-      body: reqDoc.rejectionReason,
-      data: { url: `/profile`, kind: "NICKNAME_REJECTED" },
-    },
-    { ttl: 3600 }
-  ).catch(() => {});
-
-  res.json({ success: true, request: reqDoc });
+  res.json({ success: true, request: result.request });
 });
 
 /* ─────────────────── RESET COOLDOWN ─────────────────── */
