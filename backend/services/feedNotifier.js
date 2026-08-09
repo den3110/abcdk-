@@ -37,38 +37,79 @@ export async function notifyFeedComment({
   mentions = [],
 }) {
   try {
-    const targets = dedupe(
-      [postAuthorId, parentAuthorId, ...mentions].filter(
-        (uid) => String(uid) !== String(actorId)
-      )
+    const actorStr = String(actorId);
+    const mentionSet = new Set(
+      dedupe(mentions.filter((uid) => String(uid) !== actorStr).map(String))
     );
-    if (!targets.length) return;
+    // User được @mention được ưu tiên notification "Bạn được nhắc tới" — tách khỏi
+    // luồng thông báo comment/reply thường để rõ nghĩa hơn.
+    const nonMentionTargets = dedupe(
+      [postAuthorId, parentAuthorId]
+        .filter(Boolean)
+        .map(String)
+        .filter((uid) => uid !== actorStr && !mentionSet.has(uid))
+    );
+
     const actor = await pickActorLabel(actorId);
     const isReply = !!parentAuthorId;
-    const title = isReply ? "Có phản hồi mới" : "Có bình luận mới";
-    const body = `${actor}: ${String(commentPreview || "").slice(0, 120)}`;
-    await sendToUserIds(
-      targets,
-      {
+    const preview = String(commentPreview || "").slice(0, 120);
+
+    // Nhóm 1: người được nhắc → title chuyên biệt
+    if (mentionSet.size) {
+      const targets = Array.from(mentionSet);
+      const title = "Bạn được nhắc tới trong bình luận";
+      const body = `${actor}: ${preview}`;
+      await sendToUserIds(
+        targets,
+        {
+          title,
+          body,
+          data: {
+            url: `/feed/post/${postId}`,
+            kind: "FEED_MENTION_COMMENT",
+            postId: String(postId),
+          },
+        },
+        { ttl: 3600 }
+      );
+      await createInAppNotifications({
+        recipients: targets,
+        actorId,
+        type: "FEED_MENTION_COMMENT",
         title,
         body,
-        data: {
-          url: `/feed/post/${postId}`,
-          kind: isReply ? "FEED_REPLY_NEW" : "FEED_COMMENT_NEW",
-          postId: String(postId),
+        url: `/feed/post/${postId}`,
+        data: { postId: String(postId) },
+      });
+    }
+
+    // Nhóm 2: chủ post + chủ comment gốc → title chung
+    if (nonMentionTargets.length) {
+      const title = isReply ? "Có phản hồi mới" : "Có bình luận mới";
+      const body = `${actor}: ${preview}`;
+      await sendToUserIds(
+        nonMentionTargets,
+        {
+          title,
+          body,
+          data: {
+            url: `/feed/post/${postId}`,
+            kind: isReply ? "FEED_REPLY_NEW" : "FEED_COMMENT_NEW",
+            postId: String(postId),
+          },
         },
-      },
-      { ttl: 3600 }
-    );
-    await createInAppNotifications({
-      recipients: targets,
-      actorId,
-      type: isReply ? "FEED_REPLY_NEW" : "FEED_COMMENT_NEW",
-      title,
-      body,
-      url: `/feed/post/${postId}`,
-      data: { postId: String(postId) },
-    });
+        { ttl: 3600 }
+      );
+      await createInAppNotifications({
+        recipients: nonMentionTargets,
+        actorId,
+        type: isReply ? "FEED_REPLY_NEW" : "FEED_COMMENT_NEW",
+        title,
+        body,
+        url: `/feed/post/${postId}`,
+        data: { postId: String(postId) },
+      });
+    }
   } catch (err) {
     console.error("[feedNotifier] comment error:", err?.message || err);
   }
