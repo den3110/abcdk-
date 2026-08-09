@@ -3,15 +3,59 @@
 > **Dành cho:** đội nhận bàn giao (đọc bởi người + Claude/AI agent để tự setup).
 > **Ngày lập:** 2026-08-03. Lập tự động từ khảo sát code, có ghi chú những chỗ cần xác nhận lại với người bàn giao.
 >
-> ⚠️ **QUAN TRỌNG:** file này là bản gốc từ 2026-08-03. Trạng thái mới nhất
-> (session 2026-08-04 và 2026-08-05) — deploy status, keystore Android, iOS
-> TestFlight, tính năng mới (Bảng tin/Nhắn tin/Bạn bè/Thông báo), fix nginx
-> `/api` prefix, Messenger bubble, notification bell — nằm ở **`HANDOFF.md`**.
-> Đọc HANDOFF.md **TRƯỚC** để nắm state hiện tại, xong quay lại HANDOVER.md
-> để hiểu kiến trúc + credentials gốc.
+> ⚠️ **QUAN TRỌNG:** file này là bản gốc từ 2026-08-03. Trạng thái + tính năng
+> mới nhất (session **2026-08-08 → 2026-08-10**) — Apple 1.2 compliance
+> (block/report + EULA), nickname change approval workflow (backend + admin +
+> Telegram bot), overlay generator integration vào Quản lý giải, admin key
+> setup, ball count + Point badges cho overlay, icon/splash 1.1.13, AAB Android
+> `1.1.13 (43)` build sẵn sàng, iOS Archive 1.1.13 chờ user, chat cải tiến
+> lớn (fullscreen viewer, upload UX, realtime reconnect, tap avatar, nút Gọi
+> Zalo) — nằm ở **`HANDOFF.md`**. Đọc HANDOFF.md **TRƯỚC** để nắm state hiện
+> tại, xong quay lại HANDOVER.md để hiểu kiến trúc + credentials gốc.
 >
-> ⚠️ **VPS SSH password**: file này ghi `Hoang@0726` — ĐÚNG. HANDOFF cũ có chỗ
-> ghi `Hoang@072026` là SAI.
+> ⚠️ **Thay đổi kiến trúc lớn kể từ 2026-08-03 (đọc HANDOFF chi tiết):**
+> 1. **Tournament mode** giờ có 3 giá trị: `standard` / `team` / `mlp`. Xem
+>    HANDOFF §2.6 (fix cap.points bug).
+> 2. **Coach** không phải role exclusive — cờ `isCoach: Boolean` co-exist với
+>    admin/referee/user. Đầy đủ application/achievement flow.
+> 3. **Notification chat** đã refactor gộp per-conversation. `feedNotifier`
+>    tách notification mention khỏi comment thường (title riêng "Bạn được nhắc
+>    tới trong bình luận").
+> 4. **Admin panel** build trên VPS `/abcde` (không phải Vercel). Có 2 trang
+>    mới: `/admin/nickname-requests` + `/admin/settings` section "Overlay
+>    Generator API Key".
+> 5. **Nginx đã có cache policy** cho SPA (no-cache HTML + immutable /assets).
+> 6. **Docker `redis` restart policy** đã `unless-stopped`.
+> 7. **Facebook Pixel `28469951482590991`** live trên web.
+> 8. **Court model song song** — `Court` cũ + `CourtStation` mới (thuộc
+>    `CourtCluster` qua `tour.allowedCourtClusterIds`). Overlay controller
+>    query CẢ 2 dedup theo `_id`.
+> 9. **Overlay generator** — service riêng chạy port `3131` trên VPS
+>    (`/root/overlay-generator/`, NOT trong repo). Backend PickleTour có
+>    4 endpoint `/api/admin/tournaments/:id/overlay/*` proxy tới generator.
+>    Admin `/admin/settings` có section nhập ANTHROPIC_API_KEY.
+> 10. **Nickname change** — bây giờ CẦN admin duyệt (không đổi tự do). Có
+>     cooldown `SystemSettings.profile.nicknameChangeCooldownDays` (default
+>     60d). Admin duyệt qua Telegram inline button HOẶC admin panel.
+> 11. **Block user + report content** đã đầy đủ (Apple 1.2). Filter feed +
+>     chat + comment theo `blockedByUser`.
+> 12. **Chat realtime**: đã fix re-subscribe room khi socket reconnect (bug
+>     mất messages sau khi mất mạng chớp).
+> 13. **Mobile version bump** — hết session này: `1.1.13 (43)` đồng bộ iOS +
+>     Android (app.json + Info.plist + xcodeproj + gradle). AAB Android đã
+>     build local, iOS Archive chưa lên.
+> 14. **Hot-updater CLI** — dùng `./node_modules/.bin/hot-updater` (0.25.14)
+>     khớp native, KHÔNG `npx hot-updater@0.25.4` như HANDOFF cũ (yarn.lock
+>     đã silent upgrade 09/07).
+> 15. **Nút Gọi Zalo/điện thoại** ở header chat DM — dùng deep-link
+>     `zalo://qr/p/{phone}` fallback `https://zalo.me/{phone}` + `tel:{phone}`.
+>     `USER_FIELDS` trong chatController thêm `phone` để populate.
+> 16. **Icon + splash + logo** mới — icon `P` navy monogram, splash bg navy
+>     `#0a1834`. Native replace ở cả 5 folder iOS Xcode (`ios`, `ios 2`,
+>     `ios3`, `ios copy`, `ios copy 2`) + Android mipmap 5 density.
+>
+> ⚠️ **VPS SSH password**: `Hoang@0726` (từ máy local hiện chỉ auth được bằng
+> SSH key, password auth từ chối — chạy từ máy khác nếu cần password).
 >
 > **Sản phẩm:** PickleTour (`https://pickletour.vn`) — nền tảng giải đấu pickleball cho thị trường Việt Nam: quản lý giải, bốc thăm, sơ đồ nhánh, chấm trận trọng tài realtime, điểm trình/BXH, CLB, đặt sân, livestream + ghi hình, tin tức AI, chatbot Pikora, app mobile.
 >
