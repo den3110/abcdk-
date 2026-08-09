@@ -13,7 +13,7 @@ import { notifyChatMessage } from "../services/chatNotifier.js";
 import { attachTournamentRegCounts } from "../utils/enrichTournament.js";
 import { getBlockedIdSet } from "./friendController.js";
 
-const USER_FIELDS = "_id name nickname avatar role";
+const USER_FIELDS = "_id name nickname avatar role phone";
 
 const isAdmin = (u) => u?.role === "admin" || u?.role === "superAdmin";
 
