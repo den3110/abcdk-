@@ -1373,6 +1373,60 @@ export const patchMlpDual = asyncHandler(async (req, res) => {
   res.json({ success: true, dual });
 });
 
+// PATCH /api/mlp/duals/:id/subs/:subId
+// body: { referees?, court?, courtStation?, scheduledAt? }
+// Set per-sub-match assignment. Sub-level override dual-level.
+export const patchMlpSubMatch = asyncHandler(async (req, res) => {
+  const dual = await MlpDualMatch.findById(req.params.id);
+  if (!dual) {
+    res.status(404);
+    throw new Error("Không tìm thấy dual");
+  }
+  const tour = await Tournament.findById(dual.tournament);
+  if (!canManageTournament(req.user, tour)) {
+    res.status(403);
+    throw new Error("Không có quyền");
+  }
+  const sub = dual.subMatches.id(req.params.subId);
+  if (!sub) {
+    res.status(404);
+    throw new Error("Không tìm thấy sub-match");
+  }
+  const b = req.body || {};
+  if (Array.isArray(b.referees)) {
+    sub.referees = b.referees
+      .filter((id) => mongoose.isValidObjectId(id))
+      .slice(0, 5);
+  }
+  if ("court" in b) {
+    sub.court =
+      b.court && mongoose.isValidObjectId(b.court) ? b.court : null;
+  }
+  if ("courtStation" in b) {
+    sub.courtStation =
+      b.courtStation && mongoose.isValidObjectId(b.courtStation)
+        ? b.courtStation
+        : null;
+  }
+  if ("scheduledAt" in b) {
+    sub.scheduledAt = b.scheduledAt ? new Date(b.scheduledAt) : null;
+  }
+  await dual.save();
+
+  try {
+    await ensureMlpSubMatchDoc(dual, sub, tour);
+    await dual.save();
+  } catch (err) {
+    console.error("[mlp] ensureMlpSubMatchDoc after sub patch failed:", err?.message);
+  }
+
+  emitMlpDual(dual._id, "mlp:dual:updated", {
+    dualId: dual._id,
+    subId: sub._id,
+  });
+  res.json({ success: true, sub });
+});
+
 export const assignSubMatchLineup = asyncHandler(async (req, res) => {
   const dual = await MlpDualMatch.findById(req.params.id);
   if (!dual) {

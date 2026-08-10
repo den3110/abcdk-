@@ -120,11 +120,18 @@ export async function ensureMlpSubMatchDoc(dual, sub, tour) {
     playersB: (sub.playersB || []).map((p) => String(toId(p))),
   };
 
+  // Ưu tiên cấu hình per-sub-match, fallback về dual-level.
+  const subReferees = Array.isArray(sub.referees) ? sub.referees : [];
+  const effectiveReferees = subReferees.length
+    ? subReferees
+    : Array.isArray(dual.referees)
+      ? dual.referees
+      : [];
   const assignmentFields = {
-    referee: Array.isArray(dual.referees) ? dual.referees.slice(0, 5) : [],
-    court: dual.court || null,
-    courtStation: dual.courtStation || null,
-    scheduledAt: dual.scheduledAt || null,
+    referee: effectiveReferees.slice(0, 5),
+    court: sub.court || dual.court || null,
+    courtStation: sub.courtStation || dual.courtStation || null,
+    scheduledAt: sub.scheduledAt || dual.scheduledAt || null,
     participants,
     rules,
   };

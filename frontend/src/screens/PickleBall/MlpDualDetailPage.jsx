@@ -39,6 +39,7 @@ import {
   usePatchMlpDualMutation,
 } from "../../slices/mlpApiSlice";
 import DualAssignmentPanel from "../../components/mlp/DualAssignmentPanel.jsx";
+import SubMatchAssignmentPanel from "../../components/mlp/SubMatchAssignmentPanel.jsx";
 
 function ScoreEditor({ sub, dualId, onSaved }) {
   const [scoreA, setScoreA] = useState(sub.result?.scoreA ?? 0);
@@ -622,6 +623,13 @@ export default function MlpDualDetailPage() {
                     </Button>
                   </Stack>
                 </Stack>
+                <SubMatchAssignmentPanel
+                  dual={dual}
+                  sub={sub}
+                  tour={tour}
+                  disabled={dual?.status === "finished"}
+                  onSaved={refetch}
+                />
               </CardContent>
             </Card>
           );

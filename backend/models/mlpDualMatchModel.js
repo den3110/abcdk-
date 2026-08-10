@@ -16,6 +16,16 @@ const SubMatchSchema = new Schema(
     playersB: [{ type: Schema.Types.ObjectId, ref: "User" }],
     // Link sang Match doc — chấm điểm dùng engine hiện có (RefereeScorePanel)
     match: { type: Schema.Types.ObjectId, ref: "Match", default: null },
+    // Per-sub-match assignment — override dual-level nếu set. Cho phép 2
+    // sub-match cùng dual đấu ở 2 sân khác nhau, trọng tài khác nhau.
+    referees: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    court: { type: Schema.Types.ObjectId, ref: "Court", default: null },
+    courtStation: {
+      type: Schema.Types.ObjectId,
+      ref: "CourtStation",
+      default: null,
+    },
+    scheduledAt: { type: Date, default: null },
     // Cache kết quả (denorm từ Match) cho query nhanh
     result: {
       status: {

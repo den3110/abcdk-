@@ -91,6 +91,16 @@ export const mlpApiSlice = apiSlice.injectEndpoints({
         { type: "MlpDual", id: dualId },
       ],
     }),
+    patchMlpSubMatch: builder.mutation({
+      query: ({ dualId, subId, ...body }) => ({
+        url: `/api/mlp/duals/${dualId}/subs/${subId}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (r, e, { dualId }) => [
+        { type: "MlpDual", id: dualId },
+      ],
+    }),
     syncSubMatchResult: builder.mutation({
       query: ({ dualId, subId, scoreA, scoreB, status }) => ({
         url: `/api/mlp/duals/${dualId}/subs/${subId}/score`,
@@ -218,6 +228,7 @@ export const {
   useGetMlpDualQuery,
   useGenerateMlpDualsMutation,
   useAssignSubMatchLineupMutation,
+  usePatchMlpSubMatchMutation,
   useSyncSubMatchResultMutation,
   useStartDreamBreakerMutation,
   useScoreDreamBreakerPointMutation,

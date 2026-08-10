@@ -13,6 +13,7 @@ import {
   listMlpDuals,
   getMlpDual,
   patchMlpDual,
+  patchMlpSubMatch,
   assignSubMatchLineup,
   syncSubMatchResult,
   startDreamBreaker,
@@ -47,6 +48,7 @@ router.get("/tournaments/:tid/duals", optionalAuth, listMlpDuals);
 router.post("/tournaments/:tid/duals/generate", protect, generateMlpDuals);
 router.get("/duals/:id", optionalAuth, getMlpDual);
 router.patch("/duals/:id", protect, patchMlpDual);
+router.patch("/duals/:id/subs/:subId", protect, patchMlpSubMatch);
 router.patch("/duals/:id/subs/:subId/lineup", protect, assignSubMatchLineup);
 router.post("/duals/:id/subs/:subId/score", protect, syncSubMatchResult);
 
