@@ -17,8 +17,13 @@ import { Save, User as UserIcon, Clock, MapPin } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
-import { usePatchMlpDualMutation } from "../../slices/mlpApiSlice";
+import {
+  usePatchMlpDualMutation,
+  useListMlpTournamentCourtsQuery,
+  useCheckInMlpDualMutation,
+} from "../../slices/mlpApiSlice";
 import { useLazySearchUserQuery } from "../../slices/usersApiSlice";
+import MenuItem from "@mui/material/MenuItem";
 
 const isAdmin = (u) => u?.role === "admin" || u?.isAdmin || u?.isSuperUser;
 const isManagerOfTour = (u, tour) => {
@@ -48,16 +53,36 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
   const canManage = isAdmin(me) || isManagerOfTour(me, tour);
 
   const [patch, { isLoading: saving }] = usePatchMlpDualMutation();
+  const [checkIn] = useCheckInMlpDualMutation();
+  const { data: courtsRes } = useListMlpTournamentCourtsQuery(
+    dual?.tournament,
+    { skip: !dual?.tournament }
+  );
+  const courtOptions = courtsRes?.items || [];
+
   const [refs, setRefs] = useState(dual?.referees || []);
   const [scheduledAt, setScheduledAt] = useState(
     toDatetimeLocalValue(dual?.scheduledAt),
   );
   const [note, setNote] = useState(dual?.note || "");
+  const initialCourtValue = dual?.courtStation
+    ? `station:${dual.courtStation._id || dual.courtStation}`
+    : dual?.court
+      ? `court:${dual.court._id || dual.court}`
+      : "";
+  const [courtValue, setCourtValue] = useState(initialCourtValue);
 
   useEffect(() => {
     setRefs(dual?.referees || []);
     setScheduledAt(toDatetimeLocalValue(dual?.scheduledAt));
     setNote(dual?.note || "");
+    setCourtValue(
+      dual?.courtStation
+        ? `station:${dual.courtStation._id || dual.courtStation}`
+        : dual?.court
+          ? `court:${dual.court._id || dual.court}`
+          : "",
+    );
   }, [dual?._id]);
 
   // Search users cho trọng tài
@@ -78,17 +103,39 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
 
   const handleSave = async () => {
     try {
+      const courtPayload = {};
+      if (courtValue.startsWith("court:")) {
+        courtPayload.court = courtValue.slice(6);
+        courtPayload.courtStation = null;
+      } else if (courtValue.startsWith("station:")) {
+        courtPayload.courtStation = courtValue.slice(8);
+        courtPayload.court = null;
+      } else {
+        courtPayload.court = null;
+        courtPayload.courtStation = null;
+      }
       await patch({
         dualId: dual._id,
         tourId: dual.tournament,
         referees: (refs || []).map((r) => r._id || r).filter(Boolean),
         scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
         note,
+        ...courtPayload,
       }).unwrap();
       toast.success("Đã lưu");
       onSaved?.();
     } catch (err) {
       toast.error(err?.data?.message || "Không lưu được");
+    }
+  };
+
+  const handleCheckIn = async (side) => {
+    try {
+      await checkIn({ dualId: dual._id, side }).unwrap();
+      toast.success(`Team ${side} đã check-in`);
+      onSaved?.();
+    } catch (err) {
+      toast.error(err?.data?.message || "Không check-in được");
     }
   };
 
@@ -186,6 +233,25 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
           alignItems="stretch"
         >
           <TextField
+            select
+            label="Sân"
+            value={courtValue}
+            onChange={(e) => setCourtValue(e.target.value)}
+            disabled={disabled}
+            size="small"
+            sx={{ minWidth: 200 }}
+          >
+            <MenuItem value="">— Chưa gán —</MenuItem>
+            {courtOptions.map((c) => (
+              <MenuItem
+                key={`${c.type}:${c._id}`}
+                value={`${c.type}:${c._id}`}
+              >
+                {c.name} {c.cluster ? `(${c.cluster})` : ""} · {c.type === "station" ? "Station" : "Court"}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
             label="Giờ thi đấu"
             type="datetime-local"
             value={scheduledAt}
@@ -193,7 +259,7 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
             InputLabelProps={{ shrink: true }}
             disabled={disabled}
             size="small"
-            sx={{ minWidth: 240 }}
+            sx={{ minWidth: 220 }}
             InputProps={{
               startAdornment: (
                 <Clock
@@ -204,7 +270,7 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
             }}
           />
           <TextField
-            label="Ghi chú (sân, luồng…)"
+            label="Ghi chú"
             value={note}
             onChange={(e) => setNote(e.target.value.slice(0, 500))}
             multiline
@@ -212,9 +278,32 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
             disabled={disabled}
             size="small"
             fullWidth
-            placeholder="Ví dụ: Sân A2 tầng 2, huấn luyện viên team A vắng…"
+            placeholder="Ghi chú thêm cho dual…"
           />
         </Stack>
+
+        {dual?.status !== "finished" && (
+          <Stack direction="row" spacing={1} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
+            <Button
+              size="small"
+              variant={dual?.checkInA?.checkedAt ? "contained" : "outlined"}
+              color={dual?.checkInA?.checkedAt ? "success" : "primary"}
+              onClick={() => handleCheckIn("A")}
+              disabled={saving}
+            >
+              {dual?.checkInA?.checkedAt ? "✓ Team A check-in" : "Team A check-in"}
+            </Button>
+            <Button
+              size="small"
+              variant={dual?.checkInB?.checkedAt ? "contained" : "outlined"}
+              color={dual?.checkInB?.checkedAt ? "success" : "primary"}
+              onClick={() => handleCheckIn("B")}
+              disabled={saving}
+            >
+              {dual?.checkInB?.checkedAt ? "✓ Team B check-in" : "Team B check-in"}
+            </Button>
+          </Stack>
+        )}
 
         {dual?.status === "finished" && (
           <Typography variant="caption" color="text.secondary">

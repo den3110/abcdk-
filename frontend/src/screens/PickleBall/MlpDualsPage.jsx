@@ -31,6 +31,9 @@ import {
   useListMlpDualsQuery,
   useGenerateMlpDualsMutation,
   useSyncSubMatchResultMutation,
+  useGenerateMlpKnockoutMutation,
+  useAutoAssignMlpCourtsMutation,
+  useDeleteMlpDualMutation,
 } from "../../slices/mlpApiSlice";
 
 const STATUS_COLOR = {
@@ -213,6 +216,40 @@ export default function MlpDualsPage() {
   );
   const [gen, { isLoading: generating }] = useGenerateMlpDualsMutation();
   const [syncSub] = useSyncSubMatchResultMutation();
+  const [genKnockout, { isLoading: koLoading }] = useGenerateMlpKnockoutMutation();
+  const [autoCourts, { isLoading: autoLoading }] = useAutoAssignMlpCourtsMutation();
+  const [deleteDual] = useDeleteMlpDualMutation();
+
+  const handleGenKnockout = async () => {
+    const raw = window.prompt("Số team vào knockout (2/4/8)?", "4");
+    const topN = Math.max(2, Math.min(32, Number(raw) || 4));
+    try {
+      const r = await genKnockout({ tourId: id, topN }).unwrap();
+      toast.success(`Đã sinh ${r.generated} trận knockout`);
+      refetch();
+    } catch (err) {
+      toast.error(err?.data?.message || "Lỗi");
+    }
+  };
+  const handleAutoCourts = async () => {
+    try {
+      const r = await autoCourts(id).unwrap();
+      toast.success(`Đã gán ${r.assigned} dual vào sân`);
+      refetch();
+    } catch (err) {
+      toast.error(err?.data?.message || "Lỗi");
+    }
+  };
+  const handleDeleteDual = async (dualId) => {
+    if (!window.confirm("Xoá dual này?")) return;
+    try {
+      await deleteDual(dualId).unwrap();
+      toast.success("Đã xoá");
+      refetch();
+    } catch (err) {
+      toast.error(err?.data?.message || "Lỗi");
+    }
+  };
 
   const items = data?.items || [];
 
@@ -285,6 +322,21 @@ export default function MlpDualsPage() {
             onClick={() => navigate(`/tournament/${id}/mlp/standings`)}
           >
             BXH
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={handleAutoCourts}
+            disabled={autoLoading}
+          >
+            {autoLoading ? "Đang gán…" : "Auto sân"}
+          </Button>
+          <Button
+            variant="outlined"
+            color="secondary"
+            onClick={handleGenKnockout}
+            disabled={koLoading}
+          >
+            {koLoading ? "Đang tạo…" : "Sinh knockout"}
           </Button>
           <Button variant="contained" onClick={() => setGenOpen(true)}>
             Generate duals

@@ -150,6 +150,60 @@ export const mlpApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (r, e, tid) => [{ type: "MlpStandings", id: tid }],
     }),
+
+    /* Phase 2/5/6 */
+    listMlpTournamentCourts: builder.query({
+      query: (tid) => ({ url: `/api/mlp/tournaments/${tid}/courts` }),
+    }),
+    autoAssignMlpCourts: builder.mutation({
+      query: (tid) => ({
+        url: `/api/mlp/tournaments/${tid}/duals/auto-assign-courts`,
+        method: "POST",
+      }),
+      invalidatesTags: (r, e, tid) => [{ type: "MlpDual", id: tid }],
+    }),
+    generateMlpKnockout: builder.mutation({
+      query: ({ tid, topN = 4, seedByStanding = true }) => ({
+        url: `/api/mlp/tournaments/${tid}/duals/generate-knockout`,
+        method: "POST",
+        body: { topN, seedByStanding },
+      }),
+      invalidatesTags: (r, e, { tid }) => [{ type: "MlpDual", id: tid }],
+    }),
+    forceFinishMlpDual: builder.mutation({
+      query: ({ dualId, winner }) => ({
+        url: `/api/mlp/duals/${dualId}/force-finish`,
+        method: "POST",
+        body: { winner },
+      }),
+      invalidatesTags: (r, e, { dualId, tourId }) => [
+        { type: "MlpDual", id: dualId },
+        ...(tourId
+          ? [
+              { type: "MlpDual", id: tourId },
+              { type: "MlpStandings", id: tourId },
+            ]
+          : []),
+      ],
+    }),
+    deleteMlpDual: builder.mutation({
+      query: (dualId) => ({
+        url: `/api/mlp/duals/${dualId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: [
+        { type: "MlpDual", id: "LIST" },
+        { type: "MlpStandings", id: "LIST" },
+      ],
+    }),
+    checkInMlpDual: builder.mutation({
+      query: ({ dualId, side }) => ({
+        url: `/api/mlp/duals/${dualId}/check-in`,
+        method: "POST",
+        body: { side },
+      }),
+      invalidatesTags: (r, e, { dualId }) => [{ type: "MlpDual", id: dualId }],
+    }),
   }),
 });
 
@@ -171,4 +225,10 @@ export const {
   usePatchMlpDualMutation,
   useListMlpStandingsQuery,
   useRecomputeMlpStandingsMutation,
+  useListMlpTournamentCourtsQuery,
+  useAutoAssignMlpCourtsMutation,
+  useGenerateMlpKnockoutMutation,
+  useForceFinishMlpDualMutation,
+  useDeleteMlpDualMutation,
+  useCheckInMlpDualMutation,
 } = mlpApiSlice;

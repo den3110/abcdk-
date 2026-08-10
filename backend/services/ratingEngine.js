@@ -359,6 +359,157 @@ export async function applyRatingForMatch(matchId) {
   return result || { ok: true };
 }
 
+/** ===================== MLP sub-match rating ===================== **
+ * MLP không dùng Registration/Match — sub-match trực tiếp có playersA[],
+ * playersB[]. Áp dụng cùng công thức: zero-sum, per-person equal delta,
+ * K theo reliability trung bình, margin boost.
+ *
+ * Idempotent: MlpDualMatch sub-match có flag ratingApplied. Không được
+ * gọi 2 lần cho cùng sub-match.
+ */
+export async function applyRatingForMlpSubMatch({
+  playersA,
+  playersB,
+  scoreA,
+  scoreB,
+  winner, // "A" | "B" | null
+  tournamentId,
+  subMatchId,
+  matchType, // "single" | "double"
+}) {
+  if (!winner || !Array.isArray(playersA) || !Array.isArray(playersB)) {
+    return { ok: true, applied: false, reason: "no winner or players" };
+  }
+  if (!playersA.length || !playersB.length) {
+    return { ok: true, applied: false, reason: "empty players" };
+  }
+  const kind = matchType === "single" ? "singles" : "doubles";
+  const session = await mongoose.startSession();
+  let result = null;
+  try {
+    await session.withTransaction(async () => {
+      const allIds = [
+        ...playersA.map((p) => p?._id ?? p),
+        ...playersB.map((p) => p?._id ?? p),
+      ].filter(Boolean);
+      await ensureSeedFromAssessment(allIds, kind, session);
+      const [UA, UB] = await Promise.all([
+        User.find({ _id: { $in: playersA.map((p) => p?._id ?? p) } }).session(
+          session
+        ),
+        User.find({ _id: { $in: playersB.map((p) => p?._id ?? p) } }).session(
+          session
+        ),
+      ]);
+      if (!UA.length || !UB.length) {
+        result = { ok: true, applied: false, reason: "users not found" };
+        return;
+      }
+      const teamA =
+        kind === "singles"
+          ? ratingSingles(UA[0])
+          : teamRatingDoubles(UA[0], UA[1] || UA[0]);
+      const teamB =
+        kind === "singles"
+          ? ratingSingles(UB[0])
+          : teamRatingDoubles(UB[0], UB[1] || UB[0]);
+      const expA = expectedFromDiff(teamA - teamB);
+      const expB = 1 - expA;
+      const sA = winner === "A" ? 1 : 0;
+      const sB = 1 - sA;
+
+      // marginBoost dựa vào scoreA/scoreB (1 game, không có gameScores[])
+      const totalPts = Number(scoreA || 0) + Number(scoreB || 0);
+      let marginBoost = 0;
+      if (totalPts > 0) {
+        const winPts = winner === "A" ? scoreA : scoreB;
+        const losePts = winner === "A" ? scoreB : scoreA;
+        const mg = clamp((winPts - losePts) / totalPts, -1, 1);
+        marginBoost = MARGIN_MAX_BOOST * mg;
+      }
+
+      const allUsers = [...UA, ...UB];
+      const avgReliability =
+        allUsers.map((u) => reliabilityFor(kind, u)).reduce((s, x) => s + x, 0) /
+        allUsers.length;
+      const baseK = kind === "singles" ? BASE_K_SINGLES : BASE_K_DOUBLES;
+      const K_match =
+        (baseK * (1 - avgReliability) + FLOOR_K) * (1 + marginBoost);
+      const E_win = winner === "A" ? expA : expB;
+      const deltaWin = K_match * (1 - E_win);
+      const deltaLose = -deltaWin;
+
+      const saves = [];
+      const logs = [];
+      for (const u of UA) {
+        const upd = await applyForUser({
+          session,
+          user: u,
+          kind,
+          teamExpected: expA,
+          score: sA,
+          marginBoost,
+          overrideDelta: winner === "A" ? deltaWin : deltaLose,
+        });
+        saves.push(u.save({ session }));
+        logs.push({
+          user: u._id,
+          match: subMatchId, // dùng sub-match id vào field match — cần vì
+          // RatingChange unique index (user, match, kind). Match cùng id
+          // cũ vẫn OK vì MLP subMatch id là ObjectId riêng.
+          tournament: tournamentId,
+          kind,
+          before: upd.before,
+          after: upd.after,
+          delta: upd.delta,
+          expected: expA,
+          score: sA,
+          reliabilityBefore: upd.reliabilityBefore,
+          reliabilityAfter: upd.reliabilityAfter,
+          marginBonus: marginBoost,
+        });
+      }
+      for (const u of UB) {
+        const upd = await applyForUser({
+          session,
+          user: u,
+          kind,
+          teamExpected: expB,
+          score: sB,
+          marginBoost,
+          overrideDelta: winner === "B" ? deltaWin : deltaLose,
+        });
+        saves.push(u.save({ session }));
+        logs.push({
+          user: u._id,
+          match: subMatchId,
+          tournament: tournamentId,
+          kind,
+          before: upd.before,
+          after: upd.after,
+          delta: upd.delta,
+          expected: expB,
+          score: sB,
+          reliabilityBefore: upd.reliabilityBefore,
+          reliabilityAfter: upd.reliabilityAfter,
+          marginBonus: marginBoost,
+        });
+      }
+      await Promise.all(saves);
+      await RatingChange.insertMany(logs, { ordered: false, session }).catch(
+        () => {}
+      );
+      const avgDelta = logs.length
+        ? logs.reduce((s, x) => s + Math.abs(x.delta), 0) / logs.length
+        : 0;
+      result = { ok: true, applied: true, avgDelta, kind };
+    });
+  } finally {
+    session.endSession();
+  }
+  return result || { ok: true };
+}
+
 /** ===================== Recompute tiện ích ===================== **/
 /** Recompute toàn bộ cho 1 tournament (theo thứ tự thời gian) */
 export async function recomputeTournamentRatings(tournamentId) {

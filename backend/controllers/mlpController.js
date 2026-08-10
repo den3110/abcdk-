@@ -5,7 +5,14 @@ import mongoose from "mongoose";
 import Tournament from "../models/tournamentModel.js";
 import MlpTeam from "../models/mlpTeamModel.js";
 import MlpDualMatch from "../models/mlpDualMatchModel.js";
+import Court from "../models/courtModel.js";
+import CourtStation from "../models/courtStationModel.js";
 import { getIO } from "../socket/index.js";
+import { applyRatingForMlpSubMatch } from "../services/ratingEngine.js";
+import {
+  notifyMlpTeamStatus,
+  notifyMlpDualEvent,
+} from "../services/mlpNotifier.js";
 
 // Emit event tới room mlp:dual:${id}. Client subscribe qua
 // socket.emit("mlp:dual:subscribe", { dualId }) — handler thêm trong
@@ -35,6 +42,203 @@ const canManageTournament = (u, tour) => isAdmin(u) || isManagerOf(u, tour);
 
 const oid = (v) =>
   v && mongoose.isValidObjectId(v) ? new mongoose.Types.ObjectId(v) : null;
+
+/* ═════════════════════ CHECK-IN ═════════════════════ */
+
+// POST /api/mlp/duals/:id/check-in — captain xác nhận đội sẵn sàng.
+// body: { side: "A" | "B" }. Cho phép admin/manager check-in hộ.
+export const checkInMlpDual = asyncHandler(async (req, res) => {
+  const dual = await MlpDualMatch.findById(req.params.id);
+  if (!dual) {
+    res.status(404);
+    throw new Error("Không tìm thấy dual");
+  }
+  const side = ["A", "B"].includes(req.body?.side) ? req.body.side : null;
+  if (!side) {
+    res.status(400);
+    throw new Error("side phải là A hoặc B");
+  }
+  const tour = await Tournament.findById(dual.tournament);
+  const teamId = side === "A" ? dual.teamA : dual.teamB;
+  const team = await MlpTeam.findById(teamId).select("captain").lean();
+  const isCaptain = String(team?.captain) === String(req.user?._id);
+  if (!isCaptain && !canManageTournament(req.user, tour)) {
+    res.status(403);
+    throw new Error("Chỉ đội trưởng hoặc BTC được check-in");
+  }
+  if (dual.status === "finished") {
+    res.status(400);
+    throw new Error("Dual đã kết thúc");
+  }
+  const field = side === "A" ? "checkInA" : "checkInB";
+  dual[field] = { checkedAt: new Date(), by: req.user._id };
+  await dual.save();
+  emitMlpDual(dual._id, "mlp:dual:updated", {
+    dualId: dual._id,
+    checkInA: dual.checkInA,
+    checkInB: dual.checkInB,
+  });
+  res.json({ success: true, dual });
+});
+
+/* ═════════════════════ ADMIN MODERATION ═════════════════════ */
+
+// POST /api/mlp/duals/:id/force-finish — admin/manager kết thúc dual bằng
+// tay khi cần (walkover, VĐV bỏ cuộc…). body: { winner: "A"|"B"|null }
+export const forceFinishMlpDual = asyncHandler(async (req, res) => {
+  const dual = await MlpDualMatch.findById(req.params.id);
+  if (!dual) {
+    res.status(404);
+    throw new Error("Không tìm thấy dual");
+  }
+  const tour = await Tournament.findById(dual.tournament);
+  if (!canManageTournament(req.user, tour)) {
+    res.status(403);
+    throw new Error("Không có quyền");
+  }
+  const winner = ["A", "B"].includes(req.body?.winner)
+    ? req.body.winner
+    : dual.slotWinsA > dual.slotWinsB
+      ? "A"
+      : dual.slotWinsB > dual.slotWinsA
+        ? "B"
+        : null;
+  dual.status = "finished";
+  dual.winner = winner;
+  dual.finishedAt = new Date();
+  await dual.save();
+  emitMlpDual(dual._id, "mlp:dual:finished", {
+    dualId: dual._id,
+    winner,
+    forced: true,
+  });
+  recomputeMlpStandings(dual.tournament).catch(() => {});
+  notifyMlpDualEvent({ dual, event: "finished" }).catch(() => {});
+  res.json({ success: true, dual });
+});
+
+// DELETE /api/mlp/duals/:id — admin/manager xoá 1 dual (kể cả finished).
+// Không recompute standings tự động vì có thể xoá nhầm hàng loạt.
+export const deleteMlpDual = asyncHandler(async (req, res) => {
+  const dual = await MlpDualMatch.findById(req.params.id);
+  if (!dual) {
+    res.status(404);
+    throw new Error("Không tìm thấy dual");
+  }
+  const tour = await Tournament.findById(dual.tournament);
+  if (!canManageTournament(req.user, tour)) {
+    res.status(403);
+    throw new Error("Không có quyền");
+  }
+  await MlpDualMatch.deleteOne({ _id: dual._id });
+  res.json({ success: true });
+});
+
+/* ═════════════════════ COURTS ═════════════════════ */
+
+// GET /api/mlp/tournaments/:tid/courts — trả list court khả dụng cho giải
+// (query cả Court cũ + CourtStation mới, dedup theo _id).
+export const listMlpTournamentCourts = asyncHandler(async (req, res) => {
+  const tid = req.params.tid;
+  const tour = await Tournament.findById(tid)
+    .select("allowedCourtClusterIds")
+    .lean();
+  const [courts, stations] = await Promise.all([
+    Court.find({ tournament: tid, isActive: { $ne: false } })
+      .select("_id name cluster status")
+      .lean(),
+    tour?.allowedCourtClusterIds?.length
+      ? CourtStation.find({
+          clusterId: { $in: tour.allowedCourtClusterIds },
+        })
+          .select("_id name clusterId status")
+          .lean()
+      : Promise.resolve([]),
+  ]);
+  const seen = new Set();
+  const items = [];
+  for (const c of courts) {
+    const id = String(c._id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    items.push({
+      _id: c._id,
+      name: c.name,
+      cluster: c.cluster || null,
+      type: "court",
+      status: c.status || null,
+    });
+  }
+  for (const s of stations) {
+    const id = String(s._id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    items.push({
+      _id: s._id,
+      name: s.name,
+      cluster: null,
+      type: "station",
+      status: s.status || null,
+    });
+  }
+  res.json({ items });
+});
+
+// POST /api/mlp/tournaments/:tid/duals/auto-assign-courts
+// Simple auto-assign: chia đều dual (status != finished, không có court) vào
+// các court/station khả dụng theo round-robin. Không kiểm tra xung đột giờ —
+// admin phải xem lại schedule.
+export const autoAssignMlpCourts = asyncHandler(async (req, res) => {
+  const tid = req.params.tid;
+  const tour = await Tournament.findById(tid);
+  if (!tour) {
+    res.status(404);
+    throw new Error("Giải không tồn tại");
+  }
+  if (!canManageTournament(req.user, tour)) {
+    res.status(403);
+    throw new Error("Không có quyền");
+  }
+  const [courts, stations, unassigned] = await Promise.all([
+    Court.find({ tournament: tid, isActive: { $ne: false } })
+      .select("_id")
+      .lean(),
+    tour.allowedCourtClusterIds?.length
+      ? CourtStation.find({
+          clusterId: { $in: tour.allowedCourtClusterIds },
+        })
+          .select("_id")
+          .lean()
+      : Promise.resolve([]),
+    MlpDualMatch.find({
+      tournament: tid,
+      status: { $in: ["scheduled", "live"] },
+      court: null,
+      courtStation: null,
+    })
+      .sort({ round: 1, order: 1 })
+      .select("_id")
+      .lean(),
+  ]);
+  const pool = [
+    ...courts.map((c) => ({ id: c._id, field: "court" })),
+    ...stations.map((s) => ({ id: s._id, field: "courtStation" })),
+  ];
+  if (!pool.length) {
+    res.status(400);
+    throw new Error("Không có sân nào khả dụng cho giải");
+  }
+  let assigned = 0;
+  for (let i = 0; i < unassigned.length; i++) {
+    const slot = pool[i % pool.length];
+    await MlpDualMatch.updateOne(
+      { _id: unassigned[i]._id },
+      { $set: { [slot.field]: slot.id } }
+    );
+    assigned++;
+  }
+  res.json({ success: true, assigned });
+});
 
 /* ═════════════════════ STANDINGS ═════════════════════ */
 
@@ -106,7 +310,38 @@ export async function recomputeMlpStandings(tid) {
   if (ops.length) await MlpTeam.bulkWrite(ops);
 }
 
+// Build head-to-head map cho tie-break: teamId -> { opponentId: {won, lost} }
+async function buildHeadToHeadMap(tid) {
+  const duals = await MlpDualMatch.find({
+    tournament: tid,
+    status: "finished",
+    winner: { $in: ["A", "B"] },
+  })
+    .select("teamA teamB winner")
+    .lean();
+  const h2h = new Map();
+  const get = (a, b) => {
+    if (!h2h.has(a)) h2h.set(a, new Map());
+    const inner = h2h.get(a);
+    if (!inner.has(b)) inner.set(b, { won: 0, lost: 0 });
+    return inner.get(b);
+  };
+  for (const d of duals) {
+    const a = String(d.teamA);
+    const b = String(d.teamB);
+    if (d.winner === "A") {
+      get(a, b).won += 1;
+      get(b, a).lost += 1;
+    } else if (d.winner === "B") {
+      get(b, a).won += 1;
+      get(a, b).lost += 1;
+    }
+  }
+  return h2h;
+}
+
 // GET /api/mlp/tournaments/:tid/standings
+// Sort: wins → head-to-head (khi 2 team cùng wins) → slotDiff → pointDiff → name
 export const getMlpStandings = asyncHandler(async (req, res) => {
   const teams = await MlpTeam.find({
     tournament: req.params.tid,
@@ -114,35 +349,38 @@ export const getMlpStandings = asyncHandler(async (req, res) => {
   })
     .select("name shortName logo color standing")
     .lean();
-  const items = teams
-    .map((t) => {
-      const s = t.standing || {};
-      const wins = Number(s.wins) || 0;
-      const losses = Number(s.losses) || 0;
-      const slotsFor = Number(s.slotsFor) || 0;
-      const slotsAgainst = Number(s.slotsAgainst) || 0;
-      const pointsFor = Number(s.pointsFor) || 0;
-      const pointsAgainst = Number(s.pointsAgainst) || 0;
-      return {
-        _id: t._id,
-        name: t.name,
-        shortName: t.shortName,
-        logo: t.logo,
-        color: t.color,
-        wins,
-        losses,
-        played: wins + losses,
-        slotsFor,
-        slotsAgainst,
-        slotDiff: slotsFor - slotsAgainst,
-        pointsFor,
-        pointsAgainst,
-        pointDiff: pointsFor - pointsAgainst,
-      };
-    })
-    // Sort: wins desc → slotDiff desc → pointDiff desc → name asc
+  const h2h = await buildHeadToHeadMap(req.params.tid);
+  const rows = teams.map((t) => {
+    const s = t.standing || {};
+    const wins = Number(s.wins) || 0;
+    const losses = Number(s.losses) || 0;
+    const slotsFor = Number(s.slotsFor) || 0;
+    const slotsAgainst = Number(s.slotsAgainst) || 0;
+    const pointsFor = Number(s.pointsFor) || 0;
+    const pointsAgainst = Number(s.pointsAgainst) || 0;
+    return {
+      _id: t._id,
+      name: t.name,
+      shortName: t.shortName,
+      logo: t.logo,
+      color: t.color,
+      wins,
+      losses,
+      played: wins + losses,
+      slotsFor,
+      slotsAgainst,
+      slotDiff: slotsFor - slotsAgainst,
+      pointsFor,
+      pointsAgainst,
+      pointDiff: pointsFor - pointsAgainst,
+    };
+  });
+  const items = rows
     .sort((a, b) => {
       if (a.wins !== b.wins) return b.wins - a.wins;
+      // Head-to-head khi cùng wins
+      const rec = h2h.get(String(a._id))?.get(String(b._id));
+      if (rec && rec.won !== rec.lost) return rec.lost - rec.won; // a thắng b nhiều hơn → a lên trên
       if (a.slotDiff !== b.slotDiff) return b.slotDiff - a.slotDiff;
       if (a.pointDiff !== b.pointDiff) return b.pointDiff - a.pointDiff;
       return String(a.name).localeCompare(String(b.name), "vi");
@@ -418,11 +656,13 @@ export const updateMlpTeam = asyncHandler(async (req, res) => {
   }
 
   // Admin approve/reject/withdraw
+  let statusChanged = null;
   if (
     body.status &&
     ["pending", "approved", "rejected", "withdrawn"].includes(body.status) &&
     canManageTournament(req.user, tour)
   ) {
+    if (doc.status !== body.status) statusChanged = body.status;
     doc.status = body.status;
     if (body.status === "approved") {
       doc.approvedBy = req.user._id;
@@ -455,6 +695,13 @@ export const updateMlpTeam = asyncHandler(async (req, res) => {
   }
 
   await doc.save();
+  if (statusChanged && ["approved", "rejected"].includes(statusChanged)) {
+    notifyMlpTeamStatus({
+      team: doc,
+      tournamentId: doc.tournament,
+      status: statusChanged,
+    }).catch(() => {});
+  }
   res.json(doc);
 });
 
@@ -490,6 +737,123 @@ export const deleteMlpTeam = asyncHandler(async (req, res) => {
 // POST /api/mlp/tournaments/:tid/duals/generate
 // body: { format: "roundrobin"|"single_elim", teamIds?: [id] }
 // Sinh dual matches theo format. Nếu format="roundrobin" → mọi cặp team đấu 1 lần.
+// POST /api/mlp/tournaments/:tid/duals/generate-knockout
+// Sinh knockout bracket từ BXH hiện tại. body: { topN, seedByStanding=true }
+// Seed 1 vs N, 2 vs N-1... theo BXH sort wins → slotDiff → pointDiff.
+export const generateMlpKnockout = asyncHandler(async (req, res) => {
+  const { tid } = req.params;
+  const tour = await Tournament.findById(tid);
+  if (!tour) {
+    res.status(404);
+    throw new Error("Giải không tồn tại");
+  }
+  if (!canManageTournament(req.user, tour)) {
+    res.status(403);
+    throw new Error("Không có quyền");
+  }
+  if (tour.tournamentMode !== "mlp") {
+    res.status(400);
+    throw new Error("Giải này không MLP");
+  }
+  const topN = Math.max(2, Math.min(32, Number(req.body?.topN) || 4));
+  const seedByStanding = req.body?.seedByStanding !== false;
+
+  // Lấy team, sort theo standing giống getMlpStandings
+  const teams = await MlpTeam.find({
+    tournament: tid,
+    status: "approved",
+  })
+    .select("_id name standing")
+    .lean();
+  const sorted = seedByStanding
+    ? teams
+        .map((t) => ({
+          ...t,
+          slotDiff:
+            (Number(t.standing?.slotsFor) || 0) -
+            (Number(t.standing?.slotsAgainst) || 0),
+          pointDiff:
+            (Number(t.standing?.pointsFor) || 0) -
+            (Number(t.standing?.pointsAgainst) || 0),
+          wins: Number(t.standing?.wins) || 0,
+        }))
+        .sort((a, b) => {
+          if (a.wins !== b.wins) return b.wins - a.wins;
+          if (a.slotDiff !== b.slotDiff) return b.slotDiff - a.slotDiff;
+          if (a.pointDiff !== b.pointDiff) return b.pointDiff - a.pointDiff;
+          return String(a.name).localeCompare(String(b.name), "vi");
+        })
+    : teams;
+
+  const picked = sorted.slice(0, topN);
+  if (picked.length < 2) {
+    res.status(400);
+    throw new Error("Cần ít nhất 2 team đủ điều kiện");
+  }
+
+  // Đảm bảo số team là power of 2 (pad bằng BYE null nếu không đủ)
+  let size = 2;
+  while (size < picked.length) size *= 2;
+  const seeded = [...picked];
+  while (seeded.length < size) seeded.push(null);
+
+  // Round 1: seed 1 vs N, 2 vs N-1... (standard bracket)
+  const slots = tour.mlpConfig?.slots || [];
+  if (!slots.length) {
+    res.status(400);
+    throw new Error("Chưa cấu hình slots MLP");
+  }
+
+  const subTemplate = slots
+    .slice()
+    .sort((x, y) => (x.order || 0) - (y.order || 0))
+    .map((s, i) => ({
+      slotKey: s.key,
+      order: i,
+      playersA: [],
+      playersB: [],
+      result: {
+        status: "pending",
+        scoreA: 0,
+        scoreB: 0,
+        winner: null,
+      },
+    }));
+
+  // Xoá knockout cũ (round > 1 hoặc marked knockout)
+  await MlpDualMatch.deleteMany({
+    tournament: tid,
+    round: { $gte: 2 },
+    slotWinsA: 0,
+    slotWinsB: 0,
+  });
+
+  const round1 = [];
+  const pairs = Math.floor(size / 2);
+  for (let i = 0; i < pairs; i++) {
+    const a = seeded[i];
+    const b = seeded[size - 1 - i];
+    if (!a || !b) continue;
+    const doc = await MlpDualMatch.create({
+      tournament: tid,
+      round: 2, // 2+ = knockout (vòng bảng vẫn round=1)
+      order: i,
+      teamA: a._id,
+      teamB: b._id,
+      subMatches: JSON.parse(JSON.stringify(subTemplate)),
+      status: "scheduled",
+      createdBy: req.user._id,
+    });
+    round1.push(doc);
+  }
+  res.json({
+    success: true,
+    round: 2,
+    generated: round1.length,
+    seeds: picked.map((t) => ({ _id: t._id, name: t.name })),
+  });
+});
+
 export const generateMlpDuals = asyncHandler(async (req, res) => {
   const { tid } = req.params;
   const tour = await Tournament.findById(tid);
@@ -757,15 +1121,19 @@ export const syncSubMatchResult = asyncHandler(async (req, res) => {
       ? body.status
       : sub.result?.status || "live";
 
+  const wasFinished = sub.result?.status === "finished";
   sub.result.scoreA = scoreA;
   sub.result.scoreB = scoreB;
   sub.result.status = status;
+  let subJustFinished = false;
   if (status === "finished") {
     sub.result.winner = scoreA > scoreB ? "A" : scoreB > scoreA ? "B" : null;
     sub.result.finishedAt = new Date();
+    if (!wasFinished) subJustFinished = true;
   } else {
     sub.result.winner = null;
     sub.result.finishedAt = null;
+    sub.result.ratingApplied = false;
   }
 
   // Aggregate slot wins
@@ -809,6 +1177,33 @@ export const syncSubMatchResult = asyncHandler(async (req, res) => {
     slotWinsB: dual.slotWinsB,
     dualStatus: dual.status,
   });
+
+  // Apply rating khi sub-match vừa finished (idempotent, cờ ratingApplied).
+  if (subJustFinished && !sub.result.ratingApplied && sub.result.winner) {
+    const slot = (tour?.mlpConfig?.slots || []).find(
+      (s) => s.key === sub.slotKey
+    );
+    applyRatingForMlpSubMatch({
+      playersA: sub.playersA || [],
+      playersB: sub.playersB || [],
+      scoreA,
+      scoreB,
+      winner: sub.result.winner,
+      tournamentId: dual.tournament,
+      subMatchId: sub._id,
+      matchType: slot?.matchType || "double",
+    })
+      .then(async () => {
+        await MlpDualMatch.updateOne(
+          { _id: dual._id, "subMatches._id": sub._id },
+          { $set: { "subMatches.$.result.ratingApplied": true } }
+        );
+      })
+      .catch((err) =>
+        console.error("[mlp] rating apply error:", err?.message || err)
+      );
+  }
+
   if (justFinished) {
     emitMlpDual(dual._id, "mlp:dual:finished", {
       dualId: dual._id,
@@ -817,6 +1212,7 @@ export const syncSubMatchResult = asyncHandler(async (req, res) => {
     recomputeMlpStandings(dual.tournament).catch((err) =>
       console.error("[mlp] recomputeStandings error:", err?.message || err)
     );
+    notifyMlpDualEvent({ dual, event: "finished" }).catch(() => {});
   }
   res.json({ success: true, dual });
 });
@@ -938,6 +1334,7 @@ export const scoreDreamBreakerPoint = asyncHandler(async (req, res) => {
     recomputeMlpStandings(dual.tournament).catch((err) =>
       console.error("[mlp] recomputeStandings error:", err?.message || err)
     );
+    notifyMlpDualEvent({ dual, event: "finished" }).catch(() => {});
   }
   res.json({
     success: true,

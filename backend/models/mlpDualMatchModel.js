@@ -27,6 +27,8 @@ const SubMatchSchema = new Schema(
       scoreB: { type: Number, default: 0 },
       winner: { type: String, enum: ["A", "B", null], default: null },
       finishedAt: { type: Date, default: null },
+      // Rating engine đã cập nhật điểm trình cho VĐV chưa (idempotent).
+      ratingApplied: { type: Boolean, default: false },
     },
   },
   { _id: true },
@@ -105,6 +107,19 @@ const mlpDualMatchSchema = new Schema(
     referees: [{ type: Schema.Types.ObjectId, ref: "User" }],
     scheduledAt: { type: Date, default: null, index: true },
     note: { type: String, default: "", maxlength: 500 },
+
+    // Check-in trước dual: captain xác nhận đội mình sẵn sàng. Chỉ chấp
+    // nhận captain của team A/B (hoặc admin/manager). Blocking: sub-match
+    // score đầu tiên yêu cầu cả 2 team đã check-in (soft — cảnh báo, không
+    // chặn cứng để BTC có thể force start).
+    checkInA: {
+      checkedAt: { type: Date, default: null },
+      by: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    },
+    checkInB: {
+      checkedAt: { type: Date, default: null },
+      by: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    },
     // Tổng slot thắng
     slotWinsA: { type: Number, default: 0 },
     slotWinsB: { type: Number, default: 0 },
