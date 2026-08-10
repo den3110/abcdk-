@@ -606,7 +606,12 @@ function CommentItem({
   onOpenReactors,
   justRepliedTo,
 }) {
-  const [showReplies, setShowReplies] = useState(false);
+  // Auto-expand phản hồi nếu comment đã có sẵn — đồng bộ hành vi với mobile
+  // (bản cũ mặc định collapse khiến user phải click "Xem N phản hồi" mỗi lần
+  // xem chi tiết).
+  const [showReplies, setShowReplies] = useState(
+    Number(comment?.replyCount || 0) > 0
+  );
   const [pickerOpen, setPickerOpen] = useState(false);
   const [reactComment] = useReactFeedCommentMutation();
   // Vừa reply comment này → force expand + refetch để hiện phản hồi mới
