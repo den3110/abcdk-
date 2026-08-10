@@ -444,7 +444,10 @@ function advanceStreet(room) {
     .filter((x) => x.s.user && x.s.cards?.length && !x.s.hasFolded && !x.s.isAllIn)
     .map((x) => x.i)
     .sort((a, b) => a - b);
-  if (!seatIdxs.length) return runOutBoard(room);
+  // <= 1 người còn chip để cược → không còn action nào có thể xảy ra,
+  // chạy hết board rồi showdown luôn (fix bug: sau khi call all-in vẫn
+  // được hỏi check/raise ở street kế).
+  if (seatIdxs.length <= 1) return runOutBoard(room);
   const dealer = room.dealerIndex;
   const dpos = seatIdxs.findIndex((i) => i > dealer);
   const firstActor = dpos >= 0 ? seatIdxs[dpos] : seatIdxs[0];
