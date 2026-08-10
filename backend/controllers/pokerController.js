@@ -9,6 +9,8 @@ import {
   serializeRoom,
 } from "../services/pokerEngine.js";
 import { getIO } from "../socket/index.js";
+import { sendToUserIds } from "../services/notifications/expoPush.js";
+import { createInAppNotifications } from "../services/inAppNotify.js";
 
 const USER_FIELDS = "_id name nickname avatar";
 
@@ -399,6 +401,91 @@ export const revealPokerCards = asyncHandler(async (req, res) => {
       cards: seat.cards.slice(),
     });
   res.json({ success: true });
+});
+
+// POST /api/poker/rooms/:id/invite  { userIds: [...] }
+// Rate limit: mỗi inviter chỉ được mời tối đa 30 người / giờ / bàn.
+// In-memory counter — reset khi restart, đủ cho MVP.
+const inviteCounters = new Map(); // key: `${userId}` → { at:number, count:number }
+const INVITE_MAX_PER_HOUR = 30;
+export const invitePokerRoom = asyncHandler(async (req, res) => {
+  const roomId = String(req.params.id);
+  const room = await PokerRoom.findById(roomId).select(
+    "name status smallBlind bigBlind",
+  );
+  if (!room) {
+    res.status(404);
+    throw new Error("Không tìm thấy bàn");
+  }
+  if (room.status === "closed") {
+    res.status(400);
+    throw new Error("Bàn đã đóng");
+  }
+  const inviterId = String(req.user._id);
+  const now = Date.now();
+  const key = inviterId;
+  const entry = inviteCounters.get(key);
+  if (entry && now - entry.at < 3600_000) {
+    if (entry.count >= INVITE_MAX_PER_HOUR) {
+      res.status(429);
+      throw new Error(
+        `Bạn đã mời quá ${INVITE_MAX_PER_HOUR} người trong 1 giờ, thử lại sau.`,
+      );
+    }
+  } else {
+    inviteCounters.set(key, { at: now, count: 0 });
+  }
+
+  const raw = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
+  const targets = raw
+    .filter((x) => mongoose.isValidObjectId(x))
+    .map(String)
+    .filter((x) => x !== inviterId)
+    .slice(0, 20);
+  if (!targets.length) {
+    res.status(400);
+    throw new Error("Danh sách người dùng trống");
+  }
+
+  const cur = inviteCounters.get(key) || { at: now, count: 0 };
+  if (cur.count + targets.length > INVITE_MAX_PER_HOUR) {
+    res.status(429);
+    throw new Error(
+      `Vượt giới hạn ${INVITE_MAX_PER_HOUR} lời mời/giờ (còn ${
+        INVITE_MAX_PER_HOUR - cur.count
+      }).`,
+    );
+  }
+  cur.count += targets.length;
+  inviteCounters.set(key, cur);
+
+  const inviterName =
+    req.user.nickname || req.user.name || "Một người bạn";
+  const title = "Mời chơi Poker";
+  const body = `${inviterName} mời bạn vào bàn "${room.name}" (SB ${room.smallBlind}/BB ${room.bigBlind})`;
+  const url = `/poker/${roomId}`;
+
+  sendToUserIds(
+    targets,
+    {
+      title,
+      body,
+      data: { url, kind: "POKER_INVITE", roomId },
+    },
+    { ttl: 1800 },
+  ).catch(() => {});
+
+  createInAppNotifications({
+    recipients: targets,
+    actorId: req.user._id,
+    type: "POKER_INVITE",
+    title,
+    body,
+    url,
+    data: { roomId },
+  }).catch(() => {});
+
+  res.json({ success: true, invited: targets.length });
 });
 
 // POST /api/poker/rooms/:id/chat  { text }

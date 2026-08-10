@@ -12,6 +12,7 @@ import {
   chatPokerRoom,
   emojiPokerRoom,
   revealPokerCards,
+  invitePokerRoom,
 } from "../controllers/pokerController.js";
 
 const router = express.Router();
@@ -26,5 +27,6 @@ router.post("/rooms/:id/action", protect, pokerAction);
 router.post("/rooms/:id/chat", protect, chatPokerRoom);
 router.post("/rooms/:id/emoji", protect, emojiPokerRoom);
 router.post("/rooms/:id/reveal", protect, revealPokerCards);
+router.post("/rooms/:id/invite", protect, invitePokerRoom);
 
 export default router;
