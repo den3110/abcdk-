@@ -44,6 +44,23 @@ const isManagerOf = (u, tour) => {
 };
 const canManageTournament = (u, tour) => isAdmin(u) || isManagerOf(u, tour);
 
+// Trọng tài được gán vào dual (dual.referees) hoặc bất kỳ sub-match nào
+// (sub.referees) cũng được phép chấm điểm DreamBreaker + sub-match — nhất
+// quán với flow trận thường (trọng tài của trận thì được chấm trận đó).
+const isRefereeOfDual = (u, dual) => {
+  if (!u?._id || !dual) return false;
+  const uid = String(u._id);
+  const dualRefs = Array.isArray(dual.referees) ? dual.referees : [];
+  if (dualRefs.some((r) => String(r?._id ?? r) === uid)) return true;
+  const subs = Array.isArray(dual.subMatches) ? dual.subMatches : [];
+  return subs.some((s) => {
+    const subRefs = Array.isArray(s?.referees) ? s.referees : [];
+    return subRefs.some((r) => String(r?._id ?? r) === uid);
+  });
+};
+const canScoreDual = (u, tour, dual) =>
+  canManageTournament(u, tour) || isRefereeOfDual(u, dual);
+
 const oid = (v) =>
   v && mongoose.isValidObjectId(v) ? new mongoose.Types.ObjectId(v) : null;
 
@@ -1621,7 +1638,7 @@ export const startDreamBreaker = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy dual");
   }
   const tour = await Tournament.findById(dual.tournament);
-  if (!canManageTournament(req.user, tour)) {
+  if (!canScoreDual(req.user, tour, dual)) {
     res.status(403);
     throw new Error("Không có quyền");
   }
@@ -1666,7 +1683,7 @@ export const scoreDreamBreakerPoint = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy dual");
   }
   const tour = await Tournament.findById(dual.tournament);
-  if (!canManageTournament(req.user, tour)) {
+  if (!canScoreDual(req.user, tour, dual)) {
     res.status(403);
     throw new Error("Không có quyền");
   }
@@ -1747,7 +1764,7 @@ export const undoDreamBreakerPoint = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy dual");
   }
   const tour = await Tournament.findById(dual.tournament);
-  if (!canManageTournament(req.user, tour)) {
+  if (!canScoreDual(req.user, tour, dual)) {
     res.status(403);
     throw new Error("Không có quyền");
   }
