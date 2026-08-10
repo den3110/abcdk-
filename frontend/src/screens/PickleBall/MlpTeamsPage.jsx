@@ -59,11 +59,24 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
 
   const [name, setName] = useState(team?.name || "");
   const [shortName, setShortName] = useState(team?.shortName || "");
-  const [color, setColor] = useState(team?.color || "");
+  const [color, setColor] = useState(team?.color || "#3B82F6");
   const [logo, setLogo] = useState(team?.logo || "");
   const [captain, setCaptain] = useState(team?.captain || null);
   const [players, setPlayers] = useState(team?.players || []);
   const [q, setQ] = useState("");
+
+  // Reset form khi mở dialog (edit) — trước đó state chỉ init 1 lần,
+  // nên "Sửa team" hiển thị form rỗng dù team đã có sẵn dữ liệu.
+  useEffect(() => {
+    if (!open) return;
+    setName(team?.name || "");
+    setShortName(team?.shortName || "");
+    setColor(team?.color || "#3B82F6");
+    setLogo(team?.logo || "");
+    setCaptain(team?.captain || null);
+    setPlayers(Array.isArray(team?.players) ? team.players : []);
+    setQ("");
+  }, [open, team?._id]);
   const [searchTrigger, { data: searchData = [], isFetching: searching }] =
     useLazySearchUserQuery();
   const [create, { isLoading: creating }] = useCreateMlpTeamMutation();
@@ -166,11 +179,47 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
           <Stack direction="row" spacing={1}>
             <TextField
               size="small"
-              label="Màu (hex)"
+              label="Màu chủ đạo"
               value={color}
               onChange={(e) => setColor(e.target.value)}
-              sx={{ width: 140 }}
+              sx={{ width: 190 }}
               placeholder="#0066FF"
+              InputProps={{
+                endAdornment: (
+                  <Box
+                    component="label"
+                    sx={{
+                      position: "relative",
+                      width: 28,
+                      height: 28,
+                      borderRadius: 1,
+                      bgcolor: color || "#E2E8F0",
+                      border: "1px solid #ccc",
+                      cursor: "pointer",
+                      display: "inline-block",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <input
+                      type="color"
+                      value={
+                        /^#[0-9a-f]{6}$/i.test(color) ? color : "#3B82F6"
+                      }
+                      onChange={(e) => setColor(e.target.value)}
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        width: "100%",
+                        height: "100%",
+                        opacity: 0,
+                        cursor: "pointer",
+                        border: 0,
+                        padding: 0,
+                      }}
+                    />
+                  </Box>
+                ),
+              }}
             />
             <TextField
               size="small"
@@ -179,6 +228,34 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
               onChange={(e) => setLogo(e.target.value)}
               fullWidth
             />
+          </Stack>
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+            {[
+              "#3B82F6",
+              "#EF4444",
+              "#10B981",
+              "#F59E0B",
+              "#8B5CF6",
+              "#EC4899",
+              "#0EA5E9",
+              "#22C55E",
+              "#F97316",
+              "#0F172A",
+            ].map((c) => (
+              <Box
+                key={c}
+                onClick={() => setColor(c)}
+                sx={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 1,
+                  bgcolor: c,
+                  cursor: "pointer",
+                  border: color === c ? "2px solid #0F172A" : "1px solid #ccc",
+                  "&:hover": { transform: "scale(1.1)" },
+                }}
+              />
+            ))}
           </Stack>
 
           <Typography variant="body2" fontWeight={700}>

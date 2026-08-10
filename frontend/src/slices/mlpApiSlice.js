@@ -91,6 +91,15 @@ export const mlpApiSlice = apiSlice.injectEndpoints({
         { type: "MlpDual", id: dualId },
       ],
     }),
+    deleteMlpRound: builder.mutation({
+      query: ({ tourId, round }) => ({
+        url: `/api/mlp/tournaments/${tourId}/duals/round/${round}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (r, e, { tourId }) => [
+        { type: "MlpDual", id: tourId },
+      ],
+    }),
     patchMlpSubMatch: builder.mutation({
       query: ({ dualId, subId, ...body }) => ({
         url: `/api/mlp/duals/${dualId}/subs/${subId}`,
@@ -228,6 +237,7 @@ export const {
   useGetMlpDualQuery,
   useGenerateMlpDualsMutation,
   useAssignSubMatchLineupMutation,
+  useDeleteMlpRoundMutation,
   usePatchMlpSubMatchMutation,
   useSyncSubMatchResultMutation,
   useStartDreamBreakerMutation,

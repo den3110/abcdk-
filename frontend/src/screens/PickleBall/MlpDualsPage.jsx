@@ -2,6 +2,7 @@
 // Danh sách dual matches + generate + scoring hub cho MLP.
 import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useSelector } from "react-redux";
 import {
   Alert,
   Avatar,
@@ -206,10 +207,24 @@ function DualCard({ dual, tour, onSync, canManage, onOpen }) {
 export default function MlpDualsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const me = useSelector((s) => s.auth?.userInfo);
   const [genOpen, setGenOpen] = useState(false);
   const [format, setFormat] = useState("roundrobin");
 
   const { data: tour, isLoading: tourLoading } = useGetTournamentQuery(id);
+  const isAdmin = !!(me?.role === "admin" || me?.isAdmin || me?.isSuperUser);
+  const isManager = useMemo(() => {
+    if (!me?._id || !tour) return false;
+    if (String(tour.createdBy?._id ?? tour.createdBy) === String(me._id))
+      return true;
+    if (Array.isArray(tour.managers)) {
+      return tour.managers.some(
+        (m) => String(m?.user?._id ?? m?.user ?? m) === String(me._id),
+      );
+    }
+    return false;
+  }, [me?._id, tour]);
+  const canManage = isAdmin || isManager;
   const { data, isFetching, refetch } = useListMlpDualsQuery(
     { tourId: id },
     { skip: !id },
@@ -314,23 +329,27 @@ export default function MlpDualsPage() {
           >
             BXH
           </Button>
-          <Button
-            variant="outlined"
-            onClick={() => setClusterDialogOpen(true)}
-          >
-            Quản lý cụm sân
-          </Button>
-          <Button
-            variant="outlined"
-            color="secondary"
-            onClick={handleGenKnockout}
-            disabled={koLoading}
-          >
-            {koLoading ? "Đang tạo…" : "Sinh knockout"}
-          </Button>
-          <Button variant="contained" onClick={() => setGenOpen(true)}>
-            Generate duals
-          </Button>
+          {canManage && (
+            <>
+              <Button
+                variant="outlined"
+                onClick={() => setClusterDialogOpen(true)}
+              >
+                Quản lý cụm sân
+              </Button>
+              <Button
+                variant="outlined"
+                color="secondary"
+                onClick={handleGenKnockout}
+                disabled={koLoading}
+              >
+                {koLoading ? "Đang tạo…" : "Sinh knockout"}
+              </Button>
+              <Button variant="contained" onClick={() => setGenOpen(true)}>
+                Generate duals
+              </Button>
+            </>
+          )}
         </Stack>
       </Stack>
 
@@ -353,7 +372,7 @@ export default function MlpDualsPage() {
               tour={tour}
               onSync={() => handleSyncAll(d)}
               onOpen={() => navigate(`/tournament/${id}/mlp/duals/${d._id}`)}
-              canManage
+              canManage={canManage}
             />
           ))}
         </Stack>

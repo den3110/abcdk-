@@ -155,6 +155,31 @@ export const deleteMlpDual = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
+// DELETE /api/mlp/tournaments/:tid/duals/round/:round
+// Xoá toàn bộ dual match thuộc 1 vòng (ví dụ xoá lại knockout sinh sai
+// hoặc reset 1 vòng round-robin trước khi generate lại).
+export const deleteMlpRound = asyncHandler(async (req, res) => {
+  const tour = await Tournament.findById(req.params.tid);
+  if (!tour) {
+    res.status(404);
+    throw new Error("Không tìm thấy giải");
+  }
+  if (!canManageTournament(req.user, tour)) {
+    res.status(403);
+    throw new Error("Không có quyền");
+  }
+  const round = Number(req.params.round);
+  if (!Number.isFinite(round) || round < 1) {
+    res.status(400);
+    throw new Error("Round không hợp lệ");
+  }
+  const result = await MlpDualMatch.deleteMany({
+    tournament: tour._id,
+    round,
+  });
+  res.json({ success: true, deleted: result.deletedCount || 0 });
+});
+
 /* ═════════════════════ REPORTS / EXPORT ═════════════════════ */
 
 function csvEscape(v) {

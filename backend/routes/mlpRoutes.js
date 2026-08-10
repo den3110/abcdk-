@@ -25,6 +25,7 @@ import {
   autoAssignMlpCourts,
   forceFinishMlpDual,
   deleteMlpDual,
+  deleteMlpRound,
   checkInMlpDual,
   exportMlpStandingsCsv,
   exportMlpResultsCsv,
@@ -53,6 +54,11 @@ router.patch("/duals/:id/subs/:subId/lineup", protect, assignSubMatchLineup);
 router.post("/duals/:id/subs/:subId/score", protect, syncSubMatchResult);
 
 router.delete("/duals/:id", protect, deleteMlpDual);
+router.delete(
+  "/tournaments/:tid/duals/round/:round",
+  protect,
+  deleteMlpRound,
+);
 router.post("/duals/:id/force-finish", protect, forceFinishMlpDual);
 router.post("/duals/:id/check-in", protect, checkInMlpDual);
 
