@@ -528,6 +528,67 @@ export const sharePost = asyncHandler(async (req, res) => {
   res.json({ postId: post._id, shareCount: post.shareCount });
 });
 
+// GET /api/feed/:id/reactions?type=&limit=&cursor=
+// Trả danh sách user đã thả cảm xúc cho bài viết, group theo type nếu ?type=all
+// hoặc filter theo type cụ thể. cursor = timestamp `at` gần nhất đã trả.
+export const listPostReactors = asyncHandler(async (req, res) => {
+  const post = await FeedPost.findById(req.params.id)
+    .select("reactions")
+    .populate("reactions.user", AUTHOR_FIELDS)
+    .lean();
+  if (!post) {
+    res.status(404);
+    throw new Error("Không tìm thấy bài viết");
+  }
+  const rawType = String(req.query.type || "").toLowerCase();
+  const type =
+    rawType && REACTION_TYPES.includes(rawType) ? rawType : null;
+  const rows = (post.reactions || [])
+    .filter((r) => r && r.user && (!type || r.type === type))
+    .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
+    .map((r) => ({ user: r.user, type: r.type, at: r.at }));
+  // Đếm theo từng type (dùng để hiển thị tab)
+  const countByType = REACTION_TYPES.reduce((acc, t) => {
+    acc[t] = 0;
+    return acc;
+  }, {});
+  for (const r of post.reactions || []) {
+    if (r?.type && countByType[r.type] !== undefined) countByType[r.type] += 1;
+  }
+  res.json({
+    items: rows,
+    total: rows.length,
+    countByType,
+  });
+});
+
+// GET /api/feed/comments/:cid/reactions
+export const listCommentReactors = asyncHandler(async (req, res) => {
+  const c = await FeedComment.findById(req.params.cid)
+    .select("reactions")
+    .populate("reactions.user", AUTHOR_FIELDS)
+    .lean();
+  if (!c) {
+    res.status(404);
+    throw new Error("Không tìm thấy bình luận");
+  }
+  const rawType = String(req.query.type || "").toLowerCase();
+  const type =
+    rawType && REACTION_TYPES.includes(rawType) ? rawType : null;
+  const rows = (c.reactions || [])
+    .filter((r) => r && r.user && (!type || r.type === type))
+    .sort((a, b) => new Date(b.at || 0) - new Date(a.at || 0))
+    .map((r) => ({ user: r.user, type: r.type, at: r.at }));
+  const countByType = REACTION_TYPES.reduce((acc, t) => {
+    acc[t] = 0;
+    return acc;
+  }, {});
+  for (const r of c.reactions || []) {
+    if (r?.type && countByType[r.type] !== undefined) countByType[r.type] += 1;
+  }
+  res.json({ items: rows, total: rows.length, countByType });
+});
+
 // POST /api/feed/comments/:cid/reactions  { type }
 export const reactComment = asyncHandler(async (req, res) => {
   const viewer = req.user;

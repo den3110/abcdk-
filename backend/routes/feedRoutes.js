@@ -15,6 +15,8 @@ import {
   updatePost,
   deletePost,
   reactPost,
+  listPostReactors,
+  listCommentReactors,
   sharePost,
   reactComment,
   listComments,
@@ -174,10 +176,12 @@ router.get("/:id/comments", optionalAuth, listComments);
 router.post("/:id/comments", protect, rlComment, rlCommentMedia, createComment);
 router.delete("/comments/:cid", protect, deleteComment);
 router.post("/comments/:cid/reactions", protect, rlReaction, reactComment);
+router.get("/comments/:cid/reactions", optionalAuth, listCommentReactors);
 router.post("/comments/:cid/reports", protect, rlReport, reportTarget("comment"));
 
 // POST reactions + reports + share
 router.post("/:id/reactions", protect, rlReaction, reactPost);
+router.get("/:id/reactions", optionalAuth, listPostReactors);
 router.post("/:id/reports", protect, rlReport, reportTarget("post"));
 // Share: cho phép guest cũng ping (dùng optionalAuth). Chỉ tracking shareCount.
 router.post("/:id/share", optionalAuth, sharePost);
