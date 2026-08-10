@@ -58,6 +58,10 @@ import { isWebRequest } from "../utils/isWebRequest.js";
 // import { resendLoginOtp, verifyLoginOtp } from "../controllers/userLoginController.js"; // OTP tạm tắt
 import { authUserWebNoOtp } from "../controllers/userLoginNoOtpController.js";
 import { authLog } from "../middleware/authLogMiddleware.js";
+import {
+  getNotificationPrefs,
+  patchNotificationPrefs,
+} from "../controllers/notificationPrefsController.js";
 
 const router = express.Router();
 
@@ -100,6 +104,11 @@ router.post(
 );
 router.get("/:id/matches", getMatchHistory);
 router.get("/me/score", protect, getMeWithScore);
+
+router
+  .route("/notification-prefs")
+  .get(protect, getNotificationPrefs)
+  .patch(protect, patchNotificationPrefs);
 
 router
   .route("/profile")

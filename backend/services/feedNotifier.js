@@ -25,6 +25,25 @@ function dedupe(arr = []) {
   );
 }
 
+// Lọc bỏ user đã bật notificationPrefs.feedMuteAll — không nhận noti bảng tin.
+async function filterFeedMute(userIds = []) {
+  if (!userIds.length) return userIds;
+  try {
+    const muted = await User.find({
+      _id: { $in: userIds },
+      "notificationPrefs.feedMuteAll": true,
+    })
+      .select("_id")
+      .lean();
+    if (!muted.length) return userIds;
+    const set = new Set(muted.map((u) => String(u._id)));
+    return userIds.filter((uid) => !set.has(String(uid)));
+  } catch (err) {
+    console.error("[feedNotifier] mute filter error:", err?.message || err);
+    return userIds;
+  }
+}
+
 /**
  * Comment mới lên bài — notify author bài (nếu khác actor).
  */
@@ -56,7 +75,8 @@ export async function notifyFeedComment({
 
     // Nhóm 1: người được nhắc → title chuyên biệt
     if (mentionSet.size) {
-      const targets = Array.from(mentionSet);
+      const targets = await filterFeedMute(Array.from(mentionSet));
+      if (targets.length) {
       const title = "Bạn được nhắc tới trong bình luận";
       const body = `${actor}: ${preview}`;
       await sendToUserIds(
@@ -81,34 +101,38 @@ export async function notifyFeedComment({
         url: `/feed/post/${postId}`,
         data: { postId: String(postId) },
       });
+      }
     }
 
     // Nhóm 2: chủ post + chủ comment gốc → title chung
     if (nonMentionTargets.length) {
-      const title = isReply ? "Có phản hồi mới" : "Có bình luận mới";
-      const body = `${actor}: ${preview}`;
-      await sendToUserIds(
-        nonMentionTargets,
-        {
+      const filtered = await filterFeedMute(nonMentionTargets);
+      if (filtered.length) {
+        const title = isReply ? "Có phản hồi mới" : "Có bình luận mới";
+        const body = `${actor}: ${preview}`;
+        await sendToUserIds(
+          filtered,
+          {
+            title,
+            body,
+            data: {
+              url: `/feed/post/${postId}`,
+              kind: isReply ? "FEED_REPLY_NEW" : "FEED_COMMENT_NEW",
+              postId: String(postId),
+            },
+          },
+          { ttl: 3600 }
+        );
+        await createInAppNotifications({
+          recipients: filtered,
+          actorId,
+          type: isReply ? "FEED_REPLY_NEW" : "FEED_COMMENT_NEW",
           title,
           body,
-          data: {
-            url: `/feed/post/${postId}`,
-            kind: isReply ? "FEED_REPLY_NEW" : "FEED_COMMENT_NEW",
-            postId: String(postId),
-          },
-        },
-        { ttl: 3600 }
-      );
-      await createInAppNotifications({
-        recipients: nonMentionTargets,
-        actorId,
-        type: isReply ? "FEED_REPLY_NEW" : "FEED_COMMENT_NEW",
-        title,
-        body,
-        url: `/feed/post/${postId}`,
-        data: { postId: String(postId) },
-      });
+          url: `/feed/post/${postId}`,
+          data: { postId: String(postId) },
+        });
+      }
     }
   } catch (err) {
     console.error("[feedNotifier] comment error:", err?.message || err);
@@ -124,9 +148,11 @@ export async function notifyFeedMention({ postId, actorId, targets = [] }) {
       targets.filter((uid) => String(uid) !== String(actorId))
     );
     if (!uniq.length) return;
+    const filtered = await filterFeedMute(uniq);
+    if (!filtered.length) return;
     const actor = await pickActorLabel(actorId);
     await sendToUserIds(
-      uniq,
+      filtered,
       {
         title: "Bạn được nhắc tới",
         body: `${actor} nhắc tới bạn trong một bài viết`,
@@ -139,7 +165,7 @@ export async function notifyFeedMention({ postId, actorId, targets = [] }) {
       { ttl: 3600 }
     );
     await createInAppNotifications({
-      recipients: uniq,
+      recipients: filtered,
       actorId,
       type: "FEED_MENTION",
       title: "Bạn được nhắc tới",

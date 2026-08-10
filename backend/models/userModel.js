@@ -347,6 +347,19 @@ const userSchema = new mongoose.Schema(
       default: true,
     },
 
+    // Preferences chi tiết cho notification — client set qua
+    // GET/PATCH /api/users/notification-prefs. isPushNotificationEnabled ở trên
+    // vẫn là "kill switch" chung (đăng ký token expo hay không); các cờ dưới
+    // đây tinh chỉnh theo kênh.
+    notificationPrefs: {
+      // Tắt hoàn toàn thông báo tin nhắn (DM + group) — kể cả in-app notif +
+      // push. Khác với per-conversation mute (conversation.mutedBy).
+      chatMuteAll: { type: Boolean, default: false },
+      // Tắt tất cả thông báo từ bảng tin: bình luận trả lời bài mình, phản
+      // hồi comment mình, @mention trong post/comment.
+      feedMuteAll: { type: Boolean, default: false },
+    },
+
     /* ------- (Đý BỎ) Login tracking ra model riêng ------- */
     // lastLoginAt: { type: Date }
     // loginHistory: [...]

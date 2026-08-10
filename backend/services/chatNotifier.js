@@ -80,7 +80,29 @@ export async function notifyChatMessage({ conversation, message, actorId }) {
     const muted = new Set(
       (conversation.mutedBy || []).map((x) => String(x))
     );
-    const finalTargets = targets.filter((uid) => !muted.has(uid));
+    let finalTargets = targets.filter((uid) => !muted.has(uid));
+    if (!finalTargets.length) return;
+
+    // Loại user tắt hoàn toàn thông báo tin nhắn (User.notificationPrefs.chatMuteAll)
+    try {
+      const mutedAllUsers = await User.find({
+        _id: { $in: finalTargets },
+        "notificationPrefs.chatMuteAll": true,
+      })
+        .select("_id")
+        .lean();
+      if (mutedAllUsers.length) {
+        const mutedAllSet = new Set(
+          mutedAllUsers.map((u) => String(u._id))
+        );
+        finalTargets = finalTargets.filter((uid) => !mutedAllSet.has(uid));
+      }
+    } catch (err) {
+      console.error(
+        "[chatNotifier] chatMuteAll filter error:",
+        err?.message || err
+      );
+    }
     if (!finalTargets.length) return;
 
     const actorLabel = await pickActorLabel(actorId);
