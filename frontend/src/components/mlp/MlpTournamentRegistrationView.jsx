@@ -577,25 +577,77 @@ function TeamFormDialog({
             helperText="VD: TT1, LV..."
           />
           <TextField
-            label="Màu chủ đạo (hex)"
+            label="Màu chủ đạo"
             value={color}
             onChange={(e) => setColor(e.target.value)}
             fullWidth
             placeholder="#3B82F6"
+            helperText="Bấm vào ô màu để mở color picker"
             InputProps={{
               endAdornment: (
                 <Box
+                  component="label"
                   sx={{
-                    width: 24,
-                    height: 24,
+                    position: "relative",
+                    width: 32,
+                    height: 32,
                     borderRadius: 1,
                     bgcolor: color,
                     border: "1px solid #ccc",
+                    cursor: "pointer",
+                    display: "inline-block",
+                    flexShrink: 0,
+                    "&:hover": { opacity: 0.85 },
                   }}
-                />
+                >
+                  <input
+                    type="color"
+                    value={/^#[0-9a-f]{6}$/i.test(color) ? color : "#3B82F6"}
+                    onChange={(e) => setColor(e.target.value)}
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      width: "100%",
+                      height: "100%",
+                      opacity: 0,
+                      cursor: "pointer",
+                      border: 0,
+                      padding: 0,
+                    }}
+                  />
+                </Box>
               ),
             }}
           />
+          {/* Quick color presets */}
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+            {[
+              "#3B82F6",
+              "#EF4444",
+              "#10B981",
+              "#F59E0B",
+              "#8B5CF6",
+              "#EC4899",
+              "#0EA5E9",
+              "#22C55E",
+              "#F97316",
+              "#0F172A",
+            ].map((c) => (
+              <Box
+                key={c}
+                onClick={() => setColor(c)}
+                sx={{
+                  width: 26,
+                  height: 26,
+                  borderRadius: 1,
+                  bgcolor: c,
+                  cursor: "pointer",
+                  border: color === c ? "2px solid #0F172A" : "1px solid #ccc",
+                  "&:hover": { transform: "scale(1.1)" },
+                }}
+              />
+            ))}
+          </Stack>
 
           <Divider />
 
