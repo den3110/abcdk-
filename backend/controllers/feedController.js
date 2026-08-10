@@ -647,7 +647,8 @@ export const listComments = asyncHandler(async (req, res) => {
   const docs = await FeedComment.find(q)
     .sort({ _id: -1 })
     .limit(limit + 1)
-    .populate("author", AUTHOR_FIELDS);
+    .populate("author", AUTHOR_FIELDS)
+    .populate("mentions", AUTHOR_FIELDS);
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map((d) => toCommentDTO(d, viewer?._id));
   const nextCursor = hasMore
@@ -712,10 +713,9 @@ export const createComment = asyncHandler(async (req, res) => {
     await FeedComment.updateOne({ _id: parent }, { $inc: { replyCount: 1 } });
   }
 
-  const populated = await FeedComment.findById(c._id).populate(
-    "author",
-    AUTHOR_FIELDS
-  );
+  const populated = await FeedComment.findById(c._id)
+    .populate("author", AUTHOR_FIELDS)
+    .populate("mentions", AUTHOR_FIELDS);
   const dto = toCommentDTO(populated, viewer._id);
 
   emitToPost(postId, "feed:comment:new", dto);

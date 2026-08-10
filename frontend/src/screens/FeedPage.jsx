@@ -592,21 +592,24 @@ function CommentThread({ postId, me, canModerate }) {
         >
           <ImagePlus size={18} />
         </IconButton>
-        <TextField
-          size="small"
-          fullWidth
-          placeholder={
-            replyTarget ? "Viết phản hồi…" : "Viết bình luận…"
-          }
-          value={reply}
-          onChange={(e) => setReply(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit(replyTarget);
+        <Box sx={{ flex: 1 }}>
+          <MentionAutocomplete
+            value={reply}
+            onChange={setReply}
+            placeholder={
+              replyTarget ? "Viết phản hồi (gõ @ để nhắc bạn)…" : "Viết bình luận (gõ @ để nhắc bạn)…"
             }
-          }}
-        />
+            multiline
+            minRows={1}
+            maxRows={4}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                submit(replyTarget);
+              }
+            }}
+          />
+        </Box>
         <IconButton
           color="primary"
           onClick={() => submit(replyTarget)}
