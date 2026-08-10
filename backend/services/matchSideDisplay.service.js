@@ -832,6 +832,14 @@ export function resolveMatchSideDisplayPair(match, side, options = {}) {
   const pair = getSidePair(match, normalizedSide);
   if (hasPairPlayerPayload(pair)) return pair;
 
+  // MLP sub-match: pair chuẩn null; synth từ meta.mlp.pairA/pairB
+  // (đã có player1/player2 là User full). Cho phép hydrateMatchResolvedSides
+  // set match.pairA = mlp.pairA → mobile thấy structure y như giải thường,
+  // dùng chung mọi code path (avatar, CCCD, slot swap, serve indicator...).
+  const mlpPair =
+    normalizedSide === "B" ? match?.meta?.mlp?.pairB : match?.meta?.mlp?.pairA;
+  if (hasPairPlayerPayload(mlpPair)) return mlpPair;
+
   const seed = seedForSide(match, normalizedSide, matchesById);
   const seedPair = seedRegistrationPair(seed);
   if (hasPairPlayerPayload(seedPair)) return seedPair;
