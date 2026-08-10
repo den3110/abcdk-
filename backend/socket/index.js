@@ -1782,6 +1782,30 @@ export function initSocket(
       } catch {}
     });
 
+    // Feed: client subscribe room per-post (nhận comment/reaction realtime) +
+    // room feed:list (nhận post mới/updated/deleted). Không cần verify auth vì
+    // feed public read; backend emit qua feedController.emitToPost / emit.
+    socket.on("feed:post:subscribe", ({ postId } = {}) => {
+      try {
+        if (postId) socket.join(`feed:post:${postId}`);
+      } catch {}
+    });
+    socket.on("feed:post:unsubscribe", ({ postId } = {}) => {
+      try {
+        if (postId) socket.leave(`feed:post:${postId}`);
+      } catch {}
+    });
+    socket.on("feed:list:subscribe", () => {
+      try {
+        socket.join("feed:list");
+      } catch {}
+    });
+    socket.on("feed:list:unsubscribe", () => {
+      try {
+        socket.leave("feed:list");
+      } catch {}
+    });
+
     // nhận subscribe realtime từ admin tab
     socket.on("presence:watch", async () => {
       try {
