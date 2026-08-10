@@ -85,6 +85,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import { toast } from "react-toastify";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
+import MlpBracketView from "../../components/mlp/MlpBracketView";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
@@ -7755,6 +7756,14 @@ export default function TournamentBracket() {
       </Box>
     );
   }
+  // MLP tournaments không dùng bracket chuẩn — render MlpBracketView
+  // (BXH ngắn + duals theo round + DreamBreaker) thay thế.
+  const isMlpTour =
+    String(tour?.tournamentMode || "").toLowerCase() === "mlp";
+  if (isMlpTour) {
+    return <MlpBracketView tourId={tourId} tour={tour} />;
+  }
+
   if (!brackets.length) {
     return (
       <Box p={3}>

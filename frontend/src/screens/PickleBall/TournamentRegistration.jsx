@@ -77,6 +77,7 @@ import { useUploadRealAvatarMutation } from "../../slices/uploadApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 import TeamTournamentRegistrationView from "../../components/teamTournament/TeamTournamentRegistrationView";
+import MlpTournamentRegistrationView from "../../components/mlp/MlpTournamentRegistrationView";
 import { useLanguage } from "../../context/LanguageContext";
 import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext.jsx";
 import { formatDate as formatLocaleDate } from "../../i18n/format";
@@ -2364,6 +2365,19 @@ export default function TournamentRegistration() {
   if (String(tour?.tournamentMode || "").toLowerCase() === "team") {
     return (
       <TeamTournamentRegistrationView
+        tournamentId={id}
+        tour={tour}
+        me={me}
+        canManage={canManage}
+        isAdmin={isAdmin}
+      />
+    );
+  }
+
+  // MLP registration = captain tạo team + roster (dùng chung MlpTeamsPage)
+  if (String(tour?.tournamentMode || "").toLowerCase() === "mlp") {
+    return (
+      <MlpTournamentRegistrationView
         tournamentId={id}
         tour={tour}
         me={me}
