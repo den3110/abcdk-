@@ -23,7 +23,9 @@ async function buildPairSnapshots(playersA, playersB, teamAName, teamBName) {
     .filter((v) => v && mongoose.isValidObjectId(v));
   const users = ids.length
     ? await User.find({ _id: { $in: ids } })
-        .select("_id name nickname avatar")
+        .select(
+          "_id name nickname avatar phone dob gender province cccd cccdImages cccdStatus",
+        )
         .lean()
     : [];
   const byId = new Map(users.map((u) => [String(u._id), u]));
