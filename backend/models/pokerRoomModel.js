@@ -60,6 +60,11 @@ const pokerRoomSchema = new Schema(
     currentBet: { type: Number, default: 0 }, // mức cược lớn nhất street này
     minRaise: { type: Number, default: 0 },
     lastAggressorIndex: { type: Number, default: -1 },
+    // Seat đã hành động trong street hiện tại. Reset khi sang street mới;
+    // khi có raise thì reset về [raiser] — mọi người phải act lại. Blinds
+    // KHÔNG tính là acted (BB giữ option). Đây là nguồn chuẩn để xác định
+    // street kết thúc (fix bug BB check xong lượt quay lại dealer).
+    actedThisStreet: { type: [Number], default: [] },
     actions: { type: [actionLogSchema], default: [] },
     winners: {
       type: [

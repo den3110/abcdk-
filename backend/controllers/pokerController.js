@@ -12,6 +12,24 @@ import { getIO } from "../socket/index.js";
 
 const USER_FIELDS = "_id name nickname avatar";
 
+// Bàn quá 5 phút không hoạt động → tự đóng. Chạy lazy khi list lobby +
+// interval 60s làm lưới an toàn.
+const ROOM_IDLE_MS = 5 * 60 * 1000;
+async function closeStaleRooms() {
+  try {
+    await PokerRoom.updateMany(
+      {
+        status: "open",
+        lastActivityAt: { $lt: new Date(Date.now() - ROOM_IDLE_MS) },
+      },
+      { $set: { status: "closed" } },
+    );
+  } catch (err) {
+    console.error("[poker] closeStaleRooms error:", err?.message || err);
+  }
+}
+setInterval(closeStaleRooms, 60_000).unref?.();
+
 // Map roomId → timeout để clear khi có action mới. In-memory: nếu server
 // restart, timer mất — chấp nhận cho MVP; client-side có thể bấm sớm rồi
 // server không nhận (timeout đã fire). Chỉ mất 1 lượt.
@@ -96,6 +114,7 @@ async function populateRoom(room) {
 
 // GET /api/poker/rooms — list open rooms
 export const listPokerRooms = asyncHandler(async (req, res) => {
+  await closeStaleRooms();
   const rooms = await PokerRoom.find({ status: "open" })
     .sort({ lastActivityAt: -1 })
     .limit(50)
@@ -170,6 +189,10 @@ export const sitPokerRoom = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
   }
+  if (room.status === "closed") {
+    res.status(400);
+    throw new Error("Bàn đã đóng do không hoạt động");
+  }
   const seatIdx = Number(req.body?.seatIndex);
   if (
     !Number.isFinite(seatIdx) ||
@@ -243,6 +266,10 @@ export const startPokerHand = asyncHandler(async (req, res) => {
   if (!room) {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
+  }
+  if (room.status === "closed") {
+    res.status(400);
+    throw new Error("Bàn đã đóng do không hoạt động");
   }
   if (room.stage !== "waiting") {
     res.status(400);

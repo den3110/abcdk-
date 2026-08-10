@@ -183,6 +183,7 @@ export function startHand(room) {
   room.actions = [];
   room.winners = [];
   room.reveals = [];
+  room.actedThisStreet = [];
   room.handStartedAt = new Date();
   room.handEndedAt = null;
   room.lastActivityAt = new Date();
@@ -278,6 +279,7 @@ export function applyAction(room, seatIdx, action, amount = 0) {
   if (s.hasFolded || s.isAllIn) throw new Error("Bạn đã fold/allin");
 
   const toCall = room.currentBet - s.betThisStreet;
+  let isAggression = false; // raise / allin vượt currentBet → mọi người act lại
 
   if (action === "fold") {
     s.hasFolded = true;
@@ -330,6 +332,7 @@ export function applyAction(room, seatIdx, action, amount = 0) {
     room.currentBet = target;
     room.minRaise = raiseAmount;
     room.lastAggressorIndex = seatIdx;
+    isAggression = true;
     s.lastAction = s.isAllIn ? "allin" : "raise";
     room.actions.push({
       seatIndex: seatIdx,
@@ -351,6 +354,7 @@ export function applyAction(room, seatIdx, action, amount = 0) {
       if (raiseAmount >= room.minRaise) room.minRaise = raiseAmount;
       room.currentBet = target;
       room.lastAggressorIndex = seatIdx;
+      isAggression = true;
     }
     s.lastAction = "allin";
     room.actions.push({
@@ -361,6 +365,16 @@ export function applyAction(room, seatIdx, action, amount = 0) {
     });
   } else {
     throw new Error("Action không hợp lệ");
+  }
+
+  // Track acted: raise → chỉ raiser đã act (mọi người khác phải act lại);
+  // action thường → thêm seat vào danh sách đã act.
+  if (isAggression) {
+    room.actedThisStreet = [seatIdx];
+  } else {
+    const acted = new Set(room.actedThisStreet || []);
+    acted.add(seatIdx);
+    room.actedThisStreet = Array.from(acted);
   }
 
   room.lastActivityAt = new Date();
@@ -375,31 +389,20 @@ function advance(room) {
     return finishHandUncontested(room, inHand[0]);
   }
 
-  // Kiểm tra street đã xong chưa: tất cả seat non-fold + non-allin đã match currentBet
-  // VÀ actor kế tiếp bằng lastAggressor
+  // Street kết thúc khi: mọi seat còn chơi (non-fold, non-allin) đã match
+  // currentBet VÀ đã hành động ít nhất 1 lần trong street này. Blinds không
+  // tính là "đã act" → BB giữ option preflop; raise reset danh sách acted.
+  // (Fix bug cũ: BB check xong lượt bị quay lại dealer vì check dựa vào
+  // lastAction === "post_bb" đã bị ghi đè.)
   const nextIdx = nextActiveSeat(room, room.activeIndex);
   const activeInHand = inHand.filter((s) => !s.isAllIn);
   const allMatched = activeInHand.every(
     (s) => s.betThisStreet === room.currentBet,
   );
-  // Trong preflop, BB có "option" — nếu ai cũng call/limp, BB được check
-  const bbHasOption =
-    room.stage === "preflop" &&
-    room.currentBet === room.bigBlind &&
-    room.lastAggressorIndex >= 0 &&
-    room.seats[room.lastAggressorIndex]?.lastAction === "post_bb" &&
-    activeInHand.every((s) => s.betThisStreet === room.bigBlind);
-  const bbSeatIdx = bbHasOption ? room.lastAggressorIndex : -1;
+  const acted = new Set(room.actedThisStreet || []);
+  const everyoneActed = activeInHand.every((s) => acted.has(s.seatIndex));
 
-  if (
-    allMatched &&
-    (nextIdx === room.lastAggressorIndex || nextIdx === -1) &&
-    (!bbHasOption || room.actions.some(
-      (a) =>
-        a.seatIndex === bbSeatIdx &&
-        ["check", "raise", "allin"].includes(a.action),
-    ))
-  ) {
+  if (allMatched && everyoneActed) {
     return advanceStreet(room);
   }
 
@@ -412,10 +415,11 @@ function advance(room) {
 }
 
 function advanceStreet(room) {
-  // Reset betThisStreet
+  // Reset betThisStreet + danh sách đã act cho street mới
   for (const s of room.seats) s.betThisStreet = 0;
   room.currentBet = 0;
   room.minRaise = room.bigBlind;
+  room.actedThisStreet = [];
 
   // Deal board
   if (room.stage === "preflop") {
