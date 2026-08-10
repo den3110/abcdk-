@@ -376,6 +376,7 @@ function CommentThread({ postId, me, canModerate }) {
   const [commentMedia, setCommentMedia] = useState([]);
   const [uploadingComment, setUploadingComment] = useState(false);
   const [reactorsOpen, setReactorsOpen] = useState(null); // {kind, id}
+  const [justRepliedTo, setJustRepliedTo] = useState(null);
   const fileInputRef = useRef(null);
   const submittingRef = useRef(false);
   const { data, isFetching } = useListFeedCommentsQuery({ postId });
@@ -423,6 +424,12 @@ function CommentThread({ postId, me, canModerate }) {
       setCommentMedia([]);
       setTimeout(() => setReply(""), 30);
       setReplyTarget(null);
+      // Đánh dấu để CommentItem tự expand + refetch reply list ngay, tránh
+      // phải load lại trang mới thấy phản hồi vừa gửi.
+      if (parent) {
+        setJustRepliedTo(String(parent));
+        setTimeout(() => setJustRepliedTo(null), 4000);
+      }
     } catch (err) {
       toast.error(err?.data?.message || "Không gửi được");
     } finally {
@@ -470,6 +477,7 @@ function CommentThread({ postId, me, canModerate }) {
             onOpenReactors={(cid) =>
               setReactorsOpen({ kind: "comment", id: cid })
             }
+            justRepliedTo={justRepliedTo}
           />
         ))}
       </Stack>
@@ -596,14 +604,40 @@ function CommentItem({
   onDelete,
   onReport,
   onOpenReactors,
+  justRepliedTo,
 }) {
   const [showReplies, setShowReplies] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [reactComment] = useReactFeedCommentMutation();
-  const { data: replies } = useListFeedCommentsQuery(
+  // Vừa reply comment này → force expand + refetch để hiện phản hồi mới
+  // ngay, không phải reload trang.
+  useEffect(() => {
+    if (
+      justRepliedTo &&
+      String(justRepliedTo) === String(comment._id) &&
+      !showReplies
+    ) {
+      setShowReplies(true);
+    }
+  }, [justRepliedTo, comment._id, showReplies]);
+  const { data: replies, refetch: refetchReplies } = useListFeedCommentsQuery(
     showReplies ? { postId, parent: comment._id } : undefined,
     { skip: !showReplies }
   );
+  useEffect(() => {
+    if (
+      justRepliedTo &&
+      String(justRepliedTo) === String(comment._id) &&
+      showReplies
+    ) {
+      const t = setTimeout(() => {
+        try {
+          refetchReplies?.();
+        } catch {}
+      }, 50);
+      return () => clearTimeout(t);
+    }
+  }, [justRepliedTo, comment._id, showReplies, refetchReplies]);
   const canDelete =
     canModerate || String(comment.author?._id) === String(me?._id);
   const myReaction = comment.myReaction || null;
@@ -822,6 +856,7 @@ function CommentItem({
                   onDelete={onDelete}
                   onReport={onReport}
                   onOpenReactors={onOpenReactors}
+                  justRepliedTo={justRepliedTo}
                 />
               ))}
             </Stack>
