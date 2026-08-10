@@ -112,6 +112,39 @@ const authorName = (u) => u?.nickname || u?.name || "Người dùng";
 const isAdminRole = (u) => u?.role === "admin" || u?.role === "superAdmin";
 
 /* ─────────── Composer ─────────── */
+function GuestBanner({ onLogin }) {
+  return (
+    <Card sx={{ borderRadius: 3, mb: 2, p: 2 }}>
+      <Stack direction="row" spacing={2} alignItems="center">
+        <Box sx={{ flex: 1 }}>
+          <Typography variant="subtitle1" fontWeight={700}>
+            Đăng nhập để đăng bài, bình luận, thả cảm xúc
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Bạn vẫn có thể xem bảng tin mà không cần đăng nhập.
+          </Typography>
+        </Box>
+        <Button variant="contained" onClick={onLogin}>
+          Đăng nhập
+        </Button>
+      </Stack>
+    </Card>
+  );
+}
+
+// Guard mọi thao tác cần đăng nhập trên FeedPage. Trả true nếu OK.
+function useRequireLogin(me) {
+  const nav = useNavigate();
+  return React.useCallback(() => {
+    if (me) return true;
+    const yes = window.confirm(
+      "Bạn cần đăng nhập để thực hiện thao tác này. Chuyển tới trang đăng nhập?"
+    );
+    if (yes) nav("/login");
+    return false;
+  }, [me, nav]);
+}
+
 function Composer({ me, onPosted }) {
   const [content, setContent] = useState("");
   const [media, setMedia] = useState([]);
@@ -371,6 +404,7 @@ function ReactionBar({ post, onReact }) {
 
 /* ─────────── CommentThread ─────────── */
 function CommentThread({ postId, me, canModerate }) {
+  const requireLogin = useRequireLogin(me);
   const [reply, setReply] = useState("");
   const [replyTarget, setReplyTarget] = useState(null); // top-level comment id
   const [commentMedia, setCommentMedia] = useState([]);
@@ -388,6 +422,7 @@ function CommentThread({ postId, me, canModerate }) {
   const pickCommentMedia = async (e) => {
     const files = Array.from(e.target?.files || []);
     if (!files.length) return;
+    if (!requireLogin()) return;
     if (commentMedia.length + files.length > 4) {
       toast.error("Mỗi bình luận tối đa 4 ảnh/video.");
       return;
@@ -412,6 +447,7 @@ function CommentThread({ postId, me, canModerate }) {
     if (submittingRef.current) return;
     const content = reply;
     if (!content?.trim() && commentMedia.length === 0) return;
+    if (!requireLogin()) return;
     submittingRef.current = true;
     try {
       await createComment({
@@ -614,6 +650,7 @@ function CommentItem({
   );
   const [pickerOpen, setPickerOpen] = useState(false);
   const [reactComment] = useReactFeedCommentMutation();
+  const requireLogin = useRequireLogin(me);
   // Vừa reply comment này → force expand + refetch để hiện phản hồi mới
   // ngay, không phải reload trang.
   useEffect(() => {
@@ -649,6 +686,7 @@ function CommentItem({
   const reactionCount = comment.reactionCount || 0;
   const doReact = async (type) => {
     setPickerOpen(false);
+    if (!requireLogin()) return;
     try {
       await reactComment({ cid: String(comment._id), type }).unwrap();
     } catch (err) {
@@ -922,7 +960,9 @@ function PostCard({ post, me, defaultShowComments = false }) {
     }
   };
 
+  const requireLogin = useRequireLogin(me);
   const handleReact = async (type) => {
+    if (!requireLogin()) return;
     try {
       await react({ id: post._id, type }).unwrap();
     } catch (err) {
@@ -1407,21 +1447,8 @@ export default function FeedPage() {
     return () => io.disconnect();
   }, [loadMore]);
 
-  if (!me) {
-    return (
-      <Box sx={{ maxWidth: 640, mx: "auto", p: 3, textAlign: "center" }}>
-        <Typography variant="h5" gutterBottom>
-          Bảng tin
-        </Typography>
-        <Typography color="text.secondary" sx={{ mb: 2 }}>
-          Đăng nhập để xem và đăng bài lên Bảng tin.
-        </Typography>
-        <Button variant="contained" onClick={() => navigate("/login")}>
-          Đăng nhập
-        </Button>
-      </Box>
-    );
-  }
+  // Guest xem được feed nhưng khi thao tác thì bị bounce sang /login qua
+  // requireLogin() helper (xem PostCard / CommentThread).
 
   // Single-post view (/feed/post/:postId)
   if (postId) {
@@ -1534,7 +1561,11 @@ export default function FeedPage() {
             </Select>
           </Stack>
 
-          <Composer me={me} onPosted={handleRefresh} />
+          {me ? (
+            <Composer me={me} onPosted={handleRefresh} />
+          ) : (
+            <GuestBanner onLogin={() => navigate("/login")} />
+          )}
 
           {isFetching && !data && (
             <Box textAlign="center" py={4}>
