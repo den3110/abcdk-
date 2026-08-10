@@ -729,8 +729,15 @@ function previousSource(match, side, matchesById) {
 
 export function resolveMatchSideDisplayName(match, side, options = {}) {
   const normalizedSide = sideKey(side);
+  // MLP sub-match ưu tiên tên team + lineup từ meta.mlp (không có
+  // Registration/pair truyền thống).
+  const mlp = match?.meta?.mlp;
+  const mlpFallback =
+    normalizedSide === "B" ? mlp?.pairBLabel || mlp?.teamBName : mlp?.pairALabel || mlp?.teamAName;
   const fallback =
-    options.fallback || (normalizedSide === "B" ? "Đội B chưa rõ" : "Đội A chưa rõ");
+    options.fallback ||
+    mlpFallback ||
+    (normalizedSide === "B" ? "Đội B chưa rõ" : "Đội A chưa rõ");
   const depth = Number(options.depth || 0);
   if (!match || depth > 12) return fallback;
 
@@ -740,6 +747,16 @@ export function resolveMatchSideDisplayName(match, side, options = {}) {
     const pairName = pairDisplayName(pair, match);
     if (pairName && !isReferenceDisplayName(pairName)) return pairName;
   }
+
+  // MLP: nếu Match doc không có pair chuẩn nhưng có meta.mlp.pair* synth
+  // (player1/player2 là User đầy đủ), dùng pairDisplayName trên đó.
+  const mlpPair =
+    normalizedSide === "B" ? mlp?.pairB : mlp?.pairA;
+  if (hasResolvedPair(mlpPair)) {
+    const mlpPairName = pairDisplayName(mlpPair, match);
+    if (mlpPairName && !isReferenceDisplayName(mlpPairName)) return mlpPairName;
+  }
+  if (mlpFallback) return mlpFallback;
 
   const rawName = rawResolvedSideName(match, normalizedSide);
   if (rawName) return rawName;
