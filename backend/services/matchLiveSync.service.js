@@ -435,7 +435,17 @@ function getTeamPlayerIds(match, team) {
       ? match?.$locals?.resolvedPairB || match?.__resolvedPairB
       : match?.$locals?.resolvedPairA || match?.__resolvedPairA;
   const pair = hasRosterPairPlayers(directPair) ? directPair : resolvedPair;
-  return [pair?.player1, pair?.player2].map(userIdOfPlayer).filter(Boolean);
+  const ids = [pair?.player1, pair?.player2].map(userIdOfPlayer).filter(Boolean);
+  if (ids.length) return ids;
+  // MLP sub-match: pairA/pairB null, players nằm ở meta.mlp
+  const mlpKey = team === "B" ? "playersB" : "playersA";
+  const mlpPlayers = match?.meta?.mlp?.[mlpKey];
+  if (Array.isArray(mlpPlayers) && mlpPlayers.length) {
+    return mlpPlayers
+      .map((p) => String(p?._id ?? p?.id ?? p ?? "").trim())
+      .filter(Boolean);
+  }
+  return ids;
 }
 
 function validateSlotsBaseForMatch(match, inputBase = {}) {
