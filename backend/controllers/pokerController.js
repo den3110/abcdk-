@@ -12,6 +12,65 @@ import { getIO } from "../socket/index.js";
 
 const USER_FIELDS = "_id name nickname avatar";
 
+// Map roomId → timeout để clear khi có action mới. In-memory: nếu server
+// restart, timer mất — chấp nhận cho MVP; client-side có thể bấm sớm rồi
+// server không nhận (timeout đã fire). Chỉ mất 1 lượt.
+const roomTimers = new Map();
+
+function scheduleTimeout(roomId) {
+  clearTimeout(roomTimers.get(String(roomId)));
+  roomTimers.delete(String(roomId));
+  // Load room state để lấy deadline
+  PokerRoom.findById(roomId)
+    .select("turnDeadlineAt activeIndex stage")
+    .lean()
+    .then((r) => {
+      if (!r || !r.turnDeadlineAt || r.activeIndex < 0 || r.stage === "waiting") {
+        return;
+      }
+      const ms = Math.max(
+        0,
+        new Date(r.turnDeadlineAt).getTime() - Date.now(),
+      );
+      const t = setTimeout(() => autoAct(roomId).catch(() => {}), ms + 500);
+      roomTimers.set(String(roomId), t);
+    })
+    .catch(() => {});
+}
+
+async function autoAct(roomId) {
+  const room = await PokerRoom.findById(roomId);
+  if (!room) return;
+  if (room.stage === "waiting" || room.activeIndex < 0) return;
+  const deadline = room.turnDeadlineAt
+    ? new Date(room.turnDeadlineAt).getTime()
+    : 0;
+  if (Date.now() < deadline - 200) {
+    // Timer chưa hết — reschedule
+    scheduleTimeout(roomId);
+    return;
+  }
+  const seat = room.seats[room.activeIndex];
+  if (!seat || !seat.user) return;
+  const toCall = room.currentBet - seat.betThisStreet;
+  const action = toCall > 0 ? "fold" : "check";
+  try {
+    const { applyAction } = await import("../services/pokerEngine.js");
+    applyAction(room, room.activeIndex, action, 0);
+    await room.save();
+    const populated = await room.populate("seats.user", USER_FIELDS);
+    getIO?.()
+      ?.to(`poker:room:${room._id}`)
+      .emit("poker:room:updated", { roomId: String(room._id) });
+    // Schedule cho lượt kế tiếp
+    if (populated.activeIndex >= 0 && populated.stage !== "waiting") {
+      scheduleTimeout(populated._id);
+    }
+  } catch (err) {
+    console.error("[poker] autoAct error:", err?.message || err);
+  }
+}
+
 function emitRoomTo(room, event, payload) {
   try {
     const io = getIO?.();
@@ -203,6 +262,7 @@ export const startPokerHand = asyncHandler(async (req, res) => {
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
+  scheduleTimeout(room._id);
   res.json({ room: serializeRoom(populated, req.user._id) });
 });
 
@@ -230,5 +290,40 @@ export const pokerAction = asyncHandler(async (req, res) => {
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
+  if (populated.activeIndex >= 0 && populated.stage !== "waiting") {
+    scheduleTimeout(populated._id);
+  }
   res.json({ room: serializeRoom(populated, req.user._id) });
+});
+
+// POST /api/poker/rooms/:id/chat  { text }
+export const chatPokerRoom = asyncHandler(async (req, res) => {
+  const text = String(req.body?.text || "").trim().slice(0, 300);
+  if (!text) {
+    res.status(400);
+    throw new Error("Nội dung trống");
+  }
+  const room = await PokerRoom.findById(req.params.id);
+  if (!room) {
+    res.status(404);
+    throw new Error("Không tìm thấy bàn");
+  }
+  const msg = {
+    user: req.user._id,
+    name: req.user.nickname || req.user.name || "User",
+    avatar: req.user.avatar || "",
+    text,
+    at: new Date(),
+  };
+  room.messages.push(msg);
+  // Cap 100 tin gần nhất
+  if (room.messages.length > 100) {
+    room.messages = room.messages.slice(-100);
+  }
+  room.lastActivityAt = new Date();
+  await room.save();
+  getIO?.()
+    ?.to(`poker:room:${room._id}`)
+    .emit("poker:room:chat", { roomId: String(room._id), message: msg });
+  res.json({ success: true, message: msg });
 });

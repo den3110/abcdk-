@@ -79,6 +79,28 @@ const pokerRoomSchema = new Schema(
     },
     handStartedAt: { type: Date, default: null },
     handEndedAt: { type: Date, default: null },
+
+    // Turn timer — 30 giây suy nghĩ. Nếu quá deadline, auto check/fold.
+    turnDeadlineAt: { type: Date, default: null },
+    turnDurationSec: { type: Number, default: 30 },
+
+    // Chat trong bàn — cap 100 tin gần nhất, cũ hơn bị cắt.
+    messages: {
+      type: [
+        new Schema(
+          {
+            user: { type: Schema.Types.ObjectId, ref: "User" },
+            name: String,
+            avatar: String,
+            text: { type: String, maxlength: 300 },
+            at: { type: Date, default: Date.now },
+          },
+          { _id: true },
+        ),
+      ],
+      default: [],
+    },
+
     // Auto-close nếu không hoạt động lâu
     lastActivityAt: { type: Date, default: Date.now, index: true },
 

@@ -238,6 +238,16 @@ export function startHand(room) {
   const firstActor = seatIdxs[(bbPos + 1) % seatIdxs.length];
   room.activeIndex = firstActor;
   room.lastAggressorIndex = bbIdx; // BB được checked-around thì street kết thúc
+  setTurnDeadline(room);
+}
+
+function setTurnDeadline(room) {
+  if (room.activeIndex < 0) {
+    room.turnDeadlineAt = null;
+    return;
+  }
+  const dur = room.turnDurationSec || 30;
+  room.turnDeadlineAt = new Date(Date.now() + dur * 1000);
 }
 
 function postBlind(room, seatIdx, amount, actionName) {
@@ -397,6 +407,7 @@ function advance(room) {
     return runOutBoard(room);
   }
   room.activeIndex = nextIdx;
+  setTurnDeadline(room);
 }
 
 function advanceStreet(room) {
@@ -434,6 +445,7 @@ function advanceStreet(room) {
   const firstActor = dpos >= 0 ? seatIdxs[dpos] : seatIdxs[0];
   room.activeIndex = firstActor;
   room.lastAggressorIndex = firstActor; // nếu ai cũng check, street end tại đây
+  setTurnDeadline(room);
 }
 
 // Tất cả đã allin → deal hết board rồi showdown
@@ -504,6 +516,7 @@ function endHand(room) {
   room.stage = "waiting";
   room.activeIndex = -1;
   room.currentBet = 0;
+  room.turnDeadlineAt = null;
   room.deck = []; // clear để giảm document size
   // Đánh dấu seat hết chip → sitting out
   for (const s of room.seats) {
@@ -569,6 +582,9 @@ export function serializeRoom(room, viewerUserId) {
     seats,
     winners: room.winners,
     actions: (room.actions || []).slice(-15), // 15 actions gần nhất
+    turnDeadlineAt: room.turnDeadlineAt,
+    turnDurationSec: room.turnDurationSec || 30,
+    messages: (room.messages || []).slice(-50),
     lastActivityAt: room.lastActivityAt,
     status: room.status,
   };
