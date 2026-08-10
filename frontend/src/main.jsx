@@ -65,6 +65,7 @@ import SeoNewsListScreen from "./screens/seo-news/SeoNewsListScreen.jsx";
 import SeoNewsDetailScreen from "./screens/seo-news/SeoNewsDetailScreen.jsx";
 import BlogPostScreen from "./screens/blog/BlogPostScreen.jsx";
 import ScoreOverlay from "./screens/PickleBall/ScoreOverlay.jsx";
+import MlpOverlay from "./screens/PickleBall/MlpOverlay.jsx";
 import AdminDrawPage from "./screens/PickleBall/AdminDrawPage.jsx";
 import DrawPage from "./screens/draw/DrawPage.jsx";
 import DrawLivePage from "./screens/draw/DrawLivePage.jsx";
@@ -264,6 +265,7 @@ const router = sentryCreateBrowserRouter(
       <Route path="/docs" element={<Navigate to="/docs/api" replace />} />
       <Route path="/docs/api" element={<ApiDocsPage />} />
       <Route path="/overlay/score" element={<ScoreOverlay />} />
+      <Route path="/overlay/mlp/court/:courtStationId" element={<MlpOverlay />} />
       <Route path="/503" element={<ServiceUnavailable />} />
       <Route path="/studio/live" element={<LiveStudioPage />} />
       <Route path="/streaming/:courtId" element={<CourtStreamingPage />} />

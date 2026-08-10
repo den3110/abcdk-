@@ -8,6 +8,7 @@ import {
   getPublicLiveFeed,
   searchPublicLiveFeed,
 } from "../controllers/liveFeedController.js";
+import { getMlpCourtOverlay } from "../controllers/mlpOverlayController.js";
 import {
   getPublicLiveClusterById,
   getPublicLiveCourtCurrentMatchOverlay,
@@ -33,6 +34,8 @@ router.get(
   "/courts/:courtStationId/current-match-overlay",
   getPublicLiveCourtCurrentMatchOverlay
 );
+// MLP-specific overlay theo sân (sub-match + DreamBreaker unified).
+router.get("/courts/:courtStationId/mlp-overlay", getMlpCourtOverlay);
 router.get("/courts/:courtStationId", getPublicLiveCourtById);
 router.delete(
   "/matches/:matchId/video",

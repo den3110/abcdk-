@@ -315,6 +315,68 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
             Bạn không phải admin / manager giải này — chỉ có thể xem.
           </Typography>
         )}
+
+        {canManage && courtValue.startsWith("station:") && (
+          <Box
+            sx={{
+              mt: 1,
+              p: 1.5,
+              borderRadius: 2,
+              bgcolor: "action.hover",
+              border: "1px dashed",
+              borderColor: "divider",
+            }}
+          >
+            <Typography variant="caption" fontWeight={700} sx={{ mb: 0.5, display: "block" }}>
+              🎥 Overlay livestream cho sân này
+            </Typography>
+            {(() => {
+              const stationId = courtValue.slice(8);
+              const url = `${window.location.origin}/overlay/mlp/court/${stationId}`;
+              const openInNew = () => window.open(url, "_blank");
+              const copy = async () => {
+                try {
+                  await navigator.clipboard.writeText(url);
+                  toast.success("Đã copy URL overlay");
+                } catch {
+                  toast.info(url);
+                }
+              };
+              return (
+                <>
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{
+                      display: "block",
+                      wordBreak: "break-all",
+                      fontFamily: "monospace",
+                      mb: 1,
+                    }}
+                  >
+                    {url}
+                  </Typography>
+                  <Stack direction="row" spacing={1}>
+                    <Button size="small" variant="outlined" onClick={copy}>
+                      Copy URL
+                    </Button>
+                    <Button size="small" variant="contained" onClick={openInNew}>
+                      Mở overlay
+                    </Button>
+                  </Stack>
+                  <Typography
+                    variant="caption"
+                    color="text.disabled"
+                    sx={{ display: "block", mt: 0.75 }}
+                  >
+                    Dùng URL này làm Browser Source trong OBS. Overlay tự
+                    hiện sub-match → DreamBreaker khi dual vào tie-break.
+                  </Typography>
+                </>
+              );
+            })()}
+          </Box>
+        )}
       </Stack>
     </Paper>
   );
