@@ -214,6 +214,7 @@ function toCommentDTO(comment, viewerId) {
     parent: c.parent,
     author: c.author,
     content: c.content,
+    media: c.media || [],
     mentions: c.mentions || [],
     reactionCount: c.reactionCount || 0,
     replyCount: c.replyCount || 0,
@@ -221,6 +222,25 @@ function toCommentDTO(comment, viewerId) {
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
   };
+}
+
+function sanitizeCommentMedia(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .slice(0, 4)
+    .map((m) => {
+      if (!m || typeof m !== "object") return null;
+      const type = m.type === "video" ? "video" : m.type === "image" ? "image" : null;
+      const url = typeof m.url === "string" ? m.url.trim() : "";
+      if (!type || !url) return null;
+      const out = { type, url };
+      if (typeof m.mime === "string") out.mime = m.mime;
+      if (Number.isFinite(Number(m.sizeBytes))) out.sizeBytes = Number(m.sizeBytes);
+      if (Number.isFinite(Number(m.width))) out.width = Number(m.width);
+      if (Number.isFinite(Number(m.height))) out.height = Number(m.height);
+      return out;
+    })
+    .filter(Boolean);
 }
 
 function emit(event, payload) {
@@ -584,9 +604,10 @@ export const createComment = asyncHandler(async (req, res) => {
     throw new Error("postId không hợp lệ");
   }
   const content = String(req.body?.content || "").trim();
-  if (!content) {
+  const media = sanitizeCommentMedia(req.body?.media);
+  if (!content && media.length === 0) {
     res.status(400);
-    throw new Error("Nội dung bình luận không được trống");
+    throw new Error("Bình luận cần có nội dung hoặc ảnh/video");
   }
   const post = await FeedPost.findById(postId);
   if (!post || post.deletedAt || post.isHidden) {
@@ -619,6 +640,7 @@ export const createComment = asyncHandler(async (req, res) => {
     post: postId,
     author: viewer._id,
     content,
+    media,
     parent,
     mentions,
   });
@@ -647,7 +669,13 @@ export const createComment = asyncHandler(async (req, res) => {
     postId,
     postAuthorId: post.author,
     actorId: viewer._id,
-    commentPreview: content,
+    commentPreview:
+      content ||
+      (media.some((m) => m.type === "video")
+        ? "[Video]"
+        : media.length
+        ? "[Ảnh]"
+        : ""),
     parentAuthorId,
     mentions,
   });

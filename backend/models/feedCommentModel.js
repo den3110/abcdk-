@@ -14,6 +14,18 @@ const reactionSchema = new Schema(
   { _id: false }
 );
 
+const mediaSchema = new Schema(
+  {
+    type: { type: String, enum: ["image", "video"], required: true },
+    url: { type: String, required: true, trim: true },
+    mime: { type: String, trim: true },
+    sizeBytes: { type: Number, min: 0 },
+    width: { type: Number, min: 0 },
+    height: { type: Number, min: 0 },
+  },
+  { _id: false }
+);
+
 const feedCommentSchema = new Schema(
   {
     post: {
@@ -34,7 +46,8 @@ const feedCommentSchema = new Schema(
       ref: "FeedComment",
       default: null,
     },
-    content: { type: String, required: true, trim: true, maxlength: 2000 },
+    content: { type: String, default: "", trim: true, maxlength: 2000 },
+    media: { type: [mediaSchema], default: [] },
     mentions: [{ type: Schema.Types.ObjectId, ref: "User" }],
     reactions: { type: [reactionSchema], default: [] },
     reactionCount: { type: Number, default: 0, min: 0 },
