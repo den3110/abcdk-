@@ -114,12 +114,14 @@ router.post(
 const perUserKey = (req) => String(req.user?._id || req.ip);
 
 const rlPost = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1h
+  windowMs: 24 * 60 * 60 * 1000, // 24h
   max: 10,
   keyGenerator: perUserKey,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { message: "Bạn đăng bài quá nhanh, thử lại sau." },
+  message: {
+    message: "Bạn chỉ được đăng tối đa 10 bài / ngày. Vui lòng thử lại sau.",
+  },
 });
 const rlComment = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -128,6 +130,21 @@ const rlComment = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { message: "Bạn bình luận quá nhanh, thử lại sau." },
+});
+// Rate limit riêng cho bình luận CÓ đính kèm ảnh/video — chống spam media
+// nặng đô. Chỉ count khi body.media không rỗng.
+const rlCommentMedia = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, // 24h
+  max: 100,
+  keyGenerator: perUserKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) =>
+    !Array.isArray(req.body?.media) || req.body.media.length === 0,
+  message: {
+    message:
+      "Bạn chỉ được bình luận kèm ảnh/video tối đa 100 lần / ngày. Vui lòng thử lại sau.",
+  },
 });
 const rlReaction = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -154,7 +171,7 @@ router.get("/", optionalAuth, listFeed);
 // COMMENTS list phải nằm TRƯỚC "/:id" để không bị nuốt
 router.get("/:id/comments", optionalAuth, listComments);
 
-router.post("/:id/comments", protect, rlComment, createComment);
+router.post("/:id/comments", protect, rlComment, rlCommentMedia, createComment);
 router.delete("/comments/:cid", protect, deleteComment);
 router.post("/comments/:cid/reactions", protect, rlReaction, reactComment);
 router.post("/comments/:cid/reports", protect, rlReport, reportTarget("comment"));
