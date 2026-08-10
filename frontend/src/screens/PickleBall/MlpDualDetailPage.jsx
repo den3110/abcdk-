@@ -141,17 +141,44 @@ function LineupDialog({
   };
 
   const handleSubmit = () => {
-    if (pa.length !== size || pb.length !== size) {
-      toast.error(`Mỗi bên cần chọn ${size} VĐV`);
+    // Chỉ validate size cho các bên mà user được edit. Captain chỉ setup
+    // team mình → không yêu cầu chọn đủ team đối thủ.
+    if (canEditA && pa.length !== size) {
+      toast.error(`Team A cần chọn ${size} VĐV`);
+      return;
+    }
+    if (canEditB && pb.length !== size) {
+      toast.error(`Team B cần chọn ${size} VĐV`);
       return;
     }
     onSubmit(
       pa.map((p) => p._id),
       pb.map((p) => p._id),
     );
-    setPa([]);
-    setPb([]);
   };
+
+  // Columns hiển thị: manager thấy cả 2; captain chỉ thấy team của mình.
+  const columns = [];
+  if (canEditA) {
+    columns.push({
+      label: "Team A",
+      team: teamA,
+      list: pa,
+      setList: setPa,
+      editable: true,
+    });
+  }
+  if (canEditB) {
+    columns.push({
+      label: "Team B",
+      team: teamB,
+      list: pb,
+      setList: setPb,
+      editable: true,
+    });
+  }
+  // Manager (canEditA && canEditB) — thấy cả 2 với editable=true. Cả 2
+  // đã push ở trên.
 
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
@@ -160,34 +187,10 @@ function LineupDialog({
       </DialogTitle>
       <DialogContent dividers>
         <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
-          {[
-            {
-              label: "Team A",
-              team: teamA,
-              list: pa,
-              setList: setPa,
-              editable: canEditA,
-            },
-            {
-              label: "Team B",
-              team: teamB,
-              list: pb,
-              setList: setPb,
-              editable: canEditB,
-            },
-          ].map((col) => (
-            <Box key={col.label} flex={1} sx={{ opacity: col.editable ? 1 : 0.55 }}>
+          {columns.map((col) => (
+            <Box key={col.label} flex={1}>
               <Typography variant="body2" fontWeight={800} sx={{ mb: 1 }}>
-                {col.label}: {col.team?.name} ({col.list.length}/{size})
-                {!col.editable && (
-                  <Typography
-                    component="span"
-                    variant="caption"
-                    sx={{ ml: 1, color: "text.disabled", fontWeight: 500 }}
-                  >
-                    (chỉ xem)
-                  </Typography>
-                )}
+                {col.team?.name} ({col.list.length}/{size})
               </Typography>
               <Stack spacing={0.5}>
                 {(col.team?.players || []).map((p) => {
@@ -202,15 +205,13 @@ function LineupDialog({
                       spacing={1}
                       sx={{
                         p: 0.75,
-                        cursor: col.editable ? "pointer" : "default",
+                        cursor: "pointer",
                         border: 1,
                         borderColor: active ? "primary.main" : "divider",
                         borderRadius: 1,
                         bgcolor: active ? "action.selected" : "transparent",
                       }}
-                      onClick={() =>
-                        col.editable && toggle(col.list, col.setList, p)
-                      }
+                      onClick={() => toggle(col.list, col.setList, p)}
                     >
                       <Avatar src={p.avatar} sx={{ width: 28, height: 28 }}>
                         {(p.nickname || p.name || "?")[0]}
