@@ -2470,6 +2470,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 seedB: "$$it.seedB",
                 previousA: "$$it.previousA",
                 previousB: "$$it.previousB",
+                meta: "$$it.meta",
 
                 pairA: {
                   _id: "$$it.pairAReg._id",

@@ -1250,6 +1250,18 @@ export const listMlpDuals = asyncHandler(async (req, res) => {
       select: "_id name nickname avatar gender",
     })
     .populate({
+      path: "subMatches.referees",
+      select: "_id name nickname avatar",
+    })
+    .populate({
+      path: "subMatches.court",
+      select: "_id name code",
+    })
+    .populate({
+      path: "subMatches.courtStation",
+      select: "_id name",
+    })
+    .populate({
       path: "dreamBreaker.lineupA",
       select: "_id name nickname avatar",
     })
@@ -1292,6 +1304,18 @@ export const getMlpDual = asyncHandler(async (req, res) => {
     .populate({
       path: "subMatches.playersB",
       select: "_id name nickname avatar gender",
+    })
+    .populate({
+      path: "subMatches.referees",
+      select: "_id name nickname avatar",
+    })
+    .populate({
+      path: "subMatches.court",
+      select: "_id name code",
+    })
+    .populate({
+      path: "subMatches.courtStation",
+      select: "_id name",
     })
     .populate({
       path: "dreamBreaker.lineupA",
