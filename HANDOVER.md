@@ -4,14 +4,20 @@
 > **Ngày lập:** 2026-08-03. Lập tự động từ khảo sát code, có ghi chú những chỗ cần xác nhận lại với người bàn giao.
 >
 > ⚠️ **QUAN TRỌNG:** file này là bản gốc từ 2026-08-03. Trạng thái + tính năng
-> mới nhất (session **2026-08-08 → 2026-08-10**) — Apple 1.2 compliance
-> (block/report + EULA), nickname change approval workflow (backend + admin +
-> Telegram bot), overlay generator integration vào Quản lý giải, admin key
-> setup, ball count + Point badges cho overlay, icon/splash 1.1.13, AAB Android
-> `1.1.13 (43)` build sẵn sàng, iOS Archive 1.1.13 chờ user, chat cải tiến
-> lớn (fullscreen viewer, upload UX, realtime reconnect, tap avatar, nút Gọi
-> Zalo) — nằm ở **`HANDOFF.md`**. Đọc HANDOFF.md **TRƯỚC** để nắm state hiện
-> tại, xong quay lại HANDOVER.md để hiểu kiến trúc + credentials gốc.
+> mới nhất (**2 session tới nay**) — Apple 1.2 compliance, nickname approval,
+> overlay generator, icon/splash 1.1.13, Android LIVE, iOS TestFlight chờ,
+> chat DM upgrade, **Feed hoàn thiện** (video thumb + realtime + AspectImage
+> + comment media + reactions viewer + FeedMediaLightbox + mention populate
+> + guest view + rate limit posts/day), **Notification prefs** (chat/feed
+> mute all + per-DM), **MLP tournament ĐẦY ĐỦ** (Phase 1-6: standings +
+> referee/court + realtime socket + knockout + rating hook + push noti +
+> admin moderation + check-in + tiebreaker H2H + reporting CSV + overlay
+> template + mobile UI 4 screens + court cluster integration), **POKER
+> Texas Hold'em multiplayer** (chip vui chơi, engine đầy đủ + 6 ghế + timer
+> 30s auto-action + chat + emoji + khoe bài + mời bạn + raise slider +
+> speech bubble + avatar + dealer + chip flight animation + âm thanh +
+> reconnect + auto-huỷ 5' idle) — chi tiết trong **`HANDOFF.md`**. Đọc
+> HANDOFF.md **TRƯỚC** để nắm state hiện tại.
 >
 > ⚠️ **Thay đổi kiến trúc lớn kể từ 2026-08-03 (đọc HANDOFF chi tiết):**
 > 1. **Tournament mode** giờ có 3 giá trị: `standard` / `team` / `mlp`. Xem
@@ -42,8 +48,9 @@
 > 12. **Chat realtime**: đã fix re-subscribe room khi socket reconnect (bug
 >     mất messages sau khi mất mạng chớp).
 > 13. **Mobile version bump** — hết session này: `1.1.13 (43)` đồng bộ iOS +
->     Android (app.json + Info.plist + xcodeproj + gradle). AAB Android đã
->     build local, iOS Archive chưa lên.
+>     Android (app.json + Info.plist + xcodeproj + gradle). Android LIVE Play
+>     production (rollout xong). iOS đã upload TestFlight, chưa Submit for
+>     Review lên App Store.
 > 14. **Hot-updater CLI** — dùng `./node_modules/.bin/hot-updater` (0.25.14)
 >     khớp native, KHÔNG `npx hot-updater@0.25.4` như HANDOFF cũ (yarn.lock
 >     đã silent upgrade 09/07).
@@ -53,9 +60,26 @@
 > 16. **Icon + splash + logo** mới — icon `P` navy monogram, splash bg navy
 >     `#0a1834`. Native replace ở cả 5 folder iOS Xcode (`ios`, `ios 2`,
 >     `ios3`, `ios copy`, `ios copy 2`) + Android mipmap 5 density.
+> 17. **MLP tournament** đã complete-loop: Team CRUD → generate dual → chấm →
+>     DreamBreaker → BXH (auto-recompute + H2H tiebreak) → knockout bracket
+>     seed từ BXH → rating hook cập nhật điểm trình VĐV → notification →
+>     export CSV/summary JSON. Mobile 4 screens (`app/tournament/[id]/mlp/*`),
+>     socket `mlp:dual:${id}`.
+> 18. **Poker Texas Hold'em multiplayer** — module hoàn toàn mới. Model
+>     `PokerRoom`, engine `pokerEngine.js` (shuffle + hand evaluate 5/7 +
+>     street progression + auto-timer 30s + auto-huỷ 5' idle), 13 endpoints
+>     `/api/poker/*`, socket `poker:room:${id}`, mobile ~2500 dòng ở
+>     `app/poker/`. Chip vui chơi (không tiền thật). Sound layer dùng
+>     `expo-audio` với `assets/sfx/click4.mp3` volume/rate variation.
+> 19. **Feed rate limits** — `rlPost` 24h/10 bài, `rlCommentMedia` 24h/100
+>     comment kèm media (skip khi media rỗng).
+> 20. **Notification preferences** — `User.notificationPrefs` embedded
+>     `{chatMuteAll, feedMuteAll}`, endpoint `GET/PATCH /api/users/
+>     notification-prefs`. Chat/Feed notifier tự filter user opt-out.
 >
-> ⚠️ **VPS SSH password**: `Hoang@0726` (từ máy local hiện chỉ auth được bằng
-> SSH key, password auth từ chối — chạy từ máy khác nếu cần password).
+> ⚠️ **VPS SSH**: `PasswordAuthentication=no` trên server — chỉ SSH key. Password
+> `Hoang@07082026` (cập nhật gần nhất) KHÔNG dùng được, kể cả qua sshpass.
+> Deploy backend/web/overlay phải chạy từ máy có SSH key setup sẵn.
 >
 > **Sản phẩm:** PickleTour (`https://pickletour.vn`) — nền tảng giải đấu pickleball cho thị trường Việt Nam: quản lý giải, bốc thăm, sơ đồ nhánh, chấm trận trọng tài realtime, điểm trình/BXH, CLB, đặt sân, livestream + ghi hình, tin tức AI, chatbot Pikora, app mobile.
 >

@@ -1,14 +1,24 @@
-# PickleTour — HANDOFF Session (2026-08-08 → 2026-08-10)
+# PickleTour — HANDOFF Session (2026-08-10 → 2026-08-11)
 
-> Tài liệu bàn giao giữa các session Claude / dev. Đọc kèm `HANDOVER.md` (bàn
-> giao gốc từ đội cũ) để nắm kiến trúc tổng thể; đọc file này để biết trạng
-> thái mới nhất + landmines + việc còn dở.
+> Session dài **1 ngày**, ~35+ commits, chia 5 nhóm việc lớn.
+> Đọc kèm `HANDOVER.md` (bàn giao gốc từ đội cũ) để nắm kiến trúc.
 >
-> Session dài (3 ngày, ~50 commits) chia làm 4 nhóm:
-> 1. **Apple 1.2 compliance** — EULA + block/report + ẩn field required
-> 2. **Nickname approval workflow** — cooldown + duyệt qua Telegram + admin panel
-> 3. **Overlay generator integration** — tạo overlay từ Quản lý giải, admin API key setup, court URLs, Game/Match/Championship Point, ball count cho serve
-> 4. **Mobile polish & release** — icon/splash 1.1.13, AAB Android, fix tab stuck, chat cải tiến (fullscreen viewer, upload UX, realtime reconnect, tap avatar, nút Gọi Zalo)
+> **Nhóm việc trong session này:**
+> 1. **Feed hoàn thiện** — video thumbnail, aspect ratio, comment media,
+>    reactions viewer, realtime, mention populate, keyboard fix, guest view
+> 2. **Notification prefs** — chat/feed mute all + per-DM mute
+> 3. **MLP tournament ĐẦY ĐỦ** — hoàn thiện 6 phase: standings + auto
+>    recompute, referee/court, realtime socket, knockout bracket, rating
+>    hook, push noti, admin moderation, check-in, tiebreaker, reporting
+>    CSV, overlay template, MOBILE MLP UI (4 screens), court cluster
+>    integration
+> 4. **Poker Texas Hold'em multiplayer** — engine đầy đủ, 6 ghế, timer 30s
+>    auto-action, chat trong bàn, emoji reactions, khoe bài, mời bạn qua
+>    bảng xếp hạng, raise slider, speech bubble, avatar, dealer minh hoạ,
+>    chip flight animation, âm thanh mỗi action, reconnect khi mất mạng,
+>    auto-huỷ bàn idle 5 phút
+> 5. **Bug fixes** — icon `?` sau OTA, MLP lineup dialog trống, keyboard che
+>    modal, luật poker preflop BB option, layout fit màn hình
 
 ---
 
@@ -16,228 +26,176 @@
 
 | Kênh | Version | Trạng thái |
 |---|---|---|
-| **Backend prod** (`pickletour.vn/api`) | commit `07baed33` (2026-08-10 00:01) | ⚠️ **CHƯA deploy** — user cần `ssh + git pull + pm2 restart server`. Prod đang chạy commit `acadfc03` (2 ngày cũ). |
-| **Frontend web** (`pickletour.vn`) | commit `07baed33` | ⚠️ **CHƯA build/rsync** sau nhiều commit (overlay dialog, court URLs...) |
-| **Admin panel** (`admin.pickletour.vn`) | commit `89c478d` | ⚠️ **CHƯA build/rsync** — mất trang "Duyệt đổi biệt danh" mới + section "Overlay Generator API Key" + input cooldown nickname |
-| **Mobile iOS TestFlight** | native `1.1.11 (41)` cũ — CHƯA archive `1.1.13 (43)` | 🟡 Bug native hot-updater 0.25.14 vẫn còn (silent rollback bundle). User đã có Xcode setup xong 1.1.13 (43) — chờ **Archive + Upload** để thoát bug. |
-| **Mobile Android Play** | native `1.1.11` (Play cũ) — AAB `1.1.13 (43)` sẵn sàng | 🟡 AAB đã build tại `~/Desktop/Pickletour-1.1.13-43.aab` (160 MB). Chờ user upload Play Console (còn AD_ID declaration cần "No" trong App Content). |
-| **OTA hot-updater** (Cloudflare R2+D1) | Latest bundle `Chat: nút Gọi Zalo + Gọi điện` | ✅ Deployed cho cả 4 target `iOS/Android × 1.1.9/1.1.13` production. |
-| **Overlay Generator VPS** (`/root/overlay-generator/`) | template + server chưa sync bản mới nhất | ⚠️ Cần `scp overlay-template.html + generator-server.js` lên VPS rồi `systemctl restart overlay-gen`. Bản trên máy có 3 update chưa deploy. |
-| **Scoreboard site** (`scoreboard.pickletour.vn`) | live các file HTML overlay đã generate trước | ✅ Live nhưng overlay cũ dùng template cũ (số 1/2 trên tay giao + không có badge Point). Cần regenerate qua UI. |
+| **Backend prod** (`pickletour.vn/api`) | commit `981ff432` | 🔴 **CHƯA deploy** — cần `git pull + pm2 restart`. Nhiều feature mới không hoạt động cho tới khi restart. |
+| **Frontend web** (`pickletour.vn`) | commit `9ff8015e` | 🔴 **CHƯA build/rsync** — mất phần lớn feature web (feed reactions, MLP standings, dialog Chọn lineup fix populate…). |
+| **Admin panel** (`admin.pickletour.vn`) | không đổi | ✅ Không có commit mới cho admin trong session này. |
+| **Mobile iOS TestFlight** | `1.1.13 (43)` cũ | 🟡 Native binary cũ; toàn bộ feature ship qua OTA. Vẫn chưa submit App Review. |
+| **Mobile Android Play** | `1.1.13 (43)` LIVE | ✅ Rollout xong từ trước. |
+| **OTA hot-updater** | Latest bundle `Poker: chip fly + stack + audio` | ✅ Deployed cho cả 4 target `iOS/Android × 1.1.9/1.1.13` production. User mở app sẽ tự pull bundle mới. |
+| **Overlay Generator VPS** | template MLP mới sẵn ở local, chưa scp | 🟡 File `overlay-template-mlp.html` nằm ở `/Users/admin/Desktop/Giai Thien truong/generator/` — cần scp + restart. |
 
-**Git remotes đồng bộ hết:**
+**Git remotes:**
 
-| Repo | Latest commit | Push |
-|---|---|---|
-| `github.com/den3110/abcdk-` (root + backend + web) | `07baed33` | ✅ |
-| `github.com/den3110/pickletour-app` (mobile) | `2af610f` | ✅ |
-| `github.com/den3110/abcde` (admin-pickletour) | `89c478d` | ✅ |
+| Repo | Latest commit |
+|---|---|
+| `github.com/den3110/abcdk-` (root + backend + web) | `981ff432` |
+| `github.com/den3110/pickletour-app` (mobile) | `745482e` |
+| `github.com/den3110/abcde` (admin) | không đổi từ session trước |
 
 ---
 
 ## 2. Feature ship trong session
 
-### 2.1 Apple Guideline 1.2 (Aug 8) — User-Generated Content compliance
+### 2.1 Feed (bảng tin) — hoàn thiện
 
-**Backend** ([24584c8d](https://github.com/den3110/abcdk-/commit/24584c8d)):
-- Block user endpoints: `POST/DELETE /api/friends/block/:userId`, `GET /api/friends/blocked`
-- Helper `getBlockedIdSet(viewerId)` 2 chiều (block hoặc bị block)
-- Filter `listFeed`/`getPost`/`listComments`/`attachRecentComments`/`createComment` loại content của blocked users
-- Filter chat: `listConversations`, chặn `openDmConversation` + `sendMessage` với DM blocked
-- Notify admin qua Telegram khi user block hoặc report content
-- `getStatus` trả kèm `blockedBy` để FE biết ai là người chặn
+**Backend**
+- Comment thêm field `media[]` (type/url/mime/sizeBytes/width/height, max 4), `content` không còn required.
+- Endpoint mới: `GET /api/feed/:id/reactions`, `GET /api/feed/comments/:cid/reactions` (trả reactor + countByType, populate user với AUTHOR_FIELDS).
+- Fix: `listComments` + `createComment` giờ `populate("mentions", AUTHOR_FIELDS)` → mention nổi màu + click được profile trên cả mobile lẫn web.
+- Socket handlers `feed:post:subscribe/unsubscribe` + `feed:list:subscribe/unsubscribe` (backend đã emit sẵn nhưng client không join room → event chết).
+- Rate limit: `rlPost` đổi từ 1h→**24h/10 bài**, thêm `rlCommentMedia` 24h/100 comment kèm media (skip khi body.media rỗng).
 
-**Mobile** ([750a19a](https://github.com/den3110/pickletour-app/commit/750a19a)):
-- Register EULA: strengthen section 3 "Zero tolerance" + đề cập cơ chế Báo cáo/Chặn
-- `UserActionsMenu` (nút 3 chấm) trong public profile + chat DM header
-- `app/settings/blocked-users.tsx` — trang list user đã chặn + unblock
-- Reason picker 8 lý do cho Feed post/comment (thay Alert.prompt cũ)
-- Helper `utils/contentModeration.ts` — `pickReportReason` + `confirmBlock`
+**Mobile**
+- Chat DM: video message hiện frame đầu làm thumbnail (VideoView paused, muted).
+- Post detail:
+  - `useFocusEffect` refetch mỗi lần focus — fix bug "tap noti không thấy reply".
+  - Realtime socket subscribe `feed:post:${id}`, listen `feed:comment:*`, `feed:post:*`, `feed:reaction:*` → invalidate cache.
+  - Auto-expand reply khi vừa submit (`justRepliedTo` state, reset 4s).
+- Feed tab: realtime `feed:post:new/deleted/updated` + reaction update, focus refetch.
+- **AspectImage component**: `Image.getSize()` runtime + cache — fix ảnh panorama bị crop trung tâm (backend không lưu width/height).
+- Comment composer: nút đính kèm ảnh/video max 4, spinner khi upload, preview thumbnail có X. Render bubble comment: ảnh dùng `react-native-image-viewing` fullscreen, video `VideoView` inline nativeControls.
+- Post detail comment: nút Thích (long-press picker 6 emoji), reaction count tap mở ReactorsModal.
+- **Video thumbnail chi tiết bài viết**: `PostVideoThumb` (VideoView paused muted contentFit cover + overlay Play), single + multi-slide.
+- Post detail input không bị bàn phím che: `ScrollView flex:1`.
 
-**Guideline 5.1.1(v)** (bỏ required field): backend user tự xử lý (per user "đã xử lý phía backend").
+**Web** ([frontend/src/screens/FeedPage.jsx](abcdk/frontend/src/screens/FeedPage.jsx))
+- Comment composer: nút đính kèm (file input), preview + xoá.
+- Comment mention: `TextField` đổi sang `MentionAutocomplete` — gõ `@` hiện dropdown.
+- Comment reactions với hover picker 6 emoji + count tap dialog.
+- **FeedMediaLightbox** (Facebook-style): fullscreen media pane trái + sidebar phải (header, content, stats, reaction bar, CommentThread expanded). Keyboard ←→ chuyển ảnh.
+- ReactorsDialog: tab lọc theo type (tất cả + 6 emoji).
+- Auto-expand phản hồi khi `replyCount > 0` (giống mobile).
+- **Guest xem được**: bỏ full-page block `if (!me)`, Composer replaced by `GuestBanner`, `useRequireLogin(me)` hook gate mọi action (`window.confirm` + navigate).
 
-### 2.2 Nickname change workflow (Aug 8-9)
+### 2.2 Notification preferences
 
-**Model:**
-- `User.nicknameChangedAt: Date` (rate-limit source)
-- `NicknameChangeRequest` model — status pending/approved/rejected/cancelled, unique partial index `{user, status:pending}`
-- `SystemSettings.profile.nicknameChangeCooldownDays` (default 60, 0=tắt)
+**Backend**
+- `User.notificationPrefs` embedded: `chatMuteAll`, `feedMuteAll` (defaults false).
+- `GET/PATCH /api/users/notification-prefs`.
+- `chatNotifier` filter `chatMuteAll` (song song `conversation.mutedBy`).
+- `feedNotifier` filter `feedMuteAll` cho cả 3 luồng (mention comment, comment/reply chủ post, mention post body).
 
-**Flow** ([a049a41c](https://github.com/den3110/abcdk-/commit/a049a41c)):
-- User submit → check cooldown → KHÔNG apply luôn, tạo request pending → cooldown chưa consume
-- Admin **Duyệt** (Telegram inline button OR admin panel) → apply nickname + set `nicknameChangedAt`
-- Admin **Từ chối** → status rejected + reason, user KHÔNG mất lần đổi
-- Race guard: unique partial index chặn tạo request thứ 2 pending; approve có recheck dupe
+**Mobile**
+- Profile → Cài đặt → 2 Switch: "Tắt thông báo tin nhắn" / "Tắt thông báo bảng tin".
+- Header chat DM: icon 🔔/🔕 toggle per-conversation mute (`patchConversation`).
 
-**Telegram bot** ([16fc7efc](https://github.com/den3110/abcdk-/commit/16fc7efc)):
-- Gửi cùng `TELEGRAM_CHAT_ID` với KYC, inline button ✅ Duyệt / ❌ Từ chối
-- Bot handler `bot.action(/^nick:(approve|reject):OID$/)` gọi service dùng chung
+### 2.3 MLP tournament — ĐẦY ĐỦ
 
-**Admin panel** (`abcde` @ [89c478d](https://github.com/den3110/abcde/commit/89c478d)):
-- Trang `/admin/nickname-requests` — list + duyệt/từ chối kèm lý do, filter status
-- Sidebar entry "Duyệt đổi biệt danh" ngay dưới "Quản lý người dùng"
-- Nút reset cooldown (RestartAltIcon vàng) trong UserListPage — mỗi user
-- Section "Overlay Generator API Key" trong /admin/settings (validate + lưu vào VPS .env)
-- Section "Hồ sơ người dùng" trong /admin/settings — input cooldown days
+**Phase 1 — Đợt đầu** (~1200 dòng)
+- Backend: `Tournament.mlpConfig`, `MlpTeam`, `MlpDualMatch`, controller ~741 dòng, 15 endpoints (config, team CRUD, dual generate roundrobin/single-elim, lineup, syncScore, DreamBreaker start/point/undo).
+- Web: `MlpTeamsPage`, `MlpDualsPage`, `MlpDualDetailPage`, `MlpConfigDialog`.
 
-**⚠️ Landmine cooldown**:
-- **KHÔNG bypass admin nữa** — mọi user (admin/user) đều bị áp cooldown khi tự sửa nickname qua endpoint `/api/users/profile`
-- Admin muốn sửa hộ user khác → dùng `PUT /api/admin/users/:id` (updateUserInfo) — endpoint riêng, không áp cooldown
+**Phase 2 backend deep** ([bd1b819b](https://github.com/den3110/abcdk-/commit/bd1b819b))
+- **Rating hook** — `applyRatingForMlpSubMatch` trong ratingEngine, zero-sum per-person, RatingChange log với `match = subMatchId`, wire vào `syncSubMatchResult`, idempotent qua `sub.result.ratingApplied`.
+- **Court integration** — `GET /courts` (query Court + CourtStation dedup) + `POST /auto-assign-courts` (round-robin). Sau đó bỏ auto-assign UI, thêm nút "Quản lý cụm sân" mở `TournamentCourtClusterDialog` dùng chung.
+- **Knockout bracket** — `POST /duals/generate-knockout` (seed 1 vs N từ BXH, pad BYE, round=2+).
+- **Push notification** — `mlpNotifier.js`: team approve/reject + dual finished.
 
-**Script findUnrelatedNicknames** ([44f92c19](https://github.com/den3110/abcdk-/commit/44f92c19)): tìm user có nickname không match tên (4 heuristic: substring/word/initials/Levenshtein).
+**Phase 5+6 backend**
+- Standings + auto-recompute + head-to-head tiebreak.
+- Realtime socket `mlp:dual:${id}` emit `mlp:sub:score`, `mlp:db:score`, `mlp:dual:updated`, `mlp:dual:finished`.
+- Admin moderation: `force-finish`, `delete dual`.
+- Check-in per side (captain hoặc BTC).
+- Reporting: `GET /export/standings.csv` (BOM UTF-8), `results.csv` (dual + sub-match), `summary.json` (champion, runner-up).
+- Referee + court/courtStation + scheduledAt + note trong `MlpDualMatch`, `PATCH /duals/:id`, populate đầy đủ trong `getMlpDual` (nested populate cho team.players — fix dialog Chọn lineup không hiện VĐV).
 
-### 2.3 Overlay Generator integration (Aug 8-10)
+**Web MLP**
+- `MlpStandingsPage` (route `/tournament/:id/mlp/standings`), nút BXH ở MlpDualsPage.
+- `DualAssignmentPanel` (Autocomplete tìm trọng tài, dropdown Court/Station, datetime-local, note, check-in Team A/B).
+- Nút BXH + Sinh knockout + Quản lý cụm sân trong MlpDualsPage.
+- MlpDualDetailPage realtime subscribe.
+- Route knockout, standings, download CSV.
 
-**Backend** ([0e5dce61](https://github.com/den3110/abcdk-/commit/0e5dce61)):
-- Field `Tournament.overlayUrl` lưu URL scoreboard đã deploy
-- `backend/controllers/tournamentOverlayController.js` — 4 endpoint:
-  - `GET /api/admin/tournaments/:id/overlay/status` — trả `keySet, currentUrl, defaults (poster+name), courts[]`
-  - `POST /overlay/generate` — nếu client không gửi override → fetch `tour.image` base64 → forward `http://127.0.0.1:3131/api/generate`
-  - `POST /overlay/deploy` — forward + lưu URL vào `tour.overlayUrl`
-  - `DELETE /overlay` — clear
-- Admin key setup: `GET /overlay-generator/keystatus`, `POST /overlay-generator/setkey`
-- Env `OVERLAY_GENERATOR_URL` default `http://127.0.0.1:3131`
-- Timeout 90s cho generate (Claude vision 20-60s)
-- Kiểm quyền admin/manager trong controller (`canManage`)
+**Mobile MLP** ([7214149](https://github.com/den3110/pickletour-app/commit/7214149)) — 1347 dòng
+- `slices/mlpApiSlice.ts` (TypeScript, 12 endpoints).
+- 4 screens: `app/tournament/[id]/mlp/teams`, `duals`, `standings`, `dual/[dualId]`.
+- Dual detail: team header + check-in, sub-match score editor, DreamBreaker panel (+1 A/B + undo), realtime socket subscribe.
+- Home tab shortcut "MLP" (icon shield-star vàng) khi `tournamentMode === "mlp"`.
 
-**Court URLs per court** ([46c1d849](https://github.com/den3110/abcdk-/commit/46c1d849), [5f188ca8](https://github.com/den3110/abcdk-/commit/5f188ca8)):
-- Query cả `CourtStation` (mô hình mới via `tour.allowedCourtClusterIds`) + `Court` (cũ) → dedup theo `_id`
-- Dialog render mỗi sân 1 row: tên sân + `?courtId=<id>` full URL + nút Mở + Copy
+**Overlay MLP** — `/Users/admin/Desktop/Giai Thien truong/generator/overlay-template-mlp.html` (chưa scp lên VPS).
 
-**Frontend Dialog** (`OverlayGeneratorDialog.jsx`): 2-column, preview poster (default `tour.image`, upload override), name/category input, nút Tạo → iframe preview scale 0.5, Deploy & lưu, hiển thị URL hiện tại + list link theo từng sân.
+### 2.4 Poker Texas Hold'em multiplayer — TÍNH NĂNG MỚI
 
-**Nút "Tạo overlay"** (AutoFixHighIcon warning) trong action row của TournamentManagePage.jsx (+ MLP landing).
+Full-stack multiplayer poker chip vui chơi (không tiền thật, tránh vấn đề pháp lý cờ bạc).
 
-### 2.4 Overlay template polish (Aug 9-10) — TRÊN LOCAL, CHƯA DEPLOY
+**Backend** ([backend/models/pokerRoomModel.js](abcdk/backend/models/pokerRoomModel.js), [pokerEngine.js](abcdk/backend/services/pokerEngine.js), [pokerController.js](abcdk/backend/controllers/pokerController.js), [pokerRoutes.js](abcdk/backend/routes/pokerRoutes.js))
+- **Model PokerRoom**: seats[6] embed (user/chips/cards/betThisStreet/betTotal/hasFolded/isAllIn/lastAction), board, deck, pot, actions[], winners[], `turnDeadlineAt`, `messages[]`, `reveals[]`, `actedThisStreet[]`, status.
+- **Engine**: shuffle Fisher-Yates, `evaluate5`/`evaluate7` (rank 1-10 straight flush → high card + tiebreak lex), `startHand` (rotate dealer, blinds SB/BB, deal 2 lá mỗi seat), `applyAction` (fold/check/call/raise/allin) với minRaise + `actedThisStreet` chuẩn (fix BB option preflop — heads-up dealer call → BB check → chia flop luôn), advance street preflop→flop→turn→river→showdown, showdown chia pot (main pot only cho MVP — chưa side pot).
+- **13 endpoints**: list/create/get room, sit/leave, startHand, action, chat, emoji, reveal, invite. `sit` cho user buy-in cố định, `leave` fold + reset seat.
+- **Timer 30s**: `scheduleTimeout(roomId)` map roomId→setTimeout. Hết giờ → `autoAct` fold (nếu có toCall) hoặc check. Broadcast + reschedule cho actor kế. In-memory: server restart mất timer.
+- **Auto-huỷ bàn**: `closeStaleRooms` đóng bàn open có `lastActivityAt` quá 5 phút — chạy lazy khi list lobby + `setInterval(60_000)`. Guard sit/start trên bàn `closed`.
+- **Chat + emoji + reveal**:
+  - `POST /chat {text}` — max 300 char, cap 100 tin, emit `poker:room:chat`.
+  - `POST /emoji {emoji}` — whitelist 9 emoji (👍❤️😂😮😢😡🔥👏🎉), ephemeral, emit `poker:room:emoji`.
+  - `POST /reveal` — khoe bài sau ván (stage=waiting), cards vẫn còn trên sub state. Emit `poker:room:reveal`.
+- **Mời bạn** ([981ff432](https://github.com/den3110/abcdk-/commit/981ff432)):
+  - `POST /invite {userIds}` — expo push + in-app noti kind `POKER_INVITE` với `data.url = /poker/:id`. Rate limit **30/giờ/user** (in-memory).
+- **Socket subscribe** `poker:room:${id}`.
 
-Location: `/Users/admin/Desktop/Giai Thien truong/generator/`
+**Mobile** ([app/poker/](abcdk/pickletour-app-mobile/app/poker/)) — ~2500 dòng
+- **`slices/pokerApiSlice.ts`** — 10 endpoints (list/create/get, sit/leave, startHand, action, chat, emoji, reveal, invite).
+- **`app/poker/index.tsx`** — Lobby: FlatList bàn (SB/BB/Buy-in/seats), refresh pull, modal Tạo bàn (name/SB/BB/buyIn) với `KeyboardAvoidingView`.
+- **`app/poker/[id].tsx`** — Table:
+  - Bàn oval casino thật (rail gỗ nâu, felt xanh inner ring, seat theo ellipse).
+  - Hero luôn ngồi đáy bàn (rotate mapping theo `seatIndex - heroIndex`).
+  - Card component: lật scaleX 0→1 + rơi nhẹ + bounce, back xanh 2 lớp viền.
+  - **Chia bài từng lá**: `shownBoardCount` lật thêm 1 lá/650ms → all-in runout flop→turn→river lần lượt, không dumping cả cụm. Winner + haptic win/lose chỉ hiện sau board hết.
+  - Timer bar avatar (xanh > cam > đỏ) + badge center countdown.
+  - Dealer 🤵 minh hoạ giữa bàn.
+  - Winner: 👑 crown + seat glow xanh + revealedCards lật lần lượt.
+  - **Chip flight** (ChipFly): bắn 1–5 chip visual từ seat sang pot theo parabola khi có call/raise/allin/blind (`log2(amount/BB+1)`).
+  - **Chip stack dưới ghế**: cột chip màu (vàng/xanh/tím/đỏ) offset -12px + text màu vàng.
+  - **Speech bubble chat**: mỗi tin mới hiện bong bóng trắng trên avatar sender 4s (spring in → 3.4s → fade), không cần mở modal.
+  - **Emoji floating**: FAB 😄 vàng → picker 9 emoji → floating animated bay lên 60px + scale 1.4x + fade 1.8s.
+  - **Raise slider**: PanResponder track cam + thumb vàng + số chip lớn + 4 preset (MIN/1/2 Pot/POT/ALL IN). Auto reset khi hết lượt.
+  - **Invite FAB** tím → modal search user (`useLazySearchUserQuery`) multi-select + gửi mời.
+  - **Reveal** ("Khoe bài"): nút cam khi mySeat còn cards + stage=waiting.
+  - **Chat FAB** xanh dương → modal bottom sheet lịch sử.
+  - **Reconnect**: nghe `AppState.active` + `NetInfo.isConnected` + `socket.disconnect` → force reconnect (connect socket + resubscribe + refetch, retry mềm 2s). Polling fallback 5s khi offline. Badge trạng thái cam/đỏ đầu màn.
+  - **Sound + haptic**: `pokerSounds.ts` — pool 4 `expo-audio` player với `assets/sfx/click4.mp3`, mỗi action khác volume + rate (chip 1.4x, raise 0.9x, allin 0.75x, win 1.3x, warning 1.6x…). Song song với haptic đã có.
+- **Home tab** feature "Poker" (icon game-controller đỏ, NEW).
 
-3 update trong template + prompt:
+### 2.5 Bug fixes trong session
 
-1. **Ball count cho tay giao** thay số 1/2: `.serve-ball-icon` = flex container 2 SVG, `data-serve="1|2"` bật/tắt ball 2 qua CSS; ball 2 xoay lệch pha -3s cho đẹp.
-
-2. **Point badge** (Game/Match/Championship Point): badge pill nhấp nháy trên đỉnh scoreboard, logic:
-   - Game Point: `leader >= maxPoints-1 AND (winByTwo: leader+1 - trailer >= 2, else: leader+1 >= maxPoints)`
-   - Match Point: Game Point + `leader.gamesWon + 1 >= ceil(bestOf/2)`
-   - Championship: Match Point + `state.isChampionship` (auto-detect từ stageName chứa CHUNG KẾT/FINAL, loại BÁN CHUNG/SEMI/1/2/1/4)
-   - **Default `bestOf: 1`** (đa số VN pickleball 1 set → mọi game point = match point)
-   - URL param override: `?championship=1`
-
-3. **Prompt Claude bám màu poster đúng** ([generator-server.js buildPrompt](/Users/admin/Desktop/Giai Thien truong/generator/generator-server.js#L57)):
-   - Bắt Claude liệt kê 4-5 màu dominant thật (không mặc định neon)
-   - `bgDark = darken(dominant #1, 85-90%)` — poster đỏ → bg đỏ đen, tím → tím đen
-   - `accent = màu VIVID nhất` (không ép neon, đỏ tươi cũng OK)
-   - `gold = màu ẤM nhất` (vàng/cam/hồng đào)
-   - Cấm phản xạ "sport = navy blue" khi poster không có xanh dominant
-
-**⚠️ Cần deploy** (chưa làm):
-```bash
-scp "/Users/admin/Desktop/Giai Thien truong/generator/overlay-template.html" \
-  root@103.90.225.130:/root/overlay-generator/overlay-template.html
-scp "/Users/admin/Desktop/Giai Thien truong/generator/generator-server.js" \
-  root@103.90.225.130:/root/overlay-generator/generator-server.js
-ssh root@103.90.225.130 "systemctl restart overlay-gen"
-```
-
-Overlay đã deploy cũ vẫn dùng template cũ → cần vào **Quản lý giải → Tạo overlay** cho từng giải regenerate.
-
-### 2.5 Mobile polish & release (Aug 9-10)
-
-**Icon + splash + native config** ([fe8fd05](https://github.com/den3110/pickletour-app/commit/fe8fd05), [dabd5c5](https://github.com/den3110/pickletour-app/commit/dabd5c5)):
-- Icon PickleTour (P monogram nền navy 1024×1024) replace ở: iOS `AppIcon.appiconset` (5 folder Xcode), Android `mipmap-*/ic_launcher.webp` (5 density), Expo `assets/images/`
-- Splash screen: SplashScreenLogo + splashscreen_logo (5 density) + bg color → `#0a1834` (navy match icon), không còn viền trắng
-- Logo wordmark deployed: `/public/logo.png` (web + admin), `assets/images/logo.png` (mobile)
-
-**Bump 1.1.13 (43)** ([955f36b](https://github.com/den3110/pickletour-app/commit/955f36b)):
-- app.json version 1.1.11→1.1.13, buildNumber 41→43, versionCode 42→43
-- Info.plist (5 folder iOS): CFBundleShortVersion 1.1.13, CFBundleVersion 43
-- Xcode pbxproj (5 folder): MARKETING_VERSION 1.1.13, CURRENT_PROJECT_VERSION 43
-- Android gradle: versionName 1.1.13, versionCode 43
-
-**AAB build**: `~/Desktop/Pickletour-1.1.13-43.aab` (160 MB, signed CN=Pickletour). Fix JDK 11→17 (Firebase Crashlytics yêu cầu 17) + tạo `android/local.properties` (Android SDK path). Đã build local — chưa upload Play.
-
-**Fix iOS Swift build errors** ([2a5cbcc](https://github.com/den3110/pickletour-app/commit/2a5cbcc), [b9d2151](https://github.com/den3110/pickletour-app/commit/b9d2151)):
-- AppDelegate.swift: `import React` → `internal import React` (đồng bộ với RtmpPreviewViewManager + FacebookLiveModule)
-- Fix 2 chỗ mất `||` operator (line 25 `#if os(iOS) || os(tvOS)`, line 45 `super.application(...) || RCTLinkingManager.application(...)`)
-
-**Tab stuck khi switch nhanh** ([db14f69](https://github.com/den3110/pickletour-app/commit/db14f69), [16854a7](https://github.com/den3110/pickletour-app/commit/16854a7)):
-- Bỏ `detachInactiveScreens` (rapid switch → view stale)
-- `lazy: false` — mount hết 6 tab từ đầu → không race giữa mount + switch
-- Trade-off: +15MB memory, đổi lại UX mượt
-
-**Feed cải tiến:**
-- Auto-expand phản hồi comment ở Chi tiết bài viết ([0103527](https://github.com/den3110/pickletour-app/commit/0103527))
-- Upload placeholder Facebook-style: spinner "Đang tải…" ngay khi chọn ảnh/video ([e6c2a37](https://github.com/den3110/pickletour-app/commit/e6c2a37))
-- @mention trong bình luận ([eb17b90](https://github.com/den3110/pickletour-app/commit/eb17b90)) + notification "Bạn được nhắc tới" (backend [05cd67c1](https://github.com/den3110/abcdk-/commit/05cd67c1) tách nhóm mention khỏi comment notify)
-
-**Chat cải tiến:**
-- Fullscreen viewer ảnh (react-native-image-viewing) + video (Modal + VideoView) ([fd9c8d8](https://github.com/den3110/pickletour-app/commit/fd9c8d8))
-- Upload UX giống feed: client check size (ảnh 10MB, video 100MB/4 phút), placeholder spinner, guard submit ([031dba3](https://github.com/den3110/pickletour-app/commit/031dba3))
-- Tap avatar bubble / header title → mở `/profile/{uid}` ([031dba3](https://github.com/den3110/pickletour-app/commit/031dba3))
-- **Realtime reconnect fix** — root cause: socket mất mạng chớp → reconnect với id mới → BE không còn socket cũ trong room `chat:${cid}` → miss messages. Fix: subscribe lại room mỗi lần `socket.on("connect")`.
-- Nút **Gọi Zalo / Gọi điện** ở header DM ([2af610f](https://github.com/den3110/pickletour-app/commit/2af610f)):
-  - Menu 2 lựa chọn: `zalo://qr/p/{phone}` (fallback `https://zalo.me/{phone}`) hoặc `tel:{phone}`
-  - Backend chatController USER_FIELDS thêm `phone` để populate DM peer
-  - Info.plist (5 folder) thêm `LSApplicationQueriesSchemes: [zalo, tel]`
-
-### 2.6 MLP hoàn thiện fix (Aug 6/8)
-
-- **`mlpConfig.cap.points` bug** ([a479b62d](https://github.com/den3110/abcdk-/commit/a479b62d)): `Number(null)===0 && Number.isFinite(0)===true` → ghi points=0 vi phạm `min:1` schema. Fix: khi mode='none' luôn set null.
+- **Icon `?` sau OTA** — vector-icons fonts không load được từ native binary do asset registry mismatch. Fix: ép include Ionicons/Feather/MaterialIcons/MaterialCommunityIcons/AntDesign qua `require()` vào `useFonts` ở `app/_layout.tsx`.
+- **MLP dialog Chọn lineup trống** — `getMlpDual` populate `teamA/teamB` với select `players` nhưng không nested populate → trả `[ObjectId]` thô. Fix: `populate({path: "teamA", populate: {path: "players", select: ...}})`.
+- **Keyboard che modal Tạo bàn poker** — bọc sheet trong `KeyboardAvoidingView` iOS padding.
+- **Luật poker preflop BB option** — cũ dựa vào `lastAction === "post_bb"` bị ghi đè khi BB check. Fix: refactor `actedThisStreet[]` chuẩn, blinds không tính là acted, raise reset về `[raiser]`, street end khi `allMatched && everyoneActed`.
+- **Layout poker không fit màn hình + winner đè seat** — bỏ ScrollView chuyển sang flex (bàn `flex:1 minHeight:340`), winner banner đổi thành overlay `position:absolute top:58%` với nền tối + shadow.
 
 ---
 
-## 3. Bug fix + Landmine phát hiện
+## 3. Bug fix + Landmine đã ghi nhận
 
-### 3.1 OTA hot-updater CLI phải khớp native version
+### 3.1 OTA vẫn dùng `./node_modules/.bin/hot-updater` (0.25.14)
+Vẫn giữ nguyên như HANDOFF trước — CLI 0.25.4 (npx) build bundle không tương thích native 0.25.14.
 
-- HANDOFF cũ nói: dùng CLI `0.25.4` (match native cũ).
-- **Session này**: yarn.lock đã silent upgrade native `@hot-updater/react-native@0.25.14` từ 09/07 → build TestFlight/Play mới nhất chạy native 0.25.14.
-- **CLI 0.25.4 build bundle không tương thích native 0.25.14** → bundle download OK, reload → native detect fingerprint mismatch → auto rollback → user thấy popup nhưng không đổi gì.
-- **Fix**: dùng `./node_modules/.bin/hot-updater` (0.25.14 local) thay vì `npx hot-updater@0.25.4`.
+### 3.2 SSH VPS chỉ auth key (KHÔNG password)
+- HANDOVER §5.1 confirm: `PasswordAuthentication=no` trên VPS. `sshpass -p Hoang@07082026` cũng không dùng được.
+- Deploy backend + web + overlay generator phải chạy từ máy có SSH key.
 
-### 3.2 app.json version phải match native binary
+### 3.3 Poker timer + rate limit in-memory
+- Timer setTimeout + inviteCounters Map trong controller — server restart mất timer đang chờ + reset counter. MVP OK, production nên chuyển sang Bull queue / Redis nếu cần production-grade.
 
-- Bump `app.json` lên `1.1.13` cho AAB Android build, nhưng native iOS TestFlight vẫn `1.1.11` → bundle OTA có `Constants.expoConfig.version=1.1.13` xung đột với native `CFBundleShortVersion=1.1.11` → HotUpdater rollback silent.
-- **Fix**: nếu bump app.json cho platform này thì phải archive lại platform kia cùng lúc. Hoặc revert app.json khớp native đang chạy trên đa số user.
+### 3.4 Poker main pot only
+- Chưa xử lý side pot khi có 3+ người all-in với chip khác nhau. MVP chấp nhận winner all-in nhận toàn bộ pot dù stack nhỏ hơn.
 
-### 3.3 Court model song song
+### 3.5 Overlay MLP chưa deploy
+- Local template ở `/Users/admin/Desktop/Giai Thien truong/generator/overlay-template-mlp.html`.
+- SSH không được từ máy này → cần user chạy scp.
 
-Backend tồn tại 2 loại "sân":
-- `Court` (cũ) — link trực tiếp qua `tournament: ObjectId`
-- `CourtStation` (mới) — thuộc `CourtCluster`, tournament link qua `allowedCourtClusterIds`
-
-Overlay controller query CẢ 2, dedup theo `_id`. Đừng chỉ query một model — bỏ sót giải mới/cũ.
-
-### 3.4 Metro `blockList` giữ folder `ios copy*`
-
-`metro.config.cjs` block `ios copy*` khỏi bundling. **Đừng xoá blocklist** — Metro sẽ nghẹn.
-
-### 3.5 Splash cache dai trên iOS
-
-iOS cache splash rất dai. Sau khi bump splash image, `Cmd+Shift+K` (Clean Build Folder) chưa đủ — phải **uninstall app** khỏi simulator/thiết bị + rebuild.
-
-### 3.6 Overlay tay giao badge cũ hiển thị số 1/2
-
-Fixed trong template mới nhưng overlay đã deploy trên VPS vẫn dùng bản cũ. User bắt buộc regenerate qua "Tạo overlay" dialog.
-
-### 3.7 UUIDv7 timestamp decode
-
-Bundle id của hot-updater dạng `019fe...` là UUIDv7 (48-bit ms timestamp ở đầu). Có thể decode để verify bundle mới ra chưa:
-```python
-int(uuid.replace('-','')[:12], 16) / 1000 = unix ms
-```
-
-### 3.8 iOS icon/splash bị cache
-
-Không chỉ đổi `assets/images/icon.png` — cần cả `ios/Pickletourvn/Images.xcassets/AppIcon.appiconset/*.png` (native). Đó là source of truth Xcode dùng, KHÔNG phải Expo asset.
-
-### 3.9 Facebook tab bar: `visibleRoutes` filter khớp `state.index`
-
-Custom `FacebookTabBar` computes `originalIndex = state.routes.findIndex(...)` để check `isFocused` — đúng cả khi có hidden routes (`profile`, `chat`, `my_tournament`, `admin` với `href: null`).
-
-### 3.10 Bundle chứa string dạng UTF-16, không phải ASCII
-
-Hermes bytecode lưu string UTF-16. Grep marker phải dùng `.encode('utf-16-le')` không dùng ASCII. Trước có báo giả "code không có trong bundle" vì grep sai encoding.
+### 3.6 Feed populate mentions dấu ` ` (space) trong nickname
+- MentionText hoạt động OK cho nickname có space (regex đã support đến 3 từ). Test khi nickname 4+ từ có thể lỗi.
 
 ---
 
@@ -245,26 +203,32 @@ Hermes bytecode lưu string UTF-16. Grep marker phải dùng `.encode('utf-16-le
 
 ### 4.1 Priority cao — deploy
 
-- 🔴 **Backend prod**: `ssh root@103.90.225.130 "cd /abcdk- && git pull && pm2 restart server"` — cần restart để load: overlay endpoints, nickname approval, chat phone populate, feedNotifier mention split
-- 🔴 **Frontend web build+rsync**: `cd frontend && yarn build:deploy` — user cần thấy overlay dialog + court URLs
-- 🔴 **Admin panel build+rsync**: `cd /abcde && yarn build && rsync -a --delete build/ /var/www/admin.pickletour.vn/` — cần thấy trang Duyệt đổi biệt danh + Overlay Generator Key
-- 🔴 **Overlay generator template**: scp 2 file + `systemctl restart overlay-gen` (ball count + Point badge + prompt bám màu)
-- 🔴 **iOS Archive 1.1.13 (43)** trên Xcode + upload TestFlight — thoát bug native module rollback + user thấy toàn bộ feature session này
-- 🔴 **Android upload AAB 1.1.13 (43)** vào Play Console — file sẵn ở Desktop; nhớ **App Content → Advertising ID → "No, my app does not use advertising ID"** trước khi rollout
+- 🔴 **Backend prod**: `ssh root@103.90.225.130 "cd /abcdk- && git pull origin master && pm2 restart server"` — bắt buộc để các feature mới (poker + MLP endpoints + feed populate mentions + notification prefs) hoạt động.
+- 🔴 **Frontend web build+rsync**: `cd frontend && yarn build:deploy` — user cần thấy Feed lightbox, MLP standings, ReactorsDialog, dialog Chọn lineup fix.
+- 🟡 **Overlay generator template MLP**: scp `overlay-template-mlp.html` lên `/root/overlay-generator/` + `systemctl restart overlay-gen`.
+- 🟡 **iOS App Review 1.1.13 (43)**: build đã trên TestFlight, cần Submit for Review từ App Store Connect.
 
-### 4.2 Priority thấp — polish
+### 4.2 Priority thấp — polish poker
 
-- 🟡 **Regenerate overlay cho các giải cũ**: overlay đã deploy vẫn dùng template cũ. User vào Quản lý giải → Tạo overlay → Deploy lại từng giải để có badge Point + ball count + màu poster đúng
-- 🟡 **iOS: bổ sung `LSApplicationQueriesSchemes` với `zalo, tel`** đã làm trong Info.plist local — cần archive build mới để iOS đọc được. Nếu không, `Linking.canOpenURL("zalo://")` fail → CallButton fallback về browser zalo.me
-- 🟡 **Nickname approval mobile UI**: hiện chỉ có backend + admin panel + Telegram. Chưa show user "Yêu cầu đã gửi chờ duyệt" toast rõ ràng ở mobile app khi họ đổi nickname (backend đã trả `nicknamePendingRequest` trong response, mobile chưa hook)
-- 🟢 **Nickname change reject qua Telegram**: hiện dùng lý do mặc định "Từ chối qua Telegram bởi @xxx". Nếu cần reason cụ thể → dùng admin panel
-- 🟢 **Feed post detail: mention selectedMentions state** — hiện chỉ có `mentionQuery/results/insertMention`, không tracked selectedMentions như feed composer. Backend tự extract từ content nên OK, chỉ là less explicit
+- 🟡 **Side pot** khi có multi-all-in với chip khác nhau.
+- 🟡 **Audio files riêng cho từng action** (chip, deal, card shuffle, win jingle) — hiện dùng chung `click4.mp3` với volume/rate variation. Đặt file mới vào `assets/sfx/` và map trong `pokerSounds.ts`.
+- 🟡 **Tournament mode** poker (blind level tăng dần theo thời gian).
+- 🟡 **Chip refill daily** — mỗi ngày user được cấp free X chip.
+- 🟡 **Hand history / replay** — hiện tại chỉ giữ `actions[]` gần nhất, không có history riêng.
+- 🟡 **Rate limit invite Redis** — hiện in-memory, chỉ chống spam tương đối.
 
-### 4.3 Nice-to-have
+### 4.3 Priority thấp — MLP
 
-- **Chat call**: hiện Zalo/tel deep-link. Nếu muốn full VoIP in-app → 3 phương án đã bàn (LiveKit/WebRTC self-host/Zalo deep-link — user chọn phương án 3 Zalo).
-- **Live studio**: chưa touch trong session này. Vẫn hoạt động như HANDOVER gốc mô tả.
-- **MLP mobile UI**: web + admin có, mobile chưa
+- 🟡 **Regenerate overlay cho MLP dual** — cần render HTML template mới cho từng dual (chưa có UI tạo overlay MLP như single match).
+- 🟡 **PDF certificate cho champion** — hiện chỉ CSV + summary.json. Client render PDF từ summary?
+- 🟡 **Admin panel dedicated MLP moderation page** — hiện chỉ endpoint backend, chưa có UI riêng ở admin (dùng web `/tournament/:id/mlp/duals` cũng đủ).
+
+### 4.4 Nice-to-have
+
+- **Poker private room** — password protect + share link.
+- **Poker replay hand** — xem lại ván bất kỳ với action log.
+- **MLP mobile référee mode** — hiện referee assign xong nhưng chưa có màn hình chấm chuyên biệt trên mobile.
+- **Feed video processing** — thumbnail server-side (hiện dùng VideoView paused frame đầu).
 
 ---
 
@@ -275,155 +239,87 @@ Hermes bytecode lưu string UTF-16. Grep marker phải dùng `.encode('utf-16-le
 ```
 Host: 103.90.225.130
 User: root
-Password: Hoang@0726
+Password: Hoang@07082026 (KHÔNG DÙNG ĐƯỢC — PasswordAuthentication=no)
+Chỉ auth qua SSH key. HANDOVER.md có nói password cũ Hoang@0726 cũng không work.
 ```
 
-**Warning**: từ máy local hiện tại (Mac dev) chỉ authenticate được bằng key SSH — password auth từ chối. Nếu cần SSH password → chạy từ máy khác hoặc setup public key trước.
+### 5.2 OTA hot-updater
 
-### 5.2 Node versions
+- Bundle store: Cloudflare R2, DB: Cloudflare D1
+- CLI: `./node_modules/.bin/hot-updater` (0.25.14 khớp native)
+- Kill switch: `https://pickletour.vn/api/auth/system/ota/allowed`
+- Deploy pattern:
+```bash
+cd pickletour-app-mobile
+export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
+set -a && source .env.hotupdater && set +a
+for combo in "ios 1.1.13" "android 1.1.13" "ios 1.1.9" "android 1.1.9"; do
+  p=$(echo $combo | awk '{print $1}')
+  t=$(echo $combo | awk '{print $2}')
+  rm -rf .hot-updater/output 2>/dev/null
+  ./node_modules/.bin/hot-updater deploy -p $p -t $t -c production -m "message"
+done
+```
 
-- **Backend + Frontend + Admin dev**: Node 20 (v20.20.2)
-- **Hot-updater CLI + Wrangler**: Node 22 (v22.23.2 qua nvm)
-- **Android Gradle build**: JDK 17 (Microsoft OpenJDK 17 hoặc `/opt/homebrew/opt/openjdk@17`)
-- **iOS Xcode**: mở workspace `ios/Pickletourvn.xcworkspace`
+### 5.3 Node versions
 
-### 5.3 Android SDK path
+- Backend + Frontend dev: Node 20 (v20.20.2)
+- Hot-updater CLI + Wrangler: Node 22 (nvm v22.23.2)
 
-`/opt/homebrew/share/android-commandlinetools` (commandlinetools qua brew). `android/local.properties` đã có sẵn nhưng gitignored.
+### 5.4 Repo paths trong máy dev
 
-### 5.4 Android signing
-
-`~/.gradle/gradle.properties` chứa 4 biến `PICKLETOUR_UPLOAD_STORE_FILE|STORE_PASSWORD|KEY_ALIAS|KEY_PASSWORD`. Keystore ở `android/app/pickletour-upload.jks`.
-
-**Cert:** `CN=Pickletour, OU=Mobile, O=Pickletour, L=Ho Chi Minh City` — hết hạn 2053.
-
-### 5.5 Overlay generator
-
-- Service systemd `overlay-gen` chạy port `3131` trên VPS
-- Source: `/root/overlay-generator/` (SEPARATE PROJECT, không phải abcdk repo)
-- ANTHROPIC_API_KEY trong `/root/overlay-generator/.env`
-- Template source of truth: `/Users/admin/Desktop/Giai Thien truong/generator/overlay-template.html` (local dev copy)
-- Deploy dir output HTML: `/var/www/scoreboard/public/`
-- Live URL: `https://scoreboard.pickletour.vn/<file>.html?courtId=xxx`
-
-### 5.6 OTA hot-updater
-
-- Bundle store: Cloudflare R2, DB metadata: Cloudflare D1
-- Worker check-update: `https://hot-updater.datistpham.workers.dev/api/check-update`
-- Kill switch: `https://pickletour.vn/api/auth/system/ota/allowed` (SystemSettings)
-- `.env.hotupdater` (gitignored) chứa 4 biến `HOT_UPDATER_CLOUDFLARE_*`
-- **CLI dùng**: `./node_modules/.bin/hot-updater` (0.25.14 khớp native) — KHÔNG dùng npx 0.25.4
+- Root: `/Users/admin/Desktop/Projects/Pickletour/abcdk`
+  - Backend: root/backend
+  - Frontend web: root/frontend
+- Mobile: `/Users/admin/Desktop/Projects/Pickletour/abcdk/pickletour-app-mobile`
+- Admin: `/Users/admin/Desktop/Projects/Pickletour/abcdk/admin-pickletour`
+- Overlay generator local: `/Users/admin/Desktop/Giai Thien truong/generator/`
 
 ---
 
-## 6. Todo priority cho session mới
+## 6. Deploy checklist cho session mới
 
-### Tuần tự deploy:
+```bash
+# 1. Backend prod (BẮT BUỘC — nhiều feature không hoạt động cho tới khi restart)
+ssh root@103.90.225.130 "cd /abcdk- && git pull origin master && pm2 restart server"
 
-1. 🔴 **SSH VPS** + git pull backend + `pm2 restart server`
-2. 🔴 **Build web** + rsync → `/var/www/pickletour.vn/`
-3. 🔴 **Build admin** + rsync → `/var/www/admin.pickletour.vn/`
-4. 🔴 **Scp overlay-template.html + generator-server.js** → `/root/overlay-generator/` + `systemctl restart overlay-gen`
-5. 🔴 **iOS Archive 1.1.13 (43)** trên Xcode → Distribute → App Store Connect
-6. 🔴 **Play Console** upload AAB (fix AD_ID declaration trước)
-7. 🟡 **Regenerate overlay** cho các giải đang chạy (via UI "Tạo overlay")
-8. 🟡 **Verify tab bar** không stuck nữa, chat realtime OK, nút Gọi hoạt động
+# 2. Frontend web build + rsync
+ssh root@103.90.225.130 "cd /abcdk-/frontend && yarn build:deploy"
 
-### Không cần chạm:
+# 3. Overlay MLP template
+scp "/Users/admin/Desktop/Giai Thien truong/generator/overlay-template-mlp.html" \
+  root@103.90.225.130:/root/overlay-generator/
+ssh root@103.90.225.130 "systemctl restart overlay-gen"
 
-- **Live studio + recording** — không đụng trong session này
-- **Radar/Booking/Coach flow** — không đụng
-- **News AI pipeline** — không đụng
-- **Pikora chatbot** — không đụng
+# 4. iOS Submit for Review (từ App Store Connect UI, không qua SSH)
+```
 
 ---
 
 ## 7. Snapshot commit history session
 
-**Backend `abcdk-`** (session commits): `24584c8d → 07baed33` (~15 commits)
+**Backend + web** `abcdk-`: `07baed33 → 981ff432` (~40 commits)
 
-Key commits:
-- `24584c8d` block/report Apple 1.2
-- `4c9bf1bc` nickname cooldown
-- `0e5dce61` overlay integration
-- `5061517c` overlay admin key
-- `db4bae10` web icon + logo
-- `46c1d849` court URLs per court
-- `44f92c19` findUnrelatedNicknames script
-- `5f188ca8` bypass admin cooldown removed + Court query dual
-- `a049a41c` nickname approval workflow
-- `16fc7efc` Telegram approve nickname
-- `05cd67c1` mention notify tách title
-- `07baed33` chat phone populate
+Landmark commits:
+- Feed: `24584c8d` (từ session trước) → **video thumbnail chat + realtime + AspectImage + reactions + FeedMediaLightbox + guest view + mention populate fix**
+- Notification: `edc5fe4a`
+- MLP Phase 1: `23524b5e` (standings + assignment + realtime)
+- MLP Phase 2/5/6: `bd1b819b` (rating hook + court + knockout + push + admin + check-in + tiebreaker), `ee4271d5` (reporting CSV)
+- MLP misc: `3957ede3` (fix lineup dialog populate), `9ff8015e` (quản lý cụm sân)
+- Poker: `9096244f` (core), `a2445deb` (timer + chat), `0fdc18de` (emoji + reveal), `c536b12d` (BB option fix + auto-huỷ), `981ff432` (invite)
 
-**Mobile `pickletour-app`**: `750a19a → 2af610f` (~25 commits)
+**Mobile** `pickletour-app`: `2af610f → 745482e` (~35 commits)
 
-Key commits:
-- `750a19a` block/report + EULA
-- `c1bbf2b → dabd5c5` icon + splash + native
-- `fe8fd05` native AppIcon + mipmap
-- `5d7a6ba` bump 1.1.13 (43)
-- `2a5cbcc → b9d2151` Swift import fix
-- `db14f69 → 16854a7` tab bar lazy=false
-- `e6c2a37` feed uploading
-- `0103527` auto-expand replies
-- `fd9c8d8` chat fullscreen viewer
-- `eb17b90` @mention in comments
-- `031dba3` chat upload UX + tap avatar + realtime
-- `2af610f` chat call button Zalo/tel
-
-**Admin `abcde`**: `62ad4a8 → 89c478d` (~7 commits)
-
-Key commits:
-- `1bc9f94` cooldown input
-- `3ba05cd` overlay API key setup
-- `365b68b` favicon + logo
-- `0bc5582` trang Duyệt đổi biệt danh
-- `89c478d` reorder sidebar
+Landmark commits:
+- Feed mobile: video thumb chat, realtime, AspectImage, comment media, reactions, lightbox, keyboard fix, mention populate, guest view
+- MLP mobile: `7214149` (slice + 4 screens)
+- Poker mobile: `40003c0` (core UI), `eae7e18` (haptic + emoji + dealer + khoe bài), `1b08e42` (đại tu UI oval + chia bài từng lá), `501a97a` (reconnect), `f75b5cf` (invite + raise slider + speech bubble), `745482e` (chip fly + stack + audio)
+- Fix icon `?`: đã bao gồm trong OTA batch cùng poker
 
 ---
 
-## 8. Lệnh chuẩn deploy
+## 8. Câu hỏi còn mở
 
-**Backend + Frontend + Admin cùng lúc** (một lệnh):
-
-```bash
-ssh root@103.90.225.130 "\
-  cd /abcdk- && git pull origin master && pm2 restart server && \
-  cd frontend && yarn build:deploy && \
-  cd /abcde && git pull origin master && yarn build && \
-  rsync -a --delete build/ /var/www/admin.pickletour.vn/"
-```
-
-**Overlay generator** (2 file + restart):
-
-```bash
-scp "/Users/admin/Desktop/Giai Thien truong/generator/overlay-template.html" \
-    "/Users/admin/Desktop/Giai Thien truong/generator/generator-server.js" \
-  root@103.90.225.130:/root/overlay-generator/
-ssh root@103.90.225.130 "systemctl restart overlay-gen"
-```
-
-**OTA push 4 target** (từ `pickletour-app-mobile/`):
-
-```bash
-export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
-set -a && source .env.hotupdater && set +a
-for t in 1.1.9 1.1.13; do
-  for p in ios android; do
-    rm -rf .hot-updater/output
-    ./node_modules/.bin/hot-updater deploy -p $p -t $t -c production -m "message"
-  done
-done
-```
-
-**Android AAB build** (nếu cần build lại):
-
-```bash
-export JAVA_HOME=/opt/homebrew/opt/openjdk@17
-export PATH=$JAVA_HOME/bin:$PATH
-export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
-cd pickletour-app-mobile/android
-./gradlew bundleRelease --no-daemon
-# Output: app/build/outputs/bundle/release/app-release.aab
-```
+1. Poker chip có nên link với điểm rank không, hay giữ chip riêng (hiện buy-in cố định 1000/ván khi ngồi vào bàn).
+2. Có cần side pot cho poker MVP hiện tại hay đợi feedback user?
+3. MLP overlay dual template — có cần regenerate cho các giải MLP đã tồn tại, hay chỉ áp dụng cho giải mới?
