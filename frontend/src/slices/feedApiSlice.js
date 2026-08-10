@@ -175,15 +175,37 @@ export const feedApiSlice = apiSlice.injectEndpoints({
       ],
     }),
     createFeedComment: builder.mutation({
-      query: ({ postId, content, parent }) => ({
+      query: ({ postId, content, parent, media }) => ({
         url: `/api/feed/${postId}/comments`,
         method: "POST",
-        body: { content, parent },
+        body: { content, parent, media },
       }),
       invalidatesTags: (r, e, { postId, parent }) => [
         { type: "FeedComments", id: `${postId}:${parent || "root"}` },
         { type: "Feed", id: postId },
       ],
+    }),
+    listPostReactors: builder.query({
+      query: ({ postId, type }) => {
+        const p = new URLSearchParams();
+        if (type) p.set("type", String(type));
+        const qs = p.toString();
+        return {
+          url: `/api/feed/${postId}/reactions${qs ? `?${qs}` : ""}`,
+          method: "GET",
+        };
+      },
+    }),
+    listCommentReactors: builder.query({
+      query: ({ cid, type }) => {
+        const p = new URLSearchParams();
+        if (type) p.set("type", String(type));
+        const qs = p.toString();
+        return {
+          url: `/api/feed/comments/${cid}/reactions${qs ? `?${qs}` : ""}`,
+          method: "GET",
+        };
+      },
     }),
     deleteFeedComment: builder.mutation({
       query: (cid) => ({ url: `/api/feed/comments/${cid}`, method: "DELETE" }),
@@ -284,6 +306,10 @@ export const {
   useReportFeedPostMutation,
   useReportFeedCommentMutation,
   useUploadFeedMediaMutation,
+  useListPostReactorsQuery,
+  useLazyListPostReactorsQuery,
+  useListCommentReactorsQuery,
+  useLazyListCommentReactorsQuery,
   useAdminListFeedPostsQuery,
   useAdminPatchFeedPostMutation,
   useAdminDeleteFeedPostMutation,

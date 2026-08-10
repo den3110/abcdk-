@@ -55,9 +55,12 @@ import {
   useListFeedCommentsQuery,
   useCreateFeedCommentMutation,
   useDeleteFeedCommentMutation,
+  useReactFeedCommentMutation,
   useReportFeedPostMutation,
   useReportFeedCommentMutation,
 } from "../slices/feedApiSlice.js";
+import { ReactorsDialog } from "../components/feed/ReactorsDialog.jsx";
+import { FeedMediaLightbox } from "../components/feed/FeedMediaLightbox.jsx";
 import MentionText from "../components/feed/MentionText.jsx";
 import ScoreBadges from "../components/feed/ScoreBadges.jsx";
 import MentionAutocomplete from "../components/feed/MentionAutocomplete.jsx";
@@ -370,20 +373,54 @@ function ReactionBar({ post, onReact }) {
 function CommentThread({ postId, me, canModerate }) {
   const [reply, setReply] = useState("");
   const [replyTarget, setReplyTarget] = useState(null); // top-level comment id
+  const [commentMedia, setCommentMedia] = useState([]);
+  const [uploadingComment, setUploadingComment] = useState(false);
+  const [reactorsOpen, setReactorsOpen] = useState(null); // {kind, id}
+  const fileInputRef = useRef(null);
   const submittingRef = useRef(false);
   const { data, isFetching } = useListFeedCommentsQuery({ postId });
   const [createComment] = useCreateFeedCommentMutation();
   const [deleteComment] = useDeleteFeedCommentMutation();
   const [reportComment] = useReportFeedCommentMutation();
+  const [uploadMedia] = useUploadFeedMediaMutation();
+
+  const pickCommentMedia = async (e) => {
+    const files = Array.from(e.target?.files || []);
+    if (!files.length) return;
+    if (commentMedia.length + files.length > 4) {
+      toast.error("Mỗi bình luận tối đa 4 ảnh/video.");
+      return;
+    }
+    setUploadingComment(true);
+    try {
+      const fd = new FormData();
+      files.forEach((f) => fd.append("files", f));
+      const res = await uploadMedia(fd).unwrap();
+      setCommentMedia((prev) =>
+        [...prev, ...(res.media || [])].slice(0, 4)
+      );
+    } catch (err) {
+      toast.error(err?.data?.message || "Upload thất bại");
+    } finally {
+      setUploadingComment(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const submit = async (parent = null) => {
     if (submittingRef.current) return;
     const content = reply;
-    if (!content?.trim()) return;
+    if (!content?.trim() && commentMedia.length === 0) return;
     submittingRef.current = true;
     try {
-      await createComment({ postId, content: content.trim(), parent }).unwrap();
+      await createComment({
+        postId,
+        content: content.trim(),
+        parent,
+        media: commentMedia,
+      }).unwrap();
       setReply("");
+      setCommentMedia([]);
       setTimeout(() => setReply(""), 30);
       setReplyTarget(null);
     } catch (err) {
@@ -430,13 +467,87 @@ function CommentThread({ postId, me, canModerate }) {
             onReply={() => setReplyTarget(c._id)}
             onDelete={handleDelete}
             onReport={handleReport}
+            onOpenReactors={(cid) =>
+              setReactorsOpen({ kind: "comment", id: cid })
+            }
           />
         ))}
       </Stack>
+      {commentMedia.length > 0 && (
+        <Stack direction="row" spacing={1} sx={{ mt: 1, ml: 5, flexWrap: "wrap" }}>
+          {commentMedia.map((m, i) => (
+            <Box
+              key={i}
+              sx={{
+                position: "relative",
+                width: 56,
+                height: 56,
+                borderRadius: 1,
+                overflow: "hidden",
+                bgcolor: "action.hover",
+              }}
+            >
+              {m.type === "image" ? (
+                <img
+                  src={m.url}
+                  alt=""
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : (
+                <Box
+                  sx={{
+                    width: "100%",
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    bgcolor: "#111",
+                    color: "#fff",
+                  }}
+                >
+                  <Video size={18} />
+                </Box>
+              )}
+              <IconButton
+                size="small"
+                onClick={() =>
+                  setCommentMedia((prev) => prev.filter((_, j) => j !== i))
+                }
+                sx={{
+                  position: "absolute",
+                  top: 0,
+                  right: 0,
+                  bgcolor: "rgba(0,0,0,0.5)",
+                  color: "#fff",
+                  p: 0.25,
+                  "&:hover": { bgcolor: "rgba(0,0,0,0.7)" },
+                }}
+              >
+                <XIcon size={10} />
+              </IconButton>
+            </Box>
+          ))}
+        </Stack>
+      )}
       <Stack direction="row" spacing={1} alignItems="flex-end" sx={{ mt: 1.5 }}>
         <Avatar src={me?.avatar || ""} sx={{ width: 32, height: 32 }}>
           {authorName(me)[0]?.toUpperCase()}
         </Avatar>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          hidden
+          onChange={pickCommentMedia}
+        />
+        <IconButton
+          size="small"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploadingComment || commentMedia.length >= 4}
+        >
+          <ImagePlus size={18} />
+        </IconButton>
         <TextField
           size="small"
           fullWidth
@@ -455,7 +566,9 @@ function CommentThread({ postId, me, canModerate }) {
         <IconButton
           color="primary"
           onClick={() => submit(replyTarget)}
-          disabled={!reply.trim()}
+          disabled={
+            (!reply.trim() && commentMedia.length === 0) || uploadingComment
+          }
         >
           <Send size={18} />
         </IconButton>
@@ -465,6 +578,11 @@ function CommentThread({ postId, me, canModerate }) {
           </Button>
         )}
       </Stack>
+      <ReactorsDialog
+        open={!!reactorsOpen}
+        onClose={() => setReactorsOpen(null)}
+        commentId={reactorsOpen?.kind === "comment" ? reactorsOpen.id : null}
+      />
     </Box>
   );
 }
@@ -477,14 +595,27 @@ function CommentItem({
   onReply,
   onDelete,
   onReport,
+  onOpenReactors,
 }) {
   const [showReplies, setShowReplies] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [reactComment] = useReactFeedCommentMutation();
   const { data: replies } = useListFeedCommentsQuery(
     showReplies ? { postId, parent: comment._id } : undefined,
     { skip: !showReplies }
   );
   const canDelete =
     canModerate || String(comment.author?._id) === String(me?._id);
+  const myReaction = comment.myReaction || null;
+  const reactionCount = comment.reactionCount || 0;
+  const doReact = async (type) => {
+    setPickerOpen(false);
+    try {
+      await reactComment({ cid: String(comment._id), type }).unwrap();
+    } catch (err) {
+      toast.error(err?.data?.message || "Không thực hiện được");
+    }
+  };
 
   return (
     <Box>
@@ -498,9 +629,31 @@ function CommentItem({
           {authorName(comment.author)[0]?.toUpperCase()}
         </Avatar>
         <Box flex={1}>
-          <Box
-            sx={{ bgcolor: "action.hover", borderRadius: 2, px: 1.5, py: 0.75 }}
-          >
+          {(comment.content || comment.mentions?.length > 0) && (
+            <Box
+              sx={{ bgcolor: "action.hover", borderRadius: 2, px: 1.5, py: 0.75 }}
+            >
+              <Typography
+                variant="body2"
+                fontWeight={600}
+                component="a"
+                href={comment.author?._id ? `/profile/${comment.author._id}` : undefined}
+                sx={{
+                  color: "inherit",
+                  textDecoration: "none",
+                  "&:hover": { textDecoration: "underline" },
+                }}
+              >
+                {authorName(comment.author)}
+              </Typography>
+              <MentionText
+                content={comment.content}
+                mentions={comment.mentions}
+                sx={{ display: "block", fontSize: "0.875rem" }}
+              />
+            </Box>
+          )}
+          {!comment.content && !(comment.mentions?.length > 0) && (
             <Typography
               variant="body2"
               fontWeight={600}
@@ -509,21 +662,109 @@ function CommentItem({
               sx={{
                 color: "inherit",
                 textDecoration: "none",
-                "&:hover": { textDecoration: "underline" },
+                display: "inline-block",
+                ml: 1,
               }}
             >
               {authorName(comment.author)}
             </Typography>
-            <MentionText
-              content={comment.content}
-              mentions={comment.mentions}
-              sx={{ display: "block", fontSize: "0.875rem" }}
-            />
-          </Box>
-          <Stack direction="row" spacing={2} sx={{ mt: 0.5, ml: 1 }}>
+          )}
+          {Array.isArray(comment.media) && comment.media.length > 0 && (
+            <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: "wrap" }}>
+              {comment.media.map((m, i) => (
+                <Box
+                  key={i}
+                  sx={{
+                    borderRadius: 2,
+                    overflow: "hidden",
+                    maxWidth: 220,
+                    maxHeight: 220,
+                    bgcolor: "action.hover",
+                  }}
+                >
+                  {m.type === "image" ? (
+                    <img
+                      src={m.url}
+                      alt=""
+                      style={{
+                        maxWidth: 220,
+                        maxHeight: 220,
+                        display: "block",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => window.open(m.url, "_blank")}
+                    />
+                  ) : (
+                    <video
+                      src={m.url}
+                      controls
+                      style={{ maxWidth: 220, maxHeight: 220 }}
+                    />
+                  )}
+                </Box>
+              ))}
+            </Stack>
+          )}
+          <Stack
+            direction="row"
+            spacing={2}
+            alignItems="center"
+            sx={{ mt: 0.5, ml: 1, position: "relative" }}
+          >
             <Typography variant="caption" color="text.secondary">
               {fmtTime(comment.createdAt)}
             </Typography>
+            <Box
+              onMouseEnter={() => setPickerOpen(true)}
+              onMouseLeave={() => setPickerOpen(false)}
+              sx={{ position: "relative" }}
+            >
+              <Typography
+                variant="caption"
+                sx={{
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  color: myReaction ? "primary.main" : "text.secondary",
+                }}
+                onClick={() => doReact(myReaction ? myReaction : "like")}
+              >
+                {myReaction
+                  ? `${REACTION_EMOJI[myReaction] || "👍"} Đã thích`
+                  : "Thích"}
+              </Typography>
+              {pickerOpen && (
+                <Box
+                  sx={{
+                    position: "absolute",
+                    top: -40,
+                    left: 0,
+                    display: "flex",
+                    bgcolor: "background.paper",
+                    borderRadius: 999,
+                    boxShadow: 3,
+                    px: 1,
+                    py: 0.5,
+                    zIndex: 10,
+                  }}
+                >
+                  {Object.entries(REACTION_EMOJI).map(([t, e]) => (
+                    <Box
+                      key={t}
+                      onClick={() => doReact(t)}
+                      sx={{
+                        cursor: "pointer",
+                        fontSize: 22,
+                        px: 0.5,
+                        transition: "transform 0.15s",
+                        "&:hover": { transform: "scale(1.3)" },
+                      }}
+                    >
+                      {e}
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
             <Typography
               variant="caption"
               sx={{ cursor: "pointer", fontWeight: 600 }}
@@ -531,6 +772,15 @@ function CommentItem({
             >
               Trả lời
             </Typography>
+            {reactionCount > 0 && onOpenReactors && (
+              <Typography
+                variant="caption"
+                sx={{ cursor: "pointer", color: "text.secondary" }}
+                onClick={() => onOpenReactors(String(comment._id))}
+              >
+                👍 {reactionCount}
+              </Typography>
+            )}
             {canDelete && (
               <Typography
                 variant="caption"
@@ -571,6 +821,7 @@ function CommentItem({
                   onReply={onReply}
                   onDelete={onDelete}
                   onReport={onReport}
+                  onOpenReactors={onOpenReactors}
                 />
               ))}
             </Stack>
@@ -590,6 +841,8 @@ function PostCard({ post, me, defaultShowComments = false }) {
   const [sharePost] = useShareFeedPostMutation();
   const [showComments, setShowComments] = useState(defaultShowComments);
   const [menuAnchor, setMenuAnchor] = useState(false);
+  const [postReactorsOpen, setPostReactorsOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(-1);
   const isMine = String(post.author?._id) === String(me?._id);
   const canModerate = isMine || isAdminRole(me);
 
@@ -731,6 +984,7 @@ function PostCard({ post, me, defaultShowComments = false }) {
             {post.media.slice(0, 4).map((m, i) => (
               <Box
                 key={i}
+                onClick={() => setLightboxIndex(i)}
                 sx={{
                   bgcolor: "action.hover",
                   borderRadius: 2,
@@ -739,6 +993,8 @@ function PostCard({ post, me, defaultShowComments = false }) {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
+                  cursor: "pointer",
+                  position: "relative",
                 }}
               >
                 {m.type === "image" ? (
@@ -748,11 +1004,31 @@ function PostCard({ post, me, defaultShowComments = false }) {
                     style={{ width: "100%", height: "auto", display: "block" }}
                   />
                 ) : (
-                  <video
-                    src={m.url}
-                    controls
-                    style={{ width: "100%", maxHeight: 480 }}
-                  />
+                  <>
+                    <video
+                      src={m.url}
+                      style={{
+                        width: "100%",
+                        maxHeight: 480,
+                        pointerEvents: "none",
+                      }}
+                      preload="metadata"
+                    />
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        inset: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        bgcolor: "rgba(0,0,0,0.25)",
+                        color: "#fff",
+                        fontSize: 48,
+                      }}
+                    >
+                      ▶
+                    </Box>
+                  </>
                 )}
               </Box>
             ))}
@@ -776,7 +1052,21 @@ function PostCard({ post, me, defaultShowComments = false }) {
           spacing={3}
           sx={{ mt: 1, color: "text.secondary", fontSize: 13, flexWrap: "wrap" }}
         >
-          <span>{post.reactionCount || 0} lượt cảm xúc</span>
+          <Box
+            component="span"
+            onClick={() =>
+              (post.reactionCount || 0) > 0 && setPostReactorsOpen(true)
+            }
+            sx={{
+              cursor: (post.reactionCount || 0) > 0 ? "pointer" : "default",
+              "&:hover": {
+                textDecoration:
+                  (post.reactionCount || 0) > 0 ? "underline" : "none",
+              },
+            }}
+          >
+            {post.reactionCount || 0} lượt cảm xúc
+          </Box>
           <span>{post.commentCount || 0} bình luận</span>
           {(post.shareCount || 0) > 0 && (
             <span>{post.shareCount} lượt chia sẻ</span>
@@ -896,6 +1186,103 @@ function PostCard({ post, me, defaultShowComments = false }) {
           <CommentThread postId={post._id} me={me} canModerate={canModerate} />
         )}
       </CardContent>
+      <ReactorsDialog
+        open={postReactorsOpen}
+        onClose={() => setPostReactorsOpen(false)}
+        postId={postReactorsOpen ? String(post._id) : null}
+      />
+      <FeedMediaLightbox
+        open={lightboxIndex >= 0}
+        onClose={() => setLightboxIndex(-1)}
+        post={post}
+        initialIndex={Math.max(0, lightboxIndex)}
+        sidebar={
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              height: "100%",
+              overflow: "hidden",
+            }}
+          >
+            <Box sx={{ p: 2, borderBottom: 1, borderColor: "divider" }}>
+              <Stack direction="row" spacing={1.5} alignItems="center">
+                <Avatar
+                  src={post.author?.avatar || ""}
+                  sx={{ width: 40, height: 40, cursor: "pointer" }}
+                  onClick={() =>
+                    post.author?._id && nav(`/profile/${post.author._id}`)
+                  }
+                >
+                  {authorName(post.author)[0]?.toUpperCase()}
+                </Avatar>
+                <Box flex={1} minWidth={0}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    {authorName(post.author)}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {fmtTime(post.createdAt)}
+                  </Typography>
+                </Box>
+              </Stack>
+              {post.content && (
+                <Box sx={{ mt: 1.5 }}>
+                  <MentionText
+                    content={post.content}
+                    mentions={post.mentions}
+                  />
+                </Box>
+              )}
+              <Stack
+                direction="row"
+                spacing={3}
+                sx={{
+                  mt: 1.5,
+                  color: "text.secondary",
+                  fontSize: 13,
+                }}
+              >
+                <Box
+                  component="span"
+                  onClick={() =>
+                    (post.reactionCount || 0) > 0 &&
+                    setPostReactorsOpen(true)
+                  }
+                  sx={{
+                    cursor:
+                      (post.reactionCount || 0) > 0 ? "pointer" : "default",
+                  }}
+                >
+                  {post.reactionCount || 0} cảm xúc
+                </Box>
+                <span>{post.commentCount || 0} bình luận</span>
+              </Stack>
+              <Divider sx={{ my: 1 }} />
+              <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+                <ReactionBar post={post} onReact={handleReact} />
+                <Button
+                  size="small"
+                  startIcon={<Share2 size={16} />}
+                  onClick={handleShare}
+                  sx={{
+                    textTransform: "none",
+                    color: "text.secondary",
+                  }}
+                >
+                  Chia sẻ
+                </Button>
+              </Stack>
+            </Box>
+            <Box sx={{ flex: 1, overflowY: "auto", px: 2, py: 1 }}>
+              <CommentThread
+                postId={post._id}
+                me={me}
+                canModerate={canModerate}
+              />
+            </Box>
+          </Box>
+        }
+      />
 
       <Dialog open={menuAnchor} onClose={() => setMenuAnchor(false)}>
         <DialogTitle>Tuỳ chọn</DialogTitle>
