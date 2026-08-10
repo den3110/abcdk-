@@ -1806,6 +1806,19 @@ export function initSocket(
       } catch {}
     });
 
+    // MLP dual match room — dùng cho referee/viewer nhận score sub-match,
+    // DreamBreaker, court/referee assignment realtime.
+    socket.on("mlp:dual:subscribe", ({ dualId } = {}) => {
+      try {
+        if (dualId) socket.join(`mlp:dual:${dualId}`);
+      } catch {}
+    });
+    socket.on("mlp:dual:unsubscribe", ({ dualId } = {}) => {
+      try {
+        if (dualId) socket.leave(`mlp:dual:${dualId}`);
+      } catch {}
+    });
+
     // nhận subscribe realtime từ admin tab
     socket.on("presence:watch", async () => {
       try {

@@ -1,6 +1,7 @@
 // screens/PickleBall/MlpDualDetailPage.jsx
 // Chi tiết 1 dual: assign lineup, sync sub-match, DreamBreaker scoring.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useSocket } from "../../context/SocketContext";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -35,7 +36,9 @@ import {
   useStartDreamBreakerMutation,
   useScoreDreamBreakerPointMutation,
   useUndoDreamBreakerPointMutation,
+  usePatchMlpDualMutation,
 } from "../../slices/mlpApiSlice";
+import DualAssignmentPanel from "../../components/mlp/DualAssignmentPanel.jsx";
 
 function ScoreEditor({ sub, dualId, onSaved }) {
   const [scoreA, setScoreA] = useState(sub.result?.scoreA ?? 0);
@@ -458,6 +461,32 @@ export default function MlpDualDetailPage() {
 
   const { data: tour } = useGetTournamentQuery(tid);
   const { data: dual, isLoading, refetch } = useGetMlpDualQuery(id);
+  const socket = useSocket();
+
+  // Realtime: subscribe room mlp:dual:${id}, refetch khi có event score /
+  // dual updated / finished từ backend (referee đang chấm ở thiết bị khác).
+  useEffect(() => {
+    if (!socket || !id) return;
+    const subscribe = () =>
+      socket.emit("mlp:dual:subscribe", { dualId: id });
+    subscribe();
+    socket.on("connect", subscribe);
+    const bump = () => refetch();
+    socket.on("mlp:sub:score", bump);
+    socket.on("mlp:db:score", bump);
+    socket.on("mlp:dual:updated", bump);
+    socket.on("mlp:dual:finished", bump);
+    return () => {
+      try {
+        socket.emit("mlp:dual:unsubscribe", { dualId: id });
+      } catch {}
+      socket.off("connect", subscribe);
+      socket.off("mlp:sub:score", bump);
+      socket.off("mlp:db:score", bump);
+      socket.off("mlp:dual:updated", bump);
+      socket.off("mlp:dual:finished", bump);
+    };
+  }, [socket, id, refetch]);
   const [assignLineup] = useAssignSubMatchLineupMutation();
   const [syncSub] = useSyncSubMatchResultMutation();
   const [startDb] = useStartDreamBreakerMutation();
@@ -530,6 +559,13 @@ export default function MlpDualDetailPage() {
           </Card>
         ))}
       </Stack>
+
+      {/* Assignment panel: court + trọng tài + giờ */}
+      <DualAssignmentPanel
+        dual={dual}
+        tour={tour}
+        onSaved={() => refetch()}
+      />
 
       {/* Sub-matches */}
       <Typography variant="h6" fontWeight={800} sx={{ mb: 1.5 }}>

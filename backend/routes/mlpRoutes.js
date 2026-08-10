@@ -11,11 +11,14 @@ import {
   generateMlpDuals,
   listMlpDuals,
   getMlpDual,
+  patchMlpDual,
   assignSubMatchLineup,
   syncSubMatchResult,
   startDreamBreaker,
   scoreDreamBreakerPoint,
   undoDreamBreakerPoint,
+  getMlpStandings,
+  recomputeStandingsHandler,
 } from "../controllers/mlpController.js";
 
 const router = express.Router();
@@ -34,8 +37,17 @@ router.delete("/teams/:id", protect, deleteMlpTeam);
 router.get("/tournaments/:tid/duals", optionalAuth, listMlpDuals);
 router.post("/tournaments/:tid/duals/generate", protect, generateMlpDuals);
 router.get("/duals/:id", optionalAuth, getMlpDual);
+router.patch("/duals/:id", protect, patchMlpDual);
 router.patch("/duals/:id/subs/:subId/lineup", protect, assignSubMatchLineup);
 router.post("/duals/:id/subs/:subId/score", protect, syncSubMatchResult);
+
+// Standings
+router.get("/tournaments/:tid/standings", optionalAuth, getMlpStandings);
+router.post(
+  "/tournaments/:tid/standings/recompute",
+  protect,
+  recomputeStandingsHandler,
+);
 
 // DreamBreaker
 router.post("/duals/:id/dreambreaker/start", protect, startDreamBreaker);

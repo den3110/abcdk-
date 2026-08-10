@@ -273,12 +273,18 @@ export default function MlpDualsPage() {
             Các trận team-vs-team. Sync để cập nhật score từ sub-matches.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Button
             variant="outlined"
             onClick={() => navigate(`/tournament/${id}/mlp/teams`)}
           >
             Teams
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={() => navigate(`/tournament/${id}/mlp/standings`)}
+          >
+            BXH
           </Button>
           <Button variant="contained" onClick={() => setGenOpen(true)}>
             Generate duals

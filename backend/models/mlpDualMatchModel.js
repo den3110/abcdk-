@@ -91,6 +91,20 @@ const mlpDualMatchSchema = new Schema(
       default: "scheduled",
       index: true,
     },
+
+    // Runtime metadata: sân + trọng tài + giờ dự kiến. Mỗi dual có thể gán
+    // 1 hoặc nhiều trọng tài (chính + phụ). Court: chấp nhận Court cũ hoặc
+    // CourtStation mới — lưu id, controller/overlay sẽ dedup.
+    court: { type: Schema.Types.ObjectId, ref: "Court", default: null, index: true },
+    courtStation: {
+      type: Schema.Types.ObjectId,
+      ref: "CourtStation",
+      default: null,
+      index: true,
+    },
+    referees: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    scheduledAt: { type: Date, default: null, index: true },
+    note: { type: String, default: "", maxlength: 500 },
     // Tổng slot thắng
     slotWinsA: { type: Number, default: 0 },
     slotWinsB: { type: Number, default: 0 },

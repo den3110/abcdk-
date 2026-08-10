@@ -124,6 +124,32 @@ export const mlpApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (r, e, { dualId }) => [{ type: "MlpDual", id: dualId }],
     }),
+
+    /* ── Dual metadata (referee/court/schedule) + Standings ── */
+    patchMlpDual: builder.mutation({
+      query: ({ dualId, ...body }) => ({
+        url: `/api/mlp/duals/${dualId}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (r, e, { dualId, tourId }) => [
+        { type: "MlpDual", id: dualId },
+        ...(tourId ? [{ type: "MlpDual", id: tourId }] : []),
+      ],
+    }),
+    listMlpStandings: builder.query({
+      query: (tid) => ({
+        url: `/api/mlp/tournaments/${tid}/standings`,
+      }),
+      providesTags: (r, e, tid) => [{ type: "MlpStandings", id: tid }],
+    }),
+    recomputeMlpStandings: builder.mutation({
+      query: (tid) => ({
+        url: `/api/mlp/tournaments/${tid}/standings/recompute`,
+        method: "POST",
+      }),
+      invalidatesTags: (r, e, tid) => [{ type: "MlpStandings", id: tid }],
+    }),
   }),
 });
 
@@ -142,4 +168,7 @@ export const {
   useStartDreamBreakerMutation,
   useScoreDreamBreakerPointMutation,
   useUndoDreamBreakerPointMutation,
+  usePatchMlpDualMutation,
+  useListMlpStandingsQuery,
+  useRecomputeMlpStandingsMutation,
 } = mlpApiSlice;
