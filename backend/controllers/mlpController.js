@@ -1494,15 +1494,23 @@ export const patchMlpSubMatch = asyncHandler(async (req, res) => {
 });
 
 export const assignSubMatchLineup = asyncHandler(async (req, res) => {
-  const dual = await MlpDualMatch.findById(req.params.id);
+  const dual = await MlpDualMatch.findById(req.params.id).populate(
+    "teamA teamB",
+  );
   if (!dual) {
     res.status(404);
     throw new Error("Không tìm thấy dual");
   }
   const tour = await Tournament.findById(dual.tournament);
-  if (!canManageTournament(req.user, tour)) {
+  const canMgr = canManageTournament(req.user, tour);
+  const uid = String(req.user?._id || "");
+  const isCaptainA =
+    uid && String(dual.teamA?.captain?._id ?? dual.teamA?.captain) === uid;
+  const isCaptainB =
+    uid && String(dual.teamB?.captain?._id ?? dual.teamB?.captain) === uid;
+  if (!canMgr && !isCaptainA && !isCaptainB) {
     res.status(403);
-    throw new Error("Không có quyền");
+    throw new Error("Không có quyền chọn lineup");
   }
   const sub = dual.subMatches.id(req.params.subId);
   if (!sub) {
@@ -1511,8 +1519,13 @@ export const assignSubMatchLineup = asyncHandler(async (req, res) => {
   }
 
   const { playersA = [], playersB = [] } = req.body || {};
-  sub.playersA = playersA.filter((id) => mongoose.isValidObjectId(id));
-  sub.playersB = playersB.filter((id) => mongoose.isValidObjectId(id));
+  // Manager: set cả 2 bên. Captain: chỉ set bên của mình, bên kia giữ nguyên.
+  if (canMgr || isCaptainA) {
+    sub.playersA = playersA.filter((id) => mongoose.isValidObjectId(id));
+  }
+  if (canMgr || isCaptainB) {
+    sub.playersB = playersB.filter((id) => mongoose.isValidObjectId(id));
+  }
   await dual.save();
 
   // Tạo/cập nhật Match doc để trọng tài chấm điểm qua RefereeScorePanel

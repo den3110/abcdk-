@@ -452,8 +452,18 @@ export default function MlpTeamsPage() {
     );
   }, [viewer, tour]);
   const canManage = isAdmin || isManager;
-
   const items = teamsData?.items || [];
+  const myTeam = useMemo(() => {
+    if (!viewer?._id) return null;
+    return (
+      items.find(
+        (tm) => String(tm?.captain?._id || tm?.captain) === String(viewer._id),
+      ) || null
+    );
+  }, [items, viewer?._id]);
+  const canCreateTeam = canManage || !myTeam;
+  const isOwnTeam = (team) =>
+    String(team?.captain?._id || team?.captain) === String(viewer?._id || "");
 
   const handleDelete = async (team) => {
     if (!window.confirm(`Xoá team "${team.name}"?`)) return;
@@ -519,16 +529,18 @@ export default function MlpTeamsPage() {
               Cấu hình MLP
             </Button>
           )}
-          <Button
-            variant="contained"
-            startIcon={<Plus size={16} />}
-            onClick={() => {
-              setEditTarget(null);
-              setEditorOpen(true);
-            }}
-          >
-            Tạo team
-          </Button>
+          {canCreateTeam && (
+            <Button
+              variant="contained"
+              startIcon={<Plus size={16} />}
+              onClick={() => {
+                setEditTarget(null);
+                setEditorOpen(true);
+              }}
+            >
+              Tạo team
+            </Button>
+          )}
         </Stack>
       </Stack>
 
@@ -628,18 +640,20 @@ export default function MlpTeamsPage() {
                         </Tooltip>
                       </>
                     )}
-                    <Tooltip title="Sửa">
-                      <IconButton
-                        size="small"
-                        onClick={() => {
-                          setEditTarget(team);
-                          setEditorOpen(true);
-                        }}
-                      >
-                        <Edit size={16} />
-                      </IconButton>
-                    </Tooltip>
-                    {canManage && (
+                    {(canManage || isOwnTeam(team)) && (
+                      <Tooltip title="Sửa">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setEditTarget(team);
+                            setEditorOpen(true);
+                          }}
+                        >
+                          <Edit size={16} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {(canManage || isOwnTeam(team)) && (
                       <Tooltip title="Xoá">
                         <IconButton
                           size="small"

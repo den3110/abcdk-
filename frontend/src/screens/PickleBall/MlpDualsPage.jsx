@@ -257,7 +257,18 @@ export default function MlpDualsPage() {
     }
   };
 
-  const items = data?.items || [];
+  const rawItems = data?.items || [];
+  // Captain (không phải admin/manager) chỉ thấy dual có đội mình tham gia.
+  const items = useMemo(() => {
+    if (canManage) return rawItems;
+    if (!me?._id) return rawItems;
+    const myId = String(me._id);
+    return rawItems.filter((d) => {
+      const capA = String(d?.teamA?.captain?._id || d?.teamA?.captain || "");
+      const capB = String(d?.teamB?.captain?._id || d?.teamB?.captain || "");
+      return capA === myId || capB === myId;
+    });
+  }, [rawItems, canManage, me?._id]);
 
   const isMlp = tour?.tournamentMode === "mlp";
 

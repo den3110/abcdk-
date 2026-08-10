@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSocket } from "../../context/SocketContext";
 import { useParams, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
 import {
   Alert,
   Avatar,
@@ -112,10 +113,26 @@ function ScoreEditor({ sub, dualId, onSaved }) {
   );
 }
 
-function LineupDialog({ open, onClose, sub, teamA, teamB, onSubmit }) {
+function LineupDialog({
+  open,
+  onClose,
+  sub,
+  teamA,
+  teamB,
+  onSubmit,
+  canEditA = true,
+  canEditB = true,
+}) {
   const [pa, setPa] = useState([]);
   const [pb, setPb] = useState([]);
   const size = sub?.matchType === "single" ? 1 : 2;
+
+  // Preload lineup hiện tại (nếu đã có) — captain chỉ sửa được của team mình
+  useEffect(() => {
+    if (!open) return;
+    setPa(Array.isArray(sub?.playersA) ? sub.playersA : []);
+    setPb(Array.isArray(sub?.playersB) ? sub.playersB : []);
+  }, [open, sub?._id]);
 
   const toggle = (list, setList, u) => {
     const has = list.some((x) => String(x._id) === String(u._id));
@@ -144,12 +161,33 @@ function LineupDialog({ open, onClose, sub, teamA, teamB, onSubmit }) {
       <DialogContent dividers>
         <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
           {[
-            { label: "Team A", team: teamA, list: pa, setList: setPa },
-            { label: "Team B", team: teamB, list: pb, setList: setPb },
+            {
+              label: "Team A",
+              team: teamA,
+              list: pa,
+              setList: setPa,
+              editable: canEditA,
+            },
+            {
+              label: "Team B",
+              team: teamB,
+              list: pb,
+              setList: setPb,
+              editable: canEditB,
+            },
           ].map((col) => (
-            <Box key={col.label} flex={1}>
+            <Box key={col.label} flex={1} sx={{ opacity: col.editable ? 1 : 0.55 }}>
               <Typography variant="body2" fontWeight={800} sx={{ mb: 1 }}>
                 {col.label}: {col.team?.name} ({col.list.length}/{size})
+                {!col.editable && (
+                  <Typography
+                    component="span"
+                    variant="caption"
+                    sx={{ ml: 1, color: "text.disabled", fontWeight: 500 }}
+                  >
+                    (chỉ xem)
+                  </Typography>
+                )}
               </Typography>
               <Stack spacing={0.5}>
                 {(col.team?.players || []).map((p) => {
@@ -164,13 +202,15 @@ function LineupDialog({ open, onClose, sub, teamA, teamB, onSubmit }) {
                       spacing={1}
                       sx={{
                         p: 0.75,
-                        cursor: "pointer",
+                        cursor: col.editable ? "pointer" : "default",
                         border: 1,
                         borderColor: active ? "primary.main" : "divider",
                         borderRadius: 1,
                         bgcolor: active ? "action.selected" : "transparent",
                       }}
-                      onClick={() => toggle(col.list, col.setList, p)}
+                      onClick={() =>
+                        col.editable && toggle(col.list, col.setList, p)
+                      }
                     >
                       <Avatar src={p.avatar} sx={{ width: 28, height: 28 }}>
                         {(p.nickname || p.name || "?")[0]}
@@ -457,11 +497,57 @@ function StartDbDialog({ open, onClose, dual, onSubmit }) {
 export default function MlpDualDetailPage() {
   const { tid, id } = useParams();
   const navigate = useNavigate();
+  const me = useSelector((s) => s.auth?.userInfo);
   const [lineupTarget, setLineupTarget] = useState(null);
   const [dbStartOpen, setDbStartOpen] = useState(false);
 
   const { data: tour } = useGetTournamentQuery(tid);
   const { data: dual, isLoading, refetch } = useGetMlpDualQuery(id);
+
+  const isAdmin = !!(me?.role === "admin" || me?.isAdmin || me?.isSuperUser);
+  const isManager = useMemo(() => {
+    if (!me?._id || !tour) return false;
+    if (String(tour.createdBy?._id ?? tour.createdBy) === String(me._id))
+      return true;
+    return (tour.managers || []).some(
+      (m) => String(m?.user?._id ?? m?.user ?? m) === String(me._id),
+    );
+  }, [me?._id, tour]);
+  const canManage = isAdmin || isManager;
+  const isCaptainA = useMemo(
+    () =>
+      !!(
+        me?._id &&
+        dual?.teamA?.captain &&
+        String(dual.teamA.captain?._id || dual.teamA.captain) ===
+          String(me._id)
+      ),
+    [me?._id, dual?.teamA?.captain],
+  );
+  const isCaptainB = useMemo(
+    () =>
+      !!(
+        me?._id &&
+        dual?.teamB?.captain &&
+        String(dual.teamB.captain?._id || dual.teamB.captain) ===
+          String(me._id)
+      ),
+    [me?._id, dual?.teamB?.captain],
+  );
+  const isCaptainOfDual = isCaptainA || isCaptainB;
+  // Captain (không phải admin/manager) chỉ được setup lineup cho team mình.
+  const canEditLineupFor = (side) => {
+    if (canManage) return true;
+    if (side === "A") return isCaptainA;
+    if (side === "B") return isCaptainB;
+    return false;
+  };
+  // Nếu captain không phải là 1 trong 2 đội của dual này → block truy cập.
+  const forbidden = useMemo(() => {
+    if (!dual) return false;
+    if (canManage) return false;
+    return !isCaptainOfDual;
+  }, [dual, canManage, isCaptainOfDual]);
   const socket = useSocket();
 
   // Realtime: subscribe room mlp:dual:${id}, refetch khi có event score /
@@ -498,6 +584,23 @@ export default function MlpDualDetailPage() {
     return (
       <Container sx={{ py: 6, textAlign: "center" }}>
         <CircularProgress />
+      </Container>
+    );
+  }
+  if (forbidden) {
+    return (
+      <Container maxWidth="sm" sx={{ py: 6 }}>
+        <Alert severity="warning" sx={{ borderRadius: 2 }}>
+          Trận này không thuộc đội của bạn. Vui lòng vào MLP Duals của
+          giải để chọn trận đội mình.
+        </Alert>
+        <Button
+          sx={{ mt: 2 }}
+          variant="outlined"
+          onClick={() => navigate(`/tournament/${tid}/mlp/duals`)}
+        >
+          Về MLP Duals
+        </Button>
       </Container>
     );
   }
@@ -561,12 +664,14 @@ export default function MlpDualDetailPage() {
         ))}
       </Stack>
 
-      {/* Assignment panel: court + trọng tài + giờ */}
-      <DualAssignmentPanel
-        dual={dual}
-        tour={tour}
-        onSaved={() => refetch()}
-      />
+      {/* Assignment panel: court + trọng tài + giờ — chỉ admin/manager */}
+      {canManage && (
+        <DualAssignmentPanel
+          dual={dual}
+          tour={tour}
+          onSaved={() => refetch()}
+        />
+      )}
 
       {/* Sub-matches */}
       <Typography variant="h6" fontWeight={800} sx={{ mb: 1.5 }}>
@@ -612,24 +717,36 @@ export default function MlpDualDetailPage() {
                       />
                     ))}
                   </Stack>
-                  <ScoreEditor
-                    sub={sub}
-                    dualId={dual._id}
-                    onSaved={refetch}
-                  />
+                  {canManage && (
+                    <ScoreEditor
+                      sub={sub}
+                      dualId={dual._id}
+                      onSaved={refetch}
+                    />
+                  )}
                   <Stack direction="row" spacing={0.5}>
-                    <Button size="small" onClick={() => setLineupTarget(sub)}>
-                      Lineup
-                    </Button>
+                    {/* Captain chỉ chọn được lineup cho team mình. */}
+                    {(canManage ||
+                      canEditLineupFor("A") ||
+                      canEditLineupFor("B")) && (
+                      <Button
+                        size="small"
+                        onClick={() => setLineupTarget(sub)}
+                      >
+                        Lineup
+                      </Button>
+                    )}
                   </Stack>
                 </Stack>
-                <SubMatchAssignmentPanel
-                  dual={dual}
-                  sub={sub}
-                  tour={tour}
-                  disabled={dual?.status === "finished"}
-                  onSaved={refetch}
-                />
+                {canManage && (
+                  <SubMatchAssignmentPanel
+                    dual={dual}
+                    sub={sub}
+                    tour={tour}
+                    disabled={dual?.status === "finished"}
+                    onSaved={refetch}
+                  />
+                )}
               </CardContent>
             </Card>
           );
@@ -668,6 +785,8 @@ export default function MlpDualDetailPage() {
         sub={lineupTarget}
         teamA={dual.teamA}
         teamB={dual.teamB}
+        canEditA={canEditLineupFor("A")}
+        canEditB={canEditLineupFor("B")}
         onSubmit={async (pa, pb) => {
           try {
             await assignLineup({
