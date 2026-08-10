@@ -135,7 +135,7 @@ function GuestBanner({ onLogin }) {
 // Guard mọi thao tác cần đăng nhập trên FeedPage. Trả true nếu OK.
 function useRequireLogin(me) {
   const nav = useNavigate();
-  return React.useCallback(() => {
+  return useCallback(() => {
     if (me) return true;
     const yes = window.confirm(
       "Bạn cần đăng nhập để thực hiện thao tác này. Chuyển tới trang đăng nhập?"
