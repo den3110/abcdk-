@@ -25,6 +25,9 @@ import {
   forceFinishMlpDual,
   deleteMlpDual,
   checkInMlpDual,
+  exportMlpStandingsCsv,
+  exportMlpResultsCsv,
+  exportMlpSummary,
 } from "../controllers/mlpController.js";
 
 const router = express.Router();
@@ -72,6 +75,23 @@ router.post(
   "/tournaments/:tid/duals/generate-knockout",
   protect,
   generateMlpKnockout,
+);
+
+// Reports / export
+router.get(
+  "/tournaments/:tid/export/standings.csv",
+  optionalAuth,
+  exportMlpStandingsCsv,
+);
+router.get(
+  "/tournaments/:tid/export/results.csv",
+  optionalAuth,
+  exportMlpResultsCsv,
+);
+router.get(
+  "/tournaments/:tid/export/summary.json",
+  optionalAuth,
+  exportMlpSummary,
 );
 
 // DreamBreaker

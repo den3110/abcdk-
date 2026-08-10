@@ -20,7 +20,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { RefreshCw, ArrowLeft } from "lucide-react";
+import { RefreshCw, ArrowLeft, Download } from "lucide-react";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import {
@@ -61,6 +61,30 @@ export default function MlpStandingsPage() {
         <Typography variant="h5" fontWeight={700} flex={1}>
           Bảng xếp hạng MLP
         </Typography>
+        <Button
+          variant="outlined"
+          startIcon={<Download size={16} />}
+          onClick={() =>
+            window.open(
+              `/api/mlp/tournaments/${tid}/export/standings.csv`,
+              "_blank",
+            )
+          }
+        >
+          BXH CSV
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={<Download size={16} />}
+          onClick={() =>
+            window.open(
+              `/api/mlp/tournaments/${tid}/export/results.csv`,
+              "_blank",
+            )
+          }
+        >
+          Kết quả CSV
+        </Button>
         {isAdmin(me) && (
           <Button
             variant="outlined"

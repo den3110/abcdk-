@@ -134,6 +134,281 @@ export const deleteMlpDual = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
+/* ═════════════════════ REPORTS / EXPORT ═════════════════════ */
+
+function csvEscape(v) {
+  if (v == null) return "";
+  const s = String(v);
+  if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+// GET /api/mlp/tournaments/:tid/export/standings.csv
+export const exportMlpStandingsCsv = asyncHandler(async (req, res) => {
+  const teams = await MlpTeam.find({
+    tournament: req.params.tid,
+    status: "approved",
+  })
+    .select("name shortName standing")
+    .lean();
+  const h2h = await buildHeadToHeadMap(req.params.tid);
+  const rows = teams
+    .map((t) => {
+      const s = t.standing || {};
+      const wins = Number(s.wins) || 0;
+      const losses = Number(s.losses) || 0;
+      const slotsFor = Number(s.slotsFor) || 0;
+      const slotsAgainst = Number(s.slotsAgainst) || 0;
+      const pointsFor = Number(s.pointsFor) || 0;
+      const pointsAgainst = Number(s.pointsAgainst) || 0;
+      return {
+        name: t.name,
+        shortName: t.shortName || "",
+        wins,
+        losses,
+        played: wins + losses,
+        slotsFor,
+        slotsAgainst,
+        slotDiff: slotsFor - slotsAgainst,
+        pointsFor,
+        pointsAgainst,
+        pointDiff: pointsFor - pointsAgainst,
+        _id: String(t._id),
+      };
+    })
+    .sort((a, b) => {
+      if (a.wins !== b.wins) return b.wins - a.wins;
+      const rec = h2h.get(a._id)?.get(b._id);
+      if (rec && rec.won !== rec.lost) return rec.lost - rec.won;
+      if (a.slotDiff !== b.slotDiff) return b.slotDiff - a.slotDiff;
+      if (a.pointDiff !== b.pointDiff) return b.pointDiff - a.pointDiff;
+      return String(a.name).localeCompare(String(b.name), "vi");
+    });
+
+  const header = [
+    "Hạng",
+    "Team",
+    "Ký hiệu",
+    "Thắng",
+    "Thua",
+    "Đã đấu",
+    "Slot ghi",
+    "Slot thua",
+    "Hiệu số slot",
+    "Điểm ghi",
+    "Điểm thua",
+    "Hiệu số điểm",
+  ];
+  const lines = [header.join(",")];
+  rows.forEach((r, i) => {
+    lines.push(
+      [
+        i + 1,
+        r.name,
+        r.shortName,
+        r.wins,
+        r.losses,
+        r.played,
+        r.slotsFor,
+        r.slotsAgainst,
+        r.slotDiff,
+        r.pointsFor,
+        r.pointsAgainst,
+        r.pointDiff,
+      ]
+        .map(csvEscape)
+        .join(","),
+    );
+  });
+  const csv = "﻿" + lines.join("\n"); // BOM cho Excel Vietnamese
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="mlp-standings-${req.params.tid}.csv"`,
+  );
+  res.send(csv);
+});
+
+// GET /api/mlp/tournaments/:tid/export/results.csv
+// Kết quả tất cả dual đã finished + sub-match detail.
+export const exportMlpResultsCsv = asyncHandler(async (req, res) => {
+  const duals = await MlpDualMatch.find({
+    tournament: req.params.tid,
+    status: "finished",
+  })
+    .populate("teamA", "name shortName")
+    .populate("teamB", "name shortName")
+    .sort({ round: 1, order: 1 })
+    .lean();
+
+  const header = [
+    "Vòng",
+    "Thứ tự",
+    "Team A",
+    "Team B",
+    "Slot A",
+    "Slot B",
+    "Team thắng",
+    "Sub-match",
+    "Slot key",
+    "Score A",
+    "Score B",
+    "Winner",
+  ];
+  const lines = [header.join(",")];
+  for (const d of duals) {
+    const nameA = d.teamA?.name || "-";
+    const nameB = d.teamB?.name || "-";
+    const winnerName = d.winner === "A" ? nameA : d.winner === "B" ? nameB : "";
+    if (!d.subMatches?.length) {
+      lines.push(
+        [
+          d.round,
+          d.order,
+          nameA,
+          nameB,
+          d.slotWinsA,
+          d.slotWinsB,
+          winnerName,
+          "",
+          "",
+          "",
+          "",
+          "",
+        ]
+          .map(csvEscape)
+          .join(","),
+      );
+    } else {
+      d.subMatches.forEach((sm, idx) => {
+        lines.push(
+          [
+            d.round,
+            d.order,
+            idx === 0 ? nameA : "",
+            idx === 0 ? nameB : "",
+            idx === 0 ? d.slotWinsA : "",
+            idx === 0 ? d.slotWinsB : "",
+            idx === 0 ? winnerName : "",
+            idx + 1,
+            sm.slotKey,
+            sm.result?.scoreA ?? 0,
+            sm.result?.scoreB ?? 0,
+            sm.result?.winner === "A"
+              ? nameA
+              : sm.result?.winner === "B"
+                ? nameB
+                : "",
+          ]
+            .map(csvEscape)
+            .join(","),
+        );
+      });
+    }
+  }
+  const csv = "﻿" + lines.join("\n");
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="mlp-results-${req.params.tid}.csv"`,
+  );
+  res.send(csv);
+});
+
+// GET /api/mlp/tournaments/:tid/export/summary.json
+// Tóm tắt cho PDF client render: metadata + BXH + kết quả
+export const exportMlpSummary = asyncHandler(async (req, res) => {
+  const tid = req.params.tid;
+  const tour = await Tournament.findById(tid)
+    .select("name startDate endDate image tournamentMode mlpConfig")
+    .lean();
+  if (!tour) {
+    res.status(404);
+    throw new Error("Giải không tồn tại");
+  }
+  const [teams, duals, h2h] = await Promise.all([
+    MlpTeam.find({ tournament: tid, status: "approved" })
+      .select("name shortName logo color standing captain")
+      .populate("captain", "name nickname avatar")
+      .lean(),
+    MlpDualMatch.find({ tournament: tid, status: "finished" })
+      .populate("teamA", "name shortName")
+      .populate("teamB", "name shortName")
+      .sort({ round: 1, order: 1 })
+      .lean(),
+    buildHeadToHeadMap(tid),
+  ]);
+  const standings = teams
+    .map((t) => {
+      const s = t.standing || {};
+      return {
+        _id: t._id,
+        name: t.name,
+        shortName: t.shortName,
+        logo: t.logo,
+        color: t.color,
+        captain: t.captain,
+        wins: Number(s.wins) || 0,
+        losses: Number(s.losses) || 0,
+        slotsFor: Number(s.slotsFor) || 0,
+        slotsAgainst: Number(s.slotsAgainst) || 0,
+        slotDiff:
+          (Number(s.slotsFor) || 0) - (Number(s.slotsAgainst) || 0),
+        pointsFor: Number(s.pointsFor) || 0,
+        pointsAgainst: Number(s.pointsAgainst) || 0,
+        pointDiff:
+          (Number(s.pointsFor) || 0) - (Number(s.pointsAgainst) || 0),
+      };
+    })
+    .sort((a, b) => {
+      if (a.wins !== b.wins) return b.wins - a.wins;
+      const rec = h2h.get(String(a._id))?.get(String(b._id));
+      if (rec && rec.won !== rec.lost) return rec.lost - rec.won;
+      if (a.slotDiff !== b.slotDiff) return b.slotDiff - a.slotDiff;
+      if (a.pointDiff !== b.pointDiff) return b.pointDiff - a.pointDiff;
+      return String(a.name).localeCompare(String(b.name), "vi");
+    })
+    .map((r, idx) => ({ rank: idx + 1, ...r }));
+
+  const champion = standings[0] || null;
+  const runnerUp = standings[1] || null;
+
+  res.json({
+    tournament: {
+      _id: tour._id,
+      name: tour.name,
+      startDate: tour.startDate,
+      endDate: tour.endDate,
+      image: tour.image,
+    },
+    generatedAt: new Date(),
+    counts: {
+      teams: teams.length,
+      finishedDuals: duals.length,
+    },
+    champion,
+    runnerUp,
+    standings,
+    results: duals.map((d) => ({
+      _id: d._id,
+      round: d.round,
+      order: d.order,
+      teamA: { _id: d.teamA?._id, name: d.teamA?.name },
+      teamB: { _id: d.teamB?._id, name: d.teamB?.name },
+      slotWinsA: d.slotWinsA,
+      slotWinsB: d.slotWinsB,
+      winner: d.winner,
+      finishedAt: d.finishedAt,
+      subMatches: (d.subMatches || []).map((sm) => ({
+        slotKey: sm.slotKey,
+        scoreA: sm.result?.scoreA ?? 0,
+        scoreB: sm.result?.scoreB ?? 0,
+        winner: sm.result?.winner,
+      })),
+    })),
+  });
+});
+
 /* ═════════════════════ COURTS ═════════════════════ */
 
 // GET /api/mlp/tournaments/:tid/courts — trả list court khả dụng cho giải
