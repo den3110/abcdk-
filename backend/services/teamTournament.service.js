@@ -7,7 +7,9 @@ import Match from "../models/matchModel.js";
 const { Types } = mongoose;
 
 const TEAM_MODE = "team";
+const MLP_MODE = "mlp";
 const STANDARD_MODE = "standard";
+const ALLOWED_MODES = new Set([TEAM_MODE, MLP_MODE, STANDARD_MODE]);
 
 const toObjectIdString = (value) => {
   if (!value) return "";
@@ -24,10 +26,10 @@ const buildPlaceholderFaction = (index) => ({
   isActive: true,
 });
 
-export const normalizeTournamentMode = (value) =>
-  String(value || "").trim().toLowerCase() === TEAM_MODE
-    ? TEAM_MODE
-    : STANDARD_MODE;
+export const normalizeTournamentMode = (value) => {
+  const v = String(value || "").trim().toLowerCase();
+  return ALLOWED_MODES.has(v) ? v : STANDARD_MODE;
+};
 
 export const isTeamTournament = (tournament) =>
   normalizeTournamentMode(tournament?.tournamentMode) === TEAM_MODE;
