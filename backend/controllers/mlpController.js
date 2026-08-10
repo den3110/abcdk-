@@ -13,6 +13,10 @@ import {
   notifyMlpTeamStatus,
   notifyMlpDualEvent,
 } from "../services/mlpNotifier.js";
+import {
+  ensureMlpSubMatchDoc,
+  ensureMlpDualMatchDocs,
+} from "../services/mlpMatchSync.js";
 
 // Emit event tới room mlp:dual:${id}. Client subscribe qua
 // socket.emit("mlp:dual:subscribe", { dualId }) — handler thêm trong
@@ -1350,6 +1354,14 @@ export const patchMlpDual = asyncHandler(async (req, res) => {
     dual.note = b.note.slice(0, 500);
   }
   await dual.save();
+
+  // Sync assignment (referee/court/scheduledAt) xuống các Match doc con
+  try {
+    await ensureMlpDualMatchDocs(dual, tour);
+  } catch (err) {
+    console.error("[mlp] ensureMlpDualMatchDocs failed:", err?.message);
+  }
+
   emitMlpDual(dual._id, "mlp:dual:updated", {
     dualId: dual._id,
     court: dual.court,
@@ -1382,6 +1394,18 @@ export const assignSubMatchLineup = asyncHandler(async (req, res) => {
   sub.playersA = playersA.filter((id) => mongoose.isValidObjectId(id));
   sub.playersB = playersB.filter((id) => mongoose.isValidObjectId(id));
   await dual.save();
+
+  // Tạo/cập nhật Match doc để trọng tài chấm điểm qua RefereeScorePanel
+  try {
+    await ensureMlpSubMatchDoc(dual, sub, tour);
+    await dual.save();
+  } catch (err) {
+    console.error(
+      "[mlp] ensureMlpSubMatchDoc after lineup failed:",
+      err?.message,
+    );
+  }
+
   res.json({ success: true, sub });
 });
 

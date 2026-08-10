@@ -1555,6 +1555,28 @@ matchSchema.post("save", async function (doc, next) {
       await emitMatchRefereeSnapshot([doc._id]);
     }
 
+    // MLP sub-match bridge: nếu Match này là shell của 1 MLP sub-match,
+    // sync điểm/status/winner ngược về MlpDualMatch cache.
+    try {
+      if (doc?.meta?.mlp?.subId && doc?.meta?.mlp?.dualId) {
+        setImmediate(async () => {
+          try {
+            const { syncMatchToMlpSubMatch } = await import(
+              "../services/mlpMatchSync.js"
+            );
+            await syncMatchToMlpSubMatch(doc);
+          } catch (err) {
+            console.error(
+              "[mlp] syncMatchToMlpSubMatch failed:",
+              err?.message,
+            );
+          }
+        });
+      }
+    } catch (e) {
+      console.error("[mlp] sub-match sync schedule error:", e?.message);
+    }
+
     await syncDependentSlotsFromMatch(doc);
 
     // auto rating
@@ -1721,6 +1743,30 @@ matchSchema.post("findOneAndUpdate", async function (res) {
     }
 
     await syncDependentSlotsFromMatch(fresh);
+
+    // MLP sub-match sync qua findOneAndUpdate (referee chấm điểm real-time)
+    try {
+      if (fresh?.meta?.mlp?.subId && fresh?.meta?.mlp?.dualId) {
+        setImmediate(async () => {
+          try {
+            const { syncMatchToMlpSubMatch } = await import(
+              "../services/mlpMatchSync.js"
+            );
+            await syncMatchToMlpSubMatch(fresh);
+          } catch (err) {
+            console.error(
+              "[mlp] syncMatchToMlpSubMatch (findOneAndUpdate) failed:",
+              err?.message,
+            );
+          }
+        });
+      }
+    } catch (e) {
+      console.error(
+        "[mlp] sub-match sync schedule (findOneAndUpdate) error:",
+        e?.message,
+      );
+    }
 
     // auto rating (giữ nguyên)
     try {
