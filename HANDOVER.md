@@ -4,7 +4,7 @@
 > **Ngày lập:** 2026-08-03. Lập tự động từ khảo sát code, có ghi chú những chỗ cần xác nhận lại với người bàn giao.
 >
 > ⚠️ **QUAN TRỌNG:** file này là bản gốc từ 2026-08-03. Trạng thái + tính năng
-> mới nhất (**2 session tới nay**) — Apple 1.2 compliance, nickname approval,
+> mới nhất (**3 session tới nay**) — Apple 1.2 compliance, nickname approval,
 > overlay generator, icon/splash 1.1.13, Android LIVE, iOS TestFlight chờ,
 > chat DM upgrade, **Feed hoàn thiện** (video thumb + realtime + AspectImage
 > + comment media + reactions viewer + FeedMediaLightbox + mention populate
@@ -20,6 +20,30 @@
 > HANDOFF.md **TRƯỚC** để nắm state hiện tại.
 >
 > ⚠️ **Thay đổi kiến trúc lớn kể từ 2026-08-03 (đọc HANDOFF chi tiết):**
+>
+> 🆕 **Session 2026-08-10→11 — MLP overhaul** (xem HANDOFF mới nhất):
+> - **MLP mode giờ hoạt động ĐÚNG**: `normalizeTournamentMode` không còn ép
+>   `mlp` về `standard`. Admin chọn MLP giờ lưu đúng vào DB.
+> - **MLP sub-match tạo Match doc thật** để trọng tài chấm qua RefereeScorePanel
+>   như trận thường. `mlpMatchSync.service.js` — sync 2 chiều Match ↔ sub-match.
+>   Meta.mlp chứa synth pairA/pairB (User đầy đủ) → mobile dùng chung code path
+>   với giải thường (avatar, CCCD, slot swap, serve indicator).
+> - **Per-sub-match assignment**: mỗi sub 1 trọng tài + sân + giờ riêng
+>   (SubMatchSchema thêm referees/court/courtStation/scheduledAt).
+> - **MLP overlay livestream** theo court station: `/overlay/mlp/court/:id` —
+>   endpoint `/api/live/courts/:id/mlp-overlay`. Auto-switch sub-match (2v2) ↔
+>   DreamBreaker (1v1 rotate). URL copy trong DualAssignmentPanel cho OBS.
+> - **MLP có bracket view + registration view riêng** (web + mobile):
+>   `MlpBracketView` / `MlpTournamentRegistrationView` / mobile `mlp/teams.tsx`
+>   với color picker + roster search.
+> - **DreamBreaker referee flow** trên mobile (Start lineup + 1v1 rotation +
+>   scoring). Backend `canScoreDual` cho referee quyền chấm DB.
+> - **Visibility permission**: captain chỉ thấy team + dual mình, chỉ chọn
+>   lineup team mình. `LineupDialog` chỉ show 1 cột. Backend
+>   `assignSubMatchLineup` cho captain quyền set lineup bên mình.
+>
+> ---
+>
 > 1. **Tournament mode** giờ có 3 giá trị: `standard` / `team` / `mlp`. Xem
 >    HANDOFF §2.6 (fix cap.points bug).
 > 2. **Coach** không phải role exclusive — cờ `isCoach: Boolean` co-exist với
