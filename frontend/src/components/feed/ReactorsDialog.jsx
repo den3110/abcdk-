@@ -22,7 +22,7 @@ import { useNavigate } from "react-router-dom";
 import {
   useLazyListPostReactorsQuery,
   useLazyListCommentReactorsQuery,
-} from "@/slices/feedApiSlice";
+} from "../../slices/feedApiSlice.js";
 
 const EMOJI = {
   like: "👍",
