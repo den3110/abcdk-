@@ -296,6 +296,84 @@ export const pokerAction = asyncHandler(async (req, res) => {
   res.json({ room: serializeRoom(populated, req.user._id) });
 });
 
+// POST /api/poker/rooms/:id/emoji  { emoji }
+// Ephemeral emoji reaction, không lưu DB, chỉ emit socket.
+const EMOJI_WHITELIST = new Set(["👍", "❤️", "😂", "😮", "😢", "😡", "🔥", "👏", "🎉"]);
+export const emojiPokerRoom = asyncHandler(async (req, res) => {
+  const room = await PokerRoom.findById(req.params.id).select("seats").lean();
+  if (!room) {
+    res.status(404);
+    throw new Error("Không tìm thấy bàn");
+  }
+  const seat = (room.seats || []).find(
+    (s) => String(s.user) === String(req.user._id),
+  );
+  if (!seat) {
+    res.status(400);
+    throw new Error("Bạn không ở bàn này");
+  }
+  const emoji = String(req.body?.emoji || "").slice(0, 6);
+  if (!EMOJI_WHITELIST.has(emoji)) {
+    res.status(400);
+    throw new Error("Emoji không hợp lệ");
+  }
+  getIO?.()
+    ?.to(`poker:room:${req.params.id}`)
+    .emit("poker:room:emoji", {
+      roomId: String(req.params.id),
+      seatIndex: seat.seatIndex,
+      emoji,
+      at: Date.now(),
+    });
+  res.json({ success: true });
+});
+
+// POST /api/poker/rooms/:id/reveal — khoe bài cuối ván. Chỉ hoạt động khi
+// stage === "waiting" hoặc "showdown" (ván vừa xong), user còn có bài
+// trong sub state (chưa reset sang ván mới).
+export const revealPokerCards = asyncHandler(async (req, res) => {
+  const room = await PokerRoom.findById(req.params.id);
+  if (!room) {
+    res.status(404);
+    throw new Error("Không tìm thấy bàn");
+  }
+  const seat = room.seats.find(
+    (s) => String(s.user) === String(req.user._id),
+  );
+  if (!seat) {
+    res.status(400);
+    throw new Error("Bạn không ở bàn này");
+  }
+  if (!seat.cards?.length) {
+    res.status(400);
+    throw new Error("Bạn không có bài để khoe");
+  }
+  const already = (room.reveals || []).some(
+    (r) => Number(r.seatIndex) === seat.seatIndex,
+  );
+  if (already) {
+    res.status(400);
+    throw new Error("Đã khoe rồi");
+  }
+  room.reveals.push({
+    seatIndex: seat.seatIndex,
+    userId: req.user._id,
+    cards: seat.cards.slice(),
+    at: new Date(),
+  });
+  await room.save();
+  const populated = await populateRoom(room);
+  broadcastUpdate(populated);
+  getIO?.()
+    ?.to(`poker:room:${room._id}`)
+    .emit("poker:room:reveal", {
+      roomId: String(room._id),
+      seatIndex: seat.seatIndex,
+      cards: seat.cards.slice(),
+    });
+  res.json({ success: true });
+});
+
 // POST /api/poker/rooms/:id/chat  { text }
 export const chatPokerRoom = asyncHandler(async (req, res) => {
   const text = String(req.body?.text || "").trim().slice(0, 300);

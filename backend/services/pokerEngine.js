@@ -182,6 +182,7 @@ export function startHand(room) {
   room.lastAggressorIndex = -1;
   room.actions = [];
   room.winners = [];
+  room.reveals = [];
   room.handStartedAt = new Date();
   room.handEndedAt = null;
   room.lastActivityAt = new Date();
@@ -530,12 +531,16 @@ function endHand(room) {
 // Trả state ẩn: deck ẩn hoàn toàn, cards của người khác ẩn trừ showdown.
 export function serializeRoom(room, viewerUserId) {
   const viewerStr = String(viewerUserId || "");
+  const reveals = new Set(
+    (room.reveals || []).map((r) => Number(r.seatIndex)),
+  );
   const seats = (room.seats || []).map((s) => {
     const isViewer = s.user && String(s.user._id || s.user) === viewerStr;
     const showCards =
-      room.stage === "showdown" &&
-      !s.hasFolded &&
-      (room.winners || []).some((w) => w.seatIndex === s.seatIndex);
+      reveals.has(s.seatIndex) ||
+      (room.stage === "showdown" &&
+        !s.hasFolded &&
+        (room.winners || []).some((w) => w.seatIndex === s.seatIndex));
     return {
       seatIndex: s.seatIndex,
       user: s.user
@@ -585,6 +590,7 @@ export function serializeRoom(room, viewerUserId) {
     turnDeadlineAt: room.turnDeadlineAt,
     turnDurationSec: room.turnDurationSec || 30,
     messages: (room.messages || []).slice(-50),
+    reveals: room.reveals || [],
     lastActivityAt: room.lastActivityAt,
     status: room.status,
   };

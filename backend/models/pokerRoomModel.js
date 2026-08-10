@@ -84,6 +84,23 @@ const pokerRoomSchema = new Schema(
     turnDeadlineAt: { type: Date, default: null },
     turnDurationSec: { type: Number, default: 30 },
 
+    // Reveal cuối ván — user tự chọn "khoe bài" sau khi fold hoặc showdown.
+    // Reset khi bắt đầu ván mới.
+    reveals: {
+      type: [
+        new Schema(
+          {
+            seatIndex: Number,
+            userId: { type: Schema.Types.ObjectId, ref: "User" },
+            cards: [String],
+            at: { type: Date, default: Date.now },
+          },
+          { _id: false },
+        ),
+      ],
+      default: [],
+    },
+
     // Chat trong bàn — cap 100 tin gần nhất, cũ hơn bị cắt.
     messages: {
       type: [
