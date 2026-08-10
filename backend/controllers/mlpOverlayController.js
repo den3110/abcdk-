@@ -63,13 +63,30 @@ export const getMlpCourtOverlay = asyncHandler(async (req, res) => {
   }
 
   // === Bước 1: tìm live Match doc trên court (sub-match) ===
-  const liveMatch = station.currentMatch
-    ? await Match.findById(station.currentMatch)
-        .select(
-          "_id status winner gameScores currentGame rules meta serve scheduledAt startedAt tournament",
-        )
-        .lean()
-    : null;
+  // Ưu tiên station.currentMatch (đã gán). Fallback: query Match theo
+  // courtStation field — cover trường hợp assign court nhưng chưa
+  // start.
+  let liveMatch = null;
+  if (station.currentMatch) {
+    liveMatch = await Match.findById(station.currentMatch)
+      .select(
+        "_id status winner gameScores currentGame rules meta serve scheduledAt startedAt tournament",
+      )
+      .lean();
+  }
+  // Nếu chưa có, tìm MLP Match trên station này với status live/assigned.
+  if (!liveMatch) {
+    liveMatch = await Match.findOne({
+      courtStation: stationId,
+      status: { $in: ["live", "assigned"] },
+      "meta.mlp.dualId": { $exists: true },
+    })
+      .sort({ startedAt: -1, updatedAt: -1 })
+      .select(
+        "_id status winner gameScores currentGame rules meta serve scheduledAt startedAt tournament",
+      )
+      .lean();
+  }
 
   const isMlpSub = !!liveMatch?.meta?.mlp?.dualId;
   const isLiveOrAssigned = ["live", "assigned"].includes(

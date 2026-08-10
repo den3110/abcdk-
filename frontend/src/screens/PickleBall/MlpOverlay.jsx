@@ -18,11 +18,13 @@ export default function MlpOverlay() {
 
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [courtInfo, setCourtInfo] = useState(null);
 
+  // Poll cả endpoint MLP overlay và fallback court info.
   useEffect(() => {
     if (!courtStationId) return;
     let cancelled = false;
-    const fetchOnce = async () => {
+    const fetchOverlay = async () => {
       try {
         const url = `${BASE_URL || ""}/api/live/courts/${courtStationId}/mlp-overlay`;
         const res = await fetch(url, { cache: "no-store" });
@@ -42,8 +44,18 @@ export default function MlpOverlay() {
         if (!cancelled) setError(String(err?.message || err));
       }
     };
-    fetchOnce();
-    const timer = setInterval(fetchOnce, POLL_MS);
+    const fetchCourt = async () => {
+      try {
+        const url = `${BASE_URL || ""}/api/live/courts/${courtStationId}`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled) setCourtInfo(json);
+      } catch {}
+    };
+    fetchOverlay();
+    fetchCourt();
+    const timer = setInterval(fetchOverlay, POLL_MS);
     return () => {
       cancelled = true;
       clearInterval(timer);
@@ -63,10 +75,75 @@ export default function MlpOverlay() {
   }, []);
 
   const dark = theme !== "light";
+  const hidePlaceholder = searchParams.get("hidePlaceholder") === "1";
 
   if (!data) {
-    // Không hiển thị gì khi chưa có trận (overlay trong suốt)
-    return null;
+    // Không có trận đang diễn ra — hiện placeholder "Chờ trận đấu"
+    // để trình duyệt không trắng hoàn toàn (OBS chroma-key vẫn OK vì
+    // background transparent). Có thể tắt bằng ?hidePlaceholder=1.
+    if (hidePlaceholder) return null;
+    const stationName =
+      courtInfo?.station?.name || courtInfo?.station?.code || "—";
+    const clusterName =
+      courtInfo?.cluster?.name || courtInfo?.cluster?.venueName || "";
+    return (
+      <div
+        style={{
+          fontFamily:
+            "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "flex-end",
+          padding: 16,
+        }}
+      >
+        <div
+          style={{
+            width: "100%",
+            maxWidth: 520,
+            margin: "0 auto",
+            background: dark ? "rgba(11, 18, 32, 0.85)" : "rgba(255,255,255,0.96)",
+            border: `1px solid ${dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"}`,
+            borderRadius: 16,
+            padding: 20,
+            textAlign: "center",
+            color: dark ? "#fff" : "#0F172A",
+            backdropFilter: "blur(12px)",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.4)",
+          }}
+        >
+          <div
+            style={{
+              display: "inline-block",
+              padding: "3px 10px",
+              background: "#F59E0B",
+              color: dark ? "#0F172A" : "#fff",
+              fontWeight: 900,
+              fontSize: 11,
+              borderRadius: 999,
+              letterSpacing: 0.5,
+              marginBottom: 10,
+            }}
+          >
+            MLP OVERLAY
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 4 }}>
+            Sân {stationName}
+          </div>
+          {clusterName ? (
+            <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 10 }}>
+              {clusterName}
+            </div>
+          ) : null}
+          <div style={{ fontSize: 14, opacity: 0.85 }}>
+            Chờ trận đấu MLP…
+          </div>
+          <div style={{ fontSize: 11, opacity: 0.55, marginTop: 8 }}>
+            Overlay sẽ tự hiện khi sub-match live hoặc dual vào DreamBreaker.
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const isSub = data.mode === "sub";
