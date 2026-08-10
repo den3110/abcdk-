@@ -1819,6 +1819,18 @@ export function initSocket(
       } catch {}
     });
 
+    // Poker room
+    socket.on("poker:room:subscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.join(`poker:room:${roomId}`);
+      } catch {}
+    });
+    socket.on("poker:room:unsubscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.leave(`poker:room:${roomId}`);
+      } catch {}
+    });
+
     // nhận subscribe realtime từ admin tab
     socket.on("presence:watch", async () => {
       try {
