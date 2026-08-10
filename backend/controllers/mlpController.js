@@ -1263,8 +1263,24 @@ export const listMlpDuals = asyncHandler(async (req, res) => {
 // GET /api/mlp/duals/:id
 export const getMlpDual = asyncHandler(async (req, res) => {
   const doc = await MlpDualMatch.findById(req.params.id)
-    .populate("teamA", "_id name shortName logo color players")
-    .populate("teamB", "_id name shortName logo color players")
+    // Nested populate cho roster team — LineupDialog cần user object đủ
+    // (name/nickname/avatar/gender) để render checkbox chọn VĐV.
+    .populate({
+      path: "teamA",
+      select: "_id name shortName logo color players",
+      populate: {
+        path: "players",
+        select: "_id name nickname avatar gender",
+      },
+    })
+    .populate({
+      path: "teamB",
+      select: "_id name shortName logo color players",
+      populate: {
+        path: "players",
+        select: "_id name nickname avatar gender",
+      },
+    })
     .populate({
       path: "subMatches.playersA",
       select: "_id name nickname avatar gender",
