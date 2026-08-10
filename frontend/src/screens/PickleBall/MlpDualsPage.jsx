@@ -32,9 +32,9 @@ import {
   useGenerateMlpDualsMutation,
   useSyncSubMatchResultMutation,
   useGenerateMlpKnockoutMutation,
-  useAutoAssignMlpCourtsMutation,
   useDeleteMlpDualMutation,
 } from "../../slices/mlpApiSlice";
+import TournamentCourtClusterDialog from "../../components/TournamentCourtClusterDialog";
 
 const STATUS_COLOR = {
   scheduled: "default",
@@ -217,8 +217,8 @@ export default function MlpDualsPage() {
   const [gen, { isLoading: generating }] = useGenerateMlpDualsMutation();
   const [syncSub] = useSyncSubMatchResultMutation();
   const [genKnockout, { isLoading: koLoading }] = useGenerateMlpKnockoutMutation();
-  const [autoCourts, { isLoading: autoLoading }] = useAutoAssignMlpCourtsMutation();
   const [deleteDual] = useDeleteMlpDualMutation();
+  const [clusterDialogOpen, setClusterDialogOpen] = useState(false);
 
   const handleGenKnockout = async () => {
     const raw = window.prompt("Số team vào knockout (2/4/8)?", "4");
@@ -226,15 +226,6 @@ export default function MlpDualsPage() {
     try {
       const r = await genKnockout({ tourId: id, topN }).unwrap();
       toast.success(`Đã sinh ${r.generated} trận knockout`);
-      refetch();
-    } catch (err) {
-      toast.error(err?.data?.message || "Lỗi");
-    }
-  };
-  const handleAutoCourts = async () => {
-    try {
-      const r = await autoCourts(id).unwrap();
-      toast.success(`Đã gán ${r.assigned} dual vào sân`);
       refetch();
     } catch (err) {
       toast.error(err?.data?.message || "Lỗi");
@@ -325,10 +316,9 @@ export default function MlpDualsPage() {
           </Button>
           <Button
             variant="outlined"
-            onClick={handleAutoCourts}
-            disabled={autoLoading}
+            onClick={() => setClusterDialogOpen(true)}
           >
-            {autoLoading ? "Đang gán…" : "Auto sân"}
+            Quản lý cụm sân
           </Button>
           <Button
             variant="outlined"
@@ -396,6 +386,17 @@ export default function MlpDualsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Dialog quản lý cụm sân cho giải MLP — tái dùng dialog của giải
+          thông thường. Sau khi user gán cụm, dropdown Court/Station trong
+          DualAssignmentPanel sẽ list các sân thuộc cluster đó. */}
+      <TournamentCourtClusterDialog
+        open={clusterDialogOpen}
+        tournament={tour}
+        canOverride
+        onClose={() => setClusterDialogOpen(false)}
+        onUpdated={() => refetch()}
+      />
     </Container>
   );
 }
