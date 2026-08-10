@@ -1281,8 +1281,8 @@ export const listMlpDuals = asyncHandler(async (req, res) => {
   }
   const items = await MlpDualMatch.find(q)
     .sort({ round: 1, order: 1 })
-    .populate("teamA", "_id name shortName logo color")
-    .populate("teamB", "_id name shortName logo color")
+    .populate("teamA", "_id name shortName logo color captain")
+    .populate("teamB", "_id name shortName logo color captain")
     .populate({
       path: "subMatches.playersA",
       select: "_id name nickname avatar gender",
@@ -1325,7 +1325,7 @@ export const getMlpDual = asyncHandler(async (req, res) => {
     // (name/nickname/avatar/gender) để render checkbox chọn VĐV.
     .populate({
       path: "teamA",
-      select: "_id name shortName logo color players",
+      select: "_id name shortName logo color players captain",
       populate: {
         path: "players",
         select: "_id name nickname avatar gender",
@@ -1333,7 +1333,7 @@ export const getMlpDual = asyncHandler(async (req, res) => {
     })
     .populate({
       path: "teamB",
-      select: "_id name shortName logo color players",
+      select: "_id name shortName logo color players captain",
       populate: {
         path: "players",
         select: "_id name nickname avatar gender",
