@@ -201,6 +201,18 @@ export default function MlpDrawLivePage() {
     [teams, revealedIds],
   );
 
+  // Auto-transition sang "done" khi reveal cuối vừa xong (cần chờ hết animation).
+  useEffect(() => {
+    if (
+      status === "started" &&
+      teams.length > 0 &&
+      remainingTeams.length === 0 &&
+      !nowRevealing
+    ) {
+      setStatus("done");
+    }
+  }, [status, teams.length, remainingTeams.length, nowRevealing]);
+
   const groupedPools = useMemo(() => {
     const arr = Array.from({ length: poolCount }).map((_, i) => ({
       index: i,
@@ -297,6 +309,12 @@ export default function MlpDrawLivePage() {
       toast.error("Chưa có đội nào được bốc thăm");
       return;
     }
+    if (remainingTeams.length > 0) {
+      toast.error(
+        `Còn ${remainingTeams.length} đội chưa bốc — phải bốc hết mới commit`,
+      );
+      return;
+    }
     try {
       const assignments = reveals.map((r) => ({
         teamId: r.teamId,
@@ -387,18 +405,29 @@ export default function MlpDrawLivePage() {
                   </Button>
                 )}
                 {status === "started" && remainingTeams.length > 0 && (
-                  <Button
-                    variant="contained"
-                    color="warning"
-                    size="large"
-                    onClick={handleReveal}
-                    disabled={!!nowRevealing}
-                  >
-                    🎯 Bốc đội tiếp theo
-                  </Button>
+                  <>
+                    <Button
+                      variant="contained"
+                      color="warning"
+                      size="large"
+                      onClick={handleReveal}
+                      disabled={!!nowRevealing}
+                    >
+                      🎯 Bốc đội tiếp theo ({remainingTeams.length} còn lại)
+                    </Button>
+                    <Chip
+                      label={`Chưa xong — còn ${remainingTeams.length} đội`}
+                      sx={{
+                        bgcolor: "#78350f",
+                        color: "#fbbf24",
+                        fontWeight: 800,
+                      }}
+                    />
+                  </>
                 )}
-                {(status === "started" || status === "done") &&
-                  reveals.length > 0 && (
+                {status !== "committed" &&
+                  reveals.length > 0 &&
+                  remainingTeams.length === 0 && (
                     <Button
                       variant="contained"
                       color="success"
@@ -406,7 +435,9 @@ export default function MlpDrawLivePage() {
                       onClick={handleCommit}
                       disabled={committing}
                     >
-                      {committing ? "Đang commit..." : "✅ Commit"}
+                      {committing
+                        ? "Đang commit..."
+                        : "✅ Commit (đã bốc đủ)"}
                     </Button>
                   )}
                 {status !== "idle" && (
@@ -595,6 +626,29 @@ export default function MlpDrawLivePage() {
             {canOperate
               ? "Bấm 'Bắt đầu bốc thăm' để mở phiên. Viewers có thể xem qua URL này (?mode=viewer)."
               : "Chờ BTC bắt đầu bốc thăm..."}
+          </Alert>
+        )}
+        {status === "done" && (
+          <Alert
+            severity="success"
+            sx={{
+              mt: 3,
+              borderRadius: 2,
+              bgcolor: "#064e3b",
+              color: "#fff",
+              fontSize: "1rem",
+            }}
+          >
+            🎉 Đã bốc hết {teams.length} đội. Kiểm tra lại kết quả rồi bấm{" "}
+            <b>Commit</b> để lưu. Nếu muốn bốc lại → <b>Reset</b>.
+          </Alert>
+        )}
+        {status === "committed" && (
+          <Alert
+            severity="success"
+            sx={{ mt: 3, borderRadius: 2, bgcolor: "#064e3b", color: "#fff" }}
+          >
+            ✅ Đã commit bốc thăm. Quay về trang Duals để sinh vòng bảng.
           </Alert>
         )}
       </Container>
