@@ -165,6 +165,136 @@ export const deleteMlpDual = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
+// POST /api/mlp/tournaments/:tid/reset
+// Reset dữ liệu MLP về trạng thái mới để test lại. Body:
+//   {
+//     scope: {
+//       duals?: boolean,          // xoá toàn bộ dual matches (kéo theo Match docs)
+//       standings?: boolean,      // reset team.standing về 0
+//       pools?: boolean,          // clear pool assignments + drawStatus
+//       ratingChanges?: boolean,  // xoá RatingChange records của giải (KHÔNG revert user rating)
+//     },
+//     confirmName: string,        // phải khớp tour.name để confirm — chống nhầm
+//   }
+// Manager/admin only. Không đụng teams, config, tournament info.
+export const resetMlpTournament = asyncHandler(async (req, res) => {
+  const tour = await Tournament.findById(req.params.tid);
+  if (!tour) {
+    res.status(404);
+    throw new Error("Giải không tồn tại");
+  }
+  if (!canManageTournament(req.user, tour)) {
+    res.status(403);
+    throw new Error("Không có quyền reset giải");
+  }
+  if (tour.tournamentMode !== "mlp") {
+    res.status(400);
+    throw new Error("Giải này không MLP");
+  }
+  const confirmName = String(req.body?.confirmName || "").trim();
+  if (confirmName !== String(tour.name || "").trim()) {
+    res.status(400);
+    throw new Error(
+      `Xác nhận sai. Vui lòng gõ chính xác tên giải: "${tour.name}"`,
+    );
+  }
+  const scope = req.body?.scope || {};
+  const doDuals = scope.duals !== false;
+  const doStandings = scope.standings !== false;
+  const doPools = scope.pools === true; // opt-in
+  const doRatingChanges = scope.ratingChanges === true; // opt-in
+
+  const summary = {
+    dualsDeleted: 0,
+    matchDocsDeleted: 0,
+    teamsReset: 0,
+    poolsCleared: 0,
+    ratingChangesDeleted: 0,
+  };
+
+  // 1) Xoá dual matches + Match docs shell của MLP.
+  if (doDuals) {
+    // Thu id Match doc từ subMatches trước khi xoá dual
+    const duals = await MlpDualMatch.find({ tournament: tour._id })
+      .select("subMatches.match")
+      .lean();
+    const matchIds = [];
+    for (const d of duals) {
+      for (const sm of d.subMatches || []) {
+        if (sm.match) matchIds.push(sm.match);
+      }
+    }
+    const dualDel = await MlpDualMatch.deleteMany({ tournament: tour._id });
+    summary.dualsDeleted = dualDel.deletedCount || 0;
+    if (matchIds.length) {
+      const Match = (await import("../models/matchModel.js")).default;
+      const matchDel = await Match.deleteMany({ _id: { $in: matchIds } });
+      summary.matchDocsDeleted = matchDel.deletedCount || 0;
+    }
+    // Bonus: xoá Match docs mồ côi (có meta.mlp nhưng dualId trỏ tới dual đã xoá).
+    try {
+      const Match = (await import("../models/matchModel.js")).default;
+      const orphanDel = await Match.deleteMany({
+        tournament: tour._id,
+        "meta.mlp.dualId": { $exists: true },
+      });
+      summary.matchDocsDeleted += orphanDel.deletedCount || 0;
+    } catch (_err) {}
+  }
+
+  // 2) Reset team.standing về 0.
+  if (doStandings) {
+    const upd = await MlpTeam.updateMany(
+      { tournament: tour._id },
+      {
+        $set: {
+          "standing.wins": 0,
+          "standing.losses": 0,
+          "standing.slotsFor": 0,
+          "standing.slotsAgainst": 0,
+          "standing.pointsFor": 0,
+          "standing.pointsAgainst": 0,
+        },
+      },
+    );
+    summary.teamsReset = upd.modifiedCount || 0;
+  }
+
+  // 3) Clear pool assignments + drawStatus.
+  if (doPools) {
+    summary.poolsCleared = await resetPoolAssignments(tour._id);
+    const cfg = tour.mlpConfig || {};
+    if (cfg.groupStage) {
+      cfg.groupStage.drawStatus = "idle";
+      cfg.groupStage.drawnAt = null;
+      tour.mlpConfig = cfg;
+      await tour.save();
+    }
+  }
+
+  // 4) Xoá RatingChange records (không revert user rating).
+  if (doRatingChanges) {
+    try {
+      const RatingChange = (
+        await import("../models/ratingChangeModel.js")
+      ).default;
+      const del = await RatingChange.deleteMany({ tournament: tour._id });
+      summary.ratingChangesDeleted = del.deletedCount || 0;
+    } catch (_err) {}
+  }
+
+  res.json({
+    success: true,
+    scope: {
+      duals: doDuals,
+      standings: doStandings,
+      pools: doPools,
+      ratingChanges: doRatingChanges,
+    },
+    summary,
+  });
+});
+
 // DELETE /api/mlp/tournaments/:tid/duals/round/:round
 // Xoá toàn bộ dual match thuộc 1 vòng (ví dụ xoá lại knockout sinh sai
 // hoặc reset 1 vòng round-robin trước khi generate lại).

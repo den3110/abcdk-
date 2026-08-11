@@ -34,6 +34,7 @@ import {
   drawMlpPools,
   resetMlpPools,
   broadcastMlpLiveDraw,
+  resetMlpTournament,
 } from "../controllers/mlpController.js";
 
 const router = express.Router();
@@ -63,6 +64,9 @@ router.delete(
   protect,
   deleteMlpRound,
 );
+
+// Reset toàn bộ dữ liệu MLP để test lại — cần confirm tên giải trong body.
+router.post("/tournaments/:tid/reset", protect, resetMlpTournament);
 router.post("/duals/:id/force-finish", protect, forceFinishMlpDual);
 router.post("/duals/:id/check-in", protect, checkInMlpDual);
 

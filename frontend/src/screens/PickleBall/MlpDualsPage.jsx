@@ -26,7 +26,7 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import { RefreshCw, Play, Zap, Shuffle } from "lucide-react";
+import { RefreshCw, Play, Zap, Shuffle, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { useGetTournamentQuery } from "../../slices/tournamentsApiSlice";
@@ -39,6 +39,7 @@ import {
 } from "../../slices/mlpApiSlice";
 import TournamentCourtClusterDialog from "../../components/TournamentCourtClusterDialog";
 import MlpPoolDrawDialog from "../../components/mlp/MlpPoolDrawDialog";
+import MlpResetDialog from "../../components/mlp/MlpResetDialog";
 
 const STATUS_COLOR = {
   scheduled: "default",
@@ -238,6 +239,7 @@ export default function MlpDualsPage() {
   const [deleteDual] = useDeleteMlpDualMutation();
   const [clusterDialogOpen, setClusterDialogOpen] = useState(false);
   const [drawDialogOpen, setDrawDialogOpen] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [poolTab, setPoolTab] = useState("all"); // 'all' | poolKey | 'knockout'
 
   const gsEnabled = tour?.mlpConfig?.groupStage?.enabled === true;
@@ -450,6 +452,14 @@ export default function MlpDualsPage() {
               <Button variant="contained" onClick={() => setGenOpen(true)}>
                 {gsEnabled ? "Sinh vòng bảng" : "Generate duals"}
               </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<Trash2 size={14} />}
+                onClick={() => setResetDialogOpen(true)}
+              >
+                Reset giải
+              </Button>
             </>
           )}
         </Stack>
@@ -568,6 +578,13 @@ export default function MlpDualsPage() {
         onClose={() => setDrawDialogOpen(false)}
         tour={tour}
         onDrawn={() => refetch()}
+      />
+
+      <MlpResetDialog
+        open={resetDialogOpen}
+        onClose={() => setResetDialogOpen(false)}
+        tour={tour}
+        onReset={() => refetch()}
       />
     </Container>
   );

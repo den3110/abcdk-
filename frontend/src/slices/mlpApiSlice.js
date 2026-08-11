@@ -228,6 +228,20 @@ export const mlpApiSlice = apiSlice.injectEndpoints({
         body: { event, payload },
       }),
     }),
+    resetMlpTournament: builder.mutation({
+      query: ({ tid, ...body }) => ({
+        url: `/api/mlp/tournaments/${tid}/reset`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (r, e, { tid }) => [
+        { type: "MlpDual", id: tid },
+        { type: "MlpDual", id: "LIST" },
+        { type: "MlpStandings", id: tid },
+        { type: "MlpTeam", id: tid },
+        { type: "MlpPools", id: tid },
+      ],
+    }),
     forceFinishMlpDual: builder.mutation({
       query: ({ dualId, winner }) => ({
         url: `/api/mlp/duals/${dualId}/force-finish`,
@@ -295,4 +309,5 @@ export const {
   useDrawMlpPoolsMutation,
   useResetMlpPoolsMutation,
   useBroadcastMlpLiveDrawMutation,
+  useResetMlpTournamentMutation,
 } = mlpApiSlice;
