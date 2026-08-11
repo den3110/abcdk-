@@ -1418,8 +1418,10 @@ function WaitlistSection({
   cap,
   delta,
   getPlayerAvatar,
+  displayMode,
   onPromote,
   onOpenProfile,
+  onOpenPreview,
   regCodeOf,
   promotingId,
   tourMaxPairs,
@@ -1454,8 +1456,7 @@ function WaitlistSection({
       </Stack>
       <Grid container spacing={2}>
         {items.map((r, i) => {
-          const p1 = r.player1 || {};
-          const p2 = r.player2 || {};
+          const total = totalScoreOf(r, isSingles);
           return (
             <Grid key={r._id} size={{ xs: 12, md: 6 }}>
               <Card
@@ -1465,16 +1466,20 @@ function WaitlistSection({
                   bgcolor: "warning.50",
                 }}
               >
-                <CardContent sx={{ p: 1.5 }}>
+                <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
                   <Stack
                     direction="row"
                     justifyContent="space-between"
                     alignItems="center"
-                    sx={{ mb: 1 }}
+                    sx={{ mb: 1.5 }}
                   >
                     <Typography
-                      variant="caption"
-                      sx={{ fontWeight: 800, color: "warning.dark" }}
+                      variant="subtitle2"
+                      sx={{
+                        fontWeight: 800,
+                        color: "warning.dark",
+                        fontFamily: "monospace",
+                      }}
                     >
                       #{i + 1} · {regCodeOf ? regCodeOf(r) : ""}
                     </Typography>
@@ -1492,58 +1497,59 @@ function WaitlistSection({
                       </Button>
                     )}
                   </Stack>
-                  <Stack spacing={0.75}>
-                    <Stack direction="row" alignItems="center" spacing={1}>
-                      <Avatar
-                        src={getPlayerAvatar?.(p1)}
-                        sx={{ width: 32, height: 32 }}
-                      >
-                        {(p1.fullName || p1.nickName || "?")[0]}
-                      </Avatar>
-                      <Typography
-                        variant="body2"
-                        sx={{ flex: 1, fontWeight: 600 }}
-                        onClick={() =>
-                          p1?.user && onOpenProfile?.(p1.user)
-                        }
-                      >
-                        {p1.nickName || p1.fullName || "—"}
-                        {p1.score != null ? (
-                          <Chip
-                            size="small"
-                            label={p1.score}
-                            sx={{ ml: 1, height: 18, fontSize: 11 }}
-                          />
-                        ) : null}
-                      </Typography>
-                    </Stack>
-                    {!isSingles && p2?.fullName && (
+                  <Stack spacing={1.25}>
+                    <PlayerInfo
+                      player={r.player1}
+                      avatarSrc={getPlayerAvatar?.(r.player1)}
+                      canEditAvatar={false}
+                      canReplacePlayer={false}
+                      onOpenAvatarEdit={() => {}}
+                      onReplacePlayer={() => {}}
+                      onOpenPreview={onOpenPreview}
+                      onOpenProfile={onOpenProfile}
+                      displayMode={displayMode}
+                    />
+                    {!isSingles && r.player2?.fullName && (
+                      <PlayerInfo
+                        player={r.player2}
+                        avatarSrc={getPlayerAvatar?.(r.player2)}
+                        canEditAvatar={false}
+                        canReplacePlayer={false}
+                        onOpenAvatarEdit={() => {}}
+                        onReplacePlayer={() => {}}
+                        onOpenPreview={onOpenPreview}
+                        onOpenProfile={onOpenProfile}
+                        displayMode={displayMode}
+                      />
+                    )}
+                    {!isSingles && Number.isFinite(total) && (
                       <Stack
                         direction="row"
                         alignItems="center"
                         spacing={1}
+                        sx={{
+                          pt: 1,
+                          borderTop: (theme) =>
+                            `1px dashed ${theme.palette.warning.light}`,
+                        }}
                       >
-                        <Avatar
-                          src={getPlayerAvatar?.(p2)}
-                          sx={{ width: 32, height: 32 }}
+                        <Typography
+                          variant="caption"
+                          sx={{ fontWeight: 700, color: "text.secondary" }}
                         >
-                          {(p2.fullName || p2.nickName || "?")[0]}
-                        </Avatar>
+                          Tổng:
+                        </Typography>
                         <Typography
                           variant="body2"
-                          sx={{ flex: 1, fontWeight: 600 }}
-                          onClick={() =>
-                            p2?.user && onOpenProfile?.(p2.user)
-                          }
+                          sx={{ fontWeight: 900, color: "warning.dark" }}
                         >
-                          {p2.nickName || p2.fullName}
-                          {p2.score != null ? (
-                            <Chip
-                              size="small"
-                              label={p2.score}
-                              sx={{ ml: 1, height: 18, fontSize: 11 }}
-                            />
-                          ) : null}
+                          {fmt3(total)}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                        >
+                          / {fmt3(cap)}
                         </Typography>
                       </Stack>
                     )}
@@ -3286,8 +3292,10 @@ export default function TournamentRegistration() {
                     cap={cap}
                     delta={delta}
                     getPlayerAvatar={getPlayerAvatar}
+                    displayMode={displayMode}
                     onPromote={handlePromoteWaitlist}
                     onOpenProfile={handleOpenProfile}
+                    onOpenPreview={handleOpenPreview}
                     regCodeOf={regCodeOf}
                     promotingId={promotingId}
                     tourMaxPairs={Number(tour?.maxPairs) || 0}
