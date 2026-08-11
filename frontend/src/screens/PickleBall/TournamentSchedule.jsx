@@ -462,6 +462,10 @@ function resolveScheduleSides(rawList, eventType, displayMode) {
 
   const resolveSide = (m, side, depth = 0) => {
     if (!m || depth > 12) return "";
+    // Ưu tiên MLP team name — Match doc MLP có meta.mlp.teamAName/teamBName
+    // được backend fill trong ensureMlpSubMatchDoc.
+    const mlpName = m?.meta?.mlp?.[`team${side}Name`];
+    if (mlpName && String(mlpName).trim()) return String(mlpName).trim();
     const direct =
       side === "A"
         ? m.__sideA || m.resolvedSideNameA || m.teamAName || m.sideAName
@@ -563,6 +567,13 @@ function teamNameFrom(
     normalizedEventType === "single" || normalizedEventType === "double"
       ? fallback
       : eventTypeOrFallback;
+  // Ưu tiên tên đội MLP (meta.mlp.teamAName/teamBName) — Match doc của
+  // MLP sub-match không có pairA/pairB thực + seed, và tên đội chính xác
+  // đã được backend gắn trong meta.mlp khi ensureMlpSubMatchDoc chạy.
+  const mlpTeamName = m?.meta?.mlp?.[`team${side}Name`];
+  if (mlpTeamName && String(mlpTeamName).trim()) {
+    return String(mlpTeamName).trim();
+  }
   const pair = side === "A" ? m.pairA : m.pairB;
   const seed = side === "A" ? m.seedA : m.seedB;
   const resolved =
