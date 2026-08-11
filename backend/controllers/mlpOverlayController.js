@@ -74,27 +74,38 @@ export const getMlpCourtOverlay = asyncHandler(async (req, res) => {
       )
       .lean();
   }
-  // Nếu chưa có, tìm MLP Match trên station này với status live/assigned.
+  // Nếu chưa có, tìm MLP Match trên station này. MLP flow tạo Match doc
+  // với status="scheduled" (không đi qua assignCourtToMatch nên không
+  // được set thành "assigned"). Nên phải nhận cả 3 trạng thái. Sort ưu
+  // tiên live > assigned > scheduled (dùng updatedAt/startedAt gần nhất).
   if (!liveMatch) {
-    liveMatch = await Match.findOne({
+    const candidates = await Match.find({
       courtStation: stationId,
-      status: { $in: ["live", "assigned"] },
+      status: { $in: ["live", "assigned", "scheduled"] },
       "meta.mlp.dualId": { $exists: true },
     })
       .sort({ startedAt: -1, updatedAt: -1 })
       .select(
         "_id status winner gameScores currentGame rules meta serve scheduledAt startedAt tournament",
       )
+      .limit(10)
       .lean();
+    // Ưu tiên theo status
+    const priority = { live: 0, assigned: 1, scheduled: 2 };
+    candidates.sort(
+      (a, b) =>
+        (priority[a.status] ?? 3) - (priority[b.status] ?? 3),
+    );
+    liveMatch = candidates[0] || null;
   }
 
   const isMlpSub = !!liveMatch?.meta?.mlp?.dualId;
-  const isLiveOrAssigned = ["live", "assigned"].includes(
+  const isDisplayable = ["live", "assigned", "scheduled"].includes(
     String(liveMatch?.status || "").toLowerCase(),
   );
 
   // === Bước 2: nếu Match tồn tại và là MLP sub → build sub-match overlay ===
-  if (liveMatch && isMlpSub && isLiveOrAssigned) {
+  if (liveMatch && isMlpSub && isDisplayable) {
     const mlp = liveMatch.meta.mlp;
     const dual = await MlpDualMatch.findById(mlp.dualId).lean();
     const tour = await Tournament.findById(liveMatch.tournament)
