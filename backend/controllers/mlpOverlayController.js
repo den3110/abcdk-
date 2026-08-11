@@ -68,11 +68,17 @@ export const getMlpCourtOverlay = asyncHandler(async (req, res) => {
   // start.
   let liveMatch = null;
   if (station.currentMatch) {
-    liveMatch = await Match.findById(station.currentMatch)
+    const candidate = await Match.findById(station.currentMatch)
       .select(
         "_id status winner gameScores currentGame rules meta serve scheduledAt startedAt tournament",
       )
       .lean();
+    // Chỉ dùng candidate nếu là MLP sub-match. Nếu station.currentMatch
+    // trỏ tới match thường (không có meta.mlp) → bỏ qua để path 2 tìm
+    // MLP match khác trên cùng station.
+    if (candidate?.meta?.mlp?.dualId) {
+      liveMatch = candidate;
+    }
   }
   // Nếu chưa có, tìm MLP Match trên station này. MLP flow tạo Match doc
   // với status="scheduled" (không đi qua assignCourtToMatch nên không

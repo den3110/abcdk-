@@ -307,6 +307,20 @@ export async function syncMatchToMlpSubMatch(matchDoc) {
     } catch (_err) {}
   }
 
+  // Realtime invalidate cho tab MLP Duals / Standings web+mobile —
+  // mọi lần Match reverse-sync (score, status change) đều emit.
+  // Debounce ở tournamentRealtime nên burst sẽ collapse.
+  try {
+    const io = (await import("../socket/index.js")).getIO?.();
+    if (io && dual.tournament) {
+      const rt = await import("../socket/tournamentRealtime.js");
+      rt.emitTournamentInvalidate(io, {
+        tournamentId: String(dual.tournament),
+        reason: "mlp:sub:score-sync",
+      });
+    }
+  } catch (_err) {}
+
   if (subJustFinished && !sub.result.ratingApplied && sub.result.winner) {
     const slot = (tour?.mlpConfig?.slots || []).find(
       (sl) => sl.key === sub.slotKey,

@@ -2781,6 +2781,9 @@ export const syncSubMatchResult = asyncHandler(async (req, res) => {
     slotWinsB: dual.slotWinsB,
     dualStatus: dual.status,
   });
+  // Báo tab MLP Duals + Standings web/mobile refetch. Debounce có sẵn
+  // (INVALIDATE_FLUSH_MS) → burst score sẽ collapse thành ít emit.
+  invalidateMlpTournament(dual.tournament, "mlp:sub:score");
 
   // Apply rating khi sub-match vừa finished (idempotent, cờ ratingApplied).
   if (subJustFinished && !sub.result.ratingApplied && sub.result.winner) {

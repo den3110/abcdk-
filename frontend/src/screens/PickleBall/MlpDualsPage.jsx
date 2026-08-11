@@ -1,6 +1,6 @@
 // screens/PickleBall/MlpDualsPage.jsx
 // Danh sách dual matches + generate + scoring hub cho MLP.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
@@ -42,6 +42,7 @@ import {
 import TournamentCourtClusterDialog from "../../components/TournamentCourtClusterDialog";
 import MlpPoolDrawDialog from "../../components/mlp/MlpPoolDrawDialog";
 import MlpResetDialog from "../../components/mlp/MlpResetDialog";
+import { useSocket } from "../../context/SocketContext";
 
 const STATUS_COLOR = {
   scheduled: "default",
@@ -372,8 +373,47 @@ export default function MlpDualsPage() {
   const canManage = isAdmin || isManager;
   const { data, isFetching, refetch } = useListMlpDualsQuery(
     { tourId: id },
-    { skip: !id },
+    { skip: !id, refetchOnFocus: true, refetchOnReconnect: true },
   );
+
+  // Realtime: subscribe tournament:${id} room + refetch khi có
+  // tournament:invalidate (score / lineup / court change). Debounce
+  // client-side để tránh refetch quá dày khi score bắn liên tục.
+  const socket = useSocket();
+  const lastRefetchAtRef = useRef(0);
+  const refetchThrottled = () => {
+    const now = Date.now();
+    if (now - lastRefetchAtRef.current < 800) return;
+    lastRefetchAtRef.current = now;
+    refetch?.();
+  };
+  useEffect(() => {
+    if (!socket || !id) return undefined;
+    const join = () =>
+      socket.emit?.("tournament:subscribe", { tournamentId: id });
+    join();
+    socket.on?.("connect", join);
+    const onInvalidate = (payload) => {
+      const tid = String(payload?.tournamentId || "").trim();
+      if (tid && tid !== String(id)) return;
+      refetchThrottled();
+    };
+    const onDualUpdated = () => refetchThrottled();
+    socket.on?.("tournament:invalidate", onInvalidate);
+    socket.on?.("mlp:sub:score", onDualUpdated);
+    socket.on?.("mlp:dual:updated", onDualUpdated);
+    socket.on?.("mlp:dual:finished", onDualUpdated);
+    return () => {
+      socket.off?.("connect", join);
+      socket.off?.("tournament:invalidate", onInvalidate);
+      socket.off?.("mlp:sub:score", onDualUpdated);
+      socket.off?.("mlp:dual:updated", onDualUpdated);
+      socket.off?.("mlp:dual:finished", onDualUpdated);
+      socket.emit?.("tournament:unsubscribe", { tournamentId: id });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, id]);
+
   const [gen, { isLoading: generating }] = useGenerateMlpDualsMutation();
   const [syncSub] = useSyncSubMatchResultMutation();
   const [genKnockout, { isLoading: koLoading }] = useGenerateMlpKnockoutMutation();
