@@ -76,12 +76,25 @@ export default function MlpOverlay() {
     };
   }, [courtStationId]);
 
-  // Body background transparent (cho OBS chroma-key)
+  // Body background transparent (cho OBS chroma-key) + inject keyframes
   useEffect(() => {
     const prevHtml = document.documentElement.style.background;
     const prevBody = document.body.style.background;
     document.documentElement.style.background = "transparent";
     document.body.style.background = "transparent";
+    // Chỉ inject 1 lần (guard theo id)
+    let styleEl = document.getElementById("mlp-overlay-keyframes");
+    if (!styleEl) {
+      styleEl = document.createElement("style");
+      styleEl.id = "mlp-overlay-keyframes";
+      styleEl.textContent = `
+        @keyframes mlpServePulse {
+          0%, 100% { transform: scale(1); box-shadow: 0 0 6px #eab308, 0 0 2px #fff; }
+          50% { transform: scale(1.25); box-shadow: 0 0 12px #eab308, 0 0 4px #fff; }
+        }
+      `;
+      document.head.appendChild(styleEl);
+    }
     return () => {
       document.documentElement.style.background = prevHtml;
       document.body.style.background = prevBody;
@@ -215,7 +228,7 @@ function CompactCard({ children, badgeText, badgeColor = GOLD }) {
 /* ═══════════════════════════════ Sub-match ═══════════════════════════════ */
 
 function CompactSubMatch({ data, compact }) {
-  const { teamA, teamB, score, slot, tournament } = data;
+  const { teamA, teamB, score, slot, tournament, serve } = data;
   const slotKey = String(slot?.key || "MD").toUpperCase();
   const slotLabel = slot?.label || tournament?.name || "";
   const scoreA = Number(score?.currentGameA || 0);
@@ -224,6 +237,9 @@ function CompactSubMatch({ data, compact }) {
   const slotWinsB = Number(teamB?.slotWins || 0);
   const isFinished = data.status === "finished";
   const winner = teamA?.isWinner ? "A" : teamB?.isWinner ? "B" : null;
+  // Serve indicator: side đang giao + serverId (player)
+  const serveSide = String(serve?.side || "").toUpperCase() === "B" ? "B" : "A";
+  const serveServerId = serve?.serverId ? String(serve.serverId) : "";
 
   return (
     <CompactCard>
@@ -288,6 +304,8 @@ function CompactSubMatch({ data, compact }) {
             accent={TEAM_A_ACCENT}
             highlight={winner === "A"}
             compact={compact}
+            isServing={!isFinished && serveSide === "A"}
+            serveServerId={serveSide === "A" ? serveServerId : ""}
           />
           <div
             style={{
@@ -301,6 +319,8 @@ function CompactSubMatch({ data, compact }) {
             accent={TEAM_B_ACCENT}
             highlight={winner === "B"}
             compact={compact}
+            isServing={!isFinished && serveSide === "B"}
+            serveServerId={serveSide === "B" ? serveServerId : ""}
           />
         </div>
         <ScoreBoxCompact
@@ -315,7 +335,35 @@ function CompactSubMatch({ data, compact }) {
   );
 }
 
-function TeamRowCompact({ team, accent, highlight, compact }) {
+// Quả bóng vàng có glow pulse — indicator tay giao
+function ServeBall({ size = 12 }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: size,
+        height: size,
+        borderRadius: "50%",
+        background: "radial-gradient(circle at 30% 30%, #fef08a, #eab308 70%)",
+        border: `1px solid ${GOLD_DARK}`,
+        boxShadow: `0 0 6px #eab308, 0 0 2px #fff`,
+        flexShrink: 0,
+        animation: "mlpServePulse 1.2s ease-in-out infinite",
+      }}
+    />
+  );
+}
+
+function TeamRowCompact({
+  team,
+  accent,
+  highlight,
+  compact,
+  isServing,
+  serveServerId,
+}) {
   const players = Array.isArray(team?.players) ? team.players : [];
   const playersText = players.length
     ? players.map((p) => p.nickname || p.name).filter(Boolean).join(" / ")
@@ -323,6 +371,12 @@ function TeamRowCompact({ team, accent, highlight, compact }) {
   const initial = String(team?.shortName || team?.name || "?")
     .charAt(0)
     .toUpperCase();
+  // Nếu có serveServerId khớp với 1 player → highlight tên player đó
+  const serverIdx = serveServerId
+    ? players.findIndex(
+        (p) => String(p?._id || p?.id || "") === String(serveServerId),
+      )
+    : -1;
   return (
     <div
       style={{
@@ -370,10 +424,14 @@ function TeamRowCompact({ team, accent, highlight, compact }) {
           flexDirection: "column",
           minWidth: 0,
           lineHeight: 1.15,
+          flex: 1,
         }}
       >
         <div
           style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
             color: accent,
             fontSize: compact ? 10 : 11,
             fontWeight: 900,
@@ -381,7 +439,8 @@ function TeamRowCompact({ team, accent, highlight, compact }) {
             textTransform: "uppercase",
           }}
         >
-          {team?.name || "Team"}
+          <span>{team?.name || "Team"}</span>
+          {isServing && <ServeBall size={compact ? 9 : 11} />}
         </div>
         <div
           style={{
@@ -394,7 +453,33 @@ function TeamRowCompact({ team, accent, highlight, compact }) {
             maxWidth: 340,
           }}
         >
-          {playersText}
+          {players.length ? (
+            players.map((p, i) => {
+              const label = p.nickname || p.name || "?";
+              const isServerP = serverIdx === i;
+              return (
+                <span key={p?._id || i}>
+                  {i > 0 ? " / " : ""}
+                  <span
+                    style={
+                      isServerP
+                        ? {
+                            color: GOLD,
+                            textDecoration: "underline",
+                            textDecorationColor: GOLD,
+                            textDecorationThickness: 2,
+                          }
+                        : undefined
+                    }
+                  >
+                    {label}
+                  </span>
+                </span>
+              );
+            })
+          ) : (
+            "—"
+          )}
         </div>
       </div>
     </div>
@@ -487,11 +572,17 @@ function SlotBadge({ slotKey }) {
 /* ═══════════════════════════════ Dream Breaker ═══════════════════════════════ */
 
 function CompactDreamBreaker({ data, compact }) {
-  const { teamA, teamB, dreamBreaker } = data;
+  const { teamA, teamB, dreamBreaker, serve } = data;
   const winner = dreamBreaker?.winner;
   const scoreA = Number(dreamBreaker?.scoreA || 0);
   const scoreB = Number(dreamBreaker?.scoreB || 0);
   const target = Number(dreamBreaker?.target || 21);
+  // Serve side ưu tiên serve.side; nếu không có → suy từ dreamBreaker.currentServeSide
+  const serveSide =
+    String(serve?.side || dreamBreaker?.currentServeSide || "A").toUpperCase() ===
+    "B"
+      ? "B"
+      : "A";
 
   return (
     <CompactCard badgeText="🏆 DREAM BREAKER">
@@ -544,6 +635,7 @@ function CompactDreamBreaker({ data, compact }) {
             rotate={dreamBreaker?.rotate}
             pointsInBlock={dreamBreaker?.pointsInBlockA}
             compact={compact}
+            isServing={!winner && serveSide === "A"}
           />
           <div
             style={{
@@ -559,6 +651,7 @@ function CompactDreamBreaker({ data, compact }) {
             rotate={dreamBreaker?.rotate}
             pointsInBlock={dreamBreaker?.pointsInBlockB}
             compact={compact}
+            isServing={!winner && serveSide === "B"}
           />
         </div>
         <ScoreBoxCompact
@@ -596,6 +689,7 @@ function PlayerRowCompact({
   rotate,
   pointsInBlock,
   compact,
+  isServing,
 }) {
   const player = team?.currentPlayer;
   const lineupCount = Array.isArray(team?.lineup) ? team.lineup.length : 0;
@@ -658,6 +752,9 @@ function PlayerRowCompact({
       >
         <div
           style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
             color: accent,
             fontSize: compact ? 10 : 11,
             fontWeight: 900,
@@ -665,7 +762,8 @@ function PlayerRowCompact({
             textTransform: "uppercase",
           }}
         >
-          {team?.name || "Team"}
+          <span>{team?.name || "Team"}</span>
+          {isServing && <ServeBall size={compact ? 9 : 11} />}
         </div>
         <div
           style={{
