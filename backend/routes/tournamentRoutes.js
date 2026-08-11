@@ -34,6 +34,12 @@ import {
   verifyTournamentReferee,
 } from "../controllers/tournamentManagerController.js";
 import {
+  listReferees,
+  addReferee,
+  updateReferee,
+  removeReferee,
+} from "../controllers/tournamentRefereeController.js";
+import {
   createRegistrationInvite,
   listMyInvites,
   respondInvite,
@@ -91,6 +97,12 @@ router.get("/matches/:id", getMatchPublic);
 router.get("/:id/managers", protect, listManagers);
 router.post("/:id/managers", protect, addManager);
 router.delete("/:id/managers/:userId", protect, removeManager);
+
+// Pool trọng tài của giải — dùng khi cấu hình CourtStation.defaultReferees
+router.get("/:tid/referees", optionalAuth, listReferees);
+router.post("/:tid/referees", protect, addReferee);
+router.patch("/:tid/referees/:refId", protect, updateReferee);
+router.delete("/:tid/referees/:refId", protect, removeReferee);
 
 router.post("/:id/registration-invites", protect, createRegistrationInvite);
 router.get("/get/registration-invites", protect, listMyInvites); // GLOBAL

@@ -366,6 +366,31 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
 
     // ✅ Admin/manager promote registration từ waitlist → approved
     // (dùng PATCH /admin/tournaments/registrations/:regId với body.status)
+    // Pool trọng tài của giải
+    listTournamentReferees: builder.query({
+      query: (tid) => ({ url: `/api/tournaments/${tid}/referees` }),
+      providesTags: (r, e, tid) => [{ type: "TournamentReferees", id: tid }],
+    }),
+    addTournamentReferee: builder.mutation({
+      query: ({ tid, userId, note }) => ({
+        url: `/api/tournaments/${tid}/referees`,
+        method: "POST",
+        body: { userId, note },
+      }),
+      invalidatesTags: (r, e, { tid }) => [
+        { type: "TournamentReferees", id: tid },
+      ],
+    }),
+    removeTournamentReferee: builder.mutation({
+      query: ({ tid, refId }) => ({
+        url: `/api/tournaments/${tid}/referees/${refId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (r, e, { tid }) => [
+        { type: "TournamentReferees", id: tid },
+      ],
+    }),
+
     managerSetRegStatus: builder.mutation({
       query: ({ regId, status }) => ({
         url: `/api/admin/tournaments/registrations/${regId}`,
@@ -919,6 +944,9 @@ export const {
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
   useManagerSetRegStatusMutation,
+  useListTournamentRefereesQuery,
+  useAddTournamentRefereeMutation,
+  useRemoveTournamentRefereeMutation,
   useGetOverlaySnapshotQuery,
   useGetDrawStatusQuery,
   useInitDrawMutation,

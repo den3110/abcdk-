@@ -42,6 +42,7 @@ import {
 import TournamentCourtClusterDialog from "../../components/TournamentCourtClusterDialog";
 import MlpPoolDrawDialog from "../../components/mlp/MlpPoolDrawDialog";
 import MlpResetDialog from "../../components/mlp/MlpResetDialog";
+import TournamentRefereeDialog from "../../components/mlp/TournamentRefereeDialog";
 import { useSocket } from "../../context/SocketContext";
 
 const STATUS_COLOR = {
@@ -445,6 +446,7 @@ export default function MlpDualsPage() {
   const [clusterDialogOpen, setClusterDialogOpen] = useState(false);
   const [drawDialogOpen, setDrawDialogOpen] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [refereeDialogOpen, setRefereeDialogOpen] = useState(false);
   const [poolTab, setPoolTab] = useState("all"); // 'all' | poolKey | 'knockout'
 
   const gsEnabled = tour?.mlpConfig?.groupStage?.enabled === true;
@@ -621,6 +623,12 @@ export default function MlpDualsPage() {
             <>
               <Button
                 variant="outlined"
+                onClick={() => setRefereeDialogOpen(true)}
+              >
+                👨‍⚖️ Quản lý trọng tài
+              </Button>
+              <Button
+                variant="outlined"
                 onClick={() => setClusterDialogOpen(true)}
               >
                 Quản lý cụm sân
@@ -793,6 +801,12 @@ export default function MlpDualsPage() {
         onClose={() => setResetDialogOpen(false)}
         tour={tour}
         onReset={() => refetch()}
+      />
+
+      <TournamentRefereeDialog
+        open={refereeDialogOpen}
+        onClose={() => setRefereeDialogOpen(false)}
+        tour={tour}
       />
     </Container>
   );

@@ -695,6 +695,62 @@ export default function TournamentDashboard() {
               </StatusBadge>
             </Box>
 
+            {/* MLP badge — top-left (team-vs-team format) */}
+            {String(t?.tournamentMode || "").toLowerCase() === "mlp" && (
+              <Box
+                sx={{
+                  position: "absolute",
+                  top: 12,
+                  left: 12,
+                  zIndex: 2,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0.5,
+                  px: 1.25,
+                  py: 0.25,
+                  borderRadius: 999,
+                  background:
+                    "linear-gradient(135deg, #f59e0b 0%, #b45309 100%)",
+                  color: "#fff",
+                  fontWeight: 900,
+                  fontSize: 11,
+                  letterSpacing: 0.8,
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.35)",
+                  border: "1px solid rgba(255,255,255,0.35)",
+                }}
+                title="MLP tournament (Major League Pickleball · team vs team)"
+              >
+                🏆 MLP
+              </Box>
+            )}
+            {String(t?.tournamentMode || "").toLowerCase() === "team" && (
+              <Box
+                sx={{
+                  position: "absolute",
+                  top: 12,
+                  left: 12,
+                  zIndex: 2,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 0.5,
+                  px: 1.25,
+                  py: 0.25,
+                  borderRadius: 999,
+                  background:
+                    "linear-gradient(135deg, #6366f1 0%, #3730a3 100%)",
+                  color: "#fff",
+                  fontWeight: 900,
+                  fontSize: 11,
+                  letterSpacing: 0.8,
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.35)",
+                  border: "1px solid rgba(255,255,255,0.35)",
+                }}
+                title="Giải đồng đội (Team tournament)"
+              >
+                👥 TEAM
+              </Box>
+            )}
+
             <ZoomableWrapper src={imageSrc} fallback={DEFAULT_FALLBACK}>
               <img
                 src={imageSrc}

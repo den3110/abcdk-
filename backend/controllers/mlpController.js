@@ -7,6 +7,7 @@ import MlpTeam from "../models/mlpTeamModel.js";
 import MlpDualMatch from "../models/mlpDualMatchModel.js";
 import Court from "../models/courtModel.js";
 import CourtStation from "../models/courtStationModel.js";
+import Ranking from "../models/rankingModel.js";
 import { getIO } from "../socket/index.js";
 import { applyRatingForMlpSubMatch } from "../services/ratingEngine.js";
 import {
@@ -93,6 +94,57 @@ const canScoreDual = (u, tour, dual) =>
 
 const oid = (v) =>
   v && mongoose.isValidObjectId(v) ? new mongoose.Types.ObjectId(v) : null;
+
+// Lấy map userId → {single, double} từ Ranking. Dùng cho hiển thị điểm
+// trình VĐV trong roster team MLP (không sửa lại data — chỉ enrich).
+async function attachPlayerScores(items) {
+  const idSet = new Set();
+  const collectFromTeam = (team) => {
+    if (!team) return;
+    for (const p of team.players || []) {
+      if (p?._id) idSet.add(String(p._id));
+    }
+    if (team.captain?._id) idSet.add(String(team.captain._id));
+  };
+  if (Array.isArray(items)) items.forEach(collectFromTeam);
+  else collectFromTeam(items);
+  if (idSet.size === 0) return items;
+  const idList = [...idSet].map((s) => new mongoose.Types.ObjectId(s));
+  let scoreMap = new Map();
+  try {
+    const rows = await Ranking.find({ user: { $in: idList } })
+      .select("user single double singleScore doubleScore updatedAt")
+      .sort({ updatedAt: -1 })
+      .lean();
+    for (const r of rows) {
+      const uid = String(r.user);
+      if (scoreMap.has(uid)) continue;
+      scoreMap.set(uid, {
+        single: Number(r.single ?? r.singleScore ?? 0),
+        double: Number(r.double ?? r.doubleScore ?? 0),
+      });
+    }
+  } catch (err) {
+    console.error("[mlp] attachPlayerScores error:", err?.message || err);
+  }
+  const enrich = (team) => {
+    if (!team) return;
+    if (Array.isArray(team.players)) {
+      team.players = team.players.map((p) => {
+        if (!p?._id) return p;
+        const s = scoreMap.get(String(p._id));
+        return s ? { ...p, score: s } : p;
+      });
+    }
+    if (team.captain?._id) {
+      const s = scoreMap.get(String(team.captain._id));
+      if (s) team.captain = { ...team.captain, score: s };
+    }
+  };
+  if (Array.isArray(items)) items.forEach(enrich);
+  else enrich(items);
+  return items;
+}
 
 /* ═════════════════════ CHECK-IN ═════════════════════ */
 
@@ -1501,6 +1553,7 @@ export const listMlpTeams = asyncHandler(async (req, res) => {
     .populate("players", "_id name nickname avatar gender phone")
     .populate("approvedBy", "_id name nickname avatar")
     .lean();
+  await attachPlayerScores(items);
   res.json({ items });
 });
 
@@ -1509,11 +1562,13 @@ export const getMlpTeam = asyncHandler(async (req, res) => {
   const doc = await MlpTeam.findById(req.params.id)
     .populate("captain", "_id name nickname avatar phone")
     .populate("players", "_id name nickname avatar gender phone")
-    .populate("approvedBy", "_id name nickname avatar");
+    .populate("approvedBy", "_id name nickname avatar")
+    .lean();
   if (!doc) {
     res.status(404);
     throw new Error("Không tìm thấy team");
   }
+  await attachPlayerScores(doc);
   res.json(doc);
 });
 

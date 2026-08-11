@@ -260,9 +260,44 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
             ))}
           </Stack>
 
-          <Typography variant="body2" fontWeight={700}>
-            Roster ({players.length}/{maxRoster})
-          </Typography>
+          {(() => {
+            const totalDouble = players.reduce(
+              (sum, p) => sum + (Number(p?.score?.double) || 0),
+              0,
+            );
+            const totalSingle = players.reduce(
+              (sum, p) => sum + (Number(p?.score?.single) || 0),
+              0,
+            );
+            return (
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems="center"
+                flexWrap="wrap"
+                gap={1}
+              >
+                <Typography variant="body2" fontWeight={700}>
+                  Roster ({players.length}/{maxRoster})
+                </Typography>
+                {players.length > 0 && (
+                  <Stack direction="row" spacing={0.75} alignItems="center">
+                    <Chip
+                      size="small"
+                      color="primary"
+                      label={`Tổng đôi: ${totalDouble.toFixed(2)}`}
+                      sx={{ fontWeight: 800 }}
+                    />
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={`Tổng đơn: ${totalSingle.toFixed(2)}`}
+                    />
+                  </Stack>
+                )}
+              </Stack>
+            );
+          })()}
 
           <Box sx={{ position: "relative" }}>
             <TextField
@@ -347,6 +382,33 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
                           {u.gender && <span>· {u.gender}</span>}
                         </Typography>
                       </Box>
+                      {/* Score badges: single + double */}
+                      <Stack direction="column" spacing={0.5} alignItems="flex-end">
+                        {Number.isFinite(Number(u?.score?.double)) &&
+                          Number(u?.score?.double) > 0 && (
+                            <Chip
+                              size="small"
+                              label={`Đôi ${Number(u.score.double).toFixed(2)}`}
+                              color="primary"
+                              variant="outlined"
+                              sx={{ height: 18, fontSize: 10, fontWeight: 800 }}
+                            />
+                          )}
+                        {Number.isFinite(Number(u?.score?.single)) &&
+                          Number(u?.score?.single) > 0 && (
+                            <Chip
+                              size="small"
+                              label={`Đơn ${Number(u.score.single).toFixed(2)}`}
+                              variant="outlined"
+                              sx={{
+                                height: 18,
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: "text.secondary",
+                              }}
+                            />
+                          )}
+                      </Stack>
                       <UserPlus size={18} />
                     </Stack>
                   ))
@@ -387,9 +449,33 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
                         />
                       )}
                     </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {p.gender || "—"}
-                    </Typography>
+                    <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                      >
+                        {p.gender || "—"}
+                      </Typography>
+                      {Number.isFinite(Number(p?.score?.double)) &&
+                        Number(p?.score?.double) > 0 && (
+                          <Chip
+                            size="small"
+                            label={`Đôi ${Number(p.score.double).toFixed(2)}`}
+                            color="primary"
+                            variant="outlined"
+                            sx={{ height: 15, fontSize: 9, fontWeight: 800 }}
+                          />
+                        )}
+                      {Number.isFinite(Number(p?.score?.single)) &&
+                        Number(p?.score?.single) > 0 && (
+                          <Chip
+                            size="small"
+                            label={`Đơn ${Number(p.score.single).toFixed(2)}`}
+                            variant="outlined"
+                            sx={{ height: 15, fontSize: 9 }}
+                          />
+                        )}
+                    </Stack>
                   </Box>
                   {!isCap && (
                     <Tooltip title="Đặt làm captain">
