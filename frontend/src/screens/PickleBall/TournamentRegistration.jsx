@@ -79,6 +79,7 @@ import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
 import { useUploadRealAvatarMutation } from "../../slices/uploadApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
+import OpenMessageButton from "../../components/OpenMessageButton";
 import TeamTournamentRegistrationView from "../../components/teamTournament/TeamTournamentRegistrationView";
 import MlpTournamentRegistrationView from "../../components/mlp/MlpTournamentRegistrationView";
 import { useLanguage } from "../../context/LanguageContext";
@@ -2852,6 +2853,9 @@ export default function TournamentRegistration() {
                     >
                       {o.labels.join(" · ")}
                     </Typography>
+                  </Box>
+                  <Box onClick={(e) => e.stopPropagation()}>
+                    <OpenMessageButton userId={o.userId} />
                   </Box>
                   {o.phone ? (
                     <IconButton
