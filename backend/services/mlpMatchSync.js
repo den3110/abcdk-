@@ -122,17 +122,33 @@ export async function ensureMlpSubMatchDoc(dual, sub, tour) {
     playersB: (sub.playersB || []).map((p) => String(toId(p))),
   };
 
-  // Ưu tiên cấu hình per-sub-match, fallback về dual-level.
+  // Ưu tiên cấu hình per-sub-match, fallback về dual-level, cuối cùng
+  // fallback về station.defaultReferees ("trọng tài đứng theo sân").
   const subReferees = Array.isArray(sub.referees) ? sub.referees : [];
-  const effectiveReferees = subReferees.length
+  const dualReferees = Array.isArray(dual.referees) ? dual.referees : [];
+  let effectiveReferees = subReferees.length
     ? subReferees
-    : Array.isArray(dual.referees)
-      ? dual.referees
+    : dualReferees.length
+      ? dualReferees
       : [];
+  const effectiveStation = sub.courtStation || dual.courtStation || null;
+  if (!effectiveReferees.length && effectiveStation) {
+    try {
+      const CourtStation = (
+        await import("../models/courtStationModel.js")
+      ).default;
+      const station = await CourtStation.findById(effectiveStation)
+        .select("defaultReferees")
+        .lean();
+      if (Array.isArray(station?.defaultReferees)) {
+        effectiveReferees = station.defaultReferees;
+      }
+    } catch (_err) {}
+  }
   const assignmentFields = {
     referee: effectiveReferees.slice(0, 5),
     court: sub.court || dual.court || null,
-    courtStation: sub.courtStation || dual.courtStation || null,
+    courtStation: effectiveStation,
     scheduledAt: sub.scheduledAt || dual.scheduledAt || null,
     participants,
     rules,
@@ -280,10 +296,14 @@ export async function syncMatchToMlpSubMatch(matchDoc) {
 
   // Auto-advance winner nếu dual thuộc knockout — lazy import để tránh
   // circular (mlpController import mlpMatchSync qua ensureMlpSubMatchDoc).
-  if (justFinished && dual.phase === "knockout") {
+  if (justFinished) {
     try {
       const mod = await import("../controllers/mlpController.js");
-      mod.advanceMlpKnockoutWinner?.(dual).catch?.(() => {});
+      if (dual.phase === "knockout") {
+        mod.advanceMlpKnockoutWinner?.(dual).catch?.(() => {});
+      } else if (dual.phase === "group") {
+        mod.resolveMlpKnockoutSlots?.(dual.tournament).catch?.(() => {});
+      }
     } catch (_err) {}
   }
 

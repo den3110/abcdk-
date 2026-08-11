@@ -118,6 +118,33 @@ const mlpDualMatchSchema = new Schema(
     // teamA/B nullable để hỗ trợ shell dual (round sau chưa biết winner).
     teamA: { type: Schema.Types.ObjectId, ref: "MlpTeam", default: null },
     teamB: { type: Schema.Types.ObjectId, ref: "MlpTeam", default: null },
+    // Nguồn của teamA/teamB — dùng khi sinh knockout trước lúc vòng bảng
+    // xong. Client hiện placeholder "Nhất bảng A" / "Nhì bảng B" khi
+    // teamA null nhưng sourceA set.
+    // - kind "poolRank": {poolKey:"A", poolRank:1} = đội hạng 1 bảng A.
+    // - kind "winner":   {fromMatchOrder:0} = đội thắng dual có order N ở
+    //   round trước (dùng cho round 2+; luôn kết hợp với nextMatch/nextSlot).
+    // (Không dùng tên "type" vì mongoose sẽ interpret là schema type key.)
+    sourceA: {
+      kind: {
+        type: String,
+        enum: ["poolRank", "winner", null],
+        default: null,
+      },
+      poolKey: { type: String, default: null },
+      poolRank: { type: Number, default: null },
+      fromMatchOrder: { type: Number, default: null },
+    },
+    sourceB: {
+      kind: {
+        type: String,
+        enum: ["poolRank", "winner", null],
+        default: null,
+      },
+      poolKey: { type: String, default: null },
+      poolRank: { type: Number, default: null },
+      fromMatchOrder: { type: Number, default: null },
+    },
 
     subMatches: { type: [SubMatchSchema], default: [] },
     dreamBreaker: { type: DreamBreakerSchema, default: () => ({}) },

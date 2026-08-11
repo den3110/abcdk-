@@ -35,7 +35,56 @@ import {
 
 // ─────────────────────────────────────────────────────────────
 
-function TeamRow({ team, score, isWinner, compact = false }) {
+// Sinh label placeholder từ sourceA/B khi teamA/B null.
+export function placeholderLabel(source) {
+  if (!source || !source.kind) return null;
+  if (source.kind === "poolRank") {
+    const rank = Number(source.poolRank) || 1;
+    const label = rank === 1 ? "Nhất" : rank === 2 ? "Nhì" : rank === 3 ? "Ba" : `#${rank}`;
+    return `${label} bảng ${source.poolKey || "?"}`;
+  }
+  if (source.kind === "winner") {
+    return `Thắng T${(Number(source.fromMatchOrder) || 0) + 1}`;
+  }
+  return null;
+}
+
+function TeamRow({ team, score, isWinner, compact = false, placeholder }) {
+  if (!team && placeholder) {
+    return (
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={1.5}
+        sx={{
+          p: compact ? 0.5 : 1,
+          borderRadius: 1.5,
+          bgcolor: "#FEF3C7",
+          border: "1px dashed #F59E0B",
+        }}
+      >
+        <Avatar
+          sx={{
+            width: compact ? 24 : 36,
+            height: compact ? 24 : 36,
+            bgcolor: "#F59E0B",
+            fontSize: compact ? 11 : 14,
+          }}
+        >
+          ?
+        </Avatar>
+        <Typography
+          sx={{ flex: 1, fontWeight: 700, fontStyle: "italic", color: "#92400E", fontSize: compact ? 12 : 14 }}
+          noWrap
+        >
+          {placeholder}
+        </Typography>
+        <Typography variant={compact ? "body2" : "h5"} sx={{ fontWeight: 900, color: "#92400E" }}>
+          –
+        </Typography>
+      </Stack>
+    );
+  }
   return (
     <Stack
       direction="row"
@@ -154,6 +203,7 @@ function DualCard({ dual, onOpen, compact = false }) {
             score={dual?.slotWinsA}
             isWinner={teamAWinner}
             compact={compact}
+            placeholder={placeholderLabel(dual?.sourceA)}
           />
           <Typography
             variant="caption"
@@ -167,6 +217,7 @@ function DualCard({ dual, onOpen, compact = false }) {
             score={dual?.slotWinsB}
             isWinner={teamBWinner}
             compact={compact}
+            placeholder={placeholderLabel(dual?.sourceB)}
           />
         </Stack>
 

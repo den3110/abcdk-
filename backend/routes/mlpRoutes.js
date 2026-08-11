@@ -35,6 +35,7 @@ import {
   resetMlpPools,
   broadcastMlpLiveDraw,
   resetMlpTournament,
+  resolveMlpKnockoutHandler,
 } from "../controllers/mlpController.js";
 
 const router = express.Router();
@@ -101,6 +102,11 @@ router.post(
   "/tournaments/:tid/duals/generate-knockout",
   protect,
   generateMlpKnockout,
+);
+router.post(
+  "/tournaments/:tid/duals/knockout/resolve",
+  protect,
+  resolveMlpKnockoutHandler,
 );
 
 // Reports / export

@@ -1,19 +1,17 @@
-// components/mlp/DualAssignmentPanel.jsx — Panel gán trọng tài + giờ thi đấu
-// + ghi chú cho 1 MlpDualMatch. Court integration để phase sau (do court
-// model đang song song Court cũ + CourtStation mới — cần rework riêng).
-import React, { useEffect, useMemo, useState } from "react";
+// components/mlp/DualAssignmentPanel.jsx — Panel gán sân + giờ + ghi chú
+// cho 1 MlpDualMatch. Trọng tài KHÔNG gán ở đây — tự lấy theo
+// courtStation.defaultReferees (logic "trọng tài đứng theo sân").
+import { useEffect, useState } from "react";
 import {
-  Autocomplete,
-  Avatar,
+  Alert,
   Box,
   Button,
-  Chip,
   Paper,
   Stack,
   TextField,
   Typography,
 } from "@mui/material";
-import { Save, User as UserIcon, Clock, MapPin } from "lucide-react";
+import { Save, Clock, MapPin } from "lucide-react";
 import { toast } from "react-toastify";
 import { useSelector } from "react-redux";
 
@@ -22,7 +20,6 @@ import {
   useListMlpTournamentCourtsQuery,
   useCheckInMlpDualMutation,
 } from "../../slices/mlpApiSlice";
-import { useLazySearchUserQuery } from "../../slices/usersApiSlice";
 import MenuItem from "@mui/material/MenuItem";
 
 const isAdmin = (u) => u?.role === "admin" || u?.isAdmin || u?.isSuperUser;
@@ -60,7 +57,6 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
   );
   const courtOptions = courtsRes?.items || [];
 
-  const [refs, setRefs] = useState(dual?.referees || []);
   const [scheduledAt, setScheduledAt] = useState(
     toDatetimeLocalValue(dual?.scheduledAt),
   );
@@ -73,7 +69,6 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
   const [courtValue, setCourtValue] = useState(initialCourtValue);
 
   useEffect(() => {
-    setRefs(dual?.referees || []);
     setScheduledAt(toDatetimeLocalValue(dual?.scheduledAt));
     setNote(dual?.note || "");
     setCourtValue(
@@ -84,22 +79,6 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
           : "",
     );
   }, [dual?._id]);
-
-  // Search users cho trọng tài
-  const [searchQ, setSearchQ] = useState("");
-  const [triggerSearch, { data: searchRes, isFetching }] =
-    useLazySearchUserQuery();
-  useEffect(() => {
-    if (!searchQ || searchQ.length < 1) return;
-    const t = setTimeout(() => triggerSearch(searchQ), 300);
-    return () => clearTimeout(t);
-  }, [searchQ, triggerSearch]);
-  const searchOptions = useMemo(() => {
-    const list = Array.isArray(searchRes)
-      ? searchRes
-      : searchRes?.items || searchRes?.data || [];
-    return list.slice(0, 20);
-  }, [searchRes]);
 
   const handleSave = async () => {
     try {
@@ -114,10 +93,10 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
         courtPayload.court = null;
         courtPayload.courtStation = null;
       }
+      // KHÔNG gửi referees — backend auto-fill từ station.defaultReferees.
       await patch({
         dualId: dual._id,
         tourId: dual.tournament,
-        referees: (refs || []).map((r) => r._id || r).filter(Boolean),
         scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
         note,
         ...courtPayload,
@@ -146,7 +125,7 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
         <MapPin size={18} />
         <Typography variant="subtitle1" fontWeight={700}>
-          Trọng tài · Giờ thi đấu · Ghi chú
+          Sân · Giờ thi đấu · Ghi chú
         </Typography>
         <Box flex={1} />
         <Button
@@ -160,73 +139,12 @@ export default function DualAssignmentPanel({ dual, tour, onSaved }) {
         </Button>
       </Stack>
 
-      <Stack spacing={2}>
-        <Autocomplete
-          multiple
-          options={searchOptions}
-          value={refs}
-          onChange={(_, v) => setRefs(v)}
-          onInputChange={(_, v) => setSearchQ(v)}
-          getOptionLabel={(u) => u?.nickname || u?.name || ""}
-          isOptionEqualToValue={(o, v) => String(o?._id) === String(v?._id)}
-          loading={isFetching}
-          disabled={disabled}
-          renderOption={(props, u) => (
-            <Box component="li" {...props} key={u._id}>
-              <Avatar
-                src={u.avatar}
-                sx={{ width: 28, height: 28, mr: 1.5, fontSize: 13 }}
-              >
-                {(u.nickname || u.name || "?")[0]?.toUpperCase()}
-              </Avatar>
-              <Box>
-                <Typography variant="body2" fontWeight={600}>
-                  {u.nickname || u.name}
-                </Typography>
-                {u.nickname && u.name && (
-                  <Typography variant="caption" color="text.secondary">
-                    {u.name}
-                  </Typography>
-                )}
-              </Box>
-            </Box>
-          )}
-          renderTags={(value, getTagProps) =>
-            value.map((u, index) => (
-              <Chip
-                {...getTagProps({ index })}
-                key={u._id}
-                avatar={
-                  <Avatar src={u.avatar}>
-                    {(u.nickname || u.name || "?")[0]?.toUpperCase()}
-                  </Avatar>
-                }
-                label={u.nickname || u.name}
-              />
-            ))
-          }
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="Trọng tài"
-              placeholder="Tìm theo tên / nickname…"
-              size="small"
-              InputProps={{
-                ...params.InputProps,
-                startAdornment: (
-                  <>
-                    <UserIcon
-                      size={16}
-                      style={{ marginLeft: 4, marginRight: 4, opacity: 0.6 }}
-                    />
-                    {params.InputProps.startAdornment}
-                  </>
-                ),
-              }}
-            />
-          )}
-        />
+      <Alert severity="info" sx={{ mb: 1.5, borderRadius: 2 }}>
+        Trọng tài <b>đứng theo sân</b> — chọn sân xong, trọng tài sẽ tự lấy từ
+        cấu hình Cụm sân. Không cần gán từng dual.
+      </Alert>
 
+      <Stack spacing={2}>
         <Stack
           direction={{ xs: "column", sm: "row" }}
           spacing={2}

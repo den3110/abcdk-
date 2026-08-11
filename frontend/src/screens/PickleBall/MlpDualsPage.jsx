@@ -36,6 +36,8 @@ import {
   useSyncSubMatchResultMutation,
   useGenerateMlpKnockoutMutation,
   useDeleteMlpDualMutation,
+  useListMlpTournamentCourtsQuery,
+  usePatchMlpDualMutation,
 } from "../../slices/mlpApiSlice";
 import TournamentCourtClusterDialog from "../../components/TournamentCourtClusterDialog";
 import MlpPoolDrawDialog from "../../components/mlp/MlpPoolDrawDialog";
@@ -54,8 +56,60 @@ const STATUS_LABEL = {
   finished: "Kết thúc",
 };
 
-function DualCard({ dual, tour, onSync, canManage, onOpen }) {
+function LineupRow({ side, players }) {
+  if (!Array.isArray(players) || players.length === 0) {
+    return (
+      <Typography variant="caption" color="text.disabled">
+        Team {side}: chưa cấu hình
+      </Typography>
+    );
+  }
+  return (
+    <Stack direction="row" spacing={0.5} alignItems="center">
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ minWidth: 44, fontWeight: 700 }}
+      >
+        Team {side}:
+      </Typography>
+      {players.map((p) => (
+        <Chip
+          key={p._id}
+          size="small"
+          avatar={
+            p.avatar ? (
+              <Avatar src={p.avatar} sx={{ width: 20, height: 20 }} />
+            ) : undefined
+          }
+          label={p.nickname || p.name || "?"}
+          sx={{ height: 22, fontSize: 11 }}
+        />
+      ))}
+    </Stack>
+  );
+}
+
+function DualCard({
+  dual,
+  tour,
+  onSync,
+  canManage,
+  onOpen,
+  courtOptions,
+  onPatchCourt,
+  patching,
+}) {
   const cfg = tour?.mlpConfig || {};
+  const courtValue = dual?.courtStation?._id
+    ? `station:${dual.courtStation._id}`
+    : dual?.courtStation
+      ? `station:${dual.courtStation}`
+      : dual?.court?._id
+        ? `court:${dual.court._id}`
+        : dual?.court
+          ? `court:${dual.court}`
+          : "";
   return (
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
       <CardContent>
@@ -193,6 +247,93 @@ function DualCard({ dual, tour, onSync, canManage, onOpen }) {
           )}
         </Stack>
 
+        {/* Lineup preview + court assign inline */}
+        <Stack spacing={0.75} sx={{ mt: 1.5 }}>
+          {(dual.subMatches || []).map((sub) => (
+            <Box
+              key={sub._id || sub.slotKey}
+              sx={{
+                p: 1,
+                borderRadius: 1.5,
+                border: 1,
+                borderColor: "divider",
+                bgcolor: "background.default",
+              }}
+            >
+              <Stack
+                direction="row"
+                spacing={1}
+                alignItems="center"
+                sx={{ mb: 0.5 }}
+              >
+                <Chip
+                  size="small"
+                  label={sub.slotKey}
+                  variant="outlined"
+                  sx={{ fontWeight: 800, minWidth: 50 }}
+                />
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ flex: 1 }}
+                >
+                  {(cfg.slots || []).find((s) => s.key === sub.slotKey)?.label ||
+                    ""}
+                </Typography>
+                <Typography variant="caption" fontWeight={700}>
+                  {sub.result?.scoreA ?? 0} - {sub.result?.scoreB ?? 0}
+                </Typography>
+              </Stack>
+              <Stack spacing={0.25}>
+                <LineupRow side="A" players={sub.playersA} />
+                <LineupRow side="B" players={sub.playersB} />
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+
+        {canManage && (
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1}
+            alignItems={{ sm: "center" }}
+            sx={{ mt: 1.5 }}
+          >
+            <Select
+              size="small"
+              value={courtValue}
+              onChange={(e) => onPatchCourt?.(dual._id, e.target.value)}
+              displayEmpty
+              disabled={patching || dual.status === "finished"}
+              sx={{ minWidth: 240, flex: 1 }}
+            >
+              <MenuItem value="">— Chưa gán sân —</MenuItem>
+              {courtOptions.map((c) => (
+                <MenuItem
+                  key={`${c.type}:${c._id}`}
+                  value={`${c.type}:${c._id}`}
+                >
+                  🏟️ {c.name}
+                  {c.cluster ? ` (${c.cluster})` : ""} ·{" "}
+                  {c.type === "station" ? "Station" : "Court"}
+                </MenuItem>
+              ))}
+            </Select>
+            {(dual.courtStation?.name || dual.court?.name) && (
+              <Chip
+                size="small"
+                label={`Trọng tài theo sân${
+                  dual.referees?.length
+                    ? ` (${dual.referees.length})`
+                    : " (chưa cấu hình)"
+                }`}
+                color={dual.referees?.length ? "success" : "default"}
+                variant="outlined"
+              />
+            )}
+          </Stack>
+        )}
+
         <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
           <Button
             size="small"
@@ -237,6 +378,30 @@ export default function MlpDualsPage() {
   const [syncSub] = useSyncSubMatchResultMutation();
   const [genKnockout, { isLoading: koLoading }] = useGenerateMlpKnockoutMutation();
   const [deleteDual] = useDeleteMlpDualMutation();
+  const [patchDual, { isLoading: patchingCourt }] = usePatchMlpDualMutation();
+  const { data: courtsRes } = useListMlpTournamentCourtsQuery(id, { skip: !id });
+  const courtOptions = courtsRes?.items || [];
+
+  const handleInlinePatchCourt = async (dualId, value) => {
+    try {
+      const payload = { dualId, tourId: id };
+      if (value.startsWith("court:")) {
+        payload.court = value.slice(6);
+        payload.courtStation = null;
+      } else if (value.startsWith("station:")) {
+        payload.courtStation = value.slice(8);
+        payload.court = null;
+      } else {
+        payload.court = null;
+        payload.courtStation = null;
+      }
+      await patchDual(payload).unwrap();
+      toast.success("Đã gán sân");
+      refetch();
+    } catch (err) {
+      toast.error(err?.data?.message || "Không gán được sân");
+    }
+  };
   const [clusterDialogOpen, setClusterDialogOpen] = useState(false);
   const [drawDialogOpen, setDrawDialogOpen] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
@@ -252,7 +417,7 @@ export default function MlpDualsPage() {
         const topPerPool = tour?.mlpConfig?.groupStage?.topPerPool || 2;
         if (
           !window.confirm(
-            `Sinh knockout: lấy top ${topPerPool} đội mỗi bảng theo BXH hiện tại. Tiếp tục?`,
+            `Sinh knockout: lấy top ${topPerPool} đội mỗi bảng.\n\nNếu vòng bảng chưa xong → các slot chưa xác định sẽ hiện "Nhất bảng A"/"Nhì bảng B"... và tự động fill khi bảng đó kết thúc.\n\nTiếp tục?`,
           )
         )
           return;
@@ -529,6 +694,9 @@ export default function MlpDualsPage() {
               onSync={() => handleSyncAll(d)}
               onOpen={() => navigate(`/tournament/${id}/mlp/duals/${d._id}`)}
               canManage={canManage}
+              courtOptions={courtOptions}
+              onPatchCourt={handleInlinePatchCourt}
+              patching={patchingCourt}
             />
           ))}
         </Stack>
