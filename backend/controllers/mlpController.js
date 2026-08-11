@@ -17,6 +17,7 @@ import {
   ensureMlpSubMatchDoc,
   ensureMlpDualMatchDocs,
 } from "../services/mlpMatchSync.js";
+import { emitTournamentInvalidate } from "../socket/tournamentRealtime.js";
 import {
   poolKeyFromIndex,
   shuffleInPlace,
@@ -36,6 +37,26 @@ function emitMlpDual(dualId, event, payload) {
     if (io) io.to(`mlp:dual:${dualId}`).emit(event, payload);
   } catch (err) {
     console.error("[mlp] emitMlpDual error:", err?.message || err);
+  }
+}
+
+// Báo cho tab trọng tài + trang manage: có Match doc MLP mới hoặc thay
+// đổi lineup/court/schedule. Client subscribe room tournament:${tid} và
+// sẽ refetch danh sách trận.
+function invalidateMlpTournament(tid, reason = "mlp:update") {
+  try {
+    const io = getIO?.();
+    if (io && tid) {
+      emitTournamentInvalidate(io, {
+        tournamentId: String(tid),
+        reason,
+      });
+    }
+  } catch (err) {
+    console.error(
+      "[mlp] invalidateMlpTournament error:",
+      err?.message || err,
+    );
   }
 }
 
@@ -108,6 +129,7 @@ export const checkInMlpDual = asyncHandler(async (req, res) => {
     checkInA: dual.checkInA,
     checkInB: dual.checkInB,
   });
+  invalidateMlpTournament(dual.tournament, "mlp:checkin");
   res.json({ success: true, dual });
 });
 
@@ -1956,6 +1978,7 @@ export const generateMlpKnockout = asyncHandler(async (req, res) => {
     }
   }
 
+  invalidateMlpTournament(tid, "mlp:knockout:generated");
   res.json({
     success: true,
     mode,
@@ -2096,6 +2119,9 @@ export async function resolveMlpKnockoutSlots(tournamentId) {
         }
       }
       if (dirty) await d.save();
+    }
+    if (filled > 0) {
+      invalidateMlpTournament(tournamentId, "mlp:knockout:resolved");
     }
     return filled;
   } catch (err) {
@@ -2343,6 +2369,7 @@ export const generateMlpDuals = asyncHandler(async (req, res) => {
     created.push(doc);
   }
 
+  invalidateMlpTournament(tid, "mlp:duals:generated");
   res.json({ success: true, count: created.length, format });
 });
 
@@ -2534,6 +2561,7 @@ export const patchMlpDual = asyncHandler(async (req, res) => {
     scheduledAt: dual.scheduledAt,
     note: dual.note,
   });
+  invalidateMlpTournament(dual.tournament, "mlp:dual:patched");
   res.json({ success: true, dual });
 });
 
@@ -2611,6 +2639,7 @@ export const patchMlpSubMatch = asyncHandler(async (req, res) => {
     dualId: dual._id,
     subId: sub._id,
   });
+  invalidateMlpTournament(dual.tournament, "mlp:sub:patched");
   res.json({ success: true, sub });
 });
 
@@ -2659,6 +2688,12 @@ export const assignSubMatchLineup = asyncHandler(async (req, res) => {
       err?.message,
     );
   }
+
+  emitMlpDual(dual._id, "mlp:dual:updated", {
+    dualId: dual._id,
+    subId: sub._id,
+  });
+  invalidateMlpTournament(dual.tournament, "mlp:lineup:assigned");
 
   res.json({ success: true, sub });
 });
