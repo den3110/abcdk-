@@ -64,6 +64,17 @@ const regInviteSchema = new mongoose.Schema(
     // Lý do fail (full, duplicate, cap, time, declined, …)
     failReason: { type: String, default: "" },
     message: { type: String, default: "" }, // giữ lại message khi mời (để snapshot vào Registration nếu cần)
+
+    // Trạng thái mà Registration cuối cùng sẽ nhận khi finalize.
+    // - null (mặc định): backend tự chọn theo cap. Đầy → "waitlisted", còn
+    //   slot → "approved".
+    // - "approved" (admin ép): kể cả cap đầy vẫn duyệt (49/48, 50/48...).
+    // - "waitlisted" (admin chọn chờ duyệt): kể cả còn slot vẫn để chờ.
+    desiredStatus: {
+      type: String,
+      enum: ["approved", "waitlisted", null],
+      default: null,
+    },
   },
   { timestamps: true }
 );

@@ -1910,6 +1910,46 @@ export default function TournamentRegistration() {
     setSelfSlot("p1");
   }, [canSwitchRegistrationSlots, isAdmin, p1, p2, selfSlot]);
 
+  // Dialog "Chờ hay Duyệt luôn" khi admin đăng ký lúc cap đầy
+  const [waitlistChoiceOpen, setWaitlistChoiceOpen] = useState(false);
+  const [pendingSubmitPayload, setPendingSubmitPayload] = useState(null);
+
+  const performCreateInvite = useCallback(
+    async (payload) => {
+      try {
+        const res = await createInvite(payload).unwrap();
+        // Nếu response trả về status waitlisted → toast riêng
+        if (
+          res?.status === "waitlisted" ||
+          res?.invite?.desiredStatus === "waitlisted"
+        ) {
+          toast.info(
+            res?.message ||
+              "Đã tạo đăng ký ở trạng thái CHỜ DUYỆT (vượt cap).",
+          );
+        } else {
+          toast.success(
+            t("tournaments.registration.toasts.registrationSuccess"),
+          );
+        }
+        refetchRegs();
+        setMsg("");
+        setP2(null);
+        if (isAdmin || selfSlot === "p2") setP1(null);
+      } catch (err) {
+        if (err?.status === 412) {
+          toast.error(t("tournaments.registration.toasts.kycRequired"));
+        } else {
+          toast.error(
+            err?.data?.message ||
+              t("tournaments.registration.toasts.registrationError"),
+          );
+        }
+      }
+    },
+    [createInvite, isAdmin, refetchRegs, selfSlot, t],
+  );
+
   const submit = useCallback(
     async (e) => {
       e.preventDefault();
@@ -1941,28 +1981,24 @@ export default function TournamentRegistration() {
       if (isDoubles && !p2Id)
         return toast.error(t("tournaments.registration.toasts.doublesNeedTwo"));
 
-      try {
-        await createInvite({
-          tourId: id,
-          message: msg,
-          player1Id: p1Id,
-          player2Id: p2Id,
-        }).unwrap();
-        toast.success(t("tournaments.registration.toasts.registrationSuccess"));
-        refetchRegs();
-        setMsg("");
-        setP2(null);
-        if (isAdmin || selfSlot === "p2") setP1(null);
-      } catch (err) {
-        if (err?.status === 412) {
-          toast.error(t("tournaments.registration.toasts.kycRequired"));
-        } else {
-          toast.error(
-            err?.data?.message ||
-              t("tournaments.registration.toasts.registrationError"),
-          );
-        }
+      const basePayload = {
+        tourId: id,
+        message: msg,
+        player1Id: p1Id,
+        player2Id: p2Id,
+      };
+
+      // Nếu admin + giải đã đủ cap (48/48+) → hỏi Chờ hay Duyệt luôn
+      const maxPairs = Number(tour?.maxPairs) || 0;
+      const currentRegs = Number(tour?.stats?.registrationsCount) || 0;
+      const overCap = maxPairs > 0 && currentRegs >= maxPairs;
+      if (isAdmin && overCap) {
+        setPendingSubmitPayload(basePayload);
+        setWaitlistChoiceOpen(true);
+        return;
       }
+
+      await performCreateInvite(basePayload);
     },
     [
       regLockedForUser,
@@ -1975,8 +2011,9 @@ export default function TournamentRegistration() {
       msg,
       me,
       id,
-      createInvite,
-      refetchRegs,
+      tour?.maxPairs,
+      tour?.stats?.registrationsCount,
+      performCreateInvite,
       t,
     ],
   );
@@ -3270,6 +3307,68 @@ export default function TournamentRegistration() {
         loading={historyLoading}
         locale={locale}
       />
+
+      {/* Waitlist choice dialog cho admin khi cap đã đầy */}
+      <Dialog
+        open={waitlistChoiceOpen}
+        onClose={() => {
+          setWaitlistChoiceOpen(false);
+          setPendingSubmitPayload(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 900 }}>
+          Cặp thứ {(Number(tour?.stats?.registrationsCount) || 0) + 1} vượt cap{" "}
+          {Number(tour?.maxPairs) || 0}
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 1.5 }}>
+            Giải đã đủ <b>{tour?.maxPairs}</b> cặp đăng ký chính thức. Chọn
+            trạng thái cho cặp này:
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            • <b>Chờ duyệt</b>: cặp vào waitlist, không tính vào 48/48. Tự
+            duyệt FIFO khi có cặp rút.
+            <br />• <b>Duyệt luôn</b>: cặp được duyệt ngay (49/48). BTC tự
+            chịu trách nhiệm vượt cap.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setWaitlistChoiceOpen(false);
+              setPendingSubmitPayload(null);
+            }}
+          >
+            Huỷ
+          </Button>
+          <Button
+            variant="outlined"
+            color="warning"
+            onClick={async () => {
+              const payload = { ...pendingSubmitPayload, status: "waitlisted" };
+              setWaitlistChoiceOpen(false);
+              setPendingSubmitPayload(null);
+              await performCreateInvite(payload);
+            }}
+          >
+            ⏳ Chờ duyệt
+          </Button>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={async () => {
+              const payload = { ...pendingSubmitPayload, status: "approved" };
+              setWaitlistChoiceOpen(false);
+              setPendingSubmitPayload(null);
+              await performCreateInvite(payload);
+            }}
+          >
+            ✓ Duyệt luôn
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* 1. Image Preview */}
       <Dialog

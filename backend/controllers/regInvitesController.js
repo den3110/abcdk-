@@ -205,16 +205,20 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
     };
   }
 
-  // (2) Full chỗ
+  // (2) Full chỗ — KHÔNG reject nữa. Signal overCap để caller đưa vào
+  //     waitlist (Registration.status="waitlisted"). Chỉ đếm approved
+  //     (data cũ không có status → coi là approved).
+  let overCap = false;
   if (Number(tour.maxPairs) > 0) {
-    const cnt = await Registration.countDocuments({ tournament: tour._id });
-    if (cnt >= Number(tour.maxPairs)) {
-      return {
-        ok: false,
-        reason: "full",
-        message: "Giải đã đủ số cặp đăng ký",
-      };
-    }
+    const cnt = await Registration.countDocuments({
+      tournament: tour._id,
+      $or: [
+        { status: "approved" },
+        { status: { $exists: false } },
+        { status: null },
+      ],
+    });
+    if (cnt >= Number(tour.maxPairs)) overCap = true;
   }
 
   // (3) Duplicate đã đăng ký
@@ -286,7 +290,7 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
     }
   }
 
-  return { ok: true, s1, s2 };
+  return { ok: true, s1, s2, overCap };
 }
 
 /* ---------- Finalize nếu đủ xác nhận ---------- */
@@ -338,6 +342,17 @@ async function finalizeIfReady(invite, req = null) {
   const p1Score = preferScore(rank1, pf.s1, u1?.score, u1);
   const p2Score = isSingle ? null : preferScore(rank2, pf.s2, u2?.score, u2);
 
+  // Chọn status cuối cùng:
+  //  - Nếu admin đã ép desiredStatus khi tạo invite → tôn trọng.
+  //  - Ngược lại: overCap ? waitlisted : approved.
+  const finalStatus =
+    invite.desiredStatus === "approved" ||
+    invite.desiredStatus === "waitlisted"
+      ? invite.desiredStatus
+      : pf.overCap
+        ? "waitlisted"
+        : "approved";
+
   const reg = await Registration.create({
     tournament: tour._id,
     message: "", // có thể bổ sung
@@ -365,6 +380,8 @@ async function finalizeIfReady(invite, req = null) {
           score: num(p2Score),
         },
     createdBy: invite.createdBy,
+    status: finalStatus,
+    approvedAt: finalStatus === "approved" ? new Date() : null,
   });
 
   invite.status = "finalized";
@@ -377,8 +394,10 @@ async function finalizeIfReady(invite, req = null) {
     actorId: req?.user?._id || invite.createdBy,
   });
 
-  // tăng đếm an toàn
-  await Tournament.updateOne({ _id: tour._id }, { $inc: { registered: 1 } });
+  // Chỉ tăng counter khi cặp được duyệt chính thức (waitlist không chiếm slot).
+  if (finalStatus === "approved") {
+    await Tournament.updateOne({ _id: tour._id }, { $inc: { registered: 1 } });
+  }
 
   return invite;
 }
@@ -435,7 +454,19 @@ async function createRegistrationWithRetry(payload, maxTry = 3) {
 
 export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const { id } = req.params; // tournamentId
-  const { player1Id, player2Id, message = "" } = req.body || {};
+  const {
+    player1Id,
+    player2Id,
+    message = "",
+    // Admin có thể ép trạng thái đăng ký khi vượt cap (48/48+):
+    // - "approved": duyệt luôn (bỏ qua cap, đội thứ 49 vẫn approved)
+    // - "waitlisted": chờ duyệt (dù còn slot cũng vào waitlist)
+    // - undefined/null: backend tự chọn theo cap (đầy→waitlisted, còn→approved)
+    status: forcedStatusRaw = null,
+  } = req.body || {};
+  const forcedStatus = ["approved", "waitlisted"].includes(forcedStatusRaw)
+    ? forcedStatusRaw
+    : null;
 
   // người gửi (để lấy _id & quyền)
   const me = await User.findById(req.user._id)
@@ -531,6 +562,23 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       score: num(score),
     });
 
+    // Xác định trạng thái đăng ký. Admin ép qua body.status; nếu không:
+    // đầy → waitlisted, còn slot → approved.
+    let overCap = false;
+    if (Number(tour.maxPairs) > 0) {
+      const cnt = await Registration.countDocuments({
+        tournament: tour._id,
+        $or: [
+          { status: "approved" },
+          { status: { $exists: false } },
+          { status: null },
+        ],
+      });
+      if (cnt >= Number(tour.maxPairs)) overCap = true;
+    }
+    const finalStatus =
+      forcedStatus || (overCap ? "waitlisted" : "approved");
+
     const reg = await createRegistrationWithRetry({
       tournament: tour._id,
       eventType,
@@ -539,8 +587,19 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       message,
       createdBy: me._id,
       payment: buildFreeTournamentPayment(tour),
-      meta: { createdByAdmin: true },
+      meta: { createdByAdmin: true, forcedStatus: !!forcedStatus, overCap },
+      status: finalStatus,
+      approvedBy: finalStatus === "approved" ? me._id : null,
+      approvedAt: finalStatus === "approved" ? new Date() : null,
     });
+
+    // Chỉ bump counter khi approved. Waitlisted không chiếm slot.
+    if (finalStatus === "approved") {
+      await Tournament.updateOne(
+        { _id: tour._id },
+        { $inc: { registered: 1 }, $set: { updatedAt: new Date() } },
+      );
+    }
     await writeRegistrationCreateAudit({
       req,
       registration: reg,
@@ -556,8 +615,12 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     return res.status(201).json({
       mode: "direct_by_admin",
       registration: reg,
+      status: finalStatus,
+      overCap,
       message:
-        "Đã tạo đăng ký trực tiếp bởi admin (bỏ qua kiểm tra KYC/độ tuổi/phạm vi).",
+        finalStatus === "waitlisted"
+          ? "Đã tạo đăng ký ở trạng thái CHỜ DUYỆT (vượt cap)."
+          : "Đã tạo đăng ký trực tiếp bởi admin.",
     });
   }
 
@@ -766,6 +829,9 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     score: num(score),
   });
 
+  // User thường không được ép status. Cap đầy → waitlist tự động.
+  const finalStatus = pf.overCap ? "waitlisted" : "approved";
+
   const reg = await createRegistrationWithRetry({
     tournament: tour._id,
     eventType,
@@ -774,8 +840,20 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     message,
     createdBy: me._id,
     payment: buildFreeTournamentPayment(tour),
-    meta: { autoByKyc: requireKyc === true, ageChecked: !!ar.enabled },
+    meta: {
+      autoByKyc: requireKyc === true,
+      ageChecked: !!ar.enabled,
+      overCap: !!pf.overCap,
+    },
+    status: finalStatus,
+    approvedAt: finalStatus === "approved" ? new Date() : null,
   });
+  if (finalStatus === "approved") {
+    await Tournament.updateOne(
+      { _id: tour._id },
+      { $inc: { registered: 1 }, $set: { updatedAt: new Date() } },
+    );
+  }
   await writeRegistrationCreateAudit({
     req,
     registration: reg,
@@ -823,7 +901,14 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   return res.status(201).json({
     mode: requireKyc ? "direct_by_kyc" : "direct",
     registration: reg,
-    message: isSingle ? "Đã tạo đăng ký." : "Đã tạo đăng ký cho cả 2 VĐV.",
+    status: finalStatus,
+    overCap: !!pf.overCap,
+    message:
+      finalStatus === "waitlisted"
+        ? "Giải đã đủ cặp — bạn được vào danh sách CHỜ DUYỆT. Sẽ tự duyệt khi có cặp rút."
+        : isSingle
+          ? "Đã tạo đăng ký."
+          : "Đã tạo đăng ký cho cả 2 VĐV.",
   });
 });
 
