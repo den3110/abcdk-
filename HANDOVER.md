@@ -21,7 +21,41 @@
 >
 > ⚠️ **Thay đổi kiến trúc lớn kể từ 2026-08-03 (đọc HANDOFF chi tiết):**
 >
-> 🆕 **Session 2026-08-10→11 — MLP overhaul** (xem HANDOFF mới nhất):
+> 🆕 **Session 2026-08-11→12 — MLP group stage + waitlist + polish**
+> (xem HANDOFF mới nhất — 40 tasks, ~19 commits root + ~11 commits mobile):
+> - **MLP vòng bảng + bốc thăm + knockout ĐẦY ĐỦ**: `groupStage.enabled`
+>   → sinh round-robin trong bảng, cross-pool KO (A1-B2, B1-A2…), auto-
+>   advance winner, KO preview với placeholder "Nhất bảng A" khi vòng
+>   bảng chưa xong. Live draw stage screen với socket relay realtime.
+> - **Reset giải MLP** endpoint để test lại: xoá duals/standings/pools/
+>   rating changes theo scope, gõ tên giải confirm.
+> - **Trọng tài đứng theo sân**: bỏ referee UI khỏi dual detail, auto
+>   lấy từ `courtStation.defaultReferees`. Referee tab mobile filter
+>   fallback qua station khi dual/sub referees rỗng.
+> - **Waitlist đăng ký giải** (mọi mode): cặp thứ 49+ vào `status="waitlisted"`,
+>   không tính 48/48. Auto-promote FIFO khi có cặp rút. Admin dialog
+>   "Chờ / Duyệt luôn". Push notification 2 chiều (VĐV + BTC) khi
+>   promote (manual + auto).
+> - **RegInvite.desiredStatus**: admin ép trạng thái khi tạo invite,
+>   `finalizeIfReady` tôn trọng.
+> - **Referee panel mobile**: hiện tên đội MLP 2 side + swap khi Đổi
+>   bên. Fix flicker tên đội ↔ tên VĐV (MLP match chỉ dùng meta.mlp.
+>   teamAName/teamBName, không fallback resolvedSideName).
+> - **Overlay MLP redesign compact top-left** (~480px), navy+gold, quả
+>   bóng vàng pulsing tay giao, DreamBreaker badge inline. Fix
+>   station.currentMatch trỏ non-MLP → bỏ qua, path 2 tìm MLP match.
+> - **MlpDualsPage nâng cao**: pool tabs, dropdown gán sân inline,
+>   xem lineup 2 đội trong card, realtime score qua tournament:invalidate.
+> - **MLP + TEAM badge** trên tournament list card (web + mobile).
+> - **Quản lý trọng tài** (mới): pool `TournamentReferee` + dialog web
+>   Search+add. Chưa wire vào cụm sân UI.
+> - **Điểm trình VĐV** hiện trong MLP team roster: search dropdown chip
+>   "Đôi X.XX" + "Đơn Y.YY", roster item + tổng team. Backend helper
+>   `attachPlayerScores` query Ranking bulk.
+>
+> ---
+>
+> 🆕 **Session 2026-08-10→11 — MLP overhaul** (xem HANDOFF cũ hơn):
 > - **MLP mode giờ hoạt động ĐÚNG**: `normalizeTournamentMode` không còn ép
 >   `mlp` về `standard`. Admin chọn MLP giờ lưu đúng vào DB.
 > - **MLP sub-match tạo Match doc thật** để trọng tài chấm qua RefereeScorePanel
@@ -101,9 +135,12 @@
 >     `{chatMuteAll, feedMuteAll}`, endpoint `GET/PATCH /api/users/
 >     notification-prefs`. Chat/Feed notifier tự filter user opt-out.
 >
-> ⚠️ **VPS SSH**: `PasswordAuthentication=no` trên server — chỉ SSH key. Password
-> `Hoang@07082026` (cập nhật gần nhất) KHÔNG dùng được, kể cả qua sshpass.
-> Deploy backend/web/overlay phải chạy từ máy có SSH key setup sẵn.
+> ⚠️ **VPS SSH**: `PasswordAuthentication yes` + `PermitRootLogin yes` (bật lại
+> từ session 2026-08-10 để Claude SSH được — user có thể tắt sau nếu muốn siết
+> bảo mật). Password `Hoang@07082026` DÙNG ĐƯỢC qua sshpass:
+> ```
+> SSHPASS='Hoang@07082026' sshpass -e ssh -o StrictHostKeyChecking=no root@103.90.225.130 "..."
+> ```
 >
 > **Sản phẩm:** PickleTour (`https://pickletour.vn`) — nền tảng giải đấu pickleball cho thị trường Việt Nam: quản lý giải, bốc thăm, sơ đồ nhánh, chấm trận trọng tài realtime, điểm trình/BXH, CLB, đặt sân, livestream + ghi hình, tin tức AI, chatbot Pikora, app mobile.
 >
