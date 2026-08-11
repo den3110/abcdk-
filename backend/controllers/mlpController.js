@@ -1623,6 +1623,18 @@ export const updateMlpTeam = asyncHandler(async (req, res) => {
       status: statusChanged,
     }).catch(() => {});
   }
+  // Manual promote MLP team from waitlist → notify captain/players/BTC.
+  if (
+    statusChanged === "approved" &&
+    prevStatus === "waitlisted"
+  ) {
+    try {
+      const { notifyPromoteMlpTeam } = await import(
+        "../services/waitlistService.js"
+      );
+      notifyPromoteMlpTeam(doc, false).catch(() => {});
+    } catch (_err) {}
+  }
   // Auto-promote FIFO nếu team approved bị chuyển sang rejected/withdrawn.
   if (
     statusChanged &&

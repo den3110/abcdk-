@@ -3,6 +3,8 @@ import Subscription from "../../models/subscriptionsModel.js";
 import Registration from "../../models/registrationModel.js";
 import Match from "../../models/matchModel.js";
 import Tournament from "../../models/tournamentModel.js";
+import TournamentManager from "../../models/tournamentManagerModel.js";
+import MlpTeam from "../../models/mlpTeamModel.js";
 import NotificationLog from "../../models/notificationLogsModel.js";
 import { asId } from "../../utils/ids.js";
 import { sendToUserIds } from "./expoPush.js";
@@ -39,6 +41,9 @@ export const EVENTS = {
   RANK_MOVED: "RANK_MOVED", // tăng/giảm x bậc
   USER_DIRECT_BROADCAST: "USER_DIRECT_BROADCAST",
   REGISTRATION_PAYMENT_PAID: "REGISTRATION_PAYMENT_PAID",
+  // 🆕 Waitlist promoted (chờ duyệt → duyệt chính thức)
+  REGISTRATION_WAITLIST_PROMOTED: "REGISTRATION_WAITLIST_PROMOTED",
+  MLP_TEAM_WAITLIST_PROMOTED: "MLP_TEAM_WAITLIST_PROMOTED",
   GROUP_SLOT_ASSIGNED: "group_slot_assigned",
   // 🆕 chấm trình
   PLAYER_EVALUATED: "PLAYER_EVALUATED",
@@ -283,6 +288,70 @@ const implicitAudienceResolvers = {
     if (reg.player1?.user) ids.push(String(reg.player1.user));
     if (reg.player2?.user) ids.push(String(reg.player2.user));
 
+    return Array.from(new Set(ids));
+  },
+
+  // Waitlist promoted → notify VĐV của cặp + BTC (tour.createdBy + managers)
+  async [EVENTS.REGISTRATION_WAITLIST_PROMOTED]({
+    registrationId,
+    overrideAudience,
+  }) {
+    if (Array.isArray(overrideAudience) && overrideAudience.length) {
+      return overrideAudience.map((id) => String(id));
+    }
+    if (!registrationId) return [];
+    const reg = await Registration.findById(registrationId)
+      .select("player1.user player2.user tournament")
+      .lean();
+    if (!reg) return [];
+    const ids = [];
+    if (reg.player1?.user) ids.push(String(reg.player1.user));
+    if (reg.player2?.user) ids.push(String(reg.player2.user));
+    // BTC: createdBy + managers
+    if (reg.tournament) {
+      const tour = await Tournament.findById(reg.tournament)
+        .select("createdBy")
+        .lean();
+      if (tour?.createdBy) ids.push(String(tour.createdBy));
+      const mgrs = await TournamentManager.find({ tournament: reg.tournament })
+        .select("user")
+        .lean();
+      for (const m of mgrs || []) {
+        if (m?.user) ids.push(String(m.user));
+      }
+    }
+    return Array.from(new Set(ids));
+  },
+
+  // MLP team promote → captain + all players + BTC
+  async [EVENTS.MLP_TEAM_WAITLIST_PROMOTED]({ teamId, overrideAudience }) {
+    if (Array.isArray(overrideAudience) && overrideAudience.length) {
+      return overrideAudience.map((id) => String(id));
+    }
+    if (!teamId) return [];
+    const team = await MlpTeam.findById(teamId)
+      .select("captain players tournament")
+      .lean();
+    if (!team) return [];
+    const ids = [];
+    if (team.captain) ids.push(String(team.captain));
+    for (const p of team.players || []) {
+      if (p) ids.push(String(p));
+    }
+    if (team.tournament) {
+      const tour = await Tournament.findById(team.tournament)
+        .select("createdBy")
+        .lean();
+      if (tour?.createdBy) ids.push(String(tour.createdBy));
+      const mgrs = await TournamentManager.find({
+        tournament: team.tournament,
+      })
+        .select("user")
+        .lean();
+      for (const m of mgrs || []) {
+        if (m?.user) ids.push(String(m.user));
+      }
+    }
     return Array.from(new Set(ids));
   },
 
@@ -722,6 +791,110 @@ const payloadBuilders = {
       },
     };
   },
+
+  // 🎉 Waitlist promoted (cặp thi đấu được đẩy từ chờ duyệt → chính thức)
+  async [EVENTS.REGISTRATION_WAITLIST_PROMOTED]({
+    registrationId,
+    tournamentId,
+    autoPromoted,
+    forAdmin,
+  }) {
+    const reg = await Registration.findById(registrationId)
+      .select("code tournament player1 player2")
+      .lean();
+    const tourId = tournamentId || reg?.tournament;
+    let tourName = "";
+    if (tourId) {
+      const t = await Tournament.findById(tourId).select("name").lean();
+      tourName = t?.name || "";
+    }
+    const pairLabel = reg ? formatRegistrationPair(reg) : "";
+    const codeStr = reg?.code != null ? `#${reg.code}` : "";
+    let title;
+    let body;
+    if (forAdmin) {
+      title = autoPromoted
+        ? "Auto-duyệt cặp waitlist ⏳→✅"
+        : "Đã duyệt cặp waitlist ✅";
+      body = tourName
+        ? `Cặp ${codeStr ? codeStr + " " : ""}${pairLabel || ""} tại giải ${tourName} vừa được ${
+            autoPromoted ? "tự động duyệt (do có cặp khác rút)" : "duyệt"
+          } vào danh sách chính thức.`
+        : `Cặp ${codeStr} vừa được duyệt vào danh sách chính thức.`;
+    } else {
+      title = "Đăng ký của bạn đã được duyệt 🎉";
+      body = tourName
+        ? `Cặp ${pairLabel ? pairLabel + " " : ""}đã được ${
+            autoPromoted ? "tự động duyệt (do có cặp khác rút)" : "BTC duyệt"
+          } vào danh sách chính thức giải ${tourName}.`
+        : `Đơn đăng ký ${codeStr} của bạn đã được duyệt vào danh sách chính thức.`;
+    }
+    return {
+      title,
+      body,
+      data: {
+        kind: EVENTS.REGISTRATION_WAITLIST_PROMOTED,
+        registrationId: String(registrationId),
+        tournamentId: tourId ? String(tourId) : undefined,
+        url: tourId ? `/tournament/${tourId}/register` : "/(tabs)/tournaments",
+        pairLabel,
+        autoPromoted: !!autoPromoted,
+      },
+    };
+  },
+
+  // 🎉 MLP team promoted
+  async [EVENTS.MLP_TEAM_WAITLIST_PROMOTED]({
+    teamId,
+    tournamentId,
+    autoPromoted,
+    forAdmin,
+  }) {
+    const team = await MlpTeam.findById(teamId)
+      .select("name tournament")
+      .lean();
+    const tourId = tournamentId || team?.tournament;
+    let tourName = "";
+    if (tourId) {
+      const t = await Tournament.findById(tourId).select("name").lean();
+      tourName = t?.name || "";
+    }
+    const teamName = team?.name || "Đội của bạn";
+    let title;
+    let body;
+    if (forAdmin) {
+      title = autoPromoted
+        ? "Auto-duyệt đội MLP waitlist ⏳→✅"
+        : "Đã duyệt đội MLP waitlist ✅";
+      body = tourName
+        ? `Đội "${teamName}" tại giải ${tourName} vừa được ${
+            autoPromoted ? "tự động duyệt (do có đội khác rút)" : "duyệt"
+          } vào danh sách chính thức.`
+        : `Đội "${teamName}" vừa được duyệt.`;
+    } else {
+      title = "Đội của bạn đã được duyệt 🎉";
+      body = tourName
+        ? `"${teamName}" đã được ${
+            autoPromoted ? "tự động duyệt (do có đội khác rút)" : "BTC duyệt"
+          } vào danh sách chính thức giải MLP ${tourName}.`
+        : `Đội "${teamName}" đã được duyệt.`;
+    }
+    return {
+      title,
+      body,
+      data: {
+        kind: EVENTS.MLP_TEAM_WAITLIST_PROMOTED,
+        teamId: String(teamId),
+        tournamentId: tourId ? String(tourId) : undefined,
+        url: tourId
+          ? `/tournament/${tourId}/mlp/teams`
+          : "/(tabs)/tournaments",
+        teamName,
+        autoPromoted: !!autoPromoted,
+      },
+    };
+  },
+
   async [EVENTS.GROUP_SLOT_ASSIGNED]({
     tournamentId,
     registrationId,

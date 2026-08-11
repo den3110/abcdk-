@@ -372,6 +372,13 @@ export const adminUpdateRegistration = asyncHandler(async (req, res) => {
       { _id: tournament._id },
       { $inc: { registered: 1 }, $set: { updatedAt: new Date() } },
     );
+    // Notify cặp + BTC — manual promoted
+    try {
+      const { notifyPromoteRegistration } = await import(
+        "../../services/waitlistService.js"
+      );
+      notifyPromoteRegistration(registration, false).catch(() => {});
+    } catch (_err) {}
   }
   if (demotedApproved) {
     await Tournament.updateOne(
