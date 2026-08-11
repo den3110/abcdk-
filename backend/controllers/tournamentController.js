@@ -3063,6 +3063,7 @@ const getTournamentById = asyncHandler(async (req, res) => {
   const tour = await Tournament.findById(id)
     .populate("allowedCourtClusterIds", "name slug venueName isActive order")
     .populate("teamConfig.factions.captainUser", "name nickname avatar phone")
+    .populate("createdBy", "name nickname avatar phone")
     .lean();
   if (!tour) {
     res.status(404);
@@ -3090,7 +3091,10 @@ const getTournamentById = asyncHandler(async (req, res) => {
     checkedInCount,
     paidCount,
   ] = await Promise.all([
-    TournamentManager.find({ tournament: id }).select("user role").lean(),
+    TournamentManager.find({ tournament: id })
+      .select("user role")
+      .populate("user", "name nickname avatar phone")
+      .lean(),
     Registration.countDocuments(approvedFilter),
     Registration.countDocuments({ tournament: id, status: "waitlisted" }),
     Registration.countDocuments({

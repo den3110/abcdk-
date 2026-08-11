@@ -55,6 +55,8 @@ import {
   InfoOutlined,
   FileDownloadOutlined,
   SwapVert,
+  Phone as PhoneIcon,
+  AdminPanelSettings,
 } from "@mui/icons-material";
 import DangerousSharpIcon from "@mui/icons-material/DangerousSharp";
 
@@ -2299,6 +2301,32 @@ export default function TournamentRegistration() {
     setProfileDlg({ open: true, userId: uid });
   }, []);
 
+  // BTC = người tạo giải + đồng quản lý. Dedup theo userId, gộp label
+  // để hiển thị "Người tạo · Đồng quản lý" nếu 1 user giữ cả 2 vai.
+  const organizers = useMemo(() => {
+    const map = new Map();
+    const push = (u, label) => {
+      if (!u || typeof u !== "object" || !u._id) return;
+      const uid = String(u._id);
+      if (!map.has(uid)) {
+        map.set(uid, {
+          userId: uid,
+          name: u.nickname || u.name || "BTC",
+          avatar: u.avatar || "",
+          phone: u.phone || "",
+          labels: [],
+        });
+      }
+      const entry = map.get(uid);
+      if (!entry.labels.includes(label)) entry.labels.push(label);
+    };
+    push(tour?.createdBy, "Người tạo giải");
+    (Array.isArray(tour?.managers) ? tour.managers : []).forEach((m) =>
+      push(m?.user, "Đồng quản lý"),
+    );
+    return Array.from(map.values());
+  }, [tour?.createdBy, tour?.managers]);
+
   const handleCloseProfile = useCallback(() => {
     setProfileDlg({ open: false, userId: null });
   }, []);
@@ -2750,6 +2778,99 @@ export default function TournamentRegistration() {
           zIndex: 2,
         }}
       >
+        {/* BTC / Ban tổ chức */}
+        {organizers.length > 0 && (
+          <Paper
+            elevation={0}
+            sx={{
+              p: { xs: 2, md: 2.5 },
+              mb: 3,
+              borderRadius: 2,
+              border: "1px solid",
+              borderColor: "divider",
+              bgcolor: "background.paper",
+            }}
+          >
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              sx={{ mb: 1.5 }}
+            >
+              <AdminPanelSettings fontSize="small" color="primary" />
+              <Typography
+                variant="subtitle2"
+                fontWeight={800}
+                sx={{ textTransform: "uppercase", letterSpacing: 0.5 }}
+              >
+                Ban tổ chức
+              </Typography>
+              <Chip
+                size="small"
+                label={organizers.length}
+                sx={{ height: 20, fontWeight: 700 }}
+              />
+            </Stack>
+            <Stack direction="row" flexWrap="wrap" gap={1.25} useFlexGap>
+              {organizers.map((o) => (
+                <Paper
+                  key={o.userId}
+                  variant="outlined"
+                  sx={{
+                    p: 1,
+                    borderRadius: 2,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 1,
+                    minWidth: 220,
+                    maxWidth: "100%",
+                    cursor: "pointer",
+                    transition: "all .15s",
+                    "&:hover": {
+                      borderColor: "primary.main",
+                      bgcolor: "action.hover",
+                    },
+                  }}
+                  onClick={() => handleOpenProfile({ _id: o.userId })}
+                >
+                  <Avatar src={o.avatar} sx={{ width: 40, height: 40 }}>
+                    {(o.name || "?")[0]?.toUpperCase()}
+                  </Avatar>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography
+                      variant="body2"
+                      fontWeight={700}
+                      noWrap
+                      title={o.name}
+                    >
+                      {o.name}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      noWrap
+                    >
+                      {o.labels.join(" · ")}
+                    </Typography>
+                  </Box>
+                  {o.phone ? (
+                    <IconButton
+                      size="small"
+                      color="primary"
+                      component="a"
+                      href={`tel:${o.phone}`}
+                      onClick={(e) => e.stopPropagation()}
+                      title={`Gọi ${o.phone}`}
+                    >
+                      <PhoneIcon fontSize="small" />
+                    </IconButton>
+                  ) : null}
+                </Paper>
+              ))}
+            </Stack>
+          </Paper>
+        )}
+
         {/* STATS CARDS */}
         <Grid container spacing={2} sx={{ mb: 4 }}>
           {statsLoading ? (
