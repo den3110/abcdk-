@@ -548,7 +548,11 @@ export default function MlpBracketView({ tourId, tour }) {
   }
 
   const go = (path) => navigate(`/tournament/${tourId}/mlp/${path}`);
-  const openDual = (dl) => navigate(`/tournament/${tourId}/mlp/dual/${dl._id}`);
+  const openDual = (dl) => {
+    // Shell dual round 2+ chưa có teamA/B → chi tiết không có gì để xem.
+    if (!dl?.teamA && !dl?.teamB) return;
+    navigate(`/tournament/${tourId}/mlp/duals/${dl._id}`);
+  };
 
   return (
     <Box sx={{ p: { xs: 1.5, md: 3 } }}>
