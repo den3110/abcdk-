@@ -585,29 +585,48 @@ function CompactDreamBreaker({ data, compact }) {
       : "A";
 
   return (
-    <CompactCard badgeText="🏆 DREAM BREAKER">
-      {/* Header info: target + rotate */}
+    <CompactCard>
+      {/* Header info: DREAM BREAKER badge + target + rotate + LIVE */}
       <div
         style={{
           padding: "6px 12px",
           borderBottom: `1px solid ${GOLD_DARK}55`,
           display: "flex",
           alignItems: "center",
-          gap: 10,
+          gap: 8,
           background: "rgba(0,0,0,0.35)",
         }}
       >
+        {/* Badge DREAM BREAKER — nằm inline trong header, không che chữ */}
         <div
           style={{
-            color: GOLD,
-            fontSize: 11,
-            fontWeight: 800,
+            background: GOLD,
+            color: NAVY_BG,
+            padding: "2px 8px",
+            fontWeight: 900,
+            fontSize: 10,
             letterSpacing: 0.6,
-            textTransform: "uppercase",
-            flex: 1,
+            borderRadius: 3,
+            border: `1px solid ${GOLD_DARK}`,
+            whiteSpace: "nowrap",
           }}
         >
-          1v1 → Target {target} · Rotate {dreamBreaker?.rotate || 4}
+          🏆 DREAM BREAKER
+        </div>
+        <div
+          style={{
+            color: "#cbd5e1",
+            fontSize: 11,
+            fontWeight: 600,
+            letterSpacing: 0.4,
+            textTransform: "uppercase",
+            flex: 1,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          1v1 · T{target} · R{dreamBreaker?.rotate || 4}
         </div>
         <div
           style={{
