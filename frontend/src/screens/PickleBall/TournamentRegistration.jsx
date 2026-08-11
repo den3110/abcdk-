@@ -70,6 +70,7 @@ import {
   useSearchRegistrationsQuery,
   useCancelRegistrationMutation,
   useGetTournamentRegistrationHistoryQuery,
+  useManagerSetRegStatusMutation,
 } from "../../slices/tournamentsApiSlice";
 import { BASE_URL } from "../../slices/apiSlice";
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
@@ -1409,6 +1410,154 @@ const RegCardSkeleton = () => (
   </Card>
 );
 
+/* ---------------- 3.9 WAITLIST SECTION ---------------- */
+function WaitlistSection({
+  items,
+  canManage,
+  isSingles,
+  cap,
+  delta,
+  getPlayerAvatar,
+  onPromote,
+  onOpenProfile,
+  regCodeOf,
+  promotingId,
+  tourMaxPairs,
+}) {
+  return (
+    <Box
+      sx={{
+        px: 2,
+        pb: 3,
+        pt: 1,
+        mt: 3,
+        borderTop: (theme) => `2px dashed ${theme.palette.warning.light}`,
+      }}
+    >
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={1}
+        sx={{ mb: 1.5 }}
+      >
+        <Chip
+          size="small"
+          color="warning"
+          label={`⏳ Chờ duyệt · ${items.length}`}
+          sx={{ fontWeight: 800 }}
+        />
+        <Typography variant="body2" color="text.secondary">
+          {tourMaxPairs > 0
+            ? `Vượt cap ${tourMaxPairs} — các cặp này sẽ tự được duyệt khi có cặp khác rút.`
+            : "Đăng ký ngoài số lượng chính thức."}
+        </Typography>
+      </Stack>
+      <Grid container spacing={2}>
+        {items.map((r, i) => {
+          const p1 = r.player1 || {};
+          const p2 = r.player2 || {};
+          return (
+            <Grid key={r._id} size={{ xs: 12, md: 6 }}>
+              <Card
+                variant="outlined"
+                sx={{
+                  borderColor: "warning.main",
+                  bgcolor: "warning.50",
+                }}
+              >
+                <CardContent sx={{ p: 1.5 }}>
+                  <Stack
+                    direction="row"
+                    justifyContent="space-between"
+                    alignItems="center"
+                    sx={{ mb: 1 }}
+                  >
+                    <Typography
+                      variant="caption"
+                      sx={{ fontWeight: 800, color: "warning.dark" }}
+                    >
+                      #{i + 1} · {regCodeOf ? regCodeOf(r) : ""}
+                    </Typography>
+                    {canManage && (
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="success"
+                        onClick={() => onPromote?.(r._id)}
+                        disabled={promotingId === r._id}
+                      >
+                        {promotingId === r._id
+                          ? "Đang duyệt…"
+                          : "✓ Duyệt"}
+                      </Button>
+                    )}
+                  </Stack>
+                  <Stack spacing={0.75}>
+                    <Stack direction="row" alignItems="center" spacing={1}>
+                      <Avatar
+                        src={getPlayerAvatar?.(p1)}
+                        sx={{ width: 32, height: 32 }}
+                      >
+                        {(p1.fullName || p1.nickName || "?")[0]}
+                      </Avatar>
+                      <Typography
+                        variant="body2"
+                        sx={{ flex: 1, fontWeight: 600 }}
+                        onClick={() =>
+                          p1?.user && onOpenProfile?.(p1.user)
+                        }
+                      >
+                        {p1.nickName || p1.fullName || "—"}
+                        {p1.score != null ? (
+                          <Chip
+                            size="small"
+                            label={p1.score}
+                            sx={{ ml: 1, height: 18, fontSize: 11 }}
+                          />
+                        ) : null}
+                      </Typography>
+                    </Stack>
+                    {!isSingles && p2?.fullName && (
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={1}
+                      >
+                        <Avatar
+                          src={getPlayerAvatar?.(p2)}
+                          sx={{ width: 32, height: 32 }}
+                        >
+                          {(p2.fullName || p2.nickName || "?")[0]}
+                        </Avatar>
+                        <Typography
+                          variant="body2"
+                          sx={{ flex: 1, fontWeight: 600 }}
+                          onClick={() =>
+                            p2?.user && onOpenProfile?.(p2.user)
+                          }
+                        >
+                          {p2.nickName || p2.fullName}
+                          {p2.score != null ? (
+                            <Chip
+                              size="small"
+                              label={p2.score}
+                              sx={{ ml: 1, height: 18, fontSize: 11 }}
+                            />
+                          ) : null}
+                        </Typography>
+                      </Stack>
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Grid>
+          );
+        })}
+      </Grid>
+    </Box>
+  );
+}
+
 /* ---------------- 4. MAIN PAGE COMPONENT ---------------- */
 export default function TournamentRegistration() {
   const { id } = useParams();
@@ -1473,6 +1622,22 @@ export default function TournamentRegistration() {
     useCreateComplaintMutation();
   const [updateRegPlayerAvatar] = useManagerUpdateRegPlayerAvatarMutation();
   const [uploadAvatar] = useUploadRealAvatarMutation();
+  const [managerSetRegStatus] = useManagerSetRegStatusMutation();
+  const [promotingId, setPromotingId] = useState(null);
+  const handlePromoteWaitlist = useCallback(
+    async (regId) => {
+      try {
+        setPromotingId(regId);
+        await managerSetRegStatus({ regId, status: "approved" }).unwrap();
+        toast.success("Đã duyệt cặp đăng ký từ waitlist");
+      } catch (err) {
+        toast.error(err?.data?.message || "Duyệt không thành công");
+      } finally {
+        setPromotingId(null);
+      }
+    },
+    [managerSetRegStatus],
+  );
 
   /* Form States */
   const [p1, setP1] = useState(null);
@@ -1574,9 +1739,21 @@ export default function TournamentRegistration() {
     refetch: refetchSearch,
   } = useSearchRegistrationsQuery({ id, q: debouncedQ }, { skip: !debouncedQ });
 
-  const activeList = useMemo(
+  const rawList = useMemo(
     () => (debouncedQ ? searchedRegs : regs),
     [debouncedQ, searchedRegs, regs],
+  );
+  // Tách approved (chính thức, tính vào 48/48) và waitlisted (chờ duyệt).
+  const activeList = useMemo(
+    () =>
+      rawList.filter(
+        (r) => !r.status || r.status === "approved",
+      ),
+    [rawList],
+  );
+  const waitlistedList = useMemo(
+    () => rawList.filter((r) => r.status === "waitlisted"),
+    [rawList],
   );
 
   const displayedItems = useMemo(() => activeList, [activeList]);
@@ -3061,6 +3238,23 @@ export default function TournamentRegistration() {
                       ))}
                     </Grid>
                   </Box>
+                )}
+
+                {/* ── Waitlist section — chỉ hiện khi có cặp chờ duyệt ── */}
+                {waitlistedList.length > 0 && (
+                  <WaitlistSection
+                    items={waitlistedList}
+                    canManage={canManage}
+                    isSingles={isSingles}
+                    cap={cap}
+                    delta={delta}
+                    getPlayerAvatar={getPlayerAvatar}
+                    onPromote={handlePromoteWaitlist}
+                    onOpenProfile={handleOpenProfile}
+                    regCodeOf={regCodeOf}
+                    promotingId={promotingId}
+                    tourMaxPairs={Number(tour?.maxPairs) || 0}
+                  />
                 )}
               </Box>
             </Paper>

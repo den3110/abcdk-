@@ -207,10 +207,25 @@ export const adminCreateRegistration = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Tournament not found" });
   }
 
-  if (tournament.maxPairs && tournament.maxPairs > 0) {
-    const currentCount = await Registration.countDocuments({ tournament: id });
+  // Admin có thể ép trạng thái qua body.status. Nếu không truyền: mặc định
+  // "approved" (admin flow), nhưng nếu maxPairs đã đầy → tự động waitlisted.
+  let waitlisted = false;
+  const forcedStatus = ["approved", "waitlisted"].includes(req.body?.status)
+    ? req.body.status
+    : null;
+  if (forcedStatus === "waitlisted") {
+    waitlisted = true;
+  } else if (
+    !forcedStatus &&
+    tournament.maxPairs &&
+    tournament.maxPairs > 0
+  ) {
+    const currentCount = await Registration.countDocuments({
+      tournament: id,
+      $or: [{ status: "approved" }, { status: { $exists: false } }],
+    });
     if (currentCount >= tournament.maxPairs) {
-      return res.status(400).json({ message: "Giải đã đủ số cặp đăng ký" });
+      waitlisted = true;
     }
   }
 
@@ -239,12 +254,17 @@ export const adminCreateRegistration = asyncHandler(async (req, res) => {
       paidAt: effectivePaymentStatus === "Paid" ? new Date() : null,
     },
     createdBy: req.user?._id || null,
+    status: waitlisted ? "waitlisted" : "approved",
+    approvedBy: waitlisted ? null : req.user?._id || null,
+    approvedAt: waitlisted ? null : new Date(),
   });
 
-  await Tournament.findByIdAndUpdate(id, {
-    $inc: { registered: 1 },
-    $set: { updatedAt: new Date() },
-  });
+  if (!waitlisted) {
+    await Tournament.findByIdAndUpdate(id, {
+      $inc: { registered: 1 },
+      $set: { updatedAt: new Date() },
+    });
+  }
 
   await writeRegistrationAudit({
     req,
@@ -270,6 +290,7 @@ export const adminUpdateRegistration = asyncHandler(async (req, res) => {
     teamFactionId = null,
     message,
     paymentStatus,
+    status: nextStatus,
   } = req.body || {};
 
   const registration = await Registration.findById(regId);
@@ -320,7 +341,52 @@ export const adminUpdateRegistration = asyncHandler(async (req, res) => {
         : null;
   }
 
+  // Chuyển trạng thái đăng ký (promote từ waitlist / rút / từ chối).
+  let promotedFromWaitlist = false;
+  let demotedApproved = false;
+  const prevStatus = registration.status || "approved";
+  if (
+    nextStatus &&
+    ["approved", "waitlisted", "rejected", "withdrawn"].includes(nextStatus) &&
+    nextStatus !== prevStatus
+  ) {
+    registration.status = nextStatus;
+    if (nextStatus === "approved") {
+      registration.approvedBy = req.user?._id || null;
+      registration.approvedAt = new Date();
+      if (prevStatus === "waitlisted") promotedFromWaitlist = true;
+    }
+    if (
+      ["rejected", "withdrawn"].includes(nextStatus) &&
+      prevStatus === "approved"
+    ) {
+      demotedApproved = true;
+    }
+  }
+
   await registration.save();
+
+  // Cập nhật counter + auto-promote nếu applicable.
+  if (promotedFromWaitlist) {
+    await Tournament.updateOne(
+      { _id: tournament._id },
+      { $inc: { registered: 1 }, $set: { updatedAt: new Date() } },
+    );
+  }
+  if (demotedApproved) {
+    await Tournament.updateOne(
+      { _id: tournament._id },
+      { $inc: { registered: -1 }, $set: { updatedAt: new Date() } },
+    );
+    try {
+      const { autoPromoteRegistrationFromWaitlist } = await import(
+        "../../services/waitlistService.js"
+      );
+      await autoPromoteRegistrationFromWaitlist(tournament._id);
+    } catch (err) {
+      console.error("[waitlist] auto-promote error:", err?.message || err);
+    }
+  }
 
   await writeRegistrationAudit({
     req,
@@ -447,11 +513,16 @@ export const adminDeleteRegistration = asyncHandler(async (req, res) => {
   }
 
   const before = reg.toObject({ depopulate: true });
+  const wasApproved =
+    !reg.status || reg.status === "approved";
 
-  await Tournament.findByIdAndUpdate(reg.tournament, {
-    $inc: { registered: -1 },
-    $set: { updatedAt: new Date() },
-  });
+  // Chỉ giảm counter nếu cặp đã approved (waitlisted không chiếm slot).
+  if (wasApproved) {
+    await Tournament.findByIdAndUpdate(reg.tournament, {
+      $inc: { registered: -1 },
+      $set: { updatedAt: new Date() },
+    });
+  }
 
   await reg.deleteOne();
 
@@ -463,6 +534,21 @@ export const adminDeleteRegistration = asyncHandler(async (req, res) => {
     after: {},
     note: "adminDeleteRegistration",
   });
+
+  // Auto-promote cặp waitlist cũ nhất khi có slot approved trống.
+  if (wasApproved) {
+    try {
+      const { autoPromoteRegistrationFromWaitlist } = await import(
+        "../../services/waitlistService.js"
+      );
+      await autoPromoteRegistrationFromWaitlist(reg.tournament);
+    } catch (err) {
+      console.error(
+        "[waitlist] auto-promote after delete error:",
+        err?.message || err,
+      );
+    }
+  }
 
   res.json({ message: "Deleted", tournament: reg.tournament });
 });

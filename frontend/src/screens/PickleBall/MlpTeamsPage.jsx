@@ -43,12 +43,14 @@ const STATUS_COLOR = {
   approved: "success",
   rejected: "error",
   withdrawn: "default",
+  waitlisted: "warning",
 };
 const STATUS_LABEL = {
   pending: "Chờ duyệt",
   approved: "Đã duyệt",
   rejected: "Từ chối",
   withdrawn: "Đã rút",
+  waitlisted: "Chờ duyệt (vượt cap)",
 };
 
 function TeamEditor({ open, onClose, team, tour, onSaved }) {
@@ -545,7 +547,7 @@ export default function MlpTeamsPage() {
       </Stack>
 
       <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap" }} useFlexGap>
-        {["", "pending", "approved", "rejected", "withdrawn"].map((s) => (
+        {["", "pending", "approved", "waitlisted", "rejected", "withdrawn"].map((s) => (
           <Chip
             key={s}
             label={s ? STATUS_LABEL[s] : `Tất cả (${items.length})`}
@@ -618,28 +620,35 @@ export default function MlpTeamsPage() {
                     </Stack>
                   </Box>
                   <Stack spacing={0.5}>
-                    {canManage && team.status === "pending" && (
-                      <>
-                        <Tooltip title="Duyệt">
-                          <IconButton
-                            size="small"
-                            color="success"
-                            onClick={() => handleSetStatus(team, "approved")}
+                    {canManage &&
+                      ["pending", "waitlisted"].includes(team.status) && (
+                        <>
+                          <Tooltip
+                            title={
+                              team.status === "waitlisted"
+                                ? "Duyệt (vượt cap)"
+                                : "Duyệt"
+                            }
                           >
-                            <Check size={16} />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Từ chối">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleSetStatus(team, "rejected")}
-                          >
-                            <X size={16} />
-                          </IconButton>
-                        </Tooltip>
-                      </>
-                    )}
+                            <IconButton
+                              size="small"
+                              color="success"
+                              onClick={() => handleSetStatus(team, "approved")}
+                            >
+                              <Check size={16} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Từ chối">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleSetStatus(team, "rejected")}
+                            >
+                              <X size={16} />
+                            </IconButton>
+                          </Tooltip>
+                        </>
+                      )}
                     {(canManage || isOwnTeam(team)) && (
                       <Tooltip title="Sửa">
                         <IconButton

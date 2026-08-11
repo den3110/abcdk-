@@ -1448,6 +1448,18 @@ export const createMlpTeam = asyncHandler(async (req, res) => {
     );
   }
 
+  // Waitlist: nếu tour.maxPairs > 0 và số team approved đã đạt → team mới
+  // vào waitlist (kể cả BTC tạo, để công bằng với đội đăng ký trước).
+  let waitlisted = false;
+  if (tour.maxPairs && tour.maxPairs > 0) {
+    const currentApproved = await MlpTeam.countDocuments({
+      tournament: tid,
+      status: { $in: ["approved", "pending"] },
+    });
+    if (currentApproved >= tour.maxPairs) waitlisted = true;
+  }
+
+  const isManager = canManageTournament(req.user, tour);
   const doc = await MlpTeam.create({
     tournament: tid,
     name: String(body.name).trim().slice(0, 100),
@@ -1457,10 +1469,11 @@ export const createMlpTeam = asyncHandler(async (req, res) => {
     captain,
     players,
     createdBy: req.user._id,
-    // Admin/manager tạo → auto approved. User thường → pending.
-    status: canManageTournament(req.user, tour) ? "approved" : "pending",
-    approvedBy: canManageTournament(req.user, tour) ? req.user._id : null,
-    approvedAt: canManageTournament(req.user, tour) ? new Date() : null,
+    // Ưu tiên waitlist nếu quá cap. Ngược lại: admin/manager → approved,
+    // user thường → pending.
+    status: waitlisted ? "waitlisted" : isManager ? "approved" : "pending",
+    approvedBy: waitlisted ? null : isManager ? req.user._id : null,
+    approvedAt: waitlisted ? null : isManager ? new Date() : null,
   });
   res.status(201).json(doc);
 });
@@ -1476,7 +1489,9 @@ export const listMlpTeams = asyncHandler(async (req, res) => {
   const status = req.query.status;
   if (
     status &&
-    ["pending", "approved", "rejected", "withdrawn"].includes(status)
+    ["pending", "approved", "rejected", "withdrawn", "waitlisted"].includes(
+      status,
+    )
   ) {
     q.status = status;
   }
@@ -1558,11 +1573,14 @@ export const updateMlpTeam = asyncHandler(async (req, res) => {
     doc.players = players;
   }
 
-  // Admin approve/reject/withdraw
+  // Admin approve/reject/withdraw/promote-from-waitlist
   let statusChanged = null;
+  const prevStatus = doc.status;
   if (
     body.status &&
-    ["pending", "approved", "rejected", "withdrawn"].includes(body.status) &&
+    ["pending", "approved", "rejected", "withdrawn", "waitlisted"].includes(
+      body.status,
+    ) &&
     canManageTournament(req.user, tour)
   ) {
     if (doc.status !== body.status) statusChanged = body.status;
@@ -1605,6 +1623,24 @@ export const updateMlpTeam = asyncHandler(async (req, res) => {
       status: statusChanged,
     }).catch(() => {});
   }
+  // Auto-promote FIFO nếu team approved bị chuyển sang rejected/withdrawn.
+  if (
+    statusChanged &&
+    ["rejected", "withdrawn"].includes(statusChanged) &&
+    ["approved", "pending"].includes(prevStatus)
+  ) {
+    try {
+      const { autoPromoteMlpTeamFromWaitlist } = await import(
+        "../services/waitlistService.js"
+      );
+      await autoPromoteMlpTeamFromWaitlist(doc.tournament, req.user?._id);
+    } catch (err) {
+      console.error(
+        "[waitlist] mlp auto-promote after status change error:",
+        err?.message || err,
+      );
+    }
+  }
   res.json(doc);
 });
 
@@ -1631,7 +1667,24 @@ export const deleteMlpTeam = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Team đã có trận đấu, không thể xoá. Chỉ admin mới xoá được.");
   }
+  const wasApprovedOrPending = ["approved", "pending"].includes(doc.status);
+  const tournamentId = doc.tournament;
   await doc.deleteOne();
+
+  // Auto-promote FIFO khi team approved/pending bị xoá.
+  if (wasApprovedOrPending) {
+    try {
+      const { autoPromoteMlpTeamFromWaitlist } = await import(
+        "../services/waitlistService.js"
+      );
+      await autoPromoteMlpTeamFromWaitlist(tournamentId, req.user?._id);
+    } catch (err) {
+      console.error(
+        "[waitlist] mlp auto-promote after delete error:",
+        err?.message || err,
+      );
+    }
+  }
   res.json({ success: true });
 });
 

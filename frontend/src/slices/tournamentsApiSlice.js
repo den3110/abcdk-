@@ -363,6 +363,21 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // ✅ Admin/manager promote registration từ waitlist → approved
+    // (dùng PATCH /admin/tournaments/registrations/:regId với body.status)
+    managerSetRegStatus: builder.mutation({
+      query: ({ regId, status }) => ({
+        url: `/api/admin/tournaments/registrations/${regId}`,
+        method: "PATCH",
+        body: { status },
+      }),
+      invalidatesTags: (r, e, { regId }) => [
+        "Registrations",
+        { type: "Registration", id: regId },
+        { type: "RegistrationHistory", id: "LIST" },
+      ],
+    }),
+
     /* ========= SNAPSHOT OVERLAY (giữ) ========= */
     getOverlaySnapshot: builder.query({
       // Nếu BE của bạn khác, sửa route này cho khớp
@@ -902,6 +917,7 @@ export const {
   useRespondRegInviteMutation,
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
+  useManagerSetRegStatusMutation,
   useGetOverlaySnapshotQuery,
   useGetDrawStatusQuery,
   useInitDrawMutation,

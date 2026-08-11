@@ -307,12 +307,17 @@ export const createRegistration = asyncHandler(async (req, res) => {
   const isSingles = et === "single" || et === "singles";
   const isDoubles = et === "double" || et === "doubles";
 
-  /* ─ 2) Giới hạn số cặp ─ */
+  /* ─ 2) Giới hạn số cặp — nếu đạt max → đăng ký vào waitlist thay vì reject ─ */
+  let waitlisted = false;
   if (tour.maxPairs && tour.maxPairs > 0) {
-    const currentCount = await Registration.countDocuments({ tournament: id });
+    // Chỉ đếm các registration có status "approved" (mặc định cho data cũ).
+    // Waitlisted không được tính vào số chính thức.
+    const currentCount = await Registration.countDocuments({
+      tournament: id,
+      $or: [{ status: "approved" }, { status: { $exists: false } }],
+    });
     if (currentCount >= tour.maxPairs) {
-      res.status(400);
-      throw new Error("Giải đã đủ số cặp đăng ký");
+      waitlisted = true;
     }
   }
 
@@ -528,12 +533,17 @@ export const createRegistration = asyncHandler(async (req, res) => {
         ? { status: "Paid", paidAt: new Date() }
         : { status: "Unpaid" },
     createdBy: req.user._id,
+    status: waitlisted ? "waitlisted" : "approved",
+    approvedAt: waitlisted ? null : new Date(),
   });
 
-  await Tournament.updateOne(
-    { _id: id },
-    { $inc: { registered: 1 }, $set: { updatedAt: new Date() } },
-  );
+  // Chỉ tăng counter khi approved thật sự. Waitlisted không chiếm slot.
+  if (!waitlisted) {
+    await Tournament.updateOne(
+      { _id: id },
+      { $inc: { registered: 1 }, $set: { updatedAt: new Date() } },
+    );
+  }
 
   await writeRegistrationAudit(req, {
     registrationId: reg._id,
@@ -1098,12 +1108,28 @@ export const cancelRegistration = asyncHandler(async (req, res) => {
     note: "cancelRegistration",
   });
 
-  // Giảm counter registered của giải (nếu có)
-  if (reg.tournament) {
+  // Chỉ giảm counter khi cặp bị xoá là approved (waitlisted không chiếm slot).
+  const wasApproved = !reg.status || reg.status === "approved";
+  if (reg.tournament && wasApproved) {
     const tour = await Tournament.findById(reg.tournament);
     if (tour && typeof tour.registered === "number") {
       tour.registered = Math.max(0, (tour.registered || 0) - 1);
       await tour.save();
+    }
+  }
+
+  // Auto-promote FIFO cặp waitlist cũ nhất khi cặp approved rút.
+  if (reg.tournament && wasApproved) {
+    try {
+      const { autoPromoteRegistrationFromWaitlist } = await import(
+        "../services/waitlistService.js"
+      );
+      await autoPromoteRegistrationFromWaitlist(reg.tournament);
+    } catch (err) {
+      console.error(
+        "[waitlist] auto-promote after cancel error:",
+        err?.message || err,
+      );
     }
   }
 

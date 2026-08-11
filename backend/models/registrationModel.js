@@ -126,6 +126,25 @@ const registrationSchema = new mongoose.Schema(
       ref: "User",
       required: false,
     },
+    // Top-level status. Waitlist flow:
+    //  - "approved":   được tính vào số registered chính thức (mặc định).
+    //  - "waitlisted": vượt maxPairs, chờ BTC duyệt hoặc auto-promote FIFO
+    //                  khi có cặp approved rút → không hiển thị vào 48/48.
+    //  - "rejected":   BTC từ chối.
+    //  - "withdrawn":  VĐV rút.
+    // Mặc định "approved" để tương thích ngược (data cũ đều = approved).
+    status: {
+      type: String,
+      enum: ["approved", "waitlisted", "rejected", "withdrawn"],
+      default: "approved",
+      index: true,
+    },
+    approvedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    approvedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

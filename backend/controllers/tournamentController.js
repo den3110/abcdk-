@@ -2884,13 +2884,24 @@ const getTournaments = asyncHandler(async (req, res) => {
   if (limit) pipeline.push({ $limit: limit });
 
   // ----- registered / isFull / remaining -----
+  // Chỉ đếm registration status "approved" (mặc định + data cũ). Waitlisted
+  // không được tính vào công khai — người dùng vẫn thấy 48/48 dù có đội chờ.
   pipeline.push(
     {
       $lookup: {
         from: "registrations",
         let: { tid: "$_id" },
         pipeline: [
-          { $match: { $expr: { $eq: ["$tournament", "$$tid"] } } },
+          {
+            $match: {
+              $expr: { $eq: ["$tournament", "$$tid"] },
+              $or: [
+                { status: "approved" },
+                { status: { $exists: false } },
+                { status: null },
+              ],
+            },
+          },
           { $group: { _id: null, c: { $sum: 1 } } },
         ],
         as: "_rc",
@@ -3062,19 +3073,35 @@ const getTournamentById = asyncHandler(async (req, res) => {
     throw new Error("Tournament not found");
   }
 
-  const [managerRows, registrationsCount, checkedInCount, paidCount] =
-    await Promise.all([
-      TournamentManager.find({ tournament: id }).select("user role").lean(),
-      Registration.countDocuments({ tournament: id }),
-      Registration.countDocuments({
-        tournament: id,
-        checkinAt: { $ne: null },
-      }),
-      Registration.countDocuments({
-        tournament: id,
-        "payment.status": "Paid",
-      }),
-    ]);
+  // Chỉ đếm registration approved (loại waitlisted khỏi 48/48). Data cũ
+  // không có field status → tương thích ngược bằng $or.
+  const approvedFilter = {
+    tournament: id,
+    $or: [
+      { status: "approved" },
+      { status: { $exists: false } },
+      { status: null },
+    ],
+  };
+  const [
+    managerRows,
+    registrationsCount,
+    waitlistedCount,
+    checkedInCount,
+    paidCount,
+  ] = await Promise.all([
+    TournamentManager.find({ tournament: id }).select("user role").lean(),
+    Registration.countDocuments(approvedFilter),
+    Registration.countDocuments({ tournament: id, status: "waitlisted" }),
+    Registration.countDocuments({
+      ...approvedFilter,
+      checkinAt: { $ne: null },
+    }),
+    Registration.countDocuments({
+      ...approvedFilter,
+      "payment.status": "Paid",
+    }),
+  ]);
 
   const managers = managerRows.map((r) => ({ user: r.user, role: r.role }));
   const now = new Date();
@@ -3138,6 +3165,7 @@ const getTournamentById = asyncHandler(async (req, res) => {
     _managerUserIds: managerRows.map((r) => String(r.user)),
     stats: {
       registrationsCount,
+      waitlistedCount,
       checkedInCount,
       paidCount,
     },
