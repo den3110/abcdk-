@@ -48,6 +48,7 @@ const DEFAULT_SLOT = {
 export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
   const [minRoster, setMinRoster] = useState(4);
   const [maxRoster, setMaxRoster] = useState(8);
+  const [maxTeamScore, setMaxTeamScore] = useState("");
   const [slots, setSlots] = useState([]);
   const [pointsToWin, setPointsToWin] = useState(21);
   const [winByTwo, setWinByTwo] = useState(true);
@@ -72,6 +73,11 @@ export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
     const cfg = tour?.mlpConfig || {};
     setMinRoster(clampInt(cfg.minRosterSize ?? 4, 1, 30));
     setMaxRoster(clampInt(cfg.maxRosterSize ?? 8, 1, 30));
+    setMaxTeamScore(
+      cfg.maxTeamScore != null && cfg.maxTeamScore !== ""
+        ? String(cfg.maxTeamScore)
+        : "",
+    );
     setSlots(
       Array.isArray(cfg.slots) && cfg.slots.length
         ? cfg.slots.map((s) => ({
@@ -156,11 +162,18 @@ export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
             mode: capMode,
             points: clampInt(capPoints, pointsToWin + 1, 99),
           };
+    const parsedMaxScore = (() => {
+      const raw = String(maxTeamScore ?? "").trim();
+      if (!raw) return null;
+      const n = Number(raw);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    })();
     try {
       await update({
         tourId: tour?._id,
         minRosterSize: minRoster,
         maxRosterSize: maxRoster,
+        maxTeamScore: parsedMaxScore,
         slots: slots.map((s, i) => ({ ...s, order: i })),
         pointsToWin,
         winByTwo,
@@ -221,6 +234,17 @@ export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
               value={maxRoster}
               onChange={(e) => setMaxRoster(clampInt(e.target.value, 1, 30))}
               inputProps={{ min: 1, max: 30 }}
+              fullWidth
+            />
+            <TextField
+              size="small"
+              label="Giới hạn tổng điểm trình đôi"
+              type="number"
+              value={maxTeamScore}
+              onChange={(e) => setMaxTeamScore(e.target.value)}
+              placeholder="Bỏ trống = không giới hạn"
+              helperText="Tổng điểm ĐÔI của các VĐV trong roster không vượt quá giá trị này"
+              inputProps={{ min: 0, step: 0.1 }}
               fullWidth
             />
           </Stack>

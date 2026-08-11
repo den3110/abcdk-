@@ -146,6 +146,42 @@ async function attachPlayerScores(items) {
   return items;
 }
 
+// Tính tổng điểm ĐÔI của roster từ Ranking. Player chưa có Ranking coi
+// là 0. Dùng để enforce mlpConfig.maxTeamScore khi create/update team.
+async function computeTeamDoubleScore(playerIds) {
+  const ids = [
+    ...new Set((playerIds || []).map(String)),
+  ].filter((s) => mongoose.isValidObjectId(s));
+  if (ids.length === 0) return 0;
+  const objIds = ids.map((s) => new mongoose.Types.ObjectId(s));
+  const rows = await Ranking.find({ user: { $in: objIds } })
+    .select("user double doubleScore updatedAt")
+    .sort({ updatedAt: -1 })
+    .lean();
+  const map = new Map();
+  for (const r of rows) {
+    const uid = String(r.user);
+    if (map.has(uid)) continue;
+    map.set(uid, Number(r.double ?? r.doubleScore ?? 0));
+  }
+  let sum = 0;
+  for (const uid of ids) sum += map.get(uid) || 0;
+  return Math.round(sum * 1000) / 1000;
+}
+
+// Throw 400 nếu tổng điểm ĐÔI của roster vượt cap. cap = null/0 → bỏ qua.
+async function assertMaxTeamScore(res, players, cfg) {
+  const cap = Number(cfg?.maxTeamScore);
+  if (!Number.isFinite(cap) || cap <= 0) return;
+  const sum = await computeTeamDoubleScore(players);
+  if (sum > cap) {
+    res.status(400);
+    throw new Error(
+      `Tổng điểm trình đôi của roster (${sum}) vượt giới hạn ${cap} của giải`,
+    );
+  }
+}
+
 /* ═════════════════════ CHECK-IN ═════════════════════ */
 
 // POST /api/mlp/duals/:id/check-in — captain xác nhận đội sẵn sàng.
@@ -1360,6 +1396,15 @@ export const updateMlpConfig = asyncHandler(async (req, res) => {
     cfg.minRosterSize = Math.max(1, Math.min(30, Number(body.minRosterSize)));
   if (Number.isFinite(Number(body.maxRosterSize)))
     cfg.maxRosterSize = Math.max(1, Math.min(30, Number(body.maxRosterSize)));
+  if (Object.prototype.hasOwnProperty.call(body, "maxTeamScore")) {
+    const raw = body.maxTeamScore;
+    if (raw == null || raw === "") {
+      cfg.maxTeamScore = null;
+    } else {
+      const n = Number(raw);
+      cfg.maxTeamScore = Number.isFinite(n) && n > 0 ? n : null;
+    }
+  }
   if (Array.isArray(body.slots)) {
     cfg.slots = body.slots
       .slice(0, 20)
@@ -1480,6 +1525,7 @@ export const createMlpTeam = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error(`Roster tối đa ${maxSize} VĐV`);
   }
+  await assertMaxTeamScore(res, players, cfg);
   if (!body.name || !String(body.name).trim()) {
     res.status(400);
     throw new Error("Cần nhập tên team");
@@ -1612,6 +1658,7 @@ export const updateMlpTeam = asyncHandler(async (req, res) => {
       res.status(400);
       throw new Error(`Roster tối đa ${maxSize} VĐV`);
     }
+    await assertMaxTeamScore(res, players, cfg);
     // Conflict với team khác
     const conflict = await MlpTeam.findOne({
       _id: { $ne: doc._id },

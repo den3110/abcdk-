@@ -131,6 +131,8 @@ const MlpConfigSchema = new mongoose.Schema(
     // Roster limits — BTC không ép giới tính, chỉ min/max size.
     minRosterSize: { type: Number, default: 4, min: 1, max: 30 },
     maxRosterSize: { type: Number, default: 8, min: 1, max: 30 },
+    // Trần tổng điểm trình ĐÔI của roster; null = không giới hạn.
+    maxTeamScore: { type: Number, default: null, min: 0 },
     // Danh sách sub-matches trong 1 dual match (thứ tự = order).
     slots: {
       type: [MlpSlotSchema],

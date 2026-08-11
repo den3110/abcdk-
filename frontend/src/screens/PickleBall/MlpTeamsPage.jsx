@@ -58,6 +58,9 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
   const cfg = tour?.mlpConfig || {};
   const minRoster = cfg.minRosterSize || 4;
   const maxRoster = cfg.maxRosterSize || 8;
+  const maxTeamScore = Number(cfg.maxTeamScore) > 0
+    ? Number(cfg.maxTeamScore)
+    : null;
 
   const [name, setName] = useState(team?.name || "");
   const [shortName, setShortName] = useState(team?.shortName || "");
@@ -114,6 +117,24 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
   const removePlayer = (id) =>
     setPlayers(players.filter((p) => String(p._id || p) !== String(id)));
 
+  const totalDouble = useMemo(
+    () =>
+      players.reduce(
+        (sum, p) => sum + (Number(p?.score?.double) || 0),
+        0,
+      ),
+    [players],
+  );
+  const totalSingle = useMemo(
+    () =>
+      players.reduce(
+        (sum, p) => sum + (Number(p?.score?.single) || 0),
+        0,
+      ),
+    [players],
+  );
+  const overCap = maxTeamScore != null && totalDouble > maxTeamScore;
+
   const handleSubmit = async () => {
     if (!name.trim()) {
       toast.error("Nhập tên team");
@@ -129,6 +150,12 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
     }
     if (players.length > maxRoster) {
       toast.error(`Roster tối đa ${maxRoster} VĐV`);
+      return;
+    }
+    if (overCap) {
+      toast.error(
+        `Tổng điểm đôi ${totalDouble.toFixed(2)} vượt giới hạn ${maxTeamScore} của giải`,
+      );
       return;
     }
     const body = {
@@ -260,44 +287,42 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
             ))}
           </Stack>
 
-          {(() => {
-            const totalDouble = players.reduce(
-              (sum, p) => sum + (Number(p?.score?.double) || 0),
-              0,
-            );
-            const totalSingle = players.reduce(
-              (sum, p) => sum + (Number(p?.score?.single) || 0),
-              0,
-            );
-            return (
-              <Stack
-                direction="row"
-                justifyContent="space-between"
-                alignItems="center"
-                flexWrap="wrap"
-                gap={1}
-              >
-                <Typography variant="body2" fontWeight={700}>
-                  Roster ({players.length}/{maxRoster})
-                </Typography>
-                {players.length > 0 && (
-                  <Stack direction="row" spacing={0.75} alignItems="center">
-                    <Chip
-                      size="small"
-                      color="primary"
-                      label={`Tổng đôi: ${totalDouble.toFixed(2)}`}
-                      sx={{ fontWeight: 800 }}
-                    />
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label={`Tổng đơn: ${totalSingle.toFixed(2)}`}
-                    />
-                  </Stack>
-                )}
+          <Stack
+            direction="row"
+            justifyContent="space-between"
+            alignItems="center"
+            flexWrap="wrap"
+            gap={1}
+          >
+            <Typography variant="body2" fontWeight={700}>
+              Roster ({players.length}/{maxRoster})
+            </Typography>
+            {players.length > 0 && (
+              <Stack direction="row" spacing={0.75} alignItems="center">
+                <Chip
+                  size="small"
+                  color={overCap ? "error" : "primary"}
+                  label={
+                    maxTeamScore != null
+                      ? `Tổng đôi: ${totalDouble.toFixed(2)} / ${maxTeamScore}`
+                      : `Tổng đôi: ${totalDouble.toFixed(2)}`
+                  }
+                  sx={{ fontWeight: 800 }}
+                />
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`Tổng đơn: ${totalSingle.toFixed(2)}`}
+                />
               </Stack>
-            );
-          })()}
+            )}
+          </Stack>
+          {overCap && (
+            <Alert severity="error" sx={{ borderRadius: 2 }}>
+              Tổng điểm đôi của roster ({totalDouble.toFixed(2)}) vượt giới
+              hạn {maxTeamScore} của giải. Vui lòng bỏ bớt VĐV điểm cao.
+            </Alert>
+          )}
 
           <Box sx={{ position: "relative" }}>
             <TextField
@@ -504,7 +529,11 @@ function TeamEditor({ open, onClose, team, tour, onSaved }) {
         <Button onClick={onClose} disabled={busy}>
           Huỷ
         </Button>
-        <Button variant="contained" onClick={handleSubmit} disabled={busy}>
+        <Button
+          variant="contained"
+          onClick={handleSubmit}
+          disabled={busy || overCap}
+        >
           {busy ? "Đang lưu..." : isEdit ? "Cập nhật" : "Tạo team"}
         </Button>
       </DialogActions>
