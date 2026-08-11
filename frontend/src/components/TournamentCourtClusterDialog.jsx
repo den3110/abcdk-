@@ -38,7 +38,8 @@ import {
   useUpdateTournamentAllowedCourtClustersMutation,
   useUpdateTournamentCourtStationAssignmentConfigMutation,
 } from "../slices/courtClustersAdminApiSlice";
-import { useListTournamentRefereesQuery } from "../slices/refereeScopeApiSlice";
+import { useListTournamentRefereesQuery } from "../slices/tournamentsApiSlice";
+import { useListTournamentRefereesQuery as useListLegacyTournamentRefereesQuery } from "../slices/refereeScopeApiSlice";
 import { useSocket } from "../context/SocketContext";
 import { useSocketRoomSet } from "../hook/useSocketRoomSet";
 import {
@@ -892,15 +893,24 @@ function TournamentCourtClusterDialog({
     isLoading: loadingReferees,
     refetch: refetchTournamentReferees,
   } =
-    useListTournamentRefereesQuery(
-      { tid: tournamentId, q: "" },
-      { skip: !open || !tournamentId },
-    );
+    useListTournamentRefereesQuery(tournamentId, {
+      skip: !open || !tournamentId,
+    });
+  // Union với legacy pool (User.referee.tournaments) — tránh mất trọng tài
+  // đã gán bằng flow cũ. Sau khi migrate xong có thể bỏ.
+  const {
+    data: legacyRefereesData,
+    refetch: refetchLegacyReferees,
+  } = useListLegacyTournamentRefereesQuery(
+    { tid: tournamentId, q: "" },
+    { skip: !open || !tournamentId },
+  );
 
   const handleRefreshStatus = useCallback(async () => {
     const tasks = [];
     if (refetchRuntime) tasks.push(refetchRuntime());
     if (refetchTournamentReferees) tasks.push(refetchTournamentReferees());
+    if (refetchLegacyReferees) tasks.push(refetchLegacyReferees());
     if (refetchClusterOptions) tasks.push(refetchClusterOptions());
     if (!tasks.length) return;
 
@@ -910,21 +920,40 @@ function TournamentCourtClusterDialog({
     } catch {
       toast.error("Làm mới trạng thái sân thất bại");
     }
-  }, [refetchClusterOptions, refetchRuntime, refetchTournamentReferees]);
+  }, [
+    refetchClusterOptions,
+    refetchRuntime,
+    refetchTournamentReferees,
+    refetchLegacyReferees,
+  ]);
 
   const stations = useMemo(() => runtime?.stations || [], [runtime?.stations]);
   const tournamentReferees = useMemo(() => {
-    if (Array.isArray(tournamentRefereesData?.items)) {
-      return tournamentRefereesData.items;
-    }
-    if (Array.isArray(tournamentRefereesData?.data)) {
-      return tournamentRefereesData.data;
-    }
-    if (Array.isArray(tournamentRefereesData)) {
-      return tournamentRefereesData;
-    }
-    return [];
-  }, [tournamentRefereesData]);
+    const extractRows = (data) => {
+      if (Array.isArray(data?.items)) return data.items;
+      if (Array.isArray(data?.data)) return data.data;
+      if (Array.isArray(data)) return data;
+      return [];
+    };
+    // Endpoint /api/tournaments/:tid/referees trả về TournamentReferee doc
+    // { _id, user: {...}, note }. Unwrap .user để tương thích getRefId (user._id)
+    // + refDisplayName (user.name/nickname). Legacy endpoint trả user thẳng.
+    const unwrap = (row) => {
+      if (row && typeof row === "object" && row.user && typeof row.user === "object") {
+        return row.user;
+      }
+      return row;
+    };
+    const map = new Map();
+    [...extractRows(tournamentRefereesData), ...extractRows(legacyRefereesData)]
+      .map(unwrap)
+      .filter(Boolean)
+      .forEach((user) => {
+        const id = getRefId(user);
+        if (id && !map.has(id)) map.set(id, user);
+      });
+    return Array.from(map.values());
+  }, [tournamentRefereesData, legacyRefereesData]);
   const refereeOptions = useMemo(() => {
     const map = new Map();
     tournamentReferees.forEach((referee) => {
