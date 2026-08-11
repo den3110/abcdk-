@@ -258,15 +258,18 @@ export async function syncMatchToMlpSubMatch(matchDoc) {
   dual.slotWinsB = wb;
 
   const tour = await Tournament.findById(dual.tournament);
+  let justFinished = false;
   if (allFinished) {
     const cfg = tour?.mlpConfig || {};
     const dbEnabled = cfg.dreamBreaker?.enabled !== false;
     if (wa === wb && dbEnabled) {
       dual.status = "tie_break";
     } else {
+      const wasFinishedDual = dual.status === "finished";
       dual.status = "finished";
       dual.winner = wa > wb ? "A" : wb > wa ? "B" : null;
       dual.finishedAt = new Date();
+      if (!wasFinishedDual) justFinished = true;
     }
   } else if (dual.status === "scheduled" && (scoreA > 0 || scoreB > 0)) {
     dual.status = "live";
@@ -274,6 +277,15 @@ export async function syncMatchToMlpSubMatch(matchDoc) {
   }
 
   await dual.save();
+
+  // Auto-advance winner nếu dual thuộc knockout — lazy import để tránh
+  // circular (mlpController import mlpMatchSync qua ensureMlpSubMatchDoc).
+  if (justFinished && dual.phase === "knockout") {
+    try {
+      const mod = await import("../controllers/mlpController.js");
+      mod.advanceMlpKnockoutWinner?.(dual).catch?.(() => {});
+    } catch (_err) {}
+  }
 
   if (subJustFinished && !sub.result.ratingApplied && sub.result.winner) {
     const slot = (tour?.mlpConfig?.slots || []).find(

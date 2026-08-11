@@ -54,6 +54,13 @@ const mlpTeamSchema = new Schema(
       pointsAgainst: { type: Number, default: 0 },
     },
 
+    // Pool assignment cho group stage. Chỉ có ý nghĩa khi tournament.mlpConfig.groupStage.enabled.
+    // poolKey: "A".."Z" (đặt theo poolIndex). null = chưa bốc thăm.
+    // seed: thứ tự seed trong bảng (1..N) — dùng để hiển thị / tiebreak khi cần.
+    poolKey: { type: String, default: null, index: true },
+    poolIndex: { type: Number, default: null },
+    seed: { type: Number, default: null },
+
     status: {
       type: String,
       enum: ["pending", "approved", "rejected", "withdrawn"],

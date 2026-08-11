@@ -21,10 +21,12 @@ import {
   MenuItem,
   Select,
   Stack,
+  Tab,
+  Tabs,
   Tooltip,
   Typography,
 } from "@mui/material";
-import { RefreshCw, Play, Zap } from "lucide-react";
+import { RefreshCw, Play, Zap, Shuffle } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { useGetTournamentQuery } from "../../slices/tournamentsApiSlice";
@@ -36,6 +38,7 @@ import {
   useDeleteMlpDualMutation,
 } from "../../slices/mlpApiSlice";
 import TournamentCourtClusterDialog from "../../components/TournamentCourtClusterDialog";
+import MlpPoolDrawDialog from "../../components/mlp/MlpPoolDrawDialog";
 
 const STATUS_COLOR = {
   scheduled: "default",
@@ -234,13 +237,33 @@ export default function MlpDualsPage() {
   const [genKnockout, { isLoading: koLoading }] = useGenerateMlpKnockoutMutation();
   const [deleteDual] = useDeleteMlpDualMutation();
   const [clusterDialogOpen, setClusterDialogOpen] = useState(false);
+  const [drawDialogOpen, setDrawDialogOpen] = useState(false);
+  const [poolTab, setPoolTab] = useState("all"); // 'all' | poolKey | 'knockout'
+
+  const gsEnabled = tour?.mlpConfig?.groupStage?.enabled === true;
+  const drawStatus = tour?.mlpConfig?.groupStage?.drawStatus || "idle";
 
   const handleGenKnockout = async () => {
-    const raw = window.prompt("Số team vào knockout (2/4/8)?", "4");
-    const topN = Math.max(2, Math.min(32, Number(raw) || 4));
     try {
-      const r = await genKnockout({ tourId: id, topN }).unwrap();
-      toast.success(`Đã sinh ${r.generated} trận knockout`);
+      let body;
+      if (gsEnabled) {
+        const topPerPool = tour?.mlpConfig?.groupStage?.topPerPool || 2;
+        if (
+          !window.confirm(
+            `Sinh knockout: lấy top ${topPerPool} đội mỗi bảng theo BXH hiện tại. Tiếp tục?`,
+          )
+        )
+          return;
+        body = { tid: id, topPerPool, crossPoolPairing: "cross" };
+      } else {
+        const raw = window.prompt("Số team vào knockout (2/4/8)?", "4");
+        const topN = Math.max(2, Math.min(32, Number(raw) || 4));
+        body = { tid: id, topN };
+      }
+      const r = await genKnockout(body).unwrap();
+      toast.success(
+        `Đã sinh knockout · ${r.round1Generated || 0} trận vòng 1 (${r.totalRounds || 1} vòng)`,
+      );
       refetch();
     } catch (err) {
       toast.error(err?.data?.message || "Lỗi");
@@ -259,7 +282,7 @@ export default function MlpDualsPage() {
 
   const rawItems = data?.items || [];
   // Captain (không phải admin/manager) chỉ thấy dual có đội mình tham gia.
-  const items = useMemo(() => {
+  const visibleItems = useMemo(() => {
     if (canManage) return rawItems;
     if (!me?._id) return rawItems;
     const myId = String(me._id);
@@ -269,6 +292,53 @@ export default function MlpDualsPage() {
       return capA === myId || capB === myId;
     });
   }, [rawItems, canManage, me?._id]);
+
+  // Group dual list theo phase + poolKey / knockoutRound.
+  // Chỉ áp dụng khi giải bật group stage; giải flat cũ dùng grouping theo round.
+  const grouped = useMemo(() => {
+    const groups = {
+      group: new Map(), // poolKey → [duals]
+      knockout: new Map(), // knockoutRound → [duals]
+      legacy: new Map(), // round → [duals] (flat mode BC)
+    };
+    for (const d of visibleItems) {
+      if (d.phase === "group") {
+        const k = d.poolKey || "?";
+        if (!groups.group.has(k)) groups.group.set(k, []);
+        groups.group.get(k).push(d);
+      } else if (d.phase === "knockout") {
+        const r = d.knockoutRound || 1;
+        if (!groups.knockout.has(r)) groups.knockout.set(r, []);
+        groups.knockout.get(r).push(d);
+      } else {
+        const r = d.round || 1;
+        if (!groups.legacy.has(r)) groups.legacy.set(r, []);
+        groups.legacy.get(r).push(d);
+      }
+    }
+    return groups;
+  }, [visibleItems]);
+
+  const poolKeys = useMemo(
+    () => [...grouped.group.keys()].sort(),
+    [grouped],
+  );
+  const knockoutRounds = useMemo(
+    () => [...grouped.knockout.keys()].sort((a, b) => a - b),
+    [grouped],
+  );
+
+  // items hiện tại theo tab
+  const items = useMemo(() => {
+    if (poolTab === "all") return visibleItems;
+    if (poolTab === "knockout") {
+      return visibleItems.filter((d) => d.phase === "knockout");
+    }
+    // Pool key tab
+    return visibleItems.filter(
+      (d) => d.phase === "group" && d.poolKey === poolTab,
+    );
+  }, [visibleItems, poolTab]);
 
   const isMlp = tour?.tournamentMode === "mlp";
 
@@ -348,6 +418,27 @@ export default function MlpDualsPage() {
               >
                 Quản lý cụm sân
               </Button>
+              {gsEnabled && (
+                <>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    startIcon={<Shuffle size={14} />}
+                    onClick={() => setDrawDialogOpen(true)}
+                  >
+                    Bốc thăm chia bảng
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    onClick={() =>
+                      navigate(`/tournament/${id}/mlp/draw/live`)
+                    }
+                  >
+                    🎲 Sân khấu bốc thăm
+                  </Button>
+                </>
+              )}
               <Button
                 variant="outlined"
                 color="secondary"
@@ -357,12 +448,56 @@ export default function MlpDualsPage() {
                 {koLoading ? "Đang tạo…" : "Sinh knockout"}
               </Button>
               <Button variant="contained" onClick={() => setGenOpen(true)}>
-                Generate duals
+                {gsEnabled ? "Sinh vòng bảng" : "Generate duals"}
               </Button>
             </>
           )}
         </Stack>
       </Stack>
+
+      {gsEnabled && drawStatus !== "committed" && canManage && (
+        <Alert
+          severity="warning"
+          sx={{ mb: 2, borderRadius: 2 }}
+          action={
+            <Button
+              size="small"
+              color="warning"
+              onClick={() => setDrawDialogOpen(true)}
+            >
+              Bốc thăm ngay
+            </Button>
+          }
+        >
+          Giải đang bật vòng bảng nhưng CHƯA bốc thăm. Bốc thăm chia bảng trước
+          khi sinh dual matches.
+        </Alert>
+      )}
+
+      {gsEnabled && (poolKeys.length > 0 || knockoutRounds.length > 0) && (
+        <Tabs
+          value={poolTab}
+          onChange={(_, v) => setPoolTab(v)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{ mb: 2 }}
+        >
+          <Tab value="all" label={`Tất cả (${visibleItems.length})`} />
+          {poolKeys.map((k) => (
+            <Tab
+              key={k}
+              value={k}
+              label={`Bảng ${k} (${grouped.group.get(k).length})`}
+            />
+          ))}
+          {knockoutRounds.length > 0 && (
+            <Tab
+              value="knockout"
+              label={`Knockout (${knockoutRounds.reduce((n, r) => n + grouped.knockout.get(r).length, 0)})`}
+            />
+          )}
+        </Tabs>
+      )}
 
       {isFetching && !items.length ? (
         <Box textAlign="center" py={4}>
@@ -426,6 +561,13 @@ export default function MlpDualsPage() {
         canOverride
         onClose={() => setClusterDialogOpen(false)}
         onUpdated={() => refetch()}
+      />
+
+      <MlpPoolDrawDialog
+        open={drawDialogOpen}
+        onClose={() => setDrawDialogOpen(false)}
+        tour={tour}
+        onDrawn={() => refetch()}
       />
     </Container>
   );

@@ -90,6 +90,42 @@ const MlpDreamBreakerSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/**
+ * MLP Group Stage — cấu hình chia bảng + knockout.
+ * - enabled=false → giữ hành vi cũ (vòng tròn tất cả gặp nhau, không knockout tự động).
+ * - enabled=true → sinh dual round-robin TRONG mỗi bảng; sau đó knockout lấy topPerPool
+ *   mỗi bảng ghép seed chéo (A1-B2, B1-A2, ...).
+ * poolCount × poolSize KHÔNG cần bằng số đội — cho phép bảng lệch (VD 15 đội / 4 bảng = 4-4-4-3).
+ */
+const MlpGroupStageSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    poolCount: { type: Number, default: 4, min: 1, max: 32 },
+    poolSize: { type: Number, default: 4, min: 2, max: 32 },
+    topPerPool: { type: Number, default: 2, min: 1, max: 16 },
+    doubleRound: { type: Boolean, default: false }, // vòng tròn 2 lượt trong bảng
+    // Phương pháp bốc thăm mặc định — có thể override khi gọi endpoint.
+    seedMethod: {
+      type: String,
+      enum: ["random", "snake", "manual"],
+      default: "random",
+    },
+    // Danh sách thứ tự tiebreaker khi tính BXH trong bảng.
+    tiebreakers: {
+      type: [String],
+      default: ["wins", "headToHead", "slotDiff", "pointDiff", "pointsFor"],
+    },
+    // Ghi lại thời điểm bốc thăm gần nhất (draft/finalized).
+    drawStatus: {
+      type: String,
+      enum: ["idle", "drafted", "committed"],
+      default: "idle",
+    },
+    drawnAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
 const MlpConfigSchema = new mongoose.Schema(
   {
     // Roster limits — BTC không ép giới tính, chỉ min/max size.
@@ -114,6 +150,11 @@ const MlpConfigSchema = new mongoose.Schema(
     // DreamBreaker khi hoà số slot.
     dreamBreaker: {
       type: MlpDreamBreakerSchema,
+      default: () => ({}),
+    },
+    // Group stage + knockout config. enabled=false → hành vi cũ (round-robin all-vs-all).
+    groupStage: {
+      type: MlpGroupStageSchema,
       default: () => ({}),
     },
   },

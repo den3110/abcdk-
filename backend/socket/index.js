@@ -1819,6 +1819,19 @@ export function initSocket(
       } catch {}
     });
 
+    // MLP tournament room — dùng cho Live Draw stage (viewer subscribe để nhận
+    // event reveal team → pool).
+    socket.on("mlp:tour:subscribe", ({ tourId } = {}) => {
+      try {
+        if (tourId) socket.join(`mlp:tour:${tourId}`);
+      } catch {}
+    });
+    socket.on("mlp:tour:unsubscribe", ({ tourId } = {}) => {
+      try {
+        if (tourId) socket.leave(`mlp:tour:${tourId}`);
+      } catch {}
+    });
+
     // Poker room
     socket.on("poker:room:subscribe", ({ roomId } = {}) => {
       try {

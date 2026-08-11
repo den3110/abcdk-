@@ -30,6 +30,10 @@ import {
   exportMlpStandingsCsv,
   exportMlpResultsCsv,
   exportMlpSummary,
+  listMlpPools,
+  drawMlpPools,
+  resetMlpPools,
+  broadcastMlpLiveDraw,
 } from "../controllers/mlpController.js";
 
 const router = express.Router();
@@ -76,6 +80,16 @@ router.post(
   "/tournaments/:tid/duals/auto-assign-courts",
   protect,
   autoAssignMlpCourts,
+);
+
+// Pools (group stage draw)
+router.get("/tournaments/:tid/pools", optionalAuth, listMlpPools);
+router.post("/tournaments/:tid/pools/draw", protect, drawMlpPools);
+router.post("/tournaments/:tid/pools/reset", protect, resetMlpPools);
+router.post(
+  "/tournaments/:tid/pools/live-draw/broadcast",
+  protect,
+  broadcastMlpLiveDraw,
 );
 
 // Knockout bracket từ BXH

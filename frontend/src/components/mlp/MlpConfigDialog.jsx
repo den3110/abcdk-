@@ -58,6 +58,13 @@ export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
   const [dbPointsToWin, setDbPointsToWin] = useState(21);
   const [dbRotate, setDbRotate] = useState(4);
   const [dbWinByTwo, setDbWinByTwo] = useState(false);
+  // Group stage
+  const [gsEnabled, setGsEnabled] = useState(false);
+  const [gsPoolCount, setGsPoolCount] = useState(4);
+  const [gsPoolSize, setGsPoolSize] = useState(4);
+  const [gsTopPerPool, setGsTopPerPool] = useState(2);
+  const [gsDoubleRound, setGsDoubleRound] = useState(false);
+  const [gsSeedMethod, setGsSeedMethod] = useState("random");
   const [update, { isLoading }] = useUpdateMlpConfigMutation();
 
   useEffect(() => {
@@ -94,6 +101,17 @@ export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
     setDbPointsToWin(Number(db.pointsToWin) || 21);
     setDbRotate(Number(db.rotationEveryPoints) || 4);
     setDbWinByTwo(!!db.winByTwo);
+    const gs = cfg.groupStage || {};
+    setGsEnabled(gs.enabled === true);
+    setGsPoolCount(clampInt(gs.poolCount ?? 4, 1, 32));
+    setGsPoolSize(clampInt(gs.poolSize ?? 4, 2, 32));
+    setGsTopPerPool(clampInt(gs.topPerPool ?? 2, 1, 16));
+    setGsDoubleRound(!!gs.doubleRound);
+    setGsSeedMethod(
+      ["random", "snake", "manual"].includes(gs.seedMethod)
+        ? gs.seedMethod
+        : "random",
+    );
   }, [open, tour?.mlpConfig]);
 
   const updateSlot = (idx, patch) =>
@@ -153,6 +171,14 @@ export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
           pointsToWin: dbPointsToWin,
           rotationEveryPoints: dbRotate,
           winByTwo: dbWinByTwo,
+        },
+        groupStage: {
+          enabled: gsEnabled,
+          poolCount: gsPoolCount,
+          poolSize: gsPoolSize,
+          topPerPool: gsTopPerPool,
+          doubleRound: gsDoubleRound,
+          seedMethod: gsSeedMethod,
         },
       }).unwrap();
       toast.success("Đã lưu cấu hình MLP");
@@ -410,6 +436,117 @@ export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
                 label="Cách 2 (MLP chuẩn = tắt)"
               />
             </Stack>
+          )}
+
+          <Divider />
+
+          {/* Group stage */}
+          <Stack
+            direction="row"
+            justifyContent="space-between"
+            alignItems="center"
+          >
+            <Typography
+              variant="body2"
+              fontWeight={800}
+              sx={{ textTransform: "uppercase", letterSpacing: 0.6 }}
+            >
+              Vòng bảng + Knockout
+            </Typography>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={gsEnabled}
+                  onChange={(e) => setGsEnabled(e.target.checked)}
+                />
+              }
+              label="Bật vòng bảng"
+            />
+          </Stack>
+          {gsEnabled ? (
+            <>
+              <Alert severity="info" sx={{ borderRadius: 2 }}>
+                Đội sẽ được chia vào các bảng đá vòng tròn. Top {gsTopPerPool}{" "}
+                đội mỗi bảng tiếp tục vào knockout. Ví dụ 16 đội / 4 bảng × 4 =
+                mỗi bảng {(4 * 3) / 1} trận nội bộ, top {gsTopPerPool} × 4 bảng
+                ={" "}
+                {gsTopPerPool * gsPoolCount} đội vào knockout.
+              </Alert>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                <TextField
+                  size="small"
+                  label="Số bảng"
+                  type="number"
+                  value={gsPoolCount}
+                  onChange={(e) =>
+                    setGsPoolCount(clampInt(e.target.value, 1, 32))
+                  }
+                  sx={{ width: 120 }}
+                  inputProps={{ min: 1, max: 32 }}
+                />
+                <TextField
+                  size="small"
+                  label="Đội mỗi bảng (dự kiến)"
+                  type="number"
+                  value={gsPoolSize}
+                  onChange={(e) =>
+                    setGsPoolSize(clampInt(e.target.value, 2, 32))
+                  }
+                  sx={{ width: 180 }}
+                  helperText="Cho phép lệch (VD 4-4-4-3)"
+                  inputProps={{ min: 2, max: 32 }}
+                />
+                <TextField
+                  size="small"
+                  label="Top qua knockout / bảng"
+                  type="number"
+                  value={gsTopPerPool}
+                  onChange={(e) =>
+                    setGsTopPerPool(clampInt(e.target.value, 1, 16))
+                  }
+                  sx={{ width: 200 }}
+                  inputProps={{ min: 1, max: 16 }}
+                />
+              </Stack>
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+                <Select
+                  size="small"
+                  value={gsSeedMethod}
+                  onChange={(e) => setGsSeedMethod(e.target.value)}
+                  sx={{ minWidth: 220 }}
+                >
+                  <MenuItem value="random">Bốc thăm ngẫu nhiên</MenuItem>
+                  <MenuItem value="snake">Snake seed theo trình</MenuItem>
+                  <MenuItem value="manual">Xếp bảng thủ công</MenuItem>
+                </Select>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={gsDoubleRound}
+                      onChange={(e) => setGsDoubleRound(e.target.checked)}
+                    />
+                  }
+                  label="Vòng tròn 2 lượt trong bảng"
+                />
+              </Stack>
+              <Chip
+                size="small"
+                label={`Trạng thái bốc thăm: ${
+                  tour?.mlpConfig?.groupStage?.drawStatus || "idle"
+                }`}
+                color={
+                  tour?.mlpConfig?.groupStage?.drawStatus === "committed"
+                    ? "success"
+                    : "default"
+                }
+                sx={{ alignSelf: "flex-start" }}
+              />
+            </>
+          ) : (
+            <Alert severity="warning" sx={{ borderRadius: 2 }}>
+              Tắt vòng bảng → giải chạy vòng tròn tất cả gặp nhau (16 đội = 120
+              trận). Bật vòng bảng để giảm số trận và có knockout.
+            </Alert>
           )}
         </Stack>
       </DialogContent>

@@ -49,6 +49,7 @@ import FeedPage from "./screens/FeedPage.jsx";
 import CoachesPage from "./screens/CoachesPage.jsx";
 import MlpTeamsPage from "./screens/PickleBall/MlpTeamsPage.jsx";
 import MlpDualsPage from "./screens/PickleBall/MlpDualsPage.jsx";
+import MlpDrawLivePage from "./screens/PickleBall/MlpDrawLivePage.jsx";
 import MlpStandingsPage from "./screens/PickleBall/MlpStandingsPage.jsx";
 import MlpDualDetailPage from "./screens/PickleBall/MlpDualDetailPage.jsx";
 import MessagesPage from "./screens/MessagesPage.jsx";
@@ -179,6 +180,10 @@ const router = sentryCreateBrowserRouter(
         <Route path="/coaches" element={<CoachesPage />} />
         <Route path="/tournament/:id/mlp/teams" element={<MlpTeamsPage />} />
         <Route path="/tournament/:id/mlp/duals" element={<MlpDualsPage />} />
+        <Route
+          path="/tournament/:id/mlp/draw/live"
+          element={<MlpDrawLivePage />}
+        />
         <Route
           path="/tournament/:id/mlp/standings"
           element={<MlpStandingsPage />}

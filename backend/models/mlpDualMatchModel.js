@@ -91,8 +91,33 @@ const mlpDualMatchSchema = new Schema(
     round: { type: Number, default: 1 },
     order: { type: Number, default: 0 },
 
-    teamA: { type: Schema.Types.ObjectId, ref: "MlpTeam", required: true },
-    teamB: { type: Schema.Types.ObjectId, ref: "MlpTeam", required: true },
+    // Phase phân biệt vòng bảng vs knockout. Backwards-compatible:
+    // - phase="group" + poolKey set → dual thuộc vòng bảng của poolKey đó.
+    // - phase="knockout" + knockoutRound set → dual thuộc cây knockout.
+    //   knockoutRound = 1 (round đầu tiên, VD tứ kết cho 8 team), 2 (bán kết), ...
+    // - phase=null (mặc định) → giữ hành vi cũ (round-robin flat).
+    phase: {
+      type: String,
+      enum: ["group", "knockout", null],
+      default: null,
+      index: true,
+    },
+    poolKey: { type: String, default: null, index: true },
+    knockoutRound: { type: Number, default: null },
+    // Vị trí trong cây knockout: giúp auto-advance winner sang slot round tiếp theo.
+    // bracketSlot = index 0-based trong round hiện tại.
+    // nextMatch = dual doc kế tiếp; nextSlot = "A" | "B" — winner này thay teamA/B slot đó.
+    bracketSlot: { type: Number, default: null },
+    nextMatch: {
+      type: Schema.Types.ObjectId,
+      ref: "MlpDualMatch",
+      default: null,
+    },
+    nextSlot: { type: String, enum: ["A", "B", null], default: null },
+
+    // teamA/B nullable để hỗ trợ shell dual (round sau chưa biết winner).
+    teamA: { type: Schema.Types.ObjectId, ref: "MlpTeam", default: null },
+    teamB: { type: Schema.Types.ObjectId, ref: "MlpTeam", default: null },
 
     subMatches: { type: [SubMatchSchema], default: [] },
     dreamBreaker: { type: DreamBreakerSchema, default: () => ({}) },
@@ -143,6 +168,8 @@ const mlpDualMatchSchema = new Schema(
 );
 
 mlpDualMatchSchema.index({ tournament: 1, status: 1, round: 1, order: 1 });
+mlpDualMatchSchema.index({ tournament: 1, phase: 1, poolKey: 1, order: 1 });
+mlpDualMatchSchema.index({ tournament: 1, phase: 1, knockoutRound: 1, order: 1 });
 mlpDualMatchSchema.index({ teamA: 1 });
 mlpDualMatchSchema.index({ teamB: 1 });
 

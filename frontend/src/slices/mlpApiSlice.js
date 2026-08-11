@@ -182,12 +182,51 @@ export const mlpApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (r, e, tid) => [{ type: "MlpDual", id: tid }],
     }),
     generateMlpKnockout: builder.mutation({
-      query: ({ tid, topN = 4, seedByStanding = true }) => ({
+      query: ({ tid, ...body }) => ({
         url: `/api/mlp/tournaments/${tid}/duals/generate-knockout`,
         method: "POST",
-        body: { topN, seedByStanding },
+        body,
       }),
-      invalidatesTags: (r, e, { tid }) => [{ type: "MlpDual", id: tid }],
+      invalidatesTags: (r, e, { tid }) => [
+        { type: "MlpDual", id: tid },
+        { type: "MlpStandings", id: tid },
+      ],
+    }),
+
+    /* ── Pool draw (group stage) ── */
+    listMlpPools: builder.query({
+      query: (tid) => ({ url: `/api/mlp/tournaments/${tid}/pools` }),
+      providesTags: (r, e, tid) => [{ type: "MlpPools", id: tid }],
+    }),
+    drawMlpPools: builder.mutation({
+      query: ({ tid, ...body }) => ({
+        url: `/api/mlp/tournaments/${tid}/pools/draw`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (r, e, { tid }) => [
+        { type: "MlpPools", id: tid },
+        { type: "MlpTeam", id: tid },
+        { type: "MlpDual", id: tid },
+        { type: "MlpStandings", id: tid },
+      ],
+    }),
+    resetMlpPools: builder.mutation({
+      query: (tid) => ({
+        url: `/api/mlp/tournaments/${tid}/pools/reset`,
+        method: "POST",
+      }),
+      invalidatesTags: (r, e, tid) => [
+        { type: "MlpPools", id: tid },
+        { type: "MlpTeam", id: tid },
+      ],
+    }),
+    broadcastMlpLiveDraw: builder.mutation({
+      query: ({ tid, event, payload }) => ({
+        url: `/api/mlp/tournaments/${tid}/pools/live-draw/broadcast`,
+        method: "POST",
+        body: { event, payload },
+      }),
     }),
     forceFinishMlpDual: builder.mutation({
       query: ({ dualId, winner }) => ({
@@ -252,4 +291,8 @@ export const {
   useForceFinishMlpDualMutation,
   useDeleteMlpDualMutation,
   useCheckInMlpDualMutation,
+  useListMlpPoolsQuery,
+  useDrawMlpPoolsMutation,
+  useResetMlpPoolsMutation,
+  useBroadcastMlpLiveDrawMutation,
 } = mlpApiSlice;
