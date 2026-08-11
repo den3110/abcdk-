@@ -2459,7 +2459,7 @@ export const listMlpDuals = asyncHandler(async (req, res) => {
     })
     .populate({
       path: "subMatches.courtStation",
-      select: "_id name",
+      select: "_id name defaultReferees",
     })
     .populate({
       path: "dreamBreaker.lineupA",
@@ -2470,7 +2470,7 @@ export const listMlpDuals = asyncHandler(async (req, res) => {
       select: "_id name nickname avatar",
     })
     .populate("court", "_id name code")
-    .populate("courtStation", "_id name")
+    .populate("courtStation", "_id name defaultReferees")
     .populate("referees", "_id name nickname avatar")
     .lean();
   res.json({ items });
@@ -2515,7 +2515,7 @@ export const getMlpDual = asyncHandler(async (req, res) => {
     })
     .populate({
       path: "subMatches.courtStation",
-      select: "_id name",
+      select: "_id name defaultReferees",
     })
     .populate({
       path: "dreamBreaker.lineupA",
@@ -2526,7 +2526,7 @@ export const getMlpDual = asyncHandler(async (req, res) => {
       select: "_id name nickname avatar",
     })
     .populate("court", "_id name code")
-    .populate("courtStation", "_id name")
+    .populate("courtStation", "_id name defaultReferees")
     .populate("referees", "_id name nickname avatar");
   if (!doc) {
     res.status(404);
