@@ -1868,6 +1868,18 @@ export function initSocket(
       } catch {}
     });
 
+    // Caro room
+    socket.on("caro:room:subscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.join(`caro:room:${roomId}`);
+      } catch {}
+    });
+    socket.on("caro:room:unsubscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.leave(`caro:room:${roomId}`);
+      } catch {}
+    });
+
     // nhận subscribe realtime từ admin tab
     socket.on("presence:watch", async () => {
       try {

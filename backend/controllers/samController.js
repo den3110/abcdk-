@@ -262,7 +262,7 @@ export const startSamHand = asyncHandler(async (req, res) => {
     res.status(403);
     throw new Error("Bạn phải ngồi vào bàn trước");
   }
-  if (room.stage !== "waiting") {
+  if (room.stage !== "waiting" && room.stage !== "showdown") {
     res.status(400);
     throw new Error("Ván đang chơi");
   }

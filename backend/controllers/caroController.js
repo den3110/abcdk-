@@ -1,16 +1,11 @@
-// controllers/phomController.js — Phỏm (Tá lả) room controller.
-// PHASE 2: room CRUD + sit/leave + start + chat + emoji + invite.
-// Gameplay actions (draw/discard/down/gui/u/scoring) sẽ hoàn thiện Phase 3.
+// controllers/caroController.js — Cờ Caro (Gomoku).
 import asyncHandler from "express-async-handler";
-import PhomRoom from "../models/phomRoomModel.js";
+import CaroRoom from "../models/caroRoomModel.js";
 import {
   startHand,
+  applyMove,
   serializeRoom,
-  applyAction,
-  applyDownAuto,
-  applyDownManual,
-  applyGuiBai,
-} from "../services/phomEngine.js";
+} from "../services/caroEngine.js";
 import { getIO } from "../socket/index.js";
 import { sendToUserIds } from "../services/notifications/expoPush.js";
 import { createInAppNotifications } from "../services/inAppNotify.js";
@@ -21,7 +16,7 @@ const EMOJI_WHITELIST = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉
 const ROOM_IDLE_MS = 10 * 60 * 1000;
 async function closeStaleRooms() {
   try {
-    await PhomRoom.updateMany(
+    await CaroRoom.updateMany(
       {
         status: "open",
         lastActivityAt: { $lt: new Date(Date.now() - ROOM_IDLE_MS) },
@@ -29,70 +24,20 @@ async function closeStaleRooms() {
       { $set: { status: "closed" } },
     );
   } catch (err) {
-    console.error("[phom] closeStaleRooms:", err?.message || err);
+    console.error("[caro] closeStaleRooms:", err?.message || err);
   }
 }
 setInterval(closeStaleRooms, 60_000).unref?.();
 
-// Auto-timeout khi quá turnDeadlineAt (Phase 4)
-const turnTimers = new Map();
-function scheduleAutoTurn(roomId) {
-  clearTimeout(turnTimers.get(String(roomId)));
-  turnTimers.delete(String(roomId));
-  PhomRoom.findById(roomId)
-    .select("turnDeadlineAt activeIndex stage")
-    .lean()
-    .then((r) => {
-      if (!r || !r.turnDeadlineAt || r.activeIndex < 0 || r.stage !== "playing") {
-        return;
-      }
-      const ms = Math.max(0, new Date(r.turnDeadlineAt).getTime() - Date.now());
-      const t = setTimeout(() => autoTurnAct(roomId).catch(() => {}), ms + 500);
-      turnTimers.set(String(roomId), t);
-    })
-    .catch(() => {});
-}
-async function autoTurnAct(roomId) {
-  const room = await PhomRoom.findById(roomId);
-  if (!room || room.stage !== "playing" || room.activeIndex < 0) return;
-  const deadline = room.turnDeadlineAt
-    ? new Date(room.turnDeadlineAt).getTime()
-    : 0;
-  if (Date.now() < deadline - 200) {
-    scheduleAutoTurn(roomId);
-    return;
-  }
-  const seat = room.seats[room.activeIndex];
-  if (!seat || !seat.user) return;
-  try {
-    // Nếu 9 lá & không phải cái → auto bốc nọc rồi thảy lá lẻ đầu
-    if (seat.cards.length <= 9 && seat.seatIndex !== room.dealerIndex) {
-      applyAction(room, seat.seatIndex, "draw_deck", {});
-    }
-    // Bây giờ chắc có 10 lá → thảy lá đầu (lá nhỏ nhất sau sort)
-    if (seat.cards.length >= 10 || seat.seatIndex === room.dealerIndex) {
-      applyAction(room, seat.seatIndex, "discard", { card: seat.cards[0] });
-    }
-    await room.save();
-    const populated = await room.populate("seats.user", USER_FIELDS);
-    broadcastUpdate(populated);
-    if (populated.stage === "playing" && populated.activeIndex >= 0) {
-      scheduleAutoTurn(populated._id);
-    }
-  } catch (err) {
-    console.error("[phom] autoTurnAct:", err?.message || err);
-  }
-}
-
 function emitRoomTo(room, event, payload) {
   try {
-    getIO?.()?.to(`phom:room:${room._id}`).emit(event, payload);
+    getIO?.()?.to(`caro:room:${room._id}`).emit(event, payload);
   } catch (err) {
-    console.error("[phom] emit:", err?.message || err);
+    console.error("[caro] emit:", err?.message || err);
   }
 }
 function broadcastUpdate(room) {
-  emitRoomTo(room, "phom:room:updated", { roomId: String(room._id) });
+  emitRoomTo(room, "caro:room:updated", { roomId: String(room._id) });
 }
 async function populateRoom(room) {
   return room.populate("seats.user", USER_FIELDS);
@@ -100,9 +45,9 @@ async function populateRoom(room) {
 
 /* ═════════ Room CRUD ═════════ */
 
-export const listPhomRooms = asyncHandler(async (req, res) => {
+export const listCaroRooms = asyncHandler(async (req, res) => {
   await closeStaleRooms();
-  const rooms = await PhomRoom.find({ status: "open" })
+  const rooms = await CaroRoom.find({ status: "open" })
     .sort({ lastActivityAt: -1 })
     .limit(50)
     .populate("seats.user", USER_FIELDS)
@@ -112,6 +57,7 @@ export const listPhomRooms = asyncHandler(async (req, res) => {
     name: r.name,
     stake: r.stake,
     buyIn: r.buyIn,
+    boardSize: r.boardSize,
     maxSeats: r.maxSeats,
     seatsTaken: (r.seats || []).filter((s) => s.user).length,
     stage: r.stage,
@@ -121,41 +67,38 @@ export const listPhomRooms = asyncHandler(async (req, res) => {
   res.json({ items });
 });
 
-export const createPhomRoom = asyncHandler(async (req, res) => {
+export const createCaroRoom = asyncHandler(async (req, res) => {
   const b = req.body || {};
   const name = String(
     b.name || `Bàn của ${req.user?.nickname || req.user?.name || "user"}`,
   ).slice(0, 60);
-  const stake = Math.max(1, Math.min(10000, Number(b.stake) || 50));
-  const buyIn = Math.max(stake * 10, Math.min(1_000_000, Number(b.buyIn) || 500));
-  const maxSeats = 4;
+  const stake = Math.max(1, Math.min(10000, Number(b.stake) || 100));
+  const buyIn = Math.max(stake * 10, Math.min(1_000_000, Number(b.buyIn) || 1000));
+  const boardSize = Math.max(10, Math.min(20, Number(b.boardSize) || 15));
+  const maxSeats = 2;
   const seats = Array.from({ length: maxSeats }, (_, i) => ({
     seatIndex: i,
     user: null,
     chips: 0,
-    cards: [],
-    melds: [],
-    leftover: [],
-    hasWon: false,
-    hasDowned: false,
     sittingOut: false,
   }));
-  const room = await PhomRoom.create({
+  const room = await CaroRoom.create({
     name,
     createdBy: req.user._id,
     stake,
     buyIn,
+    boardSize,
     maxSeats,
     seats,
     status: "open",
     stage: "waiting",
   });
   const populated = await populateRoom(room);
-  res.status(201).json({ room: serializeRoom(populated, req.user._id) });
+  res.status(201).json({ room: serializeRoom(populated) });
 });
 
-export const getPhomRoom = asyncHandler(async (req, res) => {
-  const room = await PhomRoom.findById(req.params.id).populate(
+export const getCaroRoom = asyncHandler(async (req, res) => {
+  const room = await CaroRoom.findById(req.params.id).populate(
     "seats.user",
     USER_FIELDS,
   );
@@ -163,11 +106,11 @@ export const getPhomRoom = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
   }
-  res.json({ room: serializeRoom(room, req.user?._id) });
+  res.json({ room: serializeRoom(room) });
 });
 
-export const sitPhomRoom = asyncHandler(async (req, res) => {
-  const room = await PhomRoom.findById(req.params.id);
+export const sitCaroRoom = asyncHandler(async (req, res) => {
+  const room = await CaroRoom.findById(req.params.id);
   if (!room) {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
@@ -177,7 +120,11 @@ export const sitPhomRoom = asyncHandler(async (req, res) => {
     throw new Error("Bàn đã đóng");
   }
   const seatIdx = Number(req.body?.seatIndex);
-  if (!Number.isFinite(seatIdx) || seatIdx < 0 || seatIdx >= room.seats.length) {
+  if (
+    !Number.isFinite(seatIdx) ||
+    seatIdx < 0 ||
+    seatIdx >= room.seats.length
+  ) {
     res.status(400);
     throw new Error("Ghế không hợp lệ");
   }
@@ -200,11 +147,11 @@ export const sitPhomRoom = asyncHandler(async (req, res) => {
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
-  res.json({ room: serializeRoom(populated, req.user._id) });
+  res.json({ room: serializeRoom(populated) });
 });
 
-export const leavePhomRoom = asyncHandler(async (req, res) => {
-  const room = await PhomRoom.findById(req.params.id);
+export const leaveCaroRoom = asyncHandler(async (req, res) => {
+  const room = await CaroRoom.findById(req.params.id);
   if (!room) {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
@@ -218,22 +165,16 @@ export const leavePhomRoom = asyncHandler(async (req, res) => {
   }
   seat.user = null;
   seat.chips = 0;
-  seat.cards = [];
-  seat.melds = [];
-  seat.leftover = [];
-  seat.hasWon = false;
-  seat.hasDowned = false;
   seat.sittingOut = false;
-  seat.lastAction = null;
   room.lastActivityAt = new Date();
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
-  res.json({ room: serializeRoom(populated, req.user._id) });
+  res.json({ room: serializeRoom(populated) });
 });
 
-export const startPhomHand = asyncHandler(async (req, res) => {
-  const room = await PhomRoom.findById(req.params.id);
+export const startCaroHand = asyncHandler(async (req, res) => {
+  const room = await CaroRoom.findById(req.params.id);
   if (!room) {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
@@ -245,7 +186,7 @@ export const startPhomHand = asyncHandler(async (req, res) => {
     res.status(403);
     throw new Error("Bạn phải ngồi vào bàn trước");
   }
-  if (room.stage !== "waiting" && room.stage !== "showdown") {
+  if (room.stage === "playing") {
     res.status(400);
     throw new Error("Ván đang chơi");
   }
@@ -259,13 +200,12 @@ export const startPhomHand = asyncHandler(async (req, res) => {
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
-  scheduleAutoTurn(populated._id);
-  res.json({ room: serializeRoom(populated, req.user._id) });
+  res.json({ room: serializeRoom(populated) });
 });
 
-// POST /api/phom/rooms/:id/action  { action, card?, meldCards?, melds?, targetSeatIndex?, targetMeldIndex? }
-export const phomAction = asyncHandler(async (req, res) => {
-  const room = await PhomRoom.findById(req.params.id);
+// POST /api/caro/rooms/:id/move  { row, col }
+export const caroMove = asyncHandler(async (req, res) => {
+  const room = await CaroRoom.findById(req.params.id);
   if (!room) {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
@@ -277,25 +217,9 @@ export const phomAction = asyncHandler(async (req, res) => {
     res.status(403);
     throw new Error("Bạn không ở bàn này");
   }
-  const { action, card, meldCards, melds, targetSeatIndex, targetMeldIndex } =
-    req.body || {};
+  const { row, col } = req.body || {};
   try {
-    if (action === "down_auto") {
-      applyDownAuto(room, seat.seatIndex);
-    } else if (action === "down_manual") {
-      applyDownManual(room, seat.seatIndex, melds || []);
-    } else if (action === "gui_bai") {
-      applyGuiBai(room, seat.seatIndex, {
-        card,
-        targetSeatIndex,
-        targetMeldIndex,
-      });
-    } else {
-      applyAction(room, seat.seatIndex, String(action || ""), {
-        card,
-        meldCards,
-      });
-    }
+    applyMove(room, seat.seatIndex, Number(row), Number(col));
   } catch (err) {
     res.status(400);
     throw err;
@@ -304,21 +228,18 @@ export const phomAction = asyncHandler(async (req, res) => {
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
-  if (populated.stage === "playing" && populated.activeIndex >= 0) {
-    scheduleAutoTurn(populated._id);
-  }
-  res.json({ room: serializeRoom(populated, req.user._id) });
+  res.json({ room: serializeRoom(populated) });
 });
 
 /* ═════════ Chat / emoji / invite ═════════ */
 
-export const chatPhomRoom = asyncHandler(async (req, res) => {
+export const chatCaroRoom = asyncHandler(async (req, res) => {
   const text = String(req.body?.text || "").trim().slice(0, 300);
   if (!text) {
     res.status(400);
     throw new Error("Trống");
   }
-  const room = await PhomRoom.findById(req.params.id);
+  const room = await CaroRoom.findById(req.params.id);
   if (!room) {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
@@ -336,17 +257,17 @@ export const chatPhomRoom = asyncHandler(async (req, res) => {
   }
   room.lastActivityAt = new Date();
   await room.save();
-  emitRoomTo(room, "phom:room:chat", { roomId: String(room._id), message: msg });
+  emitRoomTo(room, "caro:room:chat", { roomId: String(room._id), message: msg });
   res.json({ ok: true, message: msg });
 });
 
-export const emojiPhomRoom = asyncHandler(async (req, res) => {
+export const emojiCaroRoom = asyncHandler(async (req, res) => {
   const emoji = String(req.body?.emoji || "").trim();
   if (!EMOJI_WHITELIST.includes(emoji)) {
     res.status(400);
     throw new Error("Emoji không hợp lệ");
   }
-  const room = await PhomRoom.findById(req.params.id).select("_id seats");
+  const room = await CaroRoom.findById(req.params.id).select("_id seats");
   if (!room) {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
@@ -358,7 +279,7 @@ export const emojiPhomRoom = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Bạn không ở bàn");
   }
-  emitRoomTo(room, "phom:room:emoji", {
+  emitRoomTo(room, "caro:room:emoji", {
     roomId: String(room._id),
     seatIndex: seat.seatIndex,
     emoji,
@@ -367,9 +288,8 @@ export const emojiPhomRoom = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
-// POST /api/phom/rooms/:id/invite  { userIds: [] }
 const inviteLog = new Map();
-export const invitePhomRoom = asyncHandler(async (req, res) => {
+export const inviteCaroRoom = asyncHandler(async (req, res) => {
   const userIds = Array.isArray(req.body?.userIds)
     ? req.body.userIds.filter(Boolean).slice(0, 20)
     : [];
@@ -386,26 +306,26 @@ export const invitePhomRoom = asyncHandler(async (req, res) => {
   }
   arr.push(now);
   inviteLog.set(key, arr);
-  const room = await PhomRoom.findById(req.params.id).select("_id name");
+  const room = await CaroRoom.findById(req.params.id).select("_id name");
   if (!room) {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
   }
-  const title = "🃏 Mời chơi Phỏm";
+  const title = "♟️ Mời chơi Caro";
   const body = `${req.user.nickname || req.user.name} mời bạn vào bàn "${room.name}"`;
-  const data = { url: `/phom/${room._id}`, roomId: String(room._id) };
+  const data = { url: `/caro/${room._id}`, roomId: String(room._id) };
   try {
     await Promise.allSettled([
       sendToUserIds(userIds, { title, body, data }),
       createInAppNotifications(userIds, {
-        kind: "PHOM_INVITE",
+        kind: "CARO_INVITE",
         title,
         body,
         data,
       }),
     ]);
   } catch (err) {
-    console.error("[phom] invite:", err?.message || err);
+    console.error("[caro] invite:", err?.message || err);
   }
   res.json({ ok: true, invited: userIds.length });
 });

@@ -250,7 +250,28 @@ export function compareCombos(a, b) {
 
 /* -------- Serializer -------- */
 
+// Enrich winners với userName từ populated seats (winners lưu trước populate
+// nên user chỉ là ObjectId, sẽ hiện "?"). Gọi sau khi populate.
+function enrichWinners(room) {
+  if (!Array.isArray(room.winners) || !room.winners.length) return;
+  const seatMap = new Map();
+  for (const s of room.seats || []) {
+    if (s?.user && typeof s.user === "object") {
+      seatMap.set(s.seatIndex, s.user);
+    }
+  }
+  for (const w of room.winners) {
+    if (w.userName && w.userName !== "?") continue;
+    const u = seatMap.get(w.seatIndex);
+    if (u) {
+      w.userName = u.nickname || u.name || "?";
+      w.userId = u._id || w.userId;
+    }
+  }
+}
+
 export function serializeRoom(room, viewerUserId) {
+  enrichWinners(room);
   const meIdStr = viewerUserId ? String(viewerUserId) : "";
   const seats = (room.seats || []).map((s) => {
     const isMine = s?.user && String(s.user._id || s.user) === meIdStr;
