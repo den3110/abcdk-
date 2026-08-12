@@ -7,6 +7,9 @@ import {
   startHand,
   serializeRoom,
   applyAction,
+  claimSam,
+  catchSam,
+  finishXinSam,
 } from "../services/samEngine.js";
 import { getIO } from "../socket/index.js";
 import { sendToUserIds } from "../services/notifications/expoPush.js";
@@ -49,6 +52,28 @@ function scheduleAutoTurn(roomId) {
     })
     .catch(() => {});
 }
+// Auto-transition xin_sam → playing khi hết deadline
+async function autoFinishXinSam(roomId) {
+  const room = await SamRoom.findById(roomId);
+  if (!room || room.stage !== "xin_sam") return;
+  const dl = room.xinSamDeadlineAt
+    ? new Date(room.xinSamDeadlineAt).getTime()
+    : 0;
+  if (Date.now() < dl - 200) {
+    setTimeout(() => autoFinishXinSam(roomId).catch(() => {}), 1000);
+    return;
+  }
+  try {
+    finishXinSam(room);
+    await room.save();
+    const populated = await room.populate("seats.user", USER_FIELDS);
+    broadcastUpdate(populated);
+    scheduleAutoTurn(populated._id);
+  } catch (err) {
+    console.error("[sam] autoFinishXinSam:", err?.message || err);
+  }
+}
+
 async function autoTurnAct(roomId) {
   const room = await SamRoom.findById(roomId);
   if (!room || room.stage !== "playing" || room.activeIndex < 0) return;
@@ -243,6 +268,86 @@ export const startSamHand = asyncHandler(async (req, res) => {
   }
   try {
     startHand(room);
+  } catch (err) {
+    res.status(400);
+    throw err;
+  }
+  room.lastActivityAt = new Date();
+  await room.save();
+  const populated = await populateRoom(room);
+  broadcastUpdate(populated);
+  // Phase xin_sam → auto-transition sau deadline
+  setTimeout(() => autoFinishXinSam(populated._id).catch(() => {}), 10_500);
+  res.json({ room: serializeRoom(populated, req.user._id) });
+});
+
+// POST /api/sam/rooms/:id/xin-sam
+export const xinSam = asyncHandler(async (req, res) => {
+  const room = await SamRoom.findById(req.params.id);
+  if (!room) {
+    res.status(404);
+    throw new Error("Không tìm thấy bàn");
+  }
+  const seat = room.seats.find(
+    (s) => String(s.user) === String(req.user._id),
+  );
+  if (!seat) {
+    res.status(403);
+    throw new Error("Bạn không ở bàn này");
+  }
+  try {
+    claimSam(room, seat.seatIndex);
+  } catch (err) {
+    res.status(400);
+    throw err;
+  }
+  room.lastActivityAt = new Date();
+  await room.save();
+  const populated = await populateRoom(room);
+  broadcastUpdate(populated);
+  res.json({ room: serializeRoom(populated, req.user._id) });
+});
+
+// POST /api/sam/rooms/:id/bat-sam
+export const batSam = asyncHandler(async (req, res) => {
+  const room = await SamRoom.findById(req.params.id);
+  if (!room) {
+    res.status(404);
+    throw new Error("Không tìm thấy bàn");
+  }
+  const seat = room.seats.find(
+    (s) => String(s.user) === String(req.user._id),
+  );
+  if (!seat) {
+    res.status(403);
+    throw new Error("Bạn không ở bàn này");
+  }
+  try {
+    catchSam(room, seat.seatIndex);
+  } catch (err) {
+    res.status(400);
+    throw err;
+  }
+  room.lastActivityAt = new Date();
+  await room.save();
+  const populated = await populateRoom(room);
+  broadcastUpdate(populated);
+  res.json({ room: serializeRoom(populated, req.user._id) });
+});
+
+// POST /api/sam/rooms/:id/skip-xin-sam — user chủ động skip, không đợi deadline
+export const skipXinSam = asyncHandler(async (req, res) => {
+  const room = await SamRoom.findById(req.params.id);
+  if (!room) {
+    res.status(404);
+    throw new Error("Không tìm thấy bàn");
+  }
+  if (room.stage !== "xin_sam") {
+    res.status(400);
+    throw new Error("Không phải phase xin sâm");
+  }
+  try {
+    finishXinSam(room);
   } catch (err) {
     res.status(400);
     throw err;

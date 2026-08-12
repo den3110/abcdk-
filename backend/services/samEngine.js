@@ -44,7 +44,13 @@ export function startHand(room) {
     seat.hasFinished = false;
     seat.finishOrder = 0;
     seat.lastAction = null;
+    seat.hasClaimedSam = false;
+    seat.cutByHeoCount = 0;
+    seat.caughtSamBy = -1;
   }
+  room.samClaimerIndex = -1;
+  room.samCatcherIndex = -1;
+  room.xinSamDeadlineAt = null;
 
   // Deal 10 lá/người
   let deckPtr = 0;
@@ -67,18 +73,77 @@ export function startHand(room) {
     starterIdx = room.winners[0].seatIndex;
   }
   room.starterIndex = starterIdx;
-  room.activeIndex = starterIdx;
+  room.activeIndex = -1; // chờ hết xin sâm
 
   room.currentCombo = null;
   room.passedSeats = [];
   room.plays = [];
   room.winners = [];
   room.handNumber += 1;
-  room.stage = "playing";
+  // Phase Xin Sâm: 10s cho tất cả xin/bắt sâm
+  room.stage = "xin_sam";
   room.handStartedAt = new Date();
   room.handEndedAt = null;
   const now = Date.now();
-  room.turnDeadlineAt = new Date(now + (room.turnDurationSec || 30) * 1000);
+  room.xinSamDeadlineAt = new Date(now + 10_000);
+  room.turnDeadlineAt = null;
+  return room;
+}
+
+// Hoàn tất phase Xin Sâm → chuyển sang playing.
+// Nếu có claimer → claimer đánh đầu. Ngược lại → starter có 3♠.
+export function finishXinSam(room) {
+  if (room.stage !== "xin_sam") return room;
+  const claimerIdx = room.samClaimerIndex;
+  const active = room.seats.filter((s) => s?.user && !s.sittingOut);
+  const claimer = claimerIdx >= 0
+    ? active.find((s) => s.seatIndex === claimerIdx)
+    : null;
+  if (claimer) {
+    room.activeIndex = claimer.seatIndex;
+  } else {
+    room.activeIndex = room.starterIndex;
+  }
+  room.stage = "playing";
+  room.xinSamDeadlineAt = null;
+  const now = Date.now();
+  room.turnDeadlineAt = new Date(
+    now + (room.turnDurationSec || 30) * 1000,
+  );
+  return room;
+}
+
+// User xin sâm.
+export function claimSam(room, seatIndex) {
+  if (room.stage !== "xin_sam") {
+    throw new Error("Không phải phase xin sâm");
+  }
+  const seat = room.seats.find((s) => s.seatIndex === seatIndex);
+  if (!seat || !seat.user) throw new Error("Ghế không hợp lệ");
+  if (room.samClaimerIndex >= 0) {
+    throw new Error("Đã có người xin sâm");
+  }
+  seat.hasClaimedSam = true;
+  room.samClaimerIndex = seatIndex;
+  seat.lastAction = "xin sâm";
+  return room;
+}
+
+// User bắt sâm (khi có người khác đã xin).
+export function catchSam(room, seatIndex) {
+  if (room.stage !== "xin_sam") {
+    throw new Error("Không phải phase xin sâm");
+  }
+  if (room.samClaimerIndex < 0) {
+    throw new Error("Chưa có ai xin sâm để bắt");
+  }
+  if (room.samClaimerIndex === seatIndex) {
+    throw new Error("Không thể bắt sâm của chính mình");
+  }
+  const seat = room.seats.find((s) => s.seatIndex === seatIndex);
+  if (!seat || !seat.user) throw new Error("Ghế không hợp lệ");
+  room.samCatcherIndex = seatIndex;
+  seat.lastAction = "bắt sâm";
   return room;
 }
 
@@ -199,6 +264,8 @@ export function serializeRoom(room, viewerUserId) {
       finishOrder: s.finishOrder,
       lastAction: s.lastAction,
       sittingOut: s.sittingOut,
+      hasClaimedSam: s.hasClaimedSam,
+      cutByHeoCount: s.cutByHeoCount,
     };
   });
   return {
@@ -223,6 +290,9 @@ export function serializeRoom(room, viewerUserId) {
     handEndedAt: room.handEndedAt,
     turnDeadlineAt: room.turnDeadlineAt,
     turnDurationSec: room.turnDurationSec,
+    xinSamDeadlineAt: room.xinSamDeadlineAt,
+    samClaimerIndex: room.samClaimerIndex,
+    samCatcherIndex: room.samCatcherIndex,
     messages: room.messages || [],
     status: room.status,
     createdAt: room.createdAt,
@@ -248,52 +318,109 @@ function scheduleNextTurn(room, nextSeat) {
   room.turnDeadlineAt = new Date(now + (room.turnDurationSec || 30) * 1000);
 }
 
-/* -------- Scoring -------- */
+/* -------- Scoring (per-card × stake) -------- */
+
+// Tính chip phạt cho 1 seat (loser). Return dương = phải trả.
+// - Bị bắt sâm (đã xin sâm nhưng không thắng): stake × 10 × 2 × 3 (đền 3x móm)
+// - Móm (không đánh được lá nào, còn đúng 10 lá): stake × 10 × 2
+// - Bị chặt heo (đánh 2 mà bị đè): tính như móm — stake × 10 × 2
+// - Thua bình thường: stake × cardsLeft
+function computeLoserPenalty(seat, stake, isSamCaught) {
+  if (isSamCaught) return stake * 10 * 2 * 3;
+  if (seat.cutByHeoCount > 0) return stake * 10 * 2;
+  const left = (seat.cards || []).length;
+  if (left >= 10) return stake * 10 * 2; // móm
+  return stake * left;
+}
 
 function endHand(room) {
-  const stake = room.stake || 100;
-  // Người chưa hết bài (thối) = lastPlace, phạt chip cho tất cả người khác
-  const finished = room.seats.filter((s) => s?.user && s.hasFinished);
-  const notFinished = room.seats.filter(
-    (s) => s?.user && !s.hasFinished && !s.sittingOut,
+  const stake = room.stake || 5;
+  const active = room.seats.filter((s) => s?.user && !s.sittingOut);
+  const finished = active.filter((s) => s.hasFinished);
+  const notFinished = active.filter((s) => !s.hasFinished);
+
+  // Gán finishOrder cho các seat chưa xong (theo thứ tự ai còn ít bài hơn = trước)
+  const sortedNotFinished = [...notFinished].sort(
+    (a, b) => (a.cards?.length || 0) - (b.cards?.length || 0),
   );
-  // Nếu chỉ còn 1 người chưa hết → gán họ order cuối
-  if (notFinished.length === 1) {
-    const last = notFinished[0];
-    const maxOrder = Math.max(0, ...finished.map((s) => s.finishOrder || 0));
-    last.finishOrder = maxOrder + 1;
-    last.hasFinished = true;
+  let maxOrder = Math.max(0, ...finished.map((s) => s.finishOrder || 0));
+  for (const s of sortedNotFinished) {
+    maxOrder += 1;
+    s.finishOrder = maxOrder;
+    s.hasFinished = true;
   }
-  // Xếp hạng cuối: order 1 = nhất, order n = bét
-  const ranked = room.seats
-    .filter((s) => s?.user)
-    .sort((a, b) => (a.finishOrder || 99) - (b.finishOrder || 99));
 
-  // Chip settlement: mỗi bậc thấp hơn trả stake cho bậc cao hơn
-  // Nhất ăn stake × (rank_last), Nhì ăn stake × (rank_last-1) - stake (trả nhất),...
-  // Simple: mỗi seat = stake × (n - 2*order + 1) so ranking cao ăn
-  const n = ranked.length;
-  const results = ranked.map((s, i) => {
-    const pos = i + 1; // 1..n
-    // Điểm chip: (n+1)/2 là điểm 0. Cao hơn → dương, thấp hơn → âm.
-    const points = n - pos * 2 + 1;
-    const amt = stake * points;
-    return { seat: s, pos, amt };
+  // Winner = seat có finishOrder=1
+  const winnerSeat = active.find((s) => s.finishOrder === 1);
+
+  // Xử lý xin sâm: nếu có người xin sâm nhưng KHÔNG thắng ván → phạt bắt sâm
+  const claimer = active.find((s) => s.hasClaimedSam);
+  const samFailed = claimer && claimer.finishOrder !== 1;
+  // Ai ăn tiền bắt sâm: samCatcherIndex (nếu có) hoặc winner
+  const catcher =
+    room.samCatcherIndex >= 0
+      ? active.find((s) => s.seatIndex === room.samCatcherIndex)
+      : winnerSeat;
+
+  const results = active.map((s) => {
+    if (s === winnerSeat) return { seat: s, amt: 0, pos: 1, note: "🏆 Nhất" };
+    const isSamCaught = samFailed && s === claimer;
+    const penalty = computeLoserPenalty(s, stake, isSamCaught);
+    let note = "";
+    if (isSamCaught) note = "Bị bắt sâm";
+    else if (s.cutByHeoCount > 0) note = "Bị chặt heo";
+    else if ((s.cards || []).length >= 10) note = "Móm";
+    else note = `Còn ${(s.cards || []).length} lá`;
+    return { seat: s, amt: -penalty, pos: s.finishOrder, note };
   });
+
+  // Winner ăn tổng tất cả penalty; nếu có catcher riêng cho bắt sâm → 3x
+  // penalty đó ăn về catcher, phần còn lại về winner.
+  let winnerGain = 0;
+  let catcherGain = 0;
   for (const r of results) {
-    r.seat.chips += r.amt;
-    r.seat.lastAction = r.pos === 1 ? "🏆 Nhất" : r.pos === n ? "Thối" : `Hạng ${r.pos}`;
+    if (r.amt < 0) {
+      const isSamCaughtRow =
+        samFailed && r.seat === claimer;
+      if (isSamCaughtRow && catcher && catcher !== winnerSeat) {
+        catcherGain += -r.amt;
+      } else {
+        winnerGain += -r.amt;
+      }
+    }
+  }
+  // Apply chips
+  for (const r of results) {
+    if (r.amt < 0) {
+      const pay = Math.min(r.seat.chips, -r.amt);
+      r.seat.chips -= pay;
+      r.amt = -pay;
+    }
+    r.seat.lastAction = r.note;
+  }
+  if (winnerSeat) {
+    winnerSeat.chips += winnerGain;
+    // Update winner row's amt
+    const wr = results.find((r) => r.seat === winnerSeat);
+    if (wr) wr.amt = winnerGain;
+  }
+  if (catcher && catcher !== winnerSeat) {
+    catcher.chips += catcherGain;
+    const cr = results.find((r) => r.seat === catcher);
+    if (cr) cr.amt = (cr.amt || 0) + catcherGain;
   }
 
-  room.winners = results.map((r) => ({
-    seatIndex: r.seat.seatIndex,
-    userId: r.seat.user?._id || r.seat.user,
-    userName: r.seat.user?.nickname || r.seat.user?.name || "?",
-    handDescription:
-      r.pos === 1 ? "🏆 Nhất ván" : r.pos === n ? "Thối" : `Hạng ${r.pos}`,
-    amountWon: r.amt,
-    revealedCards: r.seat.cards || [],
-  }));
+  room.winners = results
+    .sort((a, b) => a.pos - b.pos)
+    .map((r) => ({
+      seatIndex: r.seat.seatIndex,
+      userId: r.seat.user?._id || r.seat.user,
+      userName: r.seat.user?.nickname || r.seat.user?.name || "?",
+      handDescription:
+        r.pos === 1 ? "🏆 Nhất ván" : r.note,
+      amountWon: r.amt,
+      revealedCards: r.seat.cards || [],
+    }));
   room.stage = "showdown";
   room.activeIndex = -1;
   room.turnDeadlineAt = null;
@@ -358,6 +485,7 @@ export function applyAction(room, seatIndex, action, payload = {}) {
     if (!type) throw new Error("Không phải combo hợp lệ");
 
     // Nếu đang có combo trên bàn, phải cùng loại + cao hơn HOẶC chặt hợp lệ.
+    let isCutting = false;
     if (room.currentCombo) {
       const cur = room.currentCombo;
       const newCombo = { cards, type };
@@ -372,6 +500,23 @@ export function applyAction(room, seatIndex, action, payload = {}) {
         throw new Error(
           `Không đè được ${cur.type} bằng ${type} — chọn combo khác hoặc pass`,
         );
+      } else {
+        isCutting = true;
+      }
+
+      // Chặt heo: nếu current combo là single/pair/triple con 2 và bị chặt
+      // → mark seat của người đánh 2 là bị chặt heo (penalty ván này).
+      const curHas2 =
+        (cur.type === "single" || cur.type === "pair" || cur.type === "triple") &&
+        cur.cards[0] &&
+        cur.cards[0][0] === "2";
+      const isCutter =
+        type === "quad" || type === "fourPairs" || type === "dragon";
+      if (curHas2 && isCutter && cur.fromSeat != null && cur.fromSeat !== seatIndex) {
+        const victim = room.seats.find(
+          (s) => s.seatIndex === cur.fromSeat,
+        );
+        if (victim) victim.cutByHeoCount = (victim.cutByHeoCount || 0) + 1;
       }
     } else {
       // Combo đầu ván: nếu ai có 3♠ phải chứa nó trong lượt đầu

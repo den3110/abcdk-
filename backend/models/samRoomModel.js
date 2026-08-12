@@ -15,6 +15,12 @@ const samSeatSchema = new Schema(
     finishOrder: { type: Number, default: 0 }, // 1..4
     lastAction: { type: String, default: null },
     sittingOut: { type: Boolean, default: false },
+    // Đã xin sâm ván này chưa
+    hasClaimedSam: { type: Boolean, default: false },
+    // Số lần bị chặt heo (đánh 2 mà bị đè bởi tứ quý/4đ.thông/sảnh rồng)
+    cutByHeoCount: { type: Number, default: 0 },
+    // Người đã bắt sâm của người này (chưa dùng trong Phase 6 xin sâm đơn giản)
+    caughtSamBy: { type: Number, default: -1 },
   },
   { _id: false },
 );
@@ -33,7 +39,7 @@ const samRoomSchema = new Schema(
   {
     name: { type: String, required: true, trim: true, maxlength: 60 },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    stake: { type: Number, default: 100, min: 1 },
+    stake: { type: Number, default: 5, min: 1 }, // chip mỗi lá bài còn lại
     buyIn: { type: Number, default: 1000, min: 10 },
     maxSeats: { type: Number, default: 4 },
     // Có bắt tứ quý 2 / sảnh rồng không (đền chip)
@@ -44,10 +50,14 @@ const samRoomSchema = new Schema(
     handNumber: { type: Number, default: 0 },
     stage: {
       type: String,
-      enum: ["waiting", "dealing", "playing", "showdown"],
+      enum: ["waiting", "dealing", "xin_sam", "playing", "showdown"],
       default: "waiting",
       index: true,
     },
+    // Xin sâm state
+    samClaimerIndex: { type: Number, default: -1 }, // seat đang xin sâm
+    samCatcherIndex: { type: Number, default: -1 }, // seat bắt sâm
+    xinSamDeadlineAt: { type: Date, default: null },
     // Người đánh trước ván này (ai có 3♠ đánh đầu; ván sau người thắng)
     starterIndex: { type: Number, default: 0 },
     activeIndex: { type: Number, default: -1 },
