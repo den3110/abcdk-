@@ -1880,6 +1880,30 @@ export function initSocket(
       } catch {}
     });
 
+    // Chess room
+    socket.on("chess:room:subscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.join(`chess:room:${roomId}`);
+      } catch {}
+    });
+    socket.on("chess:room:unsubscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.leave(`chess:room:${roomId}`);
+      } catch {}
+    });
+
+    // Xiangqi room
+    socket.on("xiangqi:room:subscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.join(`xiangqi:room:${roomId}`);
+      } catch {}
+    });
+    socket.on("xiangqi:room:unsubscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.leave(`xiangqi:room:${roomId}`);
+      } catch {}
+    });
+
     // nhận subscribe realtime từ admin tab
     socket.on("presence:watch", async () => {
       try {
