@@ -556,28 +556,23 @@ export function applyAction(room, seatIndex, action, payload = {}) {
     room.plays.push({ seatIndex, action: "play", cards, at: new Date() });
     seat.lastAction = "đánh " + type;
 
-    // Hết bài → finish
+    // Hết bài → thắng ván ngay (rule Sâm: nhất = kết thúc luôn)
     if (seat.cards.length === 0) {
       seat.hasFinished = true;
-      const maxOrder = Math.max(
-        0,
-        ...room.seats.filter((s) => s.finishOrder > 0).map((s) => s.finishOrder),
-      );
-      seat.finishOrder = maxOrder + 1;
-
-      // Chỉ còn 1 người chưa hết → kết thúc ván
-      const notFinished = room.seats.filter(
-        (s) => s?.user && !s.hasFinished && !s.sittingOut,
-      );
-      if (notFinished.length <= 1) {
-        endHand(room);
-        return room;
+      seat.finishOrder = 1;
+      // Xếp các seat còn lại theo cards.length (ít lá hơn = hạng cao hơn)
+      const others = room.seats
+        .filter((s) => s?.user && !s.hasFinished && !s.sittingOut)
+        .sort((a, b) => (a.cards?.length || 0) - (b.cards?.length || 0));
+      let order = 2;
+      for (const s of others) {
+        s.finishOrder = order++;
+        s.hasFinished = true;
       }
-      // Người này hết bài, chuyển lượt cho người kế
-      scheduleNextTurn(room, nextActiveSeat(room, seatIndex));
-    } else {
-      scheduleNextTurn(room, nextActiveSeat(room, seatIndex));
+      endHand(room);
+      return room;
     }
+    scheduleNextTurn(room, nextActiveSeat(room, seatIndex));
     return room;
   }
 

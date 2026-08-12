@@ -76,6 +76,8 @@ export const createChessRoom = asyncHandler(async (req, res) => {
     chips: 0,
     sittingOut: false,
   }));
+  seats[0].user = req.user._id;
+  seats[0].chips = buyIn;
   const room = await ChessRoom.create({
     name,
     createdBy: req.user._id,
@@ -111,6 +113,10 @@ export const sitChessRoom = asyncHandler(async (req, res) => {
   if (room.status === "closed") {
     res.status(400);
     throw new Error("Bàn đã đóng");
+  }
+  if (room.stage === "playing") {
+    res.status(400);
+    throw new Error("Ván đang chơi — vui lòng chờ ván kết thúc rồi vào");
   }
   const seatIdx = Number(req.body?.seatIndex);
   if (!Number.isFinite(seatIdx) || seatIdx < 0 || seatIdx >= room.seats.length) {
@@ -152,7 +158,6 @@ export const leaveChessRoom = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Bạn không ở bàn này");
   }
-  // Nếu đang chơi → coi như đầu hàng
   if (room.stage === "playing") {
     try {
       applyResign(room, seat.seatIndex);
@@ -161,6 +166,10 @@ export const leaveChessRoom = asyncHandler(async (req, res) => {
   seat.user = null;
   seat.chips = 0;
   seat.sittingOut = false;
+  if (String(room.createdBy) === String(req.user._id)) {
+    const nextHost = room.seats.find((s) => s.user);
+    if (nextHost) room.createdBy = nextHost.user;
+  }
   room.lastActivityAt = new Date();
   await room.save();
   const populated = await populateRoom(room);
@@ -173,6 +182,10 @@ export const startChessHand = asyncHandler(async (req, res) => {
   if (!room) {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
+  }
+  if (String(room.createdBy) !== String(req.user._id)) {
+    res.status(403);
+    throw new Error("Chỉ chủ phòng mới có quyền bắt đầu ván");
   }
   const isSeated = room.seats.some(
     (s) => String(s.user) === String(req.user._id),

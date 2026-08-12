@@ -159,6 +159,8 @@ export const createSamRoom = asyncHandler(async (req, res) => {
     finishOrder: 0,
     sittingOut: false,
   }));
+  seats[0].user = req.user._id;
+  seats[0].chips = buyIn;
   const room = await SamRoom.create({
     name,
     createdBy: req.user._id,
@@ -194,6 +196,10 @@ export const sitSamRoom = asyncHandler(async (req, res) => {
   if (room.status === "closed") {
     res.status(400);
     throw new Error("Bàn đã đóng");
+  }
+  if (room.stage === "playing" || room.stage === "xin_sam") {
+    res.status(400);
+    throw new Error("Ván đang chơi — vui lòng chờ ván kết thúc rồi vào");
   }
   const seatIdx = Number(req.body?.seatIndex);
   if (!Number.isFinite(seatIdx) || seatIdx < 0 || seatIdx >= room.seats.length) {
@@ -242,6 +248,10 @@ export const leaveSamRoom = asyncHandler(async (req, res) => {
   seat.finishOrder = 0;
   seat.sittingOut = false;
   seat.lastAction = null;
+  if (String(room.createdBy) === String(req.user._id)) {
+    const nextHost = room.seats.find((s) => s.user);
+    if (nextHost) room.createdBy = nextHost.user;
+  }
   room.lastActivityAt = new Date();
   await room.save();
   const populated = await populateRoom(room);
@@ -254,6 +264,10 @@ export const startSamHand = asyncHandler(async (req, res) => {
   if (!room) {
     res.status(404);
     throw new Error("Không tìm thấy bàn");
+  }
+  if (String(room.createdBy) !== String(req.user._id)) {
+    res.status(403);
+    throw new Error("Chỉ chủ phòng mới có quyền bắt đầu ván");
   }
   const isSeated = room.seats.some(
     (s) => String(s.user) === String(req.user._id),
@@ -276,7 +290,6 @@ export const startSamHand = asyncHandler(async (req, res) => {
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
-  // Phase xin_sam → auto-transition sau deadline
   setTimeout(() => autoFinishXinSam(populated._id).catch(() => {}), 10_500);
   res.json({ room: serializeRoom(populated, req.user._id) });
 });
