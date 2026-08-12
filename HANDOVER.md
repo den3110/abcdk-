@@ -21,6 +21,64 @@
 >
 > ⚠️ **Thay đổi kiến trúc lớn kể từ 2026-08-03 (đọc HANDOFF chi tiết):**
 >
+> 🆕 **Session 2026-08-12→13 — Games platform 6 game + MLP polish**
+> (xem HANDOFF mới nhất — 73 tasks, **~58 commits root + ~38 commits mobile**):
+> - **6 game online hoàn chỉnh trên mobile**: Poker (đã có) + **Phỏm, Sâm Lốc,
+>   Caro, Cờ Vua, Cờ Tướng** (mới). Home icon "Poker" → "Games" hub `/games`
+>   với 6 tile. Mỗi game: model + engine + controller + routes + socket
+>   `<game>:room:${id}` + `<game>:lobby` + mobile lobby + room screen +
+>   RTK slice.
+> - **Phỏm**: 9 lá + dealer 10, `findBestPartition` backtracking phỏm tối ưu,
+>   auto-ù, phase mới `downing` sau 4 vòng với 3 lựa chọn (auto/manual/gửi bài).
+>   Rule đơn giản: 10 lá thảy, 9 lá bốc. Landscape UI.
+> - **Sâm Lốc**: rank order riêng (3<...<A<2 — 2 là heo), `fourPairs` combo
+>   type, `canCut` cross-type (tứ quý chặt heo, 4 đôi thông chặt quad,
+>   dragon chặt all). **Xin Sâm flow** stage riêng 10s. Scoring per-card ×
+>   stake (móm 2x, chặt heo 2x, bị bắt sâm 6x). 1 người hết bài = kết
+>   thúc ván ngay. Landscape UI.
+> - **Caro (Gomoku)**: 15×15 board flat, 5 liên tiếp win (4 direction check).
+>   Portrait UI, X đỏ / O xanh.
+> - **Cờ Vua**: `npm install chess.js` (^1.4.0) wrapper full rule (checkmate/
+>   stalemate/draw). Board 8×8 Unicode ♔♕♖♗♘♙, flip cho bên đen. Legal
+>   moves highlight khi chọn quân (chess.js client-side).
+> - **Cờ Tướng**: custom engine ~250 dòng với 7 loại quân (K/A/E/H/R/C/P),
+>   sông + cung, pháo cần đúng 1 quân giữa để ăn, face-to-face rule. Bắt
+>   K/k = thắng. Board 9×10 với chữ Hán 帥仕相傌俥炮兵.
+> - **Shared game infrastructure**:
+>   - `components/games/GameTableUI.tsx`: WoodBackground / FeltOval / CardPro
+>     / SeatFrame / RoundIconBtn / SpeechBubble / ConnectionBanner
+>   - `components/games/InviteFriendModal.tsx`: search user + push invite
+>   - `components/games/RoomListItem.tsx`: shared lobby card với avatar row
+>   - `hook/useGameAutoReconnect.ts`: NetInfo + AppState + socket reconnect
+>   - `lib/gameSound.ts`: standalone (require relative), verbose log, remote
+>     URL fallback tại `pickletour.vn/uploads/sfx/click.mp3`
+> - **Host system** (chủ phòng — áp dụng 5 game mới, Poker giữ nguyên):
+>   auto-sit creator, chỉ chủ phòng bắt đầu, chặn ngồi khi ván đang chơi,
+>   transfer host khi rời, back button confirm, **auto-close bàn khi hết
+>   người** (`seats.some(s => s.user) === false → status="closed"`).
+> - **Realtime lobby list**: socket `<game>:lobby` join khi subscribe →
+>   emit `<game>:lobby:updated` khi có createRoom / update / leave →
+>   client refetch. List response include `seatUsers` avatars + `createdBy`.
+> - **Speech bubble** cho tất cả 6 game khi có chat mới (4s trên avatar).
+> - **Sound**: reuse `assets/sfx/click4.mp3` bundled (từ build 43). Nếu OTA
+>   bundle require alias fail → fallback remote URL. Verbose console log.
+> - **Android build local**: `pickletour-1.1.13.{apk,aab}` (115MB + 160MB)
+>   tại `~/Desktop/pickletour-android/`. Keystore config trong
+>   `~/.gradle/gradle.properties`. `Java 17` bắt buộc.
+> - **OTA policy mới** (memory `ota_targets.md`): mỗi commit chỉ push
+>   `ios 1.1.13`; khi hoàn tất tính năng → push cả 4 target (iOS 1.1.13+1.1.9,
+>   Android 1.1.13+1.1.9). Override HANDOFF §3.3 cũ.
+> - **Bổ sung MLP tournament**:
+>   - `mlpConfig.maxTeamScore` cap tổng điểm ĐÔI roster + validate backend + UI web/mobile
+>   - Fix `TournamentCourtClusterDialog` union 2 pool referees (legacy + new)
+>   - BTC section trang đăng ký: card list creator + managers với avatar +
+>     tap mở PublicProfileDialog + icon 💬 nhắn tin (DM) + 📞 gọi điện.
+>     Backend `getTournamentById` populate `createdBy` + `managers.user`
+>   - MLP `MlpTournamentRegistrationView` TeamFormDialog + team list card
+>     hiện điểm trình đôi/đơn mỗi VĐV + tổng team (dùng `attachPlayerScores`)
+>
+> ---
+>
 > 🆕 **Session 2026-08-11→12 — MLP group stage + waitlist + polish**
 > (xem HANDOFF mới nhất — 40 tasks, ~19 commits root + ~11 commits mobile):
 > - **MLP vòng bảng + bốc thăm + knockout ĐẦY ĐỦ**: `groupStage.enabled`

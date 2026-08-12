@@ -1,29 +1,13 @@
-# PickleTour — HANDOFF Session (2026-08-11 → 2026-08-12)
+# PickleTour — HANDOFF Session (2026-08-12 → 2026-08-13)
 
-> Session dài ~1.5 ngày, ~40 commits root + ~11 commits mobile. Chủ đề:
+> Session cực dài ~2 ngày, **58 commits root + 38 commits mobile**. Chủ đề chính là
+> **Games platform hoàn chỉnh 6 game** (Poker cũ + 5 game mới: Phỏm/Sâm/Caro/Cờ Vua/Cờ Tướng),
+> cộng bug fix + UX cho MLP tournament + đăng ký giải.
 >
-> 1. **MLP Vòng bảng + Bốc thăm + Knockout đầy đủ** — group stage +
->    live draw stage + auto-advance winner + KO preview với placeholder
->    "Nhất bảng A".
-> 2. **Reset giải MLP** để test lại.
-> 3. **Trọng tài đứng theo sân** (bỏ referee UI trong dual detail, auto
->    lấy từ `courtStation.defaultReferees`).
-> 4. **MlpDualsPage nâng cao**: pool tabs, dropdown gán sân inline, xem
->    lineup 2 đội trong card, realtime score.
-> 5. **Overlay MLP** — redesign compact top-left OBS, quả bóng vàng
->    pulsing indicator tay giao, badge DreamBreaker inline.
-> 6. **Referee panel mobile**: hiện tên đội 2 side + swap khi Đổi bên
->    + fix nhấp nháy tên đội ↔ tên VĐV.
-> 7. **Waitlist đăng ký giải** — cặp thứ 49+ tự vào chờ duyệt, auto
->    promote FIFO khi có cặp rút, admin có option "Chờ / Duyệt luôn",
->    push notification 2 chiều.
-> 8. **MLP badge** trên tournament list card (web + mobile).
-> 9. **Quản lý trọng tài** — pool trọng tài của giải (backend + web
->    dialog); wire vào cụm sân sẽ ở phase sau.
-> 10. **Điểm trình VĐV** hiện trong MLP team roster (search dropdown +
->     roster item + tổng đôi/đơn của team).
-
-Đọc kèm `HANDOVER.md` để nắm kiến trúc chung.
+> Session trước (2026-08-11 → 12) tập trung MLP vòng bảng + waitlist đăng ký + polish.
+> Đọc HANDOFF cũ ở [git tag `session-2026-08-12`](https://github.com/den3110/abcdk-) nếu cần.
+>
+> Đọc kèm `HANDOVER.md` §0 mục "Session 2026-08-12→13" để nắm state hiện tại.
 
 ---
 
@@ -31,318 +15,407 @@
 
 | Kênh | Version | Trạng thái |
 |---|---|---|
-| **Backend prod** (`pickletour.vn/api`) | commit `6991b266` | ✅ Đã `pm2 restart server` (2 instance). |
-| **Frontend web** (`pickletour.vn`) | commit `6991b266` | ✅ CI/CD tự pull `yarn build:deploy`. |
-| **Mobile iOS TestFlight** | `1.1.13 (43)` cũ | 🟡 Native binary cũ, feature ship qua OTA. |
-| **Mobile Android Play** | `1.1.13 (43)` | ✅ Rollout xong (session trước). Session này KHÔNG push OTA Android. |
-| **Mobile iOS OTA production** | Bundle `2828e36` | ✅ Deploy CHO CẢ `ios 1.1.13` VÀ `ios 1.1.9` (user yêu cầu push cả 2 target). |
-| **Overlay Generator VPS** | overlay-template-mlp.html chưa scp | 🟡 File local (di sản session trước, MLP overlay đã có route riêng, không cần dùng template này). |
+| **Backend prod** (`pickletour.vn/api`) | commit `f9819f31` | ✅ Đã `pm2 restart server` sau commit cuối. `npm install chess.js` đã chạy trên VPS. |
+| **Frontend web** (`pickletour.vn`) | ~`bcef4390` | ✅ Rebuild + rsync xong turn giữa session (BTC + MLP fixes). Session này CHỦ YẾU sửa mobile, nên frontend web KHÔNG có thay đổi mới sau đó. |
+| **Mobile iOS OTA production** | Bundle `9bb3781` | ✅ Deploy **CHO CẢ `ios 1.1.13` + `ios 1.1.9`** (~15 lần push trong session). Session này push cả **Android target** `1.1.13` + `1.1.9` sau khi user override policy. |
+| **Mobile Android build local** | 1.1.13 (build 43 native, JS OTA `9bb3781`) | ✅ Build `pickletour-1.1.13.apk` (115MB) + `.aab` (160MB) tại `~/Desktop/pickletour-android/`. Chưa upload Play Console. |
+| **Admin panel** (Vercel) | không đổi | — |
 
 **Git remotes:**
 
 | Repo | Latest commit |
 |---|---|
-| `github.com/den3110/abcdk-` (root + backend + web) | `6991b266` |
-| `github.com/den3110/pickletour-app` (mobile) | `2828e36` |
+| `github.com/den3110/abcdk-` (root + backend + web) | `f9819f31` |
+| `github.com/den3110/pickletour-app` (mobile) | `9bb3781` |
 | `github.com/den3110/abcde` (admin) | không đổi |
 
 ---
 
-## 2. Feature ship trong session
+## 2. OTA target policy
 
-### 2.1 MLP Vòng bảng + Bốc thăm + Knockout — [`cb2267b4`](https://github.com/den3110/abcdk-/commit/cb2267b4)
+User đã đổi policy giữa session (memory `ota_targets.md`):
 
-**Schema mới:**
-- `Tournament.mlpConfig.groupStage`: `{ enabled, poolCount, poolSize, topPerPool, doubleRound, seedMethod, tiebreakers, drawStatus, drawnAt }`.
-- `MlpTeam`: thêm `poolKey`, `poolIndex`, `seed`.
-- `MlpDualMatch`: thêm `phase (group|knockout|null)`, `poolKey`, `knockoutRound`, `bracketSlot`, `nextMatch`, `nextSlot`. `teamA/B` nullable (shell dual round 2+).
+- **Trong session build tăng dần**: chỉ push `ios 1.1.13` mỗi commit, giữ `1.1.9` chờ đợt cuối
+- **Khi user báo "xong hết" / "final"** → push cả 4 target: iOS `1.1.13` + `1.1.9`, Android `1.1.13` + `1.1.9`
+- Session này đợt cuối user đã đẩy cả 4 target sau khi ship Games hub v1
 
-**Backend endpoints** (`backend/services/mlpPoolService.js`, `mlpController.js`):
-- `GET /api/mlp/tournaments/:tid/pools` — list pools + đội chưa gán.
-- `POST /api/mlp/tournaments/:tid/pools/draw` — bốc thăm (random/snake/manual + dryRun).
-- `POST /api/mlp/tournaments/:tid/pools/reset` — clear.
-- `POST /api/mlp/tournaments/:tid/pools/live-draw/broadcast` — relay socket cho sân khấu bốc thăm (room `mlp:tour:${tid}`).
-- `POST /api/mlp/tournaments/:tid/duals/knockout/resolve` — manual trigger auto-fill KO placeholders.
-
-**Logic refactor:**
-- `generateMlpDuals`: `groupStage.enabled=true` → sinh round-robin trong mỗi bảng (`phase="group"` + `poolKey`), hỗ trợ `doubleRound`. Ngược lại: hành vi flat cũ.
-- `generateMlpKnockout`: group mode → BXH per-pool → top-N mỗi bảng → cross-pool pairing (A1-B2, B1-A2, C1-D2, D1-C2). **Tạo full bracket** (round 1..N) với shell dual round 2+ linked qua `nextMatch/nextSlot`.
-- **KO Preview** ([`1f01b59c`](https://github.com/den3110/abcdk-/commit/1f01b59c)): bỏ guard "cần đủ đội qualified" → sinh KO CẢ KHI vòng bảng CHƯA XONG. Bảng chưa hoàn tất → `teamA/B=null`, `sourceA/B={kind:"poolRank", poolKey, poolRank}` → frontend render placeholder "Nhất bảng A" / "Nhì bảng B".
-- **Auto-resolve**: `resolveMlpKnockoutSlots(tournamentId)` — hook vào `syncSubMatchResult` + `mlpMatchSync`. Khi group dual finished + bảng hoàn tất → tự fill `teamA/B` từ standings vào KO slot.
-- **Auto-advance winner**: `advanceMlpKnockoutWinner(dual)` — hook 3 nơi (`syncSubMatchResult`, `forceFinishMlpDual`, `scoreDreamBreakerPoint`) + `mlpMatchSync` lazy import. Dual KO finished → điền winner vào slot `nextMatch`.
-- `getMlpStandings`: trả về thêm `pools: [{key, index, items[]}]` với BXH per-bảng scoped chỉ `phase="group"`.
-
-**Web UI:**
-- `MlpConfigDialog`: section "Vòng bảng + Knockout".
-- `MlpPoolDrawDialog` (mới): 3 tab (Random / Snake / Manual dropdown) + preview + commit.
-- `MlpDualsPage`: pool tabs (Tất cả / A/B/C/D / Knockout), button "Bốc thăm chia bảng", warning bar khi chưa bốc thăm.
-- `MlpBracketView`: group mode = pools grid (BXH + duals) + horizontal knockout bracket (Tứ kết/Bán kết/Chung kết auto-label).
-- `MlpStandingsPage`: tabs Tổng + per-bảng, top-N highlight xanh + chip "KO".
-- `MlpDrawLivePage` (mới): route `/tournament/:id/mlp/draw/live`. Sân khấu bốc thăm nền tối, operator bấm reveal từng đội với animation Slide/Grow/wiggle, socket relay realtime cho viewer (`?mode=viewer`). Fix commit gate: **chỉ Commit khi bốc hết đội** ([`e0e21f96`](https://github.com/den3110/abcdk-/commit/e0e21f96)).
-
-**Placeholder UI** ([`010f208`](https://github.com/den3110/pickletour-app/commit/010f208) mobile, web tương tự): `TeamRow` render chip dashed vàng "Nhất bảng A" khi `teamA=null` + `sourceA.kind="poolRank"`. Helper `placeholderLabel(source)` dùng chung.
-
-**Mobile mirror**: `duals.tsx` pool tabs, `standings.tsx` per-bảng, `MlpBracketView.tsx` render pool boxes + KO section.
-
-**Fix 404 bracket click** ([`5e2e5c2a`](https://github.com/den3110/abcdk-/commit/5e2e5c2a)): web bracket navigate `/mlp/dual/` (số ít) trong khi route đăng ký `/mlp/duals/:id` (số nhiều). Fix web, giữ mobile số ít (expo-router file layout). Guard shell KO chưa có team → skip navigate.
-
-### 2.2 Reset giải MLP — [`a2a4d2a1`](https://github.com/den3110/abcdk-/commit/a2a4d2a1)
-
-- Endpoint `POST /api/mlp/tournaments/:tid/reset` — body `{ scope: {duals,standings,pools,ratingChanges}, confirmName }`.
-- 4 scope: xoá duals (+ Match docs), reset team.standing, clear pool assignments, xoá RatingChange log (không revert user rating).
-- Confirm bằng cách gõ đúng tên giải (case-sensitive).
-- Web dialog `MlpResetDialog` với checkboxes + text field xác nhận. Nút "🔥 Reset giải" đỏ trong MlpDualsPage action bar.
-
-### 2.3 Trọng tài theo sân — [`1f01b59c`](https://github.com/den3110/abcdk-/commit/1f01b59c)
-
-- Bỏ hoàn toàn UI trọng tài trong `DualAssignmentPanel` + `SubMatchAssignmentPanel`. Alert nhắc "Trọng tài đứng theo sân".
-- Backend `patchMlpDual` / `patchMlpSubMatch`: khi đổi `courtStation` (+ client không truyền `referees` explicit) → auto set `referees = station.defaultReferees`.
-- `mlpMatchSync.ensureMlpSubMatchDoc` fallback chain: `sub.referees > dual.referees > station.defaultReferees` khi build Match doc.
-- Mobile referee tab: filter `mlpDbDuals` cũng dùng thêm `dual.courtStation.defaultReferees` + `subMatches.courtStation.defaultReferees` làm fallback ([`f8ac382`](https://github.com/den3110/pickletour-app/commit/f8ac382)). Backend `listMlpDuals` + `getMlpDual` populate `defaultReferees` trong courtStation ([`5adafb77`](https://github.com/den3110/abcdk-/commit/5adafb77)).
-
-### 2.4 MlpDualsPage nâng cao — [`1f01b59c`](https://github.com/den3110/abcdk-/commit/1f01b59c)
-
-- **Xem lineup 2 đội trong card**: box từng sub-match với chip avatar+tên VĐV `playersA` vs `playersB` — BTC thấy lineup mà không cần vào chi tiết.
-- **Dropdown gán sân inline**: admin/manager Select "🏟️ Chọn sân" ngay trong card → patch trực tiếp qua `patchMlpDual`.
-- **Chip "Trọng tài theo sân (N)"** hiện số referee sau gán sân.
-- **Realtime score** ([`84c439bb`](https://github.com/den3110/abcdk-/commit/84c439bb)): `syncSubMatchResult` + `mlpMatchSync` emit `tournament:invalidate` mỗi khi score/status đổi (debounced). MlpDualsPage subscribe `tournament:${id}` → refetch throttled 800ms. Bật `refetchOnFocus/Reconnect`.
-
-### 2.5 Overlay MLP — [`6964a80f`](https://github.com/den3110/abcdk-/commit/6964a80f) + [`d009f251`](https://github.com/den3110/abcdk-/commit/d009f251) + [`1e7b9e35`](https://github.com/den3110/abcdk-/commit/1e7b9e35)
-
-**Redesign compact top-left** (~480px, thay vì 900px center):
-- Card navy gradient + viền gold.
-- Header 1 dòng: slot badge (MD/WD/XD…) + label + chip LIVE/KẾT THÚC.
-- Body 2 hàng team gọn: logo mini + tên team (accent) + list VĐV cùng dòng phân cách "/".
-- Score box bên phải: 2 ô vuông dọc (A trên, B dưới) + chip slot wins ở dưới.
-- DreamBreaker: badge "🏆 DREAM BREAKER" **inline vào header** (không floating che chữ) + "1v1 · T21 · R4".
-
-**Query params**: `?position=top-left|top-right|bottom-left|bottom-right|center`, `?compact=1`, `?theme=light|dark` (chỉ 1 theme navy hiện tại), `?hidePlaceholder=1`.
-
-**Serve indicator**: quả bóng vàng nhỏ pulse cạnh tên đội đang giao. Nếu `serve.serverId` khớp 1 player → underline tên VĐV đó vàng. DreamBreaker cũng có ball indicator. Animation `mlpServePulse` scale 1→1.25 loop 1.2s (inject vào `document.head` 1 lần).
-
-**Fix quan trọng** ([`84c439bb`](https://github.com/den3110/abcdk-/commit/84c439bb)): overlay path 1 dùng `station.currentMatch`. Nếu trỏ tới match NOT-MLP → `isMlpSub=false` → skip. Fix: chỉ dùng candidate nếu có `meta.mlp.dualId`, ngược lại rơi xuống path 2 (query MLP match theo station).
-
-Trước đó ([`ff9626b4`](https://github.com/den3110/abcdk-/commit/ff9626b4)) đã widen query: nhận cả `status="scheduled"` (không chỉ live/assigned) vì `ensureMlpSubMatchDoc` tạo Match với default `scheduled`. Sort ưu tiên `live > assigned > scheduled`.
-
-### 2.6 Referee panel mobile
-
-**Tên đội 2 side** ([`d27367a`](https://github.com/den3110/pickletour-app/commit/d27367a)):
-- `TeamSimple` component thêm prop `teamName`, render header text đậm ở đỉnh mỗi team box (đổi màu highlight khi đang giao).
-- `resolveTeamName(key)` priority: `meta.mlp.teamAName/teamBName` → `resolvedSideNameX` → `__sideX` → `teamXName` → `pairXName` → `sideXName`.
-- Truyền `teamName` theo `leftSide/rightSide` → **swap tự động khi bấm "Đổi bên"** (vì `leftRight` state swap).
-
-**Fix flicker tên đội ↔ tên VĐV** ([`642177c`](https://github.com/den3110/pickletour-app/commit/642177c)):
-- MLP match (có `meta.mlp.dualId`): CHỈ dùng `meta.mlp.teamAName/teamBName`, KHÔNG fallback. Các field `resolvedSideName/pairName/sideName` thường bị upstream normalize gán = "Tung / Có cháu đây" (tên VĐV concat) → nhấp nháy.
-- Match thường: giữ fallback cũ.
-- `useMemo` deps tách theo field cụ thể thay vì `[match]` để tránh recompute không cần.
-
-**Web schedule** ([`6f05ac6a`](https://github.com/den3110/abcdk-/commit/6f05ac6a)): tương tự — `teamNameFrom` + `resolveSide` ưu tiên `m.meta.mlp.teamAName/teamBName` cho MLP match. Fix bug trang Lịch thi đấu hiện "Chưa có đội".
-
-### 2.7 Waitlist đăng ký
-
-**Schema**:
-- `Registration.status`: enum `["approved","waitlisted","rejected","withdrawn"]` + `approvedBy/At`. Default `"approved"` (BC data cũ).
-- `MlpTeam.status` thêm `"waitlisted"`.
-
-**Backend create** ([`1e406aa7`](https://github.com/den3110/abcdk-/commit/1e406aa7)):
-- `createRegistration`, `adminCreateRegistration`, `createMlpTeam`: đếm approved chỉ status=approved (hoặc absent). Đầy → set `status="waitlisted"`, KHÔNG bump `Tournament.registered`.
-- **Bug ẩn** ([`41390a7c`](https://github.com/den3110/abcdk-/commit/41390a7c)): web/mobile đi qua `createRegistrationInvite` (invite flow) có `preflightChecks` RIÊNG vẫn hard-reject "Giải đã đủ". Fix: `preflightChecks` không throw nữa, trả `overCap: true`. Caller (`finalizeIfReady`, admin direct path, user direct path) quyết status.
-- `RegInvite.desiredStatus`: admin ép khi tạo invite, `finalizeIfReady` tôn trọng.
-
-**Public counts** ([`1e406aa7`]): `getTournaments` aggregation + `getTournamentById.stats.registrationsCount` chỉ đếm approved → **48/48 công khai giữ nguyên** dù có 10 cặp waitlist.
-
-**Admin promote + Auto-promote FIFO**:
-- `waitlistService.js`: `autoPromoteRegistrationFromWaitlist` + `autoPromoteMlpTeamFromWaitlist`. Sort FIFO theo `createdAt`.
-- Hook 4 site: `cancelRegistration`, `adminDeleteRegistration`, `adminUpdateRegistration` (rejected/withdrawn từ approved), `updateMlpTeam` + `deleteMlpTeam`. Cũng auto-fire khi manual promote via `adminUpdateRegistration.status=approved`.
-
-**Admin dialog "Chờ / Duyệt luôn"** ([`41390a7c`]): khi `isAdmin && registrationsCount >= maxPairs` → dialog 3 nút (Huỷ / ⏳ Chờ duyệt / ✓ Duyệt luôn). Pass `status` vào body `createRegInvite`. Web + Mobile ([`3185376`](https://github.com/den3110/pickletour-app/commit/3185376)).
-
-**Notification** ([`caf80447`](https://github.com/den3110/abcdk-/commit/caf80447)):
-- Events mới: `REGISTRATION_WAITLIST_PROMOTED`, `MLP_TEAM_WAITLIST_PROMOTED`.
-- 2 audience mỗi promote: VĐV/team (title "🎉 Đăng ký của bạn đã được duyệt") + BTC (createdBy + managers, title "Đã duyệt / Auto-duyệt cặp waitlist").
-- Body phân biệt auto vs manual promote. Deep link `data.url` → `/tournament/:tid/register` hoặc `/tournament/:tid/mlp/teams`.
-
-**UI web + mobile** ([`1e406aa7`], [`05f9a98`](https://github.com/den3110/pickletour-app/commit/05f9a98), [`ff22a645`](https://github.com/den3110/abcdk-/commit/ff22a645), [`b221953`](https://github.com/den3110/pickletour-app/commit/b221953)):
-- Section "⏳ Chờ duyệt · N" dưới danh sách chính. Card dùng chung `PlayerInfo` component (web) hoặc RegItem style (mobile) — có avatar, phone (mask cho user, full cho admin/manager qua `phoneForRole`), score chip, tap mở PublicProfileDialog.
-- Nút "✓ Duyệt" cho admin/manager gọi `useManagerSetRegStatusMutation → PATCH /admin/tournaments/registrations/:regId` với body.status.
-- MlpTeamsPage extend enum filter + nút Duyệt cho waitlisted status.
-
-### 2.8 MLP badge + Referee pool + Điểm trình VĐV — [`6991b266`](https://github.com/den3110/abcdk-/commit/6991b266)
-
-**MLP badge tournament card**: Web `Tournament.jsx` + mobile `(tabs)/index.tsx` → góc trên trái card hiện 🏆 MLP (cam gradient) hoặc 👥 TEAM (tím) khi `tournamentMode` khác standard.
-
-**Referee pool** (backend + web):
-- Model mới `TournamentReferee (tournament, user, note)` + CRUD endpoints `/api/tournaments/:tid/referees`.
-- Web `TournamentRefereeDialog.jsx` — dialog "Quản lý trọng tài": search user (`useLazySearchUser`) → add với note. List avatar/phone/note/remove.
-- Button "👨‍⚖️ Quản lý trọng tài" cạnh "Quản lý cụm sân" trong MlpDualsPage.
-- **Chưa wire vào** `TournamentCourtClusterDialog` (station.defaultReferees dropdown) — phase sau.
-
-**Điểm trình VĐV**: 
-- Backend helper `attachPlayerScores()` query `Ranking` bulk → gắn `score={single, double}` vào từng player. Apply `listMlpTeams` + `getMlpTeam`.
-- Web `MlpTeamsPage TeamEditor`: search dropdown chip "Đôi X.XX" + "Đơn Y.YY". Roster label hiện tổng đôi + tổng đơn. Roster item chip điểm cạnh giới tính.
-- Mobile `teams.tsx`: same UI RN-style.
+Từ giờ mỗi lần build tính năng liên tục dùng rule mới. HANDOFF cũ §3.3 ("push cả 2 target") **đã lỗi thời** cho iOS-only.
 
 ---
 
-## 3. Bug fix + Landmine đã ghi nhận
+## 3. Feature ship trong session
 
-### 3.1 Overlay MLP prod bị "Chờ trận đấu MLP" — [`84c439bb`](https://github.com/den3110/abcdk-/commit/84c439bb)
+### 3.1 Bổ sung MLP tournament (nửa đầu session)
 
-Root cause: `station.currentMatch` trên prod đang trỏ tới Match doc từ giải KHÁC (không phải MLP). Overlay path 1 catch match đó → `isMlpSub=false` → skip. Path 2 (query MLP theo station) chỉ chạy khi `liveMatch==null` → 404.
+**`mlpConfig.maxTeamScore`** — cap tổng điểm ĐÔI của roster team ([`4bd4c6d1`](https://github.com/den3110/abcdk-/commit/4bd4c6d1)):
+- Schema field `MlpConfigSchema.maxTeamScore` (Number, null = không giới hạn)
+- Backend `createMlpTeam` + `updateMlpTeam` validate `computeTeamDoubleScore()` từ Ranking bulk
+- Web `MlpConfigDialog` TextField "Giới hạn tổng điểm trình đôi" + `MlpTeamsPage.TeamEditor` chip Tổng đôi/cap đổi đỏ + Alert + disable Save
+- Mobile `teams.tsx` mirror
 
-Fix: chỉ set `liveMatch` từ `station.currentMatch` NẾU candidate có `meta.mlp.dualId`. Non-MLP `currentMatch` bị bỏ qua → path 2 tìm MLP match khác trên cùng station.
+**Fix `TournamentCourtClusterDialog`** ([`0026030f`](https://github.com/den3110/abcdk-/commit/0026030f)):
+- Trọng tài thêm qua "Quản lý trọng tài" mới không hiện trong dropdown "Đứng sân" — do 2 endpoint song song:
+  - `/api/admin/tournaments/:tid/referees` (legacy, User.referee.tournaments)
+  - `/api/tournaments/:tid/referees` (mới, TournamentReferee collection)
+- Fix: dùng slice mới + union với legacy để backward-compat. Share tag `TournamentReferees:tid` → thêm/xoá auto-invalidate
 
-### 3.2 User bị chặn "Giải đã đủ" — [`41390a7c`](https://github.com/den3110/abcdk-/commit/41390a7c)
+**BTC section trên trang đăng ký** ([`bcef4390`](https://github.com/den3110/abcdk-/commit/bcef4390), [`762213fb`](https://github.com/den3110/abcdk-/commit/762213fb)):
+- Backend `getTournamentById`: populate `createdBy` + `managers.user` với `name/nickname/avatar/phone`
+- Web/mobile: card "Ban tổ chức" ngay dưới hero, list card avatar + nhãn "Người tạo giải · Đồng quản lý"
+- **3 icon action**: tap card → mở PublicProfileDialog (dùng `getUserId({user: uid})` — bug shape đã fix), icon 💬 "Nhắn tin" mở DM qua `useOpenDmMutation` + navigate `/messages/:cid`, icon 📞 → tel: link
 
-Fix waitlist đầu tiên ([`1e406aa7`]) chỉ đụng `createRegistration` (direct) + `adminCreateRegistration`. Web/mobile lại đi qua `createRegistrationInvite` (invite flow) → `preflightChecks` riêng vẫn hard-reject.
+**MLP registration view + team list**:
+- `MlpTournamentRegistrationView.jsx` TeamFormDialog: chip Đôi/Đơn ở search dropdown + roster + bar tổng đôi/cap + warning overCap ([`d0e83688`](https://github.com/den3110/abcdk-/commit/d0e83688))
+- Team list card danh sách team đã đăng ký hiện điểm mỗi VĐV + tổng đôi/đơn team ([`05e64397`](https://github.com/den3110/abcdk-/commit/05e64397))
+- Mobile MlpTeamsScreen card cũng hiện chip điểm
 
-Fix: `preflightChecks` không throw, return `overCap: true`. `finalizeIfReady`/admin direct/user direct đều tự quyết status.
+### 3.2 Games platform — 6 game hoàn chỉnh
 
-### 3.3 OTA giờ push cho CẢ `ios 1.1.13` VÀ `ios 1.1.9`
+**Restructure home icon** ([`0837b6e1`](https://github.com/den3110/pickletour-app/commit/0837b6e1)):
+- Icon "Poker" → **"Games"** trên `(tabs)/index.tsx` id:18
+- `/games` hub screen: grid tile Poker · Phỏm · Sâm · Caro · Cờ Vua · Cờ Tướng với subtitle + badge "Mới"
 
-Session này user yêu cầu push cả 2 target. Tất cả OTA deploy trong session (5 lần) đều fire cả 2:
-```bash
-./node_modules/.bin/hot-updater deploy -p ios -t 1.1.13 -c production -m "..."
-./node_modules/.bin/hot-updater deploy -p ios -t 1.1.9  -c production -m "..."
-```
-Android + iOS versions khác **KHÔNG** được cập nhật.
+**Phỏm (Tá lả) — FULL PLAYABLE** ([`e8d4e539`](https://github.com/den3110/abcdk-/commit/e8d4e539) → [`9bafbcf5`](https://github.com/den3110/abcdk-/commit/9bafbcf5) → [`efcc1ddc`](https://github.com/den3110/abcdk-/commit/efcc1ddc)):
+- **Model** `PhomRoom` (4 seat, cards[], melds[], leftover, stage: waiting/dealing/playing/**downing**/showdown, discards[], deck)
+- **Engine** `phomEngine.js`:
+  - `startHand`: deal 9 lá (dealer 10), rotate dealer theo ván
+  - `findBestPartition()`: backtracking phân hoạch bài ra phỏm tối ưu (min lá lẻ)
+  - `isU()`: kiểm tra ù (bài trong tay tạo phỏm hết)
+  - `applyAction(draw_deck|draw_discard|discard)`: rule đơn giản (10 lá phải thảy, 9 lá phải bốc, không phân biệt dealer sau ván đầu). Auto-ù sau mỗi bốc
+  - Sau 4 vòng đủ → `stage = "downing"` (không endHand ngay)
+  - `applyDownAuto` / `applyDownManual(melds)` / `applyGuiBai(card, targetSeat, meldIdx)`: 3 lựa chọn trong phase downing
+  - `endHand`: sort theo leftoverValue, winner ăn stake × (n-1), móm phạt gấp đôi
+- **Auto-timeout server-side** khi quá `turnDeadlineAt` (30s)
+- **Mobile** `app/phom/[id].tsx` landscape:
+  - `FeltOval` xanh + `WoodBackground` gỗ nâu
+  - 4 seat rotate theo hero (bottom), hero seat KHÔNG render frame (che hand) → info bar riêng
+  - Discards hiện **trước mặt người vừa đánh** (dùng `fromSeat` map rotated idx → position %)
+  - Deck stack giữa bàn với badge cam số nọc còn lại
+  - Nút **"Bốc thẻ"** / **"Ăn+Hạ"** (≥3 lá chọn) khi có 9 lá; nút **"Đánh"** pill cam inline khi có 10 lá + 1 lá chọn
+  - Phase downing: 3 nút **"Hạ phỏm"** (blue) / **"Gửi bài"** (green stub) / **"Hạ tự động"** (orange)
+  - Hint "✓ Đã hạ. Chờ người khác…" sau khi confirm
 
-### 3.4 SSH VPS — password vẫn `Hoang@07082026`
+**Sâm Lốc — FULL PLAYABLE** ([`efcc1ddc`](https://github.com/den3110/abcdk-/commit/efcc1ddc) → [`0d0e5e8`](https://github.com/den3110/pickletour-app/commit/0d0e5e8) → [`f9819f31`](https://github.com/den3110/abcdk-/commit/f9819f31)):
+- **Rank order fix ĐẶC BIỆT**: Sâm dùng `3 < 4 < ... < K < A < 2` (2 là heo cao nhất). Engine ban đầu dùng thứ tự Phỏm (2 nhỏ nhất) → không đè J bằng 2. Thêm `samRankValue` + `samSortHand` local, replace mọi `rankValue` trong `comboType`/`compareCombos`/`canCut`/fourPairs/straight detector
+- **Combo types**: single/pair/triple/quad/straight/**fourPairs** (4 đôi thông 8 lá)/dragon (sảnh rồng 10 lá 3→A)
+- **canCut rules** (chặt cross-type):
+  - Tứ quý chặt heo (single/pair/triple 2)
+  - 4 đôi thông chặt tứ quý + heo
+  - Sảnh rồng chặt tất cả
+  - Cùng loại chặt cao hơn (quad/fourPairs)
+- **Scoring per-card × stake** (thay vì flat):
+  - Winner (finishOrder 1) ăn tổng penalty của losers
+  - Loser thường: `stake × cardsLeft`
+  - Móm (còn 10 lá): `stake × 10 × 2`
+  - **Bị chặt heo**: track `seat.cutByHeoCount` (đánh 2 bị đè bởi quad/fourPairs/dragon) — penalty = móm
+  - **Bị bắt sâm**: `stake × 10 × 2 × 3`
+- **Xin Sâm flow**: stage mới `xin_sam` 10s countdown sau deal. 3 endpoint: `xin-sam` (mark claimer), `bat-sam` (mark catcher), `skip-xin-sam` (finishXinSam ngay). Auto-transition sau deadline
+- **Rule end**: 1 người hết bài = **kết thúc ván ngay** (không chờ 3 người). Seat còn lại xếp thứ tự theo `cards.length`
+- **Mobile** `app/sam/[id].tsx`:
+  - Nút "Xin Sâm" (orange) + "Bắt Sâm" (red) overlay trong phase xin_sam
+  - Combo hiện tại render **trước mặt seat vừa đánh** (không stack center)
+  - passBadge + finishedBadge (#1, #2...)
+  - Winners table hiện tên đúng (fix: `enrichWinners()` resolve từ populated seats sau `endHand`)
 
-`PasswordAuthentication yes` + `PermitRootLogin yes` được bật từ session trước và giữ nguyên. Dùng `sshpass` inline:
-```bash
-SSHPASS='Hoang@07082026' sshpass -e ssh -o StrictHostKeyChecking=no root@103.90.225.130 "..."
-```
+**Caro (Gomoku) — FULL PLAYABLE** ([`6c13bc96`](https://github.com/den3110/abcdk-/commit/6c13bc96)):
+- Model `CaroRoom` (2 seat, board 15×15 flat array `["X"|"O"|""]`, moves[], winningLine)
+- Engine `caroEngine.js`:
+  - `startHand`: reset board, alternate first mover mỗi ván
+  - `applyMove(row, col)`: place X/O
+  - `checkWin(board, size, r, c, mark)`: 4 directions × dịch chuyển 0-4 lá, tìm 5 liên tiếp
+  - Auto-draw khi board đầy
+- Mobile `app/caro/[id].tsx` portrait:
+  - Board vàng gỗ với 15×15 grid, tap ô trống → X đỏ / O xanh
+  - PlayerBox 2 bên VS: avatar + mark + tên + chip + turn indicator vàng
+  - Win overlay + highlight 5 ô thắng vàng
 
-### 3.5 Data migration cần
+**Cờ Vua (Chess) — FULL PLAYABLE (dùng chess.js)** ([`dafecd73`](https://github.com/den3110/abcdk-/commit/dafecd73)):
+- **`npm install chess.js`** trên root + mobile (^1.4.0)
+- Model `ChessRoom` (2 seat, `fen`, moves với SAN)
+- Engine `chessEngine.js` wrap `new Chess(fen)`:
+  - `applyMove({ from, to, promotion="q" })` → chess.js validate + update FEN
+  - `isCheckmate/isStalemate/isDraw/isThreefoldRepetition/isInsufficientMaterial` → auto end với `resultReason`
+  - `applyResign(seatIndex)`: winner = opponent
+  - `legalMovesFrom(fen, from)`: export cho mobile highlight
+- Mobile `app/chess/[id].tsx`:
+  - Board 8×8 với Unicode pieces `♔♕♖♗♘♙` (uppercase = trắng)
+  - Board flip khi chơi bên đen (hero always at bottom)
+  - Tap quân của mình → highlight legal moves xanh lá (chess.js lookup client-side)
+  - Auto-detect promotion → default Queen
+  - Nút "Xin thua" alert confirm
 
-- Registration cũ (trước session này) không có `status` field. Query đều dùng `$or: [{status: "approved"}, {status: {$exists: false}}, {status: null}]` để BC.
-- MlpTeam cũ không đụng — enum đã thêm "waitlisted" nhưng docs cũ vẫn `approved/pending/…`.
-- Match doc MLP cũ có thể có `courtStation=null` nếu tạo trước khi BTC gán court → overlay sẽ không tìm thấy. BTC LƯU dual để trigger `ensureMlpDualMatchDocs` update Match doc courtStation.
+**Cờ Tướng (Xiangqi) — FULL PLAYABLE (custom engine)** ([`dafecd73`](https://github.com/den3110/abcdk-/commit/dafecd73)):
+- Model `XiangqiRoom` (2 seat, board flat 10×9 = 90 ô, uppercase=đỏ/lowercase=đen)
+- Piece encoding: `K`=Tướng, `A`=Sĩ, `E`=Tượng, `H`=Mã, `R`=Xe, `C`=Pháo, `P`=Tốt
+- Engine `xiangqiEngine.js` full rule (~250 lines):
+  - Initial board setup + `isLegalMove(board, from, to, red)` per piece type
+  - Tướng: 1 ô ngang/dọc trong cung (rows 7-9 / 0-2, cols 3-5)
+  - Sĩ: chéo 1 ô trong cung
+  - Tượng: chéo 2 ô, không vượt sông (row 4/5), mắt tượng không chắn
+  - Mã: L (2+1), chân mã không chắn
+  - Xe: ngang/dọc không có quân chắn
+  - **Pháo**: đi trống (0 quân chắn), **ăn phải có đúng 1 quân giữa**
+  - Tốt: trước sông chỉ đi thẳng, sau sông đi cả ngang
+  - **Face-to-face rule**: 2 tướng cùng cột không có quân chắn = nước không hợp lệ
+  - **Bắt K/k = thắng ngay**
+- Mobile `app/xiangqi/[id].tsx`:
+  - Board gỗ vàng 9×10, dòng sông = row 4/5 highlight `#FEF3C7`
+  - Quân dạng circle border 2px, chữ Hán: 帥仕相傌俥炮兵 (đỏ) / 將士象馬車砲卒 (đen)
+  - Tap → highlight ô chọn vàng, tap ô đích → nước đi
+  - Flip board cho bên đen
 
-### 3.6 Referee pool chưa wire vào cụm sân UI
+### 3.3 Shared game infrastructure
 
-Backend model + endpoints + dialog "Quản lý trọng tài" đã ready. Nhưng `TournamentCourtClusterDialog.jsx` khi edit `station.defaultReferees` VẪN đang search toàn bộ User (chưa filter theo pool). Wire dropdown = phase sau.
+**Components** (`components/games/`):
+- `GameTableUI.tsx`: `WoodBackground` (multi-layer gradient nâu) · `FeltOval` (rim gỗ + baize xanh + vignette) · `CardPro` (rounded corners + corner rank/suit + gradient back) · `SeatFrame` (avatar + gold border khi turn) · `EmptySeat` · `RoundIconBtn` (purple gradient) · **`SpeechBubble`** (chat bubble bay 4s trên avatar) · **`ConnectionBanner`** (offline/reconnecting)
+- `InviteFriendModal.tsx`: search user + chọn nhiều + gửi lời mời (push + in-app notif)
+- **`RoomListItem.tsx`** (mới): shared lobby card với avatar row (28x28 overlap), tên VĐV concat, empty slot icon, stage pill
+
+**Hooks** (`hook/`):
+- **`useGameAutoReconnect.ts`** (mới): NetInfo + AppState + socket disconnect listener. Khi active/online → force `socket.connect()` + `emit subscribeEvent` + `refetch()`. Polling fallback 5s. Return `connStatus`
+- Apply cho 5 game (Phỏm/Sâm/Caro/Chess/Xiangqi); Poker đã có pattern sẵn
+
+**Sound** (`lib/gameSound.ts` mới — standalone):
+- Ban đầu wrap pokerSounds → user báo không nghe sound
+- **Fix**: rewrite standalone dùng `require("../assets/sfx/click4.mp3")` **relative** (thay `@/` alias có thể fail OTA bundle). Verbose `console.log` errors. Fallback remote URL `https://pickletour.vn/uploads/sfx/click.mp3` khi bundled asset fail
+- Preset 10 kind `chip/deal/fold/check/call/raise/allin/win/lose/warning` với volume+rate khác
+- Wire vào 5 game screens: `playSound()` on move/action, `warmupSounds()` in useEffect mount
+
+### 3.4 Host system (chủ phòng) — áp dụng 5 game mới
+
+Session gần cuối user yêu cầu:
+
+- **Auto-sit creator** vào ghế 0 khi tạo bàn (không cần bấm Ngồi)
+- **Chỉ chủ phòng bấm Bắt đầu** (`req.user._id === room.createdBy` else 403). Non-host thấy nút xám "CHỜ CHỦ PHÒNG"
+- **Chặn ngồi khi ván đang chơi** (`stage === "playing"` / `downing` / `xin_sam`) → throw "Ván đang chơi — vui lòng chờ ván kết thúc rồi vào"
+- **Transfer host khi rời**: nếu leaver là `createdBy` → gán `createdBy` cho seat còn user (tìm seat.find(s => s.user))
+- **Back button confirm**: mobile Alert "Thoát phòng?" → OK → `leaveRoom` + `router.back()`; nếu chưa ngồi thì back luôn
+- **Auto-close bàn khi hết người**: sau `leaveRoom`, `if (!seats.some(s => s.user)) room.status = "closed"` — bàn biến khỏi lobby list
+
+### 3.5 Realtime lobby list + avatars ([`acffb8c6`](https://github.com/den3110/abcdk-/commit/acffb8c6))
+
+- Backend 5 controller: helper `broadcastLobby()` emit `<game>:lobby:updated` sau mỗi createRoom / update / leave
+- Socket handlers cho 5 game: `<game>:lobby:subscribe` / `:unsubscribe` join/leave room `<game>:lobby`
+- List endpoint response thêm `seatUsers: [{_id, nickname, name, avatar}]` + `createdBy`
+- Mobile 5 lobby screens: `useEffect` subscribe socket lobby, unsubscribe on unmount. Refetch on event
+- Render `<RoomListItem>` với avatar row (avatar 28x28 chồng nhau, empty slot outline icon, tên VĐV "A, B, C +2")
+
+### 3.6 Speech bubble + avatar cho 3 game mới
+
+- Caro/Chess/Xiangqi: PlayerBox/PlayerBar render avatar tròn + fallback initial letter khi seat ngồi
+- Speech bubble: track `bubbles` state, useEffect watch `messages.length` → gán bubble cho sender 4s, cleanup tick 1s. Import shared `SpeechBubble` từ `GameTableUI`
 
 ---
 
-## 4. Việc còn dở
+## 4. Bug fix + Landmine đã ghi nhận
 
-### 4.1 Priority cao
+### 4.1 Sound OTA không hoạt động (đang test)
 
-- 🟡 **Backend deploy**: đã `pm2 restart server` (2 instance) sau commit cuối `6991b266`. Nếu CI/CD tự pull sau bạn không cần làm gì.
-- 🟡 **Field "Giới hạn tổng điểm trình" (maxTotalScore) cho MLP team** — user request cuối cùng, CHƯA làm:
-  - Extend `tournamentModel.mlpConfig.groupStage.maxTotalScore` (hoặc top-level `maxTotalScore`).
-  - Admin panel tournament edit UI expose field.
-  - Backend `createMlpTeam` + `updateMlpTeam` validate `sum(players.score.double) <= maxTotalScore`.
-  - Frontend MlpTeamsPage TeamEditor: hiện tổng team + warning red khi vượt cap (đã có tổng chip, cần thêm validate + cap display).
+Turn giữa session user báo "chưa nghe âm thanh". Có 2 lần rewrite `gameSound.ts`:
+- Lần 1: wrap pokerSounds với dynamic `require("@/app/poker/pokerFx")` → user chọn dynamic require có thể fail trong metro OTA bundle
+- Lần 2 (**đang deploy**): standalone, `require("../assets/sfx/click4.mp3")` relative, verbose log, fallback URL `https://pickletour.vn/uploads/sfx/click.mp3`
 
-### 4.2 Priority thấp
+**Chưa verify** user đã reload OTA + test lại. Nếu vẫn không nghe:
+- Kiểm tra logs `console.log("[gameSound]", ...)` trong dev tools
+- File remote URL `pickletour.vn/uploads/sfx/click.mp3` **chưa upload** — nếu bundled fail thì remote cũng fail → 0 sound. Upload file mp3 cùng path lên VPS `/var/www/pickletour.vn/uploads/sfx/click.mp3`
 
-- **Wire referee pool vào TournamentCourtClusterDialog** — thay Autocomplete search all users bằng dropdown pool referees.
-- **PDF certificate** cho champion — từ session trước.
-- **Overlay MLP studio** — cấu hình theme/logo/sponsor cho overlay (hiện hardcode navy+gold).
-- **Round-robin double round** cho MLP đã có config `doubleRound` nhưng chưa test kỹ.
-- **Playoff bracket** sau round-robin — logic có sẵn nhưng cần test dataset lớn.
-- **Xoá vòng (round) UI** — backend đã sẵn sàng (`DELETE /api/mlp/tournaments/:tid/duals/round/:round`), UI chưa wire.
+### 4.2 Sâm bug tên winners "?" (đã fix)
+
+`endHand` viết `winners[i].userName = seat.user?.nickname` nhưng lúc endHand seat.user chỉ là ObjectId (chưa populate) → tên = "?". Fix: `enrichWinners(room)` chạy lúc serializeRoom, resolve tên từ populated `seats` sau khi populate. Apply cho cả Phỏm + Sâm.
+
+### 4.3 Sâm rank order (đã fix)
+
+Sâm dùng thứ tự **3<4<...<K<A<2** (2 là heo cao nhất). Engine ban đầu dùng `rankValue` từ `cardDeck.js` — thứ tự Phỏm (2 nhỏ nhất). → 2 không đè được J. Fix: local `SAM_ORDER` + `samRankValue` + `samSortHand`. Apply mọi chỗ compare trong samEngine.
+
+### 4.4 Sâm end rule sai (đã fix)
+
+Ban đầu chờ 3/4 người hết bài mới endHand. Rule đúng: **1 người hết bài = thắng ván ngay**. Fix trong `applyAction("play")`: sau khi `seat.hasFinished = true` + `finishOrder=1`, xếp thứ tự các seat còn lại theo `cards.length`, hasFinished all, endHand.
+
+### 4.5 Modal iOS crash landscape (đã fix)
+
+Khi bấm "Mời bạn" trong landscape (Phỏm/Sâm) → crash `RCTFabricModalHostViewController shouldAutorotate is returning YES` vì screen lock landscape nhưng Modal expect autorotate. Fix: thêm `supportedOrientations={["portrait", "landscape", "landscape-left", "landscape-right"]}` cho tất cả `<Modal>` trong game rooms.
+
+### 4.6 RTK tagTypes warning (đã fix)
+
+Thêm `PhomRoom`, `SamRoom`, `CaroRoom`, `ChessRoom`, `XiangqiRoom` vào `apiSlice.js` tagTypes[]. Tránh warning `Tag type 'X' was used, but not specified`.
+
+### 4.7 Ván mới báo "Ván đang chơi" (đã fix)
+
+Sau `endHand`, `stage = "showdown"`. `startHand` check `stage !== "waiting"` → block. Fix: check `stage !== "waiting" && stage !== "showdown"` cho cả Phỏm/Sâm/Caro/Chess/Xiangqi.
+
+### 4.8 Hero seat che hand (đã fix)
+
+Bottom seat position `top: 82%` overlap với hand strip bottom. Fix: nếu `i === 0 && !empty && isMine` → không render seat frame. Thay bằng hero info bar (chip + turn indicator) ở góc dưới-phải.
+
+### 4.9 UI layout landscape (đã fix)
+
+- Top seat `top: 22%` (từ 12%) — tránh Dynamic Island
+- Left/right seat 14%/86% (từ 8%/92%) — tránh back button + purple stack
+- Timer bar `top: insets.top + 50` — không đè avatar top
+
+### 4.10 Legacy pokerFx dynamic require không load (chuyển sang static)
+
+Ban đầu code Phỏm/Sâm dùng `try { const { playFx } = require("@/app/poker/pokerFx"); playFx(...); } catch {}`. Fail silently. Fix: static import `playSound` từ `lib/gameSound.ts` mới.
+
+### 4.11 Sound bundled asset có thể fail OTA
+
+`@/` alias phụ thuộc Metro config. Trong OTA bundle (hot-updater) chưa chắc alias resolve. Fix: `require("../assets/sfx/click4.mp3")` relative. Nếu vẫn không nghe → verify path bundle mismatch.
 
 ---
 
-## 5. Environment cần biết
+## 5. Việc còn dở
 
-### 5.1 VPS credentials
+### 5.1 Priority cao
+
+- 🔴 **Sound verify**: user báo chưa nghe. Đã ship version 3 của gameSound (standalone + relative + remote fallback). **CẦN USER TEST + FEEDBACK**. Nếu vẫn không nghe:
+  - Upload `click.mp3` lên `https://pickletour.vn/uploads/sfx/click.mp3` (tạm dùng chính `click4.mp3` từ mobile repo)
+  - Đọc log `[gameSound]` để trace lỗi
+- 🟡 **Backend prod đã restart**. VPS đã `npm install chess.js`. Nếu deploy tiếp cần chạy `npm install` khi có thay đổi package.json
+- 🟡 **Android build local có sẵn** tại `~/Desktop/pickletour-android/pickletour-1.1.13.{apk,aab}`. User có thể upload AAB lên Play Console hoặc share APK sideload
+
+### 5.2 Priority thấp
+
+- **Gửi bài Phỏm**: UI nút "Gửi bài" hiện Alert placeholder "đang hoàn thiện". Backend `applyGuiBai(card, targetSeat, meldIdx)` đã có. Cần wire UI: chọn 1 lá → tap phỏm người khác → server validate ghép + apply
+- **Poker chưa apply host system** (chủ phòng only start / auto-sit creator / back confirm / block sit mid-hand). Poker có ~500 lines pre-existing, session này để nguyên. Nếu apply sau: mirror pattern 5 game mới
+- **Sound assets nghèo**: chỉ 1 mp3 click4.mp3. Nên thêm mp3 riêng cho chip/deal/win/... vào `assets/sfx/`. Đây là rebuild binary — không OTA được. Alternative: dùng `playRemoteSound(url)` load từ VPS
+- **Xin sâm bắt sâm UI chưa test đủ**: seat.hasClaimedSam badge, banner countdown "Xin sâm · Xs" khi stage=xin_sam. Verify flow 4 người
+- **Chess promotion UI**: hiện auto-promote Queen. Không có picker cho Rook/Bishop/Knight. Nice-to-have
+- **Xiangqi chưa detect chiếu tướng**: user đánh nước để tướng bị chiếu vẫn valid. Chỉ end khi bắt K/k
+- **Web version cho 5 game mới**: chưa có (Poker cũng chưa). Nếu muốn ship: build room screen React MUI + reuse RTK slices
+
+---
+
+## 6. Environment cần biết
+
+### 6.1 VPS credentials (giữ nguyên)
 
 ```
 Host: 103.90.225.130
 User: root
 Password: Hoang@07082026
 ```
-PasswordAuthentication yes + PermitRootLogin yes (từ session trước).
 
-### 5.2 OTA hot-updater — push cả 2 target
+`PasswordAuthentication yes` + `PermitRootLogin yes` từ session trước.
 
+### 6.2 OTA hot-updater — Rule mới trong session
+
+Trong session build tăng dần:
 ```bash
 cd pickletour-app-mobile
 export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
 set -a && source .env.hotupdater && set +a
 
-# Target 1
+# Chỉ ios 1.1.13 mỗi lần
 rm -rf .hot-updater/output
-./node_modules/.bin/hot-updater deploy -p ios -t 1.1.13 -c production -m "..."
-
-# Target 2
-rm -rf .hot-updater/output
-./node_modules/.bin/hot-updater deploy -p ios -t 1.1.9  -c production -m "..."
+./node_modules/.bin/hot-updater deploy -p ios -t 1.1.13 -c production -m "update game"
 ```
 
-Kill switch: `https://pickletour.vn/api/auth/system/ota/allowed`.
+Khi hoàn tất tính năng lớn (user báo "xong hết"):
+```bash
+for target in "ios 1.1.13" "ios 1.1.9" "android 1.1.13" "android 1.1.9"; do
+  rm -rf .hot-updater/output
+  ./node_modules/.bin/hot-updater deploy -p $(echo $target | cut -d' ' -f1) \
+    -t $(echo $target | cut -d' ' -f2) -c production -m "update game"
+done
+```
 
-### 5.3 Repo paths trong máy dev
+### 6.3 Android keystore (đã có trong `~/.gradle/gradle.properties`)
 
-- Root: `/Users/admin/Desktop/Projects/Pickletour/abcdk`
-  - Backend: root/backend
-  - Frontend web: root/frontend
-- Mobile: root/pickletour-app-mobile
-- Admin: root/admin-pickletour
+```
+PICKLETOUR_UPLOAD_STORE_FILE=app/pickletour-upload.jks
+PICKLETOUR_UPLOAD_STORE_PASSWORD=datistpham
+PICKLETOUR_UPLOAD_KEY_ALIAS=upload20260322
+PICKLETOUR_UPLOAD_KEY_PASSWORD=datistpham
+```
 
-### 5.4 Test DB — Test MLP 1
+### 6.4 Android build local
 
-- Tournament `Test MLP 1` (id `6a749574f3fd296bacebcc62`) — vẫn dùng để test MLP.
-- Court station `1` (id `6a15c7eec4b669ccd0b879fd`) — overlay URL: `https://pickletour.vn/overlay/mlp/court/6a15c7eec4b669ccd0b879fd`.
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17
+export PATH=$JAVA_HOME/bin:$PATH
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+cd pickletour-app-mobile/android
+./gradlew :app:assembleRelease   # → app/build/outputs/apk/release/app-release.apk
+./gradlew :app:bundleRelease     # → app/build/outputs/bundle/release/app-release.aab
+```
 
-### 5.5 Restart backend nhanh
+Build ~3-4 phút. `Java 17` bắt buộc (Java 11 không dùng được với RN 0.83).
+
+### 6.5 Restart backend nhanh
 
 ```bash
 SSHPASS='Hoang@07082026' sshpass -e ssh -o StrictHostKeyChecking=no root@103.90.225.130 \
-  "cd /abcdk- && git pull origin master 2>&1 | tail -3 && pm2 restart server 2>&1 | grep '✓'"
+  "cd /abcdk- && git pull origin master 2>&1 | tail -3 && pm2 restart server 2>&1 | tail -3"
 ```
 
----
+Nếu có thay đổi `package.json`: thêm `&& npm install --no-audit` trước `pm2 restart`.
 
-## 6. Snapshot commit history session
+### 6.6 Frontend web rebuild
 
-**Backend + web** `abcdk-`: `fb6473ed → 6991b266` (~19 commits)
+```bash
+SSHPASS='Hoang@07082026' sshpass -e ssh -o StrictHostKeyChecking=no root@103.90.225.130 \
+  "cd /abcdk-/frontend && yarn build:deploy 2>&1 | tail -5"
+```
 
-Landmark commits theo thứ tự thời gian:
-
-1. [`cb2267b4`](https://github.com/den3110/abcdk-/commit/cb2267b4) MLP vòng bảng + bốc thăm + knockout.
-2. [`a2a4d2a1`](https://github.com/den3110/abcdk-/commit/a2a4d2a1) Reset endpoint + dialog.
-3. [`e0e21f96`](https://github.com/den3110/abcdk-/commit/e0e21f96) Fix live draw commit gate.
-4. [`1f01b59c`](https://github.com/den3110/abcdk-/commit/1f01b59c) KO preview + trọng tài theo sân + inline court + xem lineup.
-5. [`5e2e5c2a`](https://github.com/den3110/abcdk-/commit/5e2e5c2a) Fix 404 bracket click.
-6. [`5ca9eef1`](https://github.com/den3110/abcdk-/commit/5ca9eef1) Realtime `tournament:invalidate` cho referee tab.
-7. [`ff9626b4`](https://github.com/den3110/abcdk-/commit/ff9626b4) Overlay accept status=scheduled.
-8. [`84c439bb`](https://github.com/den3110/abcdk-/commit/84c439bb) Fix overlay + realtime MlpDualsPage.
-9. [`6964a80f`](https://github.com/den3110/abcdk-/commit/6964a80f) Overlay compact redesign navy+gold.
-10. [`1e406aa7`](https://github.com/den3110/abcdk-/commit/1e406aa7) Waitlist 48/48 + auto-promote FIFO.
-11. [`d009f251`](https://github.com/den3110/abcdk-/commit/d009f251) Overlay serve ball indicator.
-12. [`6f05ac6a`](https://github.com/den3110/abcdk-/commit/6f05ac6a) Fix web schedule MLP team name.
-13. [`41390a7c`](https://github.com/den3110/abcdk-/commit/41390a7c) Fix waitlist user path + admin dialog.
-14. [`ff22a645`](https://github.com/den3110/abcdk-/commit/ff22a645) Waitlist card web reuse PlayerInfo.
-15. [`1e7b9e35`](https://github.com/den3110/abcdk-/commit/1e7b9e35) Overlay DreamBreaker header inline.
-16. [`5adafb77`](https://github.com/den3110/abcdk-/commit/5adafb77) Populate defaultReferees courtStation.
-17. [`caf80447`](https://github.com/den3110/abcdk-/commit/caf80447) Waitlist promote notification.
-18. [`6991b266`](https://github.com/den3110/abcdk-/commit/6991b266) MLP badge + Quản lý trọng tài + điểm trình VĐV.
-
-**Mobile** `pickletour-app`: `c3d0841 → 2828e36` (~11 commits)
-
-1. [`740207c`](https://github.com/den3110/pickletour-app/commit/740207c) Group stage mobile: pool tabs + per-bảng BXH + KO bracket view.
-2. [`010f208`](https://github.com/den3110/pickletour-app/commit/010f208) Placeholder "Nhất bảng A".
-3. [`0576d33`](https://github.com/den3110/pickletour-app/commit/0576d33) Guard mở shell KO chưa có team.
-4. [`d27367a`](https://github.com/den3110/pickletour-app/commit/d27367a) Referee mobile hiện tên đội MLP + swap khi Đổi bên.
-5. [`05f9a98`](https://github.com/den3110/pickletour-app/commit/05f9a98) Waitlist mobile UI (register + MLP teams).
-6. [`642177c`](https://github.com/den3110/pickletour-app/commit/642177c) Fix flicker tên đội ↔ tên VĐV.
-7. [`3185376`](https://github.com/den3110/pickletour-app/commit/3185376) Dialog Chờ/Duyệt luôn cho admin.
-8. [`b221953`](https://github.com/den3110/pickletour-app/commit/b221953) Waitlist card avatar + phone + score + profile.
-9. [`f8ac382`](https://github.com/den3110/pickletour-app/commit/f8ac382) Referee tab DreamBreaker fallback station.defaultReferees.
-10. [`4fc8fe3`](https://github.com/den3110/pickletour-app/commit/4fc8fe3) MLP + TEAM badge tournament card.
-11. [`2828e36`](https://github.com/den3110/pickletour-app/commit/2828e36) Điểm trình VĐV trong team roster.
+`yarn build:deploy` = `vite build` + rsync `dist/` → `/var/www/pickletour.vn/`. ~2 phút.
 
 ---
 
-## 7. Câu hỏi còn mở
+## 7. API endpoints mới (games)
 
-1. **Field `maxTotalScore` cho MLP team roster** — user request cuối, chưa làm. Cần user xác nhận: cap là tổng điểm ĐÔI của team, hay có ràng buộc riêng cho điểm ĐƠN nữa? Vị trí trong tournament schema — top-level `maxTotalScore` hay nested `mlpConfig.maxTotalScore`?
-2. **Referee pool wire vào cụm sân UI** — cần rework `TournamentCourtClusterDialog` để `station.defaultReferees` dropdown filter theo pool trọng tài của giải.
-3. **Waitlist cho registration invite flow** — user hiện gặp invite → invite gửi tới VĐV thứ 2 → chấp nhận → finalize thành waitlist. Logic OK, nhưng notification khi finalize waitlist chưa có message riêng (VĐV không biết mình vào chờ). Có nên gửi notification "Bạn đã vào waitlist" ngay lúc finalize?
-4. **Auto scp overlay template** cho generator VPS — từ session trước vẫn chưa làm; nhưng generator template dùng cho giải THƯỜNG, MLP đã có `/overlay/mlp/court/:id` riêng nên có thể không cần.
+Tất cả tuân theo pattern `/api/<game>/rooms/*`:
+
+| Endpoint | Method | Chức năng |
+|---|---|---|
+| `GET  /rooms` | public | List rooms (với `seatUsers` avatars + `createdBy`) |
+| `POST /rooms` | protect | Create + auto-sit creator vào seat 0 |
+| `GET  /rooms/:id` | protect | Get room detail |
+| `POST /rooms/:id/sit` | protect | Ngồi ghế (block khi playing) |
+| `POST /rooms/:id/leave` | protect | Rời ghế, transfer host, auto-close nếu empty |
+| `POST /rooms/:id/start` | protect | Bắt đầu ván (chỉ createdBy) |
+| `POST /rooms/:id/action` | protect | Game-specific action |
+| `POST /rooms/:id/chat` | protect | Chat |
+| `POST /rooms/:id/emoji` | protect | Emoji ephemeral (Phỏm/Sâm/Caro) |
+| `POST /rooms/:id/invite` | protect | Invite friends push notif |
+
+**Sâm-specific**: `POST /rooms/:id/xin-sam` · `/bat-sam` · `/skip-xin-sam`
+**Chess/Xiangqi-specific**: `POST /rooms/:id/resign`
+
+Socket rooms:
+- `<game>:room:${id}` — mỗi phòng có event `<game>:room:updated`, `<game>:room:chat`, `<game>:room:emoji`
+- **`<game>:lobby`** — realtime lobby list, event `<game>:lobby:updated`
+
+---
+
+## 8. Snapshot commit history session
+
+**Root** `abcdk-`: `78483aa6 → f9819f31` (~58 commits root — chỉ list landmark):
+
+1. [`4bd4c6d1`](https://github.com/den3110/abcdk-/commit/4bd4c6d1) — maxTeamScore MLP
+2. [`0026030f`](https://github.com/den3110/abcdk-/commit/0026030f) — Court cluster referee union
+3. [`bcef4390`](https://github.com/den3110/abcdk-/commit/bcef4390) — BTC section
+4. [`d0e83688`](https://github.com/den3110/abcdk-/commit/d0e83688) — MLP score UI
+5. [`e8d4e539`](https://github.com/den3110/abcdk-/commit/e8d4e539) — Phỏm + Sâm foundation Phase 2
+6. [`00b0b113`](https://github.com/den3110/abcdk-/commit/00b0b113) — Phỏm + Sâm engine Phase 3
+7. [`efcc1ddc`](https://github.com/den3110/abcdk-/commit/efcc1ddc) — Phase 4: chặt Sâm + auto-timeout + invite + timer
+8. [`92cec659`](https://github.com/den3110/abcdk-/commit/92cec659) — UI redesign shared components
+9. [`31a6476c`](https://github.com/den3110/abcdk-/commit/31a6476c) — Sâm scoring rework + xin sâm flow
+10. [`9bafbcf5`](https://github.com/den3110/abcdk-/commit/9bafbcf5) — Phỏm downing phase
+11. [`6c13bc96`](https://github.com/den3110/abcdk-/commit/6c13bc96) — Caro backend + mobile
+12. [`dafecd73`](https://github.com/den3110/abcdk-/commit/dafecd73) — Chess (chess.js) + Xiangqi custom
+13. [`560dc263`](https://github.com/den3110/abcdk-/commit/560dc263) — Host system + auto-sit + block mid-play
+14. [`acffb8c6`](https://github.com/den3110/abcdk-/commit/acffb8c6) — Realtime lobby + avatars + sound fix
+15. [`f9819f31`](https://github.com/den3110/abcdk-/commit/f9819f31) — Auto-close bàn khi hết người
+
+**Mobile** `pickletour-app`: `ded141a → 9bb3781` (~38 commits mobile).
+
+---
+
+## 9. Câu hỏi còn mở
+
+1. **Sound có nghe chưa?** — Cần user test sau OTA gần nhất
+2. **Poker có cần apply host system?** — Session này skip, pattern cũ
+3. **Web version cho 5 game mới?** — Chưa có, chưa quyết
+4. **Chess promotion picker UI**: default Queen. Có cần picker chọn Rook/Knight/Bishop?
+5. **Xiangqi chiếu tướng detection**: hiện chỉ end khi bắt K. Có cần validate "không được để K bị chiếu sau nước đi của mình"?
+6. **AAB upload Play Console**: session này build sẵn `pickletour-1.1.13.aab` (160MB) tại `~/Desktop/pickletour-android/`. Chưa upload
