@@ -2832,7 +2832,7 @@ export default function TournamentRegistration() {
                       bgcolor: "action.hover",
                     },
                   }}
-                  onClick={() => handleOpenProfile({ _id: o.userId })}
+                  onClick={() => handleOpenProfile({ user: o.userId })}
                 >
                   <Avatar src={o.avatar} sx={{ width: 40, height: 40 }}>
                     {(o.name || "?")[0]?.toUpperCase()}
