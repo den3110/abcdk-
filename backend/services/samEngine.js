@@ -2,9 +2,29 @@
 // PHASE 2: deal 10 cards/player, combo primitives (đôi/tam/sảnh/tứ quý/
 // sảnh rồng), serializeRoom. Turn state machine (play/pass, chặt 2, đền
 // chip khi bắt tứ quý...) sẽ hoàn thiện Phase 3.
-import { newDeck, shuffle, sortHand, cardRank, cardSuit, rankValue } from "./cardDeck.js";
+import { newDeck, shuffle, sortHand, cardRank, cardSuit } from "./cardDeck.js";
 
 export { newDeck, shuffle, sortHand };
+
+// Sâm/Tiến Lên rank order: 3 nhỏ nhất, 2 lớn nhất.
+// 3=0, 4=1, ..., K=10, A=11, 2=12.
+const SAM_ORDER = {
+  "3": 0, "4": 1, "5": 2, "6": 3, "7": 4, "8": 5, "9": 6,
+  T: 7, J: 8, Q: 9, K: 10, A: 11, "2": 12,
+};
+function samRankValue(card) {
+  return SAM_ORDER[card?.[0]] ?? -1;
+}
+
+// Sort bài theo thứ tự Sâm (3 nhỏ nhất, 2 cao nhất). Cùng bậc → theo chất.
+const SAM_SUIT_ORDER = { s: 3, h: 2, d: 1, c: 0 };
+function samSortHand(cards) {
+  return [...cards].sort((a, b) => {
+    const dr = samRankValue(a) - samRankValue(b);
+    if (dr !== 0) return dr;
+    return (SAM_SUIT_ORDER[cardSuit(a)] || 0) - (SAM_SUIT_ORDER[cardSuit(b)] || 0);
+  });
+}
 
 export function activeSeats(room) {
   return (room.seats || []).filter((s) => s?.user && !s.sittingOut);
@@ -29,7 +49,7 @@ export function startHand(room) {
   // Deal 10 lá/người
   let deckPtr = 0;
   for (const seat of seats) {
-    seat.cards = sortHand(deck.slice(deckPtr, deckPtr + 10));
+    seat.cards = samSortHand(deck.slice(deckPtr, deckPtr + 10));
     deckPtr += 10;
   }
   room.deck = deck.slice(deckPtr); // 52 - 40 = 12 lá dư (không dùng ván này)
@@ -83,7 +103,7 @@ export function comboType(cards) {
     for (const r of ranks) rankCount.set(r, (rankCount.get(r) || 0) + 1);
     if (rankCount.size === 4 && [...rankCount.values()].every((v) => v === 2)) {
       const vals = [...rankCount.keys()]
-        .map((r) => RANK_ORDER_VAL[r])
+        .map((r) => SAM_ORDER[r])
         .sort((a, b) => a - b);
       let consec = true;
       for (let i = 1; i < vals.length; i++) {
@@ -96,9 +116,9 @@ export function comboType(cards) {
     }
   }
 
-  // Sảnh: 3+ lá liên tiếp (khác chất được), không có 2.
+  // Sảnh: 3+ lá liên tiếp (khác chất được), KHÔNG có 2 (2 là heo, không xếp sảnh).
   if (n >= 3 && !ranks.includes("2")) {
-    const vals = cards.map(rankValue).sort((a, b) => a - b);
+    const vals = cards.map(samRankValue).sort((a, b) => a - b);
     let isStraight = true;
     for (let i = 1; i < vals.length; i++) {
       if (vals[i] !== vals[i - 1] + 1) {
@@ -107,7 +127,7 @@ export function comboType(cards) {
       }
     }
     if (isStraight) {
-      // Sảnh rồng (dragon) = 10 lá liên tiếp 3→A khác chất
+      // Sảnh rồng = 10 lá liên tiếp 3→A (không có 2)
       if (n === 10) return "dragon";
       return "straight";
     }
@@ -115,12 +135,6 @@ export function comboType(cards) {
 
   return null;
 }
-
-// Local map cho fourPairs — dùng thứ tự 2-3-...-A theo rankValue.
-const RANK_ORDER_VAL = {
-  "2": 0, "3": 1, "4": 2, "5": 3, "6": 4, "7": 5, "8": 6, "9": 7,
-  T: 8, J: 9, Q: 10, K: 11, A: 12,
-};
 
 // Kiểm tra combo mới có "chặt" được combo cũ không (cross-type).
 // Trả true nếu newCombo hợp lệ để đè cũ.
@@ -150,8 +164,8 @@ export function canCut(newCombo, oldCombo) {
   // Cùng loại chặt (higher rank)
   if (nt === ot) {
     if (nt === "quad" || nt === "fourPairs") {
-      const nMax = Math.max(...newCombo.cards.map(rankValue));
-      const oMax = Math.max(...oldCombo.cards.map(rankValue));
+      const nMax = Math.max(...newCombo.cards.map(samRankValue));
+      const oMax = Math.max(...oldCombo.cards.map(samRankValue));
       return nMax > oMax;
     }
   }
@@ -164,8 +178,8 @@ export function canCut(newCombo, oldCombo) {
 export function compareCombos(a, b) {
   if (a.type !== b.type) return 0; // không cùng loại → không so được (trừ chặt)
   if (a.cards.length !== b.cards.length) return 0;
-  const aMax = Math.max(...a.cards.map(rankValue));
-  const bMax = Math.max(...b.cards.map(rankValue));
+  const aMax = Math.max(...a.cards.map(samRankValue));
+  const bMax = Math.max(...b.cards.map(samRankValue));
   return aMax - bMax;
 }
 
