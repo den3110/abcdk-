@@ -6,6 +6,7 @@ import PhomRoom from "../models/phomRoomModel.js";
 import {
   startHand,
   serializeRoom,
+  applyAction,
 } from "../services/phomEngine.js";
 import { getIO } from "../socket/index.js";
 import { sendToUserIds } from "../services/notifications/expoPush.js";
@@ -208,13 +209,35 @@ export const startPhomHand = asyncHandler(async (req, res) => {
   res.json({ room: serializeRoom(populated, req.user._id) });
 });
 
-// POST /api/phom/rooms/:id/action  { action, card?, cards? }
-// Phase 2 stub — trả 501 với message rõ.
+// POST /api/phom/rooms/:id/action  { action, card?, meldCards? }
 export const phomAction = asyncHandler(async (req, res) => {
-  res.status(501);
-  throw new Error(
-    "Gameplay Phỏm chưa hoàn thiện (Phase 3). Tạm thời chỉ xem bàn/chat.",
+  const room = await PhomRoom.findById(req.params.id);
+  if (!room) {
+    res.status(404);
+    throw new Error("Không tìm thấy bàn");
+  }
+  const seat = room.seats.find(
+    (s) => String(s.user) === String(req.user._id),
   );
+  if (!seat) {
+    res.status(403);
+    throw new Error("Bạn không ở bàn này");
+  }
+  const { action, card, meldCards } = req.body || {};
+  try {
+    applyAction(room, seat.seatIndex, String(action || ""), {
+      card,
+      meldCards,
+    });
+  } catch (err) {
+    res.status(400);
+    throw err;
+  }
+  room.lastActivityAt = new Date();
+  await room.save();
+  const populated = await populateRoom(room);
+  broadcastUpdate(populated);
+  res.json({ room: serializeRoom(populated, req.user._id) });
 });
 
 /* ═════════ Chat / emoji / invite ═════════ */

@@ -6,6 +6,7 @@ import SamRoom from "../models/samRoomModel.js";
 import {
   startHand,
   serializeRoom,
+  applyAction,
 } from "../services/samEngine.js";
 import { getIO } from "../socket/index.js";
 import { sendToUserIds } from "../services/notifications/expoPush.js";
@@ -204,11 +205,32 @@ export const startSamHand = asyncHandler(async (req, res) => {
   res.json({ room: serializeRoom(populated, req.user._id) });
 });
 
+// POST /api/sam/rooms/:id/action  { action, cards? }
 export const samAction = asyncHandler(async (req, res) => {
-  res.status(501);
-  throw new Error(
-    "Gameplay Sâm chưa hoàn thiện (Phase 3). Tạm thời chỉ xem bàn/chat.",
+  const room = await SamRoom.findById(req.params.id);
+  if (!room) {
+    res.status(404);
+    throw new Error("Không tìm thấy bàn");
+  }
+  const seat = room.seats.find(
+    (s) => String(s.user) === String(req.user._id),
   );
+  if (!seat) {
+    res.status(403);
+    throw new Error("Bạn không ở bàn này");
+  }
+  const { action, cards } = req.body || {};
+  try {
+    applyAction(room, seat.seatIndex, String(action || ""), { cards });
+  } catch (err) {
+    res.status(400);
+    throw err;
+  }
+  room.lastActivityAt = new Date();
+  await room.save();
+  const populated = await populateRoom(room);
+  broadcastUpdate(populated);
+  res.json({ room: serializeRoom(populated, req.user._id) });
 });
 
 /* ═════════ Chat / emoji / invite ═════════ */
