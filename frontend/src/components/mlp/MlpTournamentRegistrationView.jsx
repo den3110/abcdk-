@@ -73,6 +73,8 @@ export default function MlpTournamentRegistrationView({
   const cfg = tour?.mlpConfig || {};
   const minRoster = cfg.minRosterSize || 4;
   const maxRoster = cfg.maxRosterSize || 8;
+  const maxTeamScore =
+    Number(cfg.maxTeamScore) > 0 ? Number(cfg.maxTeamScore) : null;
   const slotsCfg = Array.isArray(cfg.slots) ? cfg.slots : [];
 
   const myTeam = useMemo(() => {
@@ -353,6 +355,7 @@ export default function MlpTournamentRegistrationView({
         loading={creatingLoading}
         minRoster={minRoster}
         maxRoster={maxRoster}
+        maxTeamScore={maxTeamScore}
       />
       <TeamFormDialog
         open={!!editing}
@@ -361,6 +364,7 @@ export default function MlpTournamentRegistrationView({
         onSubmit={(payload) => handleUpdate(editing._id, payload)}
         minRoster={minRoster}
         maxRoster={maxRoster}
+        maxTeamScore={maxTeamScore}
       />
     </Container>
   );
@@ -496,6 +500,7 @@ function TeamFormDialog({
   loading,
   minRoster,
   maxRoster,
+  maxTeamScore = null,
 }) {
   const isEdit = !!team;
   const [name, setName] = useState("");
@@ -541,10 +546,29 @@ function TeamFormDialog({
     setPlayers((prev) => [...prev, u]);
   };
 
+  const totalDouble = useMemo(
+    () =>
+      players.reduce(
+        (sum, p) => sum + (Number(p?.score?.double) || 0),
+        0,
+      ),
+    [players],
+  );
+  const totalSingle = useMemo(
+    () =>
+      players.reduce(
+        (sum, p) => sum + (Number(p?.score?.single) || 0),
+        0,
+      ),
+    [players],
+  );
+  const overCap = maxTeamScore != null && totalDouble > maxTeamScore;
+
   const canSubmit =
     !!name.trim() &&
     players.length >= minRoster &&
-    players.length <= maxRoster;
+    players.length <= maxRoster &&
+    !overCap;
 
   const handleSubmit = () =>
     onSubmit({
@@ -668,26 +692,49 @@ function TeamFormDialog({
                 }
               }}
               loading={isFetching}
-              renderOption={(props, u) => (
-                <Box component="li" {...props} key={u._id}>
-                  <Avatar
-                    src={u.avatar}
-                    sx={{ width: 28, height: 28, mr: 1.5 }}
-                  >
-                    {(u.nickname || u.name || "?")[0]?.toUpperCase()}
-                  </Avatar>
-                  <Box>
-                    <Typography variant="body2" fontWeight={600}>
-                      {u.nickname || u.name}
-                    </Typography>
-                    {u.name && u.nickname && (
-                      <Typography variant="caption" color="text.secondary">
-                        {u.name}
+              renderOption={(props, u) => {
+                const sd = Number(u?.score?.double) || 0;
+                const ss = Number(u?.score?.single) || 0;
+                return (
+                  <Box component="li" {...props} key={u._id}>
+                    <Avatar
+                      src={u.avatar}
+                      sx={{ width: 28, height: 28, mr: 1.5 }}
+                    >
+                      {(u.nickname || u.name || "?")[0]?.toUpperCase()}
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="body2" fontWeight={600} noWrap>
+                        {u.nickname || u.name}
                       </Typography>
-                    )}
+                      {u.name && u.nickname && (
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          noWrap
+                          sx={{ display: "block" }}
+                        >
+                          {u.name}
+                        </Typography>
+                      )}
+                    </Box>
+                    <Stack direction="row" spacing={0.5} sx={{ ml: 1 }}>
+                      <Chip
+                        size="small"
+                        label={`Đôi ${sd.toFixed(2)}`}
+                        color="primary"
+                        sx={{ height: 20, fontSize: 11, fontWeight: 700 }}
+                      />
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={`Đơn ${ss.toFixed(2)}`}
+                        sx={{ height: 20, fontSize: 11 }}
+                      />
+                    </Stack>
                   </Box>
-                </Box>
-              )}
+                );
+              }}
               renderInput={(params) => (
                 <TextField
                   {...params}
@@ -698,23 +745,53 @@ function TeamFormDialog({
               )}
             />
 
-            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 2 }}>
-              {players.map((p, idx) => (
+            {/* Totals + cap */}
+            {players.length > 0 && (
+              <Stack
+                direction="row"
+                justifyContent="flex-end"
+                alignItems="center"
+                spacing={0.75}
+                sx={{ mt: 1.5 }}
+              >
                 <Chip
-                  key={p._id}
-                  avatar={
-                    <Avatar src={p.avatar}>
-                      {(p.nickname || p.name || "?").charAt(0).toUpperCase()}
-                    </Avatar>
+                  size="small"
+                  color={overCap ? "error" : "primary"}
+                  label={
+                    maxTeamScore != null
+                      ? `Tổng đôi: ${totalDouble.toFixed(2)} / ${maxTeamScore}`
+                      : `Tổng đôi: ${totalDouble.toFixed(2)}`
                   }
-                  label={`${idx + 1}. ${p.nickname || p.name}`}
-                  onDelete={() => removePlayer(p._id)}
-                  sx={{
-                    bgcolor: p.gender === "female" ? "#FCE7F3" : "#DBEAFE",
-                    fontWeight: 700,
-                  }}
+                  sx={{ fontWeight: 800 }}
                 />
-              ))}
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`Tổng đơn: ${totalSingle.toFixed(2)}`}
+                />
+              </Stack>
+            )}
+
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 1.5 }}>
+              {players.map((p, idx) => {
+                const sd = Number(p?.score?.double) || 0;
+                return (
+                  <Chip
+                    key={p._id}
+                    avatar={
+                      <Avatar src={p.avatar}>
+                        {(p.nickname || p.name || "?").charAt(0).toUpperCase()}
+                      </Avatar>
+                    }
+                    label={`${idx + 1}. ${p.nickname || p.name} · ${sd.toFixed(2)}`}
+                    onDelete={() => removePlayer(p._id)}
+                    sx={{
+                      bgcolor: p.gender === "female" ? "#FCE7F3" : "#DBEAFE",
+                      fontWeight: 700,
+                    }}
+                  />
+                );
+              })}
               {players.length === 0 && (
                 <Typography variant="caption" color="text.disabled">
                   Chưa thêm VĐV nào — tìm ở ô phía trên.
@@ -725,6 +802,13 @@ function TeamFormDialog({
             {players.length > 0 && players.length < minRoster && (
               <Alert severity="warning" sx={{ mt: 1.5 }}>
                 Cần thêm ít nhất {minRoster - players.length} VĐV nữa
+              </Alert>
+            )}
+            {overCap && (
+              <Alert severity="error" sx={{ mt: 1.5 }}>
+                Tổng điểm đôi của roster ({totalDouble.toFixed(2)}) vượt
+                giới hạn {maxTeamScore} của giải. Vui lòng bỏ bớt VĐV
+                điểm cao.
               </Alert>
             )}
           </Box>
