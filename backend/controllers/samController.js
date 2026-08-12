@@ -31,6 +31,55 @@ async function closeStaleRooms() {
 }
 setInterval(closeStaleRooms, 60_000).unref?.();
 
+// Auto-timeout (Phase 4)
+const turnTimers = new Map();
+function scheduleAutoTurn(roomId) {
+  clearTimeout(turnTimers.get(String(roomId)));
+  turnTimers.delete(String(roomId));
+  SamRoom.findById(roomId)
+    .select("turnDeadlineAt activeIndex stage")
+    .lean()
+    .then((r) => {
+      if (!r || !r.turnDeadlineAt || r.activeIndex < 0 || r.stage !== "playing") {
+        return;
+      }
+      const ms = Math.max(0, new Date(r.turnDeadlineAt).getTime() - Date.now());
+      const t = setTimeout(() => autoTurnAct(roomId).catch(() => {}), ms + 500);
+      turnTimers.set(String(roomId), t);
+    })
+    .catch(() => {});
+}
+async function autoTurnAct(roomId) {
+  const room = await SamRoom.findById(roomId);
+  if (!room || room.stage !== "playing" || room.activeIndex < 0) return;
+  const deadline = room.turnDeadlineAt
+    ? new Date(room.turnDeadlineAt).getTime()
+    : 0;
+  if (Date.now() < deadline - 200) {
+    scheduleAutoTurn(roomId);
+    return;
+  }
+  const seat = room.seats[room.activeIndex];
+  if (!seat || !seat.user) return;
+  try {
+    if (room.currentCombo) {
+      // Có combo trên bàn → auto pass
+      applyAction(room, seat.seatIndex, "pass", {});
+    } else {
+      // Không có combo → auto đánh lá nhỏ nhất (single)
+      applyAction(room, seat.seatIndex, "play", { cards: [seat.cards[0]] });
+    }
+    await room.save();
+    const populated = await room.populate("seats.user", USER_FIELDS);
+    broadcastUpdate(populated);
+    if (populated.stage === "playing" && populated.activeIndex >= 0) {
+      scheduleAutoTurn(populated._id);
+    }
+  } catch (err) {
+    console.error("[sam] autoTurnAct:", err?.message || err);
+  }
+}
+
 function emitRoomTo(room, event, payload) {
   try {
     getIO?.()?.to(`sam:room:${room._id}`).emit(event, payload);
@@ -202,6 +251,7 @@ export const startSamHand = asyncHandler(async (req, res) => {
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
+  scheduleAutoTurn(populated._id);
   res.json({ room: serializeRoom(populated, req.user._id) });
 });
 
@@ -230,6 +280,9 @@ export const samAction = asyncHandler(async (req, res) => {
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
+  if (populated.stage === "playing" && populated.activeIndex >= 0) {
+    scheduleAutoTurn(populated._id);
+  }
   res.json({ room: serializeRoom(populated, req.user._id) });
 });
 

@@ -64,7 +64,8 @@ export function startHand(room) {
 
 /* -------- Combo primitives -------- */
 
-// "single" | "pair" | "triple" | "quad" | "straight" | "dragon" | null
+// "single" | "pair" | "triple" | "quad" | "straight" | "fourPairs" | "dragon" | null
+// fourPairs = 4 đôi thông (VD: 3♠3♥ 4♠4♥ 5♠5♥ 6♠6♥) — 8 lá, 4 rank liên tiếp, mỗi rank 2 lá
 export function comboType(cards) {
   if (!Array.isArray(cards) || cards.length === 0) return null;
   const n = cards.length;
@@ -75,6 +76,25 @@ export function comboType(cards) {
   if (n === 2 && uniqRanks.size === 1) return "pair";
   if (n === 3 && uniqRanks.size === 1) return "triple";
   if (n === 4 && uniqRanks.size === 1) return "quad";
+
+  // 4 đôi thông (8 lá): 4 rank liên tiếp, mỗi rank đúng 2 lá, không có 2.
+  if (n === 8 && !ranks.includes("2")) {
+    const rankCount = new Map();
+    for (const r of ranks) rankCount.set(r, (rankCount.get(r) || 0) + 1);
+    if (rankCount.size === 4 && [...rankCount.values()].every((v) => v === 2)) {
+      const vals = [...rankCount.keys()]
+        .map((r) => RANK_ORDER_VAL[r])
+        .sort((a, b) => a - b);
+      let consec = true;
+      for (let i = 1; i < vals.length; i++) {
+        if (vals[i] !== vals[i - 1] + 1) {
+          consec = false;
+          break;
+        }
+      }
+      if (consec) return "fourPairs";
+    }
+  }
 
   // Sảnh: 3+ lá liên tiếp (khác chất được), không có 2.
   if (n >= 3 && !ranks.includes("2")) {
@@ -94,6 +114,49 @@ export function comboType(cards) {
   }
 
   return null;
+}
+
+// Local map cho fourPairs — dùng thứ tự 2-3-...-A theo rankValue.
+const RANK_ORDER_VAL = {
+  "2": 0, "3": 1, "4": 2, "5": 3, "6": 4, "7": 5, "8": 6, "9": 7,
+  T: 8, J: 9, Q: 10, K: 11, A: 12,
+};
+
+// Kiểm tra combo mới có "chặt" được combo cũ không (cross-type).
+// Trả true nếu newCombo hợp lệ để đè cũ.
+// Rules đơn giản:
+// - Tứ quý chặt: single 2, pair 2, triple 2, 3 đôi thông (bỏ qua Phase 4)
+// - 4 đôi thông chặt: tứ quý bất kỳ
+// - Sảnh rồng chặt: tứ quý bất kỳ, 4 đôi thông, 2 đơn/đôi/tam
+// - Tứ quý cao chặt tứ quý thấp
+// - 4 đôi thông cao chặt 4 đôi thông thấp
+// - Sảnh rồng chặt sảnh rồng (không xảy ra vì mỗi ván chỉ 1)
+export function canCut(newCombo, oldCombo) {
+  if (!oldCombo) return false;
+  const nt = newCombo.type;
+  const ot = oldCombo.type;
+  const oldIs2 = ot === "single" || ot === "pair" || ot === "triple";
+  const oldHas2 = oldIs2 && cardRank(oldCombo.cards[0]) === "2";
+
+  // Tứ quý chặt 2 (single/pair/triple)
+  if (nt === "quad" && oldHas2) return true;
+
+  // 4 đôi thông chặt tứ quý hoặc 2 (single/pair/triple)
+  if (nt === "fourPairs" && (ot === "quad" || oldHas2)) return true;
+
+  // Sảnh rồng chặt tất cả
+  if (nt === "dragon") return true;
+
+  // Cùng loại chặt (higher rank)
+  if (nt === ot) {
+    if (nt === "quad" || nt === "fourPairs") {
+      const nMax = Math.max(...newCombo.cards.map(rankValue));
+      const oMax = Math.max(...oldCombo.cards.map(rankValue));
+      return nMax > oMax;
+    }
+  }
+
+  return false;
 }
 
 // So sánh 2 combo cùng loại. Trả về > 0 nếu a lớn hơn b, < 0 nếu nhỏ hơn.
@@ -280,20 +343,21 @@ export function applyAction(room, seatIndex, action, payload = {}) {
     const type = comboType(cards);
     if (!type) throw new Error("Không phải combo hợp lệ");
 
-    // Nếu đang có combo trên bàn, phải cùng loại + số lá + cao hơn (hoặc chặt)
+    // Nếu đang có combo trên bàn, phải cùng loại + cao hơn HOẶC chặt hợp lệ.
     if (room.currentCombo) {
       const cur = room.currentCombo;
       const newCombo = { cards, type };
-      if (cur.type !== type || cur.cards.length !== cards.length) {
-        // Chặt: tứ quý chặt 2 (single), sảnh rồng chặt tứ quý — Phase 4 sẽ mở
-        // rộng. Phase 3: chỉ cho phép nếu cùng loại + số lá.
+      const sameShape =
+        cur.type === type && cur.cards.length === cards.length;
+      if (sameShape) {
+        const cmp = compareCombos(newCombo, cur);
+        if (cmp <= 0) {
+          throw new Error("Combo phải lớn hơn combo trên bàn");
+        }
+      } else if (!canCut(newCombo, cur)) {
         throw new Error(
-          `Phải đánh ${cur.type} ${cur.cards.length} lá cao hơn (hoặc pass)`,
+          `Không đè được ${cur.type} bằng ${type} — chọn combo khác hoặc pass`,
         );
-      }
-      const cmp = compareCombos(newCombo, cur);
-      if (cmp <= 0) {
-        throw new Error("Combo phải lớn hơn combo trên bàn");
       }
     } else {
       // Combo đầu ván: nếu ai có 3♠ phải chứa nó trong lượt đầu

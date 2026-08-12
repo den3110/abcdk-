@@ -31,6 +31,56 @@ async function closeStaleRooms() {
 }
 setInterval(closeStaleRooms, 60_000).unref?.();
 
+// Auto-timeout khi quá turnDeadlineAt (Phase 4)
+const turnTimers = new Map();
+function scheduleAutoTurn(roomId) {
+  clearTimeout(turnTimers.get(String(roomId)));
+  turnTimers.delete(String(roomId));
+  PhomRoom.findById(roomId)
+    .select("turnDeadlineAt activeIndex stage")
+    .lean()
+    .then((r) => {
+      if (!r || !r.turnDeadlineAt || r.activeIndex < 0 || r.stage !== "playing") {
+        return;
+      }
+      const ms = Math.max(0, new Date(r.turnDeadlineAt).getTime() - Date.now());
+      const t = setTimeout(() => autoTurnAct(roomId).catch(() => {}), ms + 500);
+      turnTimers.set(String(roomId), t);
+    })
+    .catch(() => {});
+}
+async function autoTurnAct(roomId) {
+  const room = await PhomRoom.findById(roomId);
+  if (!room || room.stage !== "playing" || room.activeIndex < 0) return;
+  const deadline = room.turnDeadlineAt
+    ? new Date(room.turnDeadlineAt).getTime()
+    : 0;
+  if (Date.now() < deadline - 200) {
+    scheduleAutoTurn(roomId);
+    return;
+  }
+  const seat = room.seats[room.activeIndex];
+  if (!seat || !seat.user) return;
+  try {
+    // Nếu 9 lá & không phải cái → auto bốc nọc rồi thảy lá lẻ đầu
+    if (seat.cards.length <= 9 && seat.seatIndex !== room.dealerIndex) {
+      applyAction(room, seat.seatIndex, "draw_deck", {});
+    }
+    // Bây giờ chắc có 10 lá → thảy lá đầu (lá nhỏ nhất sau sort)
+    if (seat.cards.length >= 10 || seat.seatIndex === room.dealerIndex) {
+      applyAction(room, seat.seatIndex, "discard", { card: seat.cards[0] });
+    }
+    await room.save();
+    const populated = await room.populate("seats.user", USER_FIELDS);
+    broadcastUpdate(populated);
+    if (populated.stage === "playing" && populated.activeIndex >= 0) {
+      scheduleAutoTurn(populated._id);
+    }
+  } catch (err) {
+    console.error("[phom] autoTurnAct:", err?.message || err);
+  }
+}
+
 function emitRoomTo(room, event, payload) {
   try {
     getIO?.()?.to(`phom:room:${room._id}`).emit(event, payload);
@@ -206,6 +256,7 @@ export const startPhomHand = asyncHandler(async (req, res) => {
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
+  scheduleAutoTurn(populated._id);
   res.json({ room: serializeRoom(populated, req.user._id) });
 });
 
@@ -237,6 +288,9 @@ export const phomAction = asyncHandler(async (req, res) => {
   await room.save();
   const populated = await populateRoom(room);
   broadcastUpdate(populated);
+  if (populated.stage === "playing" && populated.activeIndex >= 0) {
+    scheduleAutoTurn(populated._id);
+  }
   res.json({ room: serializeRoom(populated, req.user._id) });
 });
 
