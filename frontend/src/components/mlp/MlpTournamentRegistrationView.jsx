@@ -276,6 +276,7 @@ export default function MlpTournamentRegistrationView({
               slotsCfg={slotsCfg}
               minRoster={minRoster}
               maxRoster={maxRoster}
+              maxTeamScore={maxTeamScore}
             />
             <Stack direction="row" spacing={1} sx={{ mt: 2 }} flexWrap="wrap" useFlexGap>
               <Button
@@ -337,6 +338,7 @@ export default function MlpTournamentRegistrationView({
                 slotsCfg={slotsCfg}
                 minRoster={minRoster}
                 maxRoster={maxRoster}
+                maxTeamScore={maxTeamScore}
                 onApprove={(next) => handleApprove(tm._id, next)}
                 onEdit={() => setEditing(tm)}
                 onDelete={() => handleDelete(tm._id)}
@@ -380,31 +382,75 @@ function TeamStatusChip({ status }) {
   return <Chip label="Chờ duyệt" color="warning" size="small" />;
 }
 
-function RosterList({ players, minRoster, maxRoster }) {
-  const count = players?.length || 0;
+function RosterList({ players, minRoster, maxRoster, maxTeamScore = null }) {
+  const list = Array.isArray(players) ? players : [];
+  const count = list.length;
   const valid = count >= minRoster && count <= maxRoster;
+  const totalDouble = list.reduce(
+    (sum, p) => sum + (Number(p?.score?.double) || 0),
+    0,
+  );
+  const totalSingle = list.reduce(
+    (sum, p) => sum + (Number(p?.score?.single) || 0),
+    0,
+  );
+  const overCap = maxTeamScore != null && totalDouble > maxTeamScore;
   return (
     <Box>
-      <Typography
-        variant="caption"
-        sx={{ color: valid ? "success.main" : "warning.main", fontWeight: 700 }}
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        flexWrap="wrap"
+        gap={0.75}
       >
-        Roster: {count}/{minRoster}-{maxRoster} VĐV
-      </Typography>
+        <Typography
+          variant="caption"
+          sx={{
+            color: valid ? "success.main" : "warning.main",
+            fontWeight: 700,
+          }}
+        >
+          Roster: {count}/{minRoster}-{maxRoster} VĐV
+        </Typography>
+        {count > 0 && (
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Chip
+              size="small"
+              color={overCap ? "error" : "primary"}
+              label={
+                maxTeamScore != null
+                  ? `Tổng đôi: ${totalDouble.toFixed(2)} / ${maxTeamScore}`
+                  : `Tổng đôi: ${totalDouble.toFixed(2)}`
+              }
+              sx={{ height: 20, fontSize: 11, fontWeight: 800 }}
+            />
+            <Chip
+              size="small"
+              variant="outlined"
+              label={`Tổng đơn: ${totalSingle.toFixed(2)}`}
+              sx={{ height: 20, fontSize: 11 }}
+            />
+          </Stack>
+        )}
+      </Stack>
       <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
-        {players.map((p) => (
-          <Chip
-            key={p._id}
-            avatar={
-              <Avatar src={p.avatar}>
-                {(p.nickname || p.name || "?").charAt(0).toUpperCase()}
-              </Avatar>
-            }
-            label={p.nickname || p.name}
-            size="small"
-            sx={{ bgcolor: p.gender === "female" ? "#FCE7F3" : "#DBEAFE" }}
-          />
-        ))}
+        {list.map((p) => {
+          const sd = Number(p?.score?.double) || 0;
+          return (
+            <Chip
+              key={p._id}
+              avatar={
+                <Avatar src={p.avatar}>
+                  {(p.nickname || p.name || "?").charAt(0).toUpperCase()}
+                </Avatar>
+              }
+              label={`${p.nickname || p.name} · ${sd.toFixed(2)}`}
+              size="small"
+              sx={{ bgcolor: p.gender === "female" ? "#FCE7F3" : "#DBEAFE" }}
+            />
+          );
+        })}
       </Stack>
     </Box>
   );
@@ -416,6 +462,7 @@ function TeamCard({
   canManage,
   minRoster,
   maxRoster,
+  maxTeamScore = null,
   onApprove,
   onEdit,
   onDelete,
@@ -441,6 +488,7 @@ function TeamCard({
           players={team.players || []}
           minRoster={minRoster}
           maxRoster={maxRoster}
+          maxTeamScore={maxTeamScore}
         />
 
         {canEdit && (
