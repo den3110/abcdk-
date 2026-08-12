@@ -1844,6 +1844,30 @@ export function initSocket(
       } catch {}
     });
 
+    // Phỏm room
+    socket.on("phom:room:subscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.join(`phom:room:${roomId}`);
+      } catch {}
+    });
+    socket.on("phom:room:unsubscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.leave(`phom:room:${roomId}`);
+      } catch {}
+    });
+
+    // Sâm room
+    socket.on("sam:room:subscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.join(`sam:room:${roomId}`);
+      } catch {}
+    });
+    socket.on("sam:room:unsubscribe", ({ roomId } = {}) => {
+      try {
+        if (roomId) socket.leave(`sam:room:${roomId}`);
+      } catch {}
+    });
+
     // nhận subscribe realtime từ admin tab
     socket.on("presence:watch", async () => {
       try {
