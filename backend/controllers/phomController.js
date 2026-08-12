@@ -7,6 +7,9 @@ import {
   startHand,
   serializeRoom,
   applyAction,
+  applyDownAuto,
+  applyDownManual,
+  applyGuiBai,
 } from "../services/phomEngine.js";
 import { getIO } from "../socket/index.js";
 import { sendToUserIds } from "../services/notifications/expoPush.js";
@@ -260,7 +263,7 @@ export const startPhomHand = asyncHandler(async (req, res) => {
   res.json({ room: serializeRoom(populated, req.user._id) });
 });
 
-// POST /api/phom/rooms/:id/action  { action, card?, meldCards? }
+// POST /api/phom/rooms/:id/action  { action, card?, meldCards?, melds?, targetSeatIndex?, targetMeldIndex? }
 export const phomAction = asyncHandler(async (req, res) => {
   const room = await PhomRoom.findById(req.params.id);
   if (!room) {
@@ -274,12 +277,25 @@ export const phomAction = asyncHandler(async (req, res) => {
     res.status(403);
     throw new Error("Bạn không ở bàn này");
   }
-  const { action, card, meldCards } = req.body || {};
+  const { action, card, meldCards, melds, targetSeatIndex, targetMeldIndex } =
+    req.body || {};
   try {
-    applyAction(room, seat.seatIndex, String(action || ""), {
-      card,
-      meldCards,
-    });
+    if (action === "down_auto") {
+      applyDownAuto(room, seat.seatIndex);
+    } else if (action === "down_manual") {
+      applyDownManual(room, seat.seatIndex, melds || []);
+    } else if (action === "gui_bai") {
+      applyGuiBai(room, seat.seatIndex, {
+        card,
+        targetSeatIndex,
+        targetMeldIndex,
+      });
+    } else {
+      applyAction(room, seat.seatIndex, String(action || ""), {
+        card,
+        meldCards,
+      });
+    }
   } catch (err) {
     res.status(400);
     throw err;

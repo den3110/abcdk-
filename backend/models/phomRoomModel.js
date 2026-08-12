@@ -20,6 +20,8 @@ const phomSeatSchema = new Schema(
     hasWon: { type: Boolean, default: false },
     // Đã "hạ phỏm" (down) chưa
     hasDowned: { type: Boolean, default: false },
+    // Trong phase downing: đã confirm hạ chưa
+    hasFinishedDowning: { type: Boolean, default: false },
     lastAction: { type: String, default: null },
     sittingOut: { type: Boolean, default: false },
   },
@@ -51,7 +53,7 @@ const phomRoomSchema = new Schema(
     handNumber: { type: Number, default: 0 },
     stage: {
       type: String,
-      enum: ["waiting", "dealing", "playing", "showdown"],
+      enum: ["waiting", "dealing", "playing", "downing", "showdown"],
       default: "waiting",
       index: true,
     },

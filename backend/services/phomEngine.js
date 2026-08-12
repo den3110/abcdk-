@@ -425,14 +425,122 @@ export function applyAction(room, seatIndex, action, payload = {}) {
     });
     seat.lastAction = "thảy " + card;
 
+    // Đủ 4 vòng → chuyển sang downing (không endHand ngay)
+    if (roundsCompleted(room) >= 4) {
+      room.stage = "downing";
+      room.activeIndex = -1;
+      room.turnDeadlineAt = new Date(Date.now() + 30_000); // 30s hạ bài
+      return room;
+    }
+
     const next = nextActiveSeat(room, seat.seatIndex);
     scheduleNextTurn(room, next);
-
-    if (roundsCompleted(room) >= 4) {
-      endHand(room);
-    }
     return room;
   }
 
   throw new Error("Action không hợp lệ: " + action);
+}
+
+/* -------- Downing phase actions -------- */
+
+// Kiểm tra tất cả seat đã confirm hạ chưa → nếu rồi thì endHand.
+function maybeEndDowning(room) {
+  const active = activeSeats(room);
+  const allDone = active.every((s) => s.hasFinishedDowning);
+  if (allDone) {
+    endHand(room);
+  }
+}
+
+// Hạ tự động: server tự tìm phân hoạch phỏm tốt nhất trong bài còn lại.
+export function applyDownAuto(room, seatIndex) {
+  if (room.stage !== "downing") {
+    throw new Error("Không phải phase hạ bài");
+  }
+  const seat = room.seats.find((s) => s.seatIndex === seatIndex);
+  if (!seat || !seat.user) throw new Error("Ghế không hợp lệ");
+  if (seat.hasFinishedDowning) throw new Error("Bạn đã hạ rồi");
+
+  // Bài còn = cards - những lá đã trong melds
+  const already = new Set((seat.melds || []).flat());
+  const remaining = seat.cards.filter((c) => !already.has(c));
+  const part = findBestPartition(remaining);
+  seat.melds = [...(seat.melds || []), ...part.melds];
+  seat.hasFinishedDowning = true;
+  seat.lastAction = "hạ tự động";
+  maybeEndDowning(room);
+  return room;
+}
+
+// Hạ phỏm thủ công: user tự chọn các meld.
+// payload: { melds: [[cardCodes], ...] }
+export function applyDownManual(room, seatIndex, melds) {
+  if (room.stage !== "downing") {
+    throw new Error("Không phải phase hạ bài");
+  }
+  const seat = room.seats.find((s) => s.seatIndex === seatIndex);
+  if (!seat || !seat.user) throw new Error("Ghế không hợp lệ");
+  if (seat.hasFinishedDowning) throw new Error("Bạn đã hạ rồi");
+  if (!Array.isArray(melds)) throw new Error("Melds không hợp lệ");
+
+  const already = new Set((seat.melds || []).flat());
+  const usedInNew = new Set();
+  for (const m of melds) {
+    if (!Array.isArray(m) || m.length < 3) {
+      throw new Error("Mỗi phỏm phải có ít nhất 3 lá");
+    }
+    if (!isValidMeld(m)) {
+      throw new Error("Phỏm không hợp lệ: " + m.join(","));
+    }
+    for (const c of m) {
+      if (!seat.cards.includes(c)) {
+        throw new Error("Bài không có trong tay: " + c);
+      }
+      if (already.has(c)) {
+        throw new Error("Lá đã trong phỏm khác: " + c);
+      }
+      if (usedInNew.has(c)) {
+        throw new Error("Lá dùng nhiều lần: " + c);
+      }
+      usedInNew.add(c);
+    }
+  }
+  seat.melds = [...(seat.melds || []), ...melds];
+  seat.hasFinishedDowning = true;
+  seat.lastAction = "hạ phỏm";
+  maybeEndDowning(room);
+  return room;
+}
+
+// Gửi bài: gửi 1 lá lẻ vào meld của người khác nếu ghép được.
+// payload: { card, targetSeatIndex, targetMeldIndex }
+export function applyGuiBai(room, seatIndex, { card, targetSeatIndex, targetMeldIndex }) {
+  if (room.stage !== "downing") {
+    throw new Error("Không phải phase hạ bài");
+  }
+  const seat = room.seats.find((s) => s.seatIndex === seatIndex);
+  if (!seat || !seat.user) throw new Error("Ghế không hợp lệ");
+  if (!seat.hasFinishedDowning) {
+    throw new Error("Phải hạ phỏm của bạn trước khi gửi");
+  }
+  if (!card || !seat.cards.includes(card)) {
+    throw new Error("Không có lá đó trong tay");
+  }
+  const already = new Set((seat.melds || []).flat());
+  if (already.has(card)) {
+    throw new Error("Lá đã trong phỏm của bạn");
+  }
+  const target = room.seats.find((s) => s.seatIndex === targetSeatIndex);
+  if (!target || !target.user) throw new Error("Ghế đích không hợp lệ");
+  const targetMeld = target.melds?.[targetMeldIndex];
+  if (!targetMeld) throw new Error("Phỏm đích không tồn tại");
+  // Kiểm tra meld sau khi thêm card có valid không
+  const combined = [...targetMeld, card];
+  if (!isValidMeld(combined)) {
+    throw new Error("Lá này không gửi được vào phỏm đó");
+  }
+  target.melds[targetMeldIndex] = combined;
+  seat.melds = [...(seat.melds || []), [card]]; // đánh dấu đã dùng
+  seat.lastAction = "gửi " + card;
+  return room;
 }
