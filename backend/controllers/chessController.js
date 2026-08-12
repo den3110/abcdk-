@@ -186,6 +186,9 @@ export const leaveChessRoom = asyncHandler(async (req, res) => {
     const nextHost = room.seats.find((s) => s.user);
     if (nextHost) room.createdBy = nextHost.user;
   }
+  if (!room.seats.some((s) => s.user)) {
+    room.status = "closed";
+  }
   room.lastActivityAt = new Date();
   await room.save();
   const populated = await populateRoom(room);
