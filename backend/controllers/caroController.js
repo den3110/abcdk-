@@ -38,6 +38,12 @@ function emitRoomTo(room, event, payload) {
 }
 function broadcastUpdate(room) {
   emitRoomTo(room, "caro:room:updated", { roomId: String(room._id) });
+  broadcastLobby();
+}
+function broadcastLobby() {
+  try {
+    getIO?.()?.to("caro:lobby").emit("caro:lobby:updated", {});
+  } catch {}
 }
 async function populateRoom(room) {
   return room.populate("seats.user", USER_FIELDS);
@@ -60,6 +66,15 @@ export const listCaroRooms = asyncHandler(async (req, res) => {
     boardSize: r.boardSize,
     maxSeats: r.maxSeats,
     seatsTaken: (r.seats || []).filter((s) => s.user).length,
+    seatUsers: (r.seats || [])
+      .filter((s) => s?.user)
+      .map((s) => ({
+        _id: s.user._id,
+        nickname: s.user.nickname,
+        name: s.user.name,
+        avatar: s.user.avatar,
+      })),
+    createdBy: r.createdBy,
     stage: r.stage,
     handNumber: r.handNumber,
     lastActivityAt: r.lastActivityAt,
@@ -96,6 +111,7 @@ export const createCaroRoom = asyncHandler(async (req, res) => {
     stage: "waiting",
   });
   const populated = await populateRoom(room);
+  broadcastLobby();
   res.status(201).json({ room: serializeRoom(populated) });
 });
 

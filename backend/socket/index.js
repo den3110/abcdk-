@@ -1904,6 +1904,20 @@ export function initSocket(
       } catch {}
     });
 
+    // Game lobbies (realtime list updates)
+    for (const game of ["phom", "sam", "caro", "chess", "xiangqi"]) {
+      socket.on(`${game}:lobby:subscribe`, () => {
+        try {
+          socket.join(`${game}:lobby`);
+        } catch {}
+      });
+      socket.on(`${game}:lobby:unsubscribe`, () => {
+        try {
+          socket.leave(`${game}:lobby`);
+        } catch {}
+      });
+    }
+
     // nhận subscribe realtime từ admin tab
     socket.on("presence:watch", async () => {
       try {

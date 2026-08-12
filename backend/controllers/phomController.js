@@ -93,6 +93,12 @@ function emitRoomTo(room, event, payload) {
 }
 function broadcastUpdate(room) {
   emitRoomTo(room, "phom:room:updated", { roomId: String(room._id) });
+  broadcastLobby();
+}
+function broadcastLobby() {
+  try {
+    getIO?.()?.to("phom:lobby").emit("phom:lobby:updated", {});
+  } catch {}
 }
 async function populateRoom(room) {
   return room.populate("seats.user", USER_FIELDS);
@@ -114,6 +120,15 @@ export const listPhomRooms = asyncHandler(async (req, res) => {
     buyIn: r.buyIn,
     maxSeats: r.maxSeats,
     seatsTaken: (r.seats || []).filter((s) => s.user).length,
+    seatUsers: (r.seats || [])
+      .filter((s) => s?.user)
+      .map((s) => ({
+        _id: s.user._id,
+        nickname: s.user.nickname,
+        name: s.user.name,
+        avatar: s.user.avatar,
+      })),
+    createdBy: r.createdBy,
     stage: r.stage,
     handNumber: r.handNumber,
     lastActivityAt: r.lastActivityAt,
@@ -154,6 +169,7 @@ export const createPhomRoom = asyncHandler(async (req, res) => {
     stage: "waiting",
   });
   const populated = await populateRoom(room);
+  broadcastLobby();
   res.status(201).json({ room: serializeRoom(populated, req.user._id) });
 });
 
