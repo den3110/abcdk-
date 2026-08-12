@@ -62,7 +62,21 @@ export function startHand(room) {
   room.handEndedAt = null;
   const now = Date.now();
   room.turnDeadlineAt = new Date(now + (room.turnDurationSec || 30) * 1000);
+
+  // Kiểm tra ngay: dealer có 10 lá, nếu tạo phỏm hết → ù luôn (ăn trắng).
+  const dealer = room.seats.find((s) => s.seatIndex === room.dealerIndex);
+  if (dealer && isU(dealer.cards)) {
+    dealer.hasWon = true;
+    dealer.melds = findBestPartition(dealer.cards).melds;
+    dealer.lastAction = "ù (ăn trắng)";
+    endHandInternal(room);
+  }
   return room;
+}
+
+// Forward declaration — endHandInternal is defined below.
+function endHandInternal(room) {
+  return endHand(room);
 }
 
 /* -------- Meld primitives -------- */
@@ -317,8 +331,22 @@ function endHand(room) {
 
 /* -------- Apply action -------- */
 
-// action: "draw_deck" | "draw_discard" | "discard" | "u"
+// Auto-ù check sau khi bài tay thay đổi. Nếu bài tạo phỏm hết → thắng ngay.
+function checkAndTriggerU(room, seat) {
+  if (seat.cards.length < 9) return false;
+  if (!isU(seat.cards)) return false;
+  seat.hasWon = true;
+  seat.melds = findBestPartition(seat.cards).melds;
+  seat.lastAction = "ù";
+  endHand(room);
+  return true;
+}
+
+// action: "draw_deck" | "draw_discard" | "discard"
 // payload: { card?: string, meldCards?: string[] }
+// Rule đơn giản: hand = 9 lá → phải bốc (deck/discard); hand = 10 lá → phải thảy.
+// Không còn phân biệt dealer sau ván đầu — dealer nhận 10 lá lúc deal, thảy 1
+// thành 9, các lượt sau như mọi người khác.
 export function applyAction(room, seatIndex, action, payload = {}) {
   if (room.stage !== "playing") {
     throw new Error("Ván chưa bắt đầu hoặc đã kết thúc");
@@ -329,40 +357,27 @@ export function applyAction(room, seatIndex, action, payload = {}) {
   const seat = room.seats.find((s) => s.seatIndex === seatIndex);
   if (!seat || !seat.user) throw new Error("Ghế không hợp lệ");
 
-  const now = Date.now();
-
-  if (action === "u") {
-    // Ù: cả bài trong tay tạo thành phỏm hết
-    if (!isU(seat.cards)) {
-      throw new Error("Bài chưa ù (còn lá lẻ)");
-    }
-    seat.hasWon = true;
-    seat.melds = findBestPartition(seat.cards).melds;
-    endHand(room);
-    return room;
-  }
-
   if (action === "draw_deck") {
-    if (seat.cards.length !== 9 && seat.seatIndex !== room.dealerIndex) {
-      throw new Error("Không thể bốc lúc này");
-    }
     if (seat.cards.length >= 10) {
       throw new Error("Đã có 10 lá, phải thảy trước");
     }
     if ((room.deck || []).length === 0) {
-      // Nọc hết → kết thúc ván, tính điểm
+      // Nọc hết → kết thúc ván
       endHand(room);
       return room;
     }
     const drawn = room.deck.shift();
     seat.cards = sortHand([...seat.cards, drawn]);
     seat.lastAction = "bốc nọc";
-    // Phải thảy 1 lá — chuyển state chờ discard (không đổi turn)
+    // Auto-ù nếu đủ phỏm
+    checkAndTriggerU(room, seat);
     return room;
   }
 
   if (action === "draw_discard") {
-    // Ăn lá trên cùng discard, PHẢI kèm meld 3-lá (ít nhất) chứa lá đó
+    if (seat.cards.length >= 10) {
+      throw new Error("Đã có 10 lá, phải thảy trước");
+    }
     const meldCards = Array.isArray(payload.meldCards)
       ? payload.meldCards
       : null;
@@ -376,7 +391,6 @@ export function applyAction(room, seatIndex, action, payload = {}) {
     if (!meldCards.includes(top.card)) {
       throw new Error("Phỏm phải chứa lá vừa thảy");
     }
-    // Các lá còn lại trong meld phải có trong tay
     const otherCards = meldCards.filter((c) => c !== top.card);
     for (const c of otherCards) {
       if (!seat.cards.includes(c)) {
@@ -386,13 +400,12 @@ export function applyAction(room, seatIndex, action, payload = {}) {
     if (!isValidMeld(meldCards)) {
       throw new Error("Không phải phỏm hợp lệ");
     }
-    // Thực hiện: bỏ lá top ra discard, thêm vào tay, hạ meld
     room.discards.pop();
     seat.cards = sortHand([...seat.cards, top.card]);
     seat.melds = [...(seat.melds || []), meldCards];
     seat.hasDowned = true;
     seat.lastAction = "ăn + hạ phỏm";
-    // Phải thảy 1 lá — chưa đổi turn
+    checkAndTriggerU(room, seat);
     return room;
   }
 
@@ -401,8 +414,8 @@ export function applyAction(room, seatIndex, action, payload = {}) {
     if (!seat.cards.includes(card)) {
       throw new Error("Không có lá đó trong tay");
     }
-    if (seat.cards.length <= 9 && seat.seatIndex !== room.dealerIndex) {
-      throw new Error("Phải bốc bài trước");
+    if (seat.cards.length !== 10) {
+      throw new Error("Phải bốc bài trước khi thảy");
     }
     seat.cards = seat.cards.filter((c) => c !== card);
     room.discards.push({
@@ -412,11 +425,9 @@ export function applyAction(room, seatIndex, action, payload = {}) {
     });
     seat.lastAction = "thảy " + card;
 
-    // Chuyển lượt
     const next = nextActiveSeat(room, seat.seatIndex);
     scheduleNextTurn(room, next);
 
-    // Nếu đã đủ 4 vòng → kết thúc ván
     if (roundsCompleted(room) >= 4) {
       endHand(room);
     }
