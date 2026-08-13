@@ -181,7 +181,7 @@ export function comboType(cards) {
     }
   }
 
-  // Sảnh: 3+ lá liên tiếp (khác chất được), KHÔNG có 2 (2 là heo, không xếp sảnh).
+  // Sảnh thường: 3+ lá liên tiếp (khác chất được), KHÔNG có 2.
   if (n >= 3 && !ranks.includes("2")) {
     const vals = cards.map(samRankValue).sort((a, b) => a - b);
     let isStraight = true;
@@ -198,7 +198,39 @@ export function comboType(cards) {
     }
   }
 
+  // Sảnh A-low (A-2-3, A-2-3-4, A-2-3-4-5, ...): A đóng vai trò "1" đứng
+  // trước 2, các lá còn lại phải là 3, 4, 5, ... liên tiếp. Cards phải
+  // bao gồm cả A và 2. Không áp dụng cho length 10 (chồng với sảnh rồng).
+  if (n >= 3 && n <= 9 && ranks.includes("A") && ranks.includes("2")) {
+    // Mapping riêng cho A-low: A=0, 2=1, 3=2, 4=3, ..., K=12.
+    const A_LOW = {
+      A: 0, "2": 1, "3": 2, "4": 3, "5": 4, "6": 5, "7": 6,
+      "8": 7, "9": 8, T: 9, J: 10, Q: 11, K: 12,
+    };
+    const vals = ranks
+      .map((r) => (r in A_LOW ? A_LOW[r] : -1))
+      .sort((a, b) => a - b);
+    // Bắt buộc bắt đầu bằng A(0)-2(1), các lá tiếp theo liên tiếp.
+    if (vals[0] === 0 && vals[1] === 1) {
+      let ok = true;
+      for (let i = 1; i < vals.length; i++) {
+        if (vals[i] !== vals[i - 1] + 1) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok) return "straight";
+    }
+  }
+
   return null;
+}
+
+// Sảnh A-low: cards chứa cả A và 2 (dùng để phân biệt với sảnh thường
+// khi compareCombos — A-low là sảnh thấp nhất).
+function isALowStraight(cards) {
+  const ranks = cards.map(cardRank);
+  return ranks.includes("A") && ranks.includes("2");
 }
 
 // Kiểm tra combo mới có "chặt" được combo cũ không (cross-type).
@@ -243,6 +275,27 @@ export function canCut(newCombo, oldCombo) {
 export function compareCombos(a, b) {
   if (a.type !== b.type) return 0; // không cùng loại → không so được (trừ chặt)
   if (a.cards.length !== b.cards.length) return 0;
+
+  // Sảnh: A-low là sảnh thấp nhất; nếu 1 bên A-low, 1 bên regular thì
+  // A-low luôn nhỏ hơn. Nếu cả 2 A-low, so bằng lá cao nhất (không tính
+  // A/2). Nếu cả 2 regular, dùng max samRankValue mặc định.
+  if (a.type === "straight") {
+    const aLow = isALowStraight(a.cards);
+    const bLow = isALowStraight(b.cards);
+    if (aLow && !bLow) return -1;
+    if (!aLow && bLow) return 1;
+    if (aLow && bLow) {
+      const topOf = (cards) => {
+        const nonSpecial = cards
+          .map(cardRank)
+          .filter((r) => r !== "A" && r !== "2");
+        if (nonSpecial.length === 0) return -Infinity;
+        return Math.max(...nonSpecial.map((r) => SAM_ORDER[r] ?? -1));
+      };
+      return topOf(a.cards) - topOf(b.cards);
+    }
+  }
+
   const aMax = Math.max(...a.cards.map(samRankValue));
   const bMax = Math.max(...b.cards.map(samRankValue));
   return aMax - bMax;

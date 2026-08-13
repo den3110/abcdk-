@@ -1,6 +1,6 @@
 // services/pokerEngine.js — Texas Hold'em No-Limit engine.
-// Simple main pot only (không side pot cho MVP), buy-in cố định, blinds
-// cố định. Hand evaluation dùng thuật toán cơ bản: rank tay + high cards.
+// Side-pot đầy đủ + refund uncalled bet, buy-in cố định, blinds cố định.
+// Hand evaluation dùng thuật toán cơ bản: rank tay + high cards.
 
 const RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"];
 const RANK_VAL = Object.fromEntries(RANKS.map((r, i) => [r, i + 2]));
@@ -476,14 +476,83 @@ function runOutBoard(room) {
   return showdown(room);
 }
 
+/**
+ * Refund phần overbet (uncalled) của người đóng góp cao nhất khi không ai
+ * match tới. VD: A all-in 4000, B chỉ có 1000 nên call 1000 → A dư 3000
+ * không ai gọi được, phần này trả lại A trước khi settle.
+ *
+ * Sau khi gọi: seat.totalBetThisHand + room.pot đã được điều chỉnh đúng.
+ */
+function refundUncalledBet(room) {
+  const contribs = (room.seats || [])
+    .filter((s) => s.user && s.totalBetThisHand > 0)
+    .map((s) => ({ seat: s, amt: s.totalBetThisHand }));
+  if (contribs.length === 0) return;
+  if (contribs.length === 1) {
+    // Trường hợp cực hiếm: chỉ 1 người đóng góp (VD tất cả bỏ blind rồi
+    // đối thủ fold trước khi call bất kỳ đồng nào). Refund toàn bộ.
+    const c = contribs[0];
+    c.seat.chips += c.amt;
+    room.pot -= c.amt;
+    c.seat.totalBetThisHand = 0;
+    return;
+  }
+  contribs.sort((a, b) => b.amt - a.amt);
+  const top = contribs[0];
+  const second = contribs[1];
+  const uncalled = top.amt - second.amt;
+  if (uncalled > 0) {
+    top.seat.chips += uncalled;
+    top.seat.totalBetThisHand -= uncalled;
+    room.pot -= uncalled;
+  }
+}
+
+/**
+ * Xây danh sách side pots dựa vào totalBetThisHand của từng seat.
+ * Gọi SAU refundUncalledBet(). Nếu 2 người cùng all-in mức khác nhau,
+ * pot chính chia đều theo mức thấp nhất, side pot cho mức cao hơn chỉ
+ * dành cho những ai đóng góp đủ.
+ *
+ * Return: [{ amount, eligibleSeatIdxs: [Number] }]
+ * eligibleSeatIdxs = các seat KHÔNG fold VÀ contribution >= tier của pot.
+ */
+function buildSidePots(room) {
+  const contribs = (room.seats || [])
+    .filter((s) => s.user && s.totalBetThisHand > 0)
+    .map((s) => ({ seat: s, amt: s.totalBetThisHand }))
+    .sort((a, b) => a.amt - b.amt);
+  const pots = [];
+  let prev = 0;
+  for (let i = 0; i < contribs.length; i++) {
+    const tier = contribs[i].amt;
+    if (tier <= prev) continue;
+    const slice = tier - prev;
+    const stillIn = contribs.slice(i); // các seat có contrib >= tier
+    const amount = slice * stillIn.length;
+    const eligibleSeatIdxs = stillIn
+      .filter((c) => !c.seat.hasFolded)
+      .map((c) => c.seat.seatIndex);
+    if (amount > 0) pots.push({ amount, eligibleSeatIdxs });
+    prev = tier;
+  }
+  return pots;
+}
+
 function finishHandUncontested(room, winner) {
-  winner.chips += room.pot;
+  // Refund phần overbet trước khi trao pot còn lại cho winner (thường
+  // winner là người đóng góp cao nhất, nên refund này = tiền của họ chưa
+  // ai gọi tới).
+  refundUncalledBet(room);
+  const wonAmount = room.pot;
+  winner.chips += wonAmount;
+  room.pot = 0;
   room.winners = [
     {
       seatIndex: winner.seatIndex,
       userId: winner.user,
       handDescription: "Uncontested (đối thủ fold hết)",
-      amountWon: room.pot,
+      amountWon: wonAmount,
       revealedCards: [],
     },
   ];
@@ -492,29 +561,60 @@ function finishHandUncontested(room, winner) {
 
 function showdown(room) {
   room.stage = "showdown";
+  refundUncalledBet(room);
+
   const inHand = playingSeats(room);
-  const evaluated = inHand.map((s) => {
-    const seven = [...s.cards, ...room.board];
-    const e = evaluate7(seven);
-    return { seat: s, eval: e };
-  });
-  evaluated.sort((a, b) => compareEval(b.eval, a.eval));
-  // Winners = những người có eval bằng eval mạnh nhất
-  const best = evaluated[0].eval;
-  const winners = evaluated.filter((x) => compareEval(x.eval, best) === 0);
-  const share = Math.floor(room.pot / winners.length);
-  const remainder = room.pot - share * winners.length;
-  room.winners = winners.map((w, idx) => {
-    const amt = share + (idx === 0 ? remainder : 0);
-    w.seat.chips += amt;
-    return {
-      seatIndex: w.seat.seatIndex,
-      userId: w.seat.user,
-      handDescription: w.eval.name,
-      amountWon: amt,
-      revealedCards: w.seat.cards.slice(),
-    };
-  });
+  const evalsBySeatIdx = new Map();
+  for (const s of inHand) {
+    const e = evaluate7([...s.cards, ...room.board]);
+    evalsBySeatIdx.set(s.seatIndex, { seat: s, eval: e });
+  }
+
+  const pots = buildSidePots(room);
+
+  // Tổng hợp per-seat: amountWon cộng dồn qua nhiều pot (VD 3-way
+  // với 1 main + 1 side, cùng người thắng cả 2).
+  const summary = new Map(); // seatIndex -> {seat, eval, amount}
+  for (const pot of pots) {
+    const contenders = pot.eligibleSeatIdxs
+      .map((idx) => evalsBySeatIdx.get(idx))
+      .filter(Boolean);
+    if (contenders.length === 0) {
+      // Không có ứng cử viên hợp lệ (VD người đóng góp tier này đã fold
+      // hết). Chia đều cho những người vẫn còn trong hand ở tier cao
+      // hơn — hoặc để nguyên. Ở đây phòng thủ: bỏ qua pot rỗng.
+      continue;
+    }
+    let bestEval = contenders[0].eval;
+    for (const c of contenders) {
+      if (compareEval(c.eval, bestEval) > 0) bestEval = c.eval;
+    }
+    const winners = contenders.filter(
+      (c) => compareEval(c.eval, bestEval) === 0,
+    );
+    const share = Math.floor(pot.amount / winners.length);
+    const remainder = pot.amount - share * winners.length;
+    winners.forEach((w, idx) => {
+      const amt = share + (idx === 0 ? remainder : 0);
+      w.seat.chips += amt;
+      const prev = summary.get(w.seat.seatIndex) || {
+        seat: w.seat,
+        eval: w.eval,
+        amount: 0,
+      };
+      prev.amount += amt;
+      summary.set(w.seat.seatIndex, prev);
+    });
+  }
+
+  room.winners = Array.from(summary.values()).map((w) => ({
+    seatIndex: w.seat.seatIndex,
+    userId: w.seat.user,
+    handDescription: w.eval.name,
+    amountWon: w.amount,
+    revealedCards: w.seat.cards.slice(),
+  }));
+  room.pot = 0;
   endHand(room);
 }
 
