@@ -3,9 +3,9 @@
 // Bản v4 — layer HIỂN THỊ mới cho sơ đồ knockout.
 // KHÔNG đụng logic sinh label / resolveSideLabel (theo HANDOVER §10.12).
 // Chỉ dịch nhãn tham chiếu "W-V1-T16" / "BYE" / "V3-B1-T2" sang human-readable
-// và render card đẹp hơn với connector cong.
+// và render card đẹp hơn với connector cong + accent màu theo vòng.
 
-import { useMemo, useRef, useLayoutEffect, useState } from "react";
+import { useMemo, useRef, useLayoutEffect, useState, useId } from "react";
 import PropTypes from "prop-types";
 import {
   Box,
@@ -14,6 +14,8 @@ import {
   Chip,
   Tooltip,
   alpha,
+  darken,
+  lighten,
   useTheme,
   Avatar,
 } from "@mui/material";
@@ -25,6 +27,7 @@ import {
   HourglassEmpty as WaitingIcon,
   DoNotDisturbAlt as ByeIcon,
   FiberManualRecord as LiveDotIcon,
+  MilitaryTech as MedalIcon,
 } from "@mui/icons-material";
 
 /* ---- inline scoreForSide (giữ đồng nhất với TournamentBracket.jsx) ---- */
@@ -84,10 +87,61 @@ function scoreForSide(m, side) {
 
 /* ================= constants ================= */
 const CARD_W = 268;
-const CARD_MIN_H = 116;
-const COL_GAP = 68;
-const ROW_BASE_GAP = 18;
-const HEADER_H = 46;
+const CARD_MIN_H = 128;
+const COL_GAP = 72;
+const ROW_BASE_GAP = 20;
+const HEADER_H = 48;
+
+/* ================= round accent palette =================
+   Đếm NGƯỢC từ chung kết: CK vàng gold, BK hồng, TK tím, các vòng
+   ngoài xanh dần — nhìn phát biết đang ở độ sâu nào của giải. */
+const ACCENTS_FROM_FINAL = [
+  "#f59e0b", // Chung kết — gold
+  "#ec4899", // Bán kết — rose
+  "#8b5cf6", // Tứ kết — violet
+  "#3b82f6", // Vòng 16 — blue
+  "#06b6d4", // Vòng 32 — cyan
+  "#14b8a6", // Vòng 64 — teal
+  "#64748b", // sâu hơn — slate
+];
+
+export function accentForRound(colIndex, totalCols) {
+  const fromEnd = Math.max(0, totalCols - 1 - colIndex);
+  return ACCENTS_FROM_FINAL[Math.min(fromEnd, ACCENTS_FROM_FINAL.length - 1)];
+}
+
+/* Palette xuôi cho các bracket không có "chung kết" (playoff/pre-qualifying) */
+const ACCENTS_FORWARD = [
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+  "#f59e0b",
+  "#06b6d4",
+  "#14b8a6",
+];
+export function accentForIndex(i) {
+  return ACCENTS_FORWARD[Math.min(Math.max(0, i), ACCENTS_FORWARD.length - 1)];
+}
+
+/* Avatar màu ổn định theo tên đội */
+const AVATAR_COLORS = [
+  "#ef4444",
+  "#f97316",
+  "#f59e0b",
+  "#10b981",
+  "#06b6d4",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+  "#14b8a6",
+  "#6366f1",
+];
+function colorForName(name) {
+  const s = String(name || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
 
 /* ================= label translator ================= */
 /**
@@ -260,11 +314,12 @@ function TeamRow({
 
   const displayLabel = humanized ? humanized.text : label;
   const tooltip = humanized?.tooltip || label;
+  const teamColor = colorForName(displayLabel);
 
   const rowBg = isHovered
-    ? alpha(theme.palette.primary.main, 0.12)
+    ? alpha(theme.palette.primary.main, 0.14)
     : isWinner && isFinished
-      ? alpha(theme.palette.success.main, 0.12)
+      ? `linear-gradient(90deg, ${alpha(theme.palette.success.main, 0.2)}, ${alpha(theme.palette.success.main, 0.04)})`
       : "transparent";
 
   const borderLeft = isWinner && isFinished
@@ -294,28 +349,32 @@ function TeamRow({
           borderLeft,
           background: rowBg,
           transition: "background .15s ease",
-          minHeight: 34,
+          minHeight: 36,
         }}
       >
         {showAvatar && (
           <Avatar
             sx={{
-              width: 26,
-              height: 26,
+              width: 28,
+              height: 28,
               fontSize: 11,
-              fontWeight: 700,
+              fontWeight: 800,
               bgcolor: isBye
                 ? alpha(theme.palette.text.disabled, 0.15)
                 : isPending
                   ? alpha(theme.palette.primary.main, 0.12)
-                  : isWinner && isFinished
-                    ? theme.palette.success.main
-                    : alpha(theme.palette.primary.main, 0.85),
+                  : teamColor,
               color: isBye
                 ? theme.palette.text.disabled
                 : isPending
                   ? theme.palette.primary.main
                   : "#fff",
+              boxShadow: isWinner && isFinished
+                ? `0 0 0 2px ${theme.palette.success.main}`
+                : isBye || isPending
+                  ? "none"
+                  : `0 0 0 2px ${alpha(teamColor, 0.25)}`,
+              transition: "box-shadow .15s ease",
             }}
           >
             {isBye ? (
@@ -333,7 +392,7 @@ function TeamRow({
             sx={{
               fontSize: 13,
               lineHeight: 1.25,
-              fontWeight: isWinner && isFinished ? 700 : 500,
+              fontWeight: isWinner && isFinished ? 800 : 500,
               color: isBye || isPending
                 ? "text.secondary"
                 : isWinner && isFinished
@@ -350,26 +409,31 @@ function TeamRow({
         </Box>
         <Box
           sx={{
-            minWidth: 30,
-            height: 26,
-            px: 0.75,
-            borderRadius: 1,
+            minWidth: 32,
+            height: 28,
+            px: 0.85,
+            borderRadius: 1.25,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             fontVariantNumeric: "tabular-nums",
-            fontWeight: 700,
+            fontWeight: 800,
             fontSize: 14,
             color: isWinner && isFinished
-              ? "success.dark"
+              ? "#fff"
               : isLive
-                ? "warning.dark"
+                ? "#fff"
                 : "text.primary",
             background: isWinner && isFinished
-              ? alpha(theme.palette.success.main, 0.18)
+              ? "linear-gradient(135deg, #22c55e, #15803d)"
               : isLive
-                ? alpha(theme.palette.warning.main, 0.16)
-                : alpha(theme.palette.text.primary, 0.05),
+                ? "linear-gradient(135deg, #f59e0b, #d97706)"
+                : alpha(theme.palette.text.primary, 0.06),
+            boxShadow: isWinner && isFinished
+              ? `0 2px 8px ${alpha("#22c55e", 0.4)}`
+              : isLive
+                ? `0 2px 8px ${alpha("#f59e0b", 0.4)}`
+                : "none",
           }}
         >
           {score !== "" && score != null ? score : "–"}
@@ -392,6 +456,52 @@ TeamRow.propTypes = {
   showAvatar: PropTypes.bool,
 };
 
+/* ================= VS divider ================= */
+function VsDivider({ accent }) {
+  const theme = useTheme();
+  return (
+    <Box
+      aria-hidden
+      sx={{
+        display: "flex",
+        alignItems: "center",
+        gap: 0.75,
+        px: 1.25,
+        my: -0.25,
+      }}
+    >
+      <Box
+        sx={{
+          flex: 1,
+          height: "1px",
+          background: `linear-gradient(90deg, transparent, ${alpha(accent, 0.35)})`,
+        }}
+      />
+      <Typography
+        component="span"
+        sx={{
+          fontSize: 8.5,
+          fontWeight: 900,
+          letterSpacing: 1.2,
+          color: alpha(accent, theme.palette.mode === "dark" ? 0.9 : 0.75),
+          lineHeight: 1,
+        }}
+      >
+        VS
+      </Typography>
+      <Box
+        sx={{
+          flex: 1,
+          height: "1px",
+          background: `linear-gradient(90deg, ${alpha(accent, 0.35)}, transparent)`,
+        }}
+      />
+    </Box>
+  );
+}
+
+VsDivider.propTypes = { accent: PropTypes.string };
+
 /* ================= Seed card (exported for reuse) ================= */
 export const MODERN_CARD_W = CARD_W;
 export const MODERN_CARD_MIN_H = CARD_MIN_H;
@@ -405,8 +515,10 @@ export function ModernSeedCard({
   hovered,
   setHovered,
   nodeKey,
+  accent = "#3b82f6",
 }) {
   const theme = useTheme();
+  const isDark = theme.palette.mode === "dark";
   const m = seed.__match || null;
 
   const rawA = resolveSideLabel?.(m, "A") ?? (m ? "—" : "Chưa có đội");
@@ -452,6 +564,23 @@ export function ModernSeedCard({
 
   const clickable = !!m && !m.__syntheticByeAdvance;
 
+  const gold = "#f59e0b";
+  const cardBorderColor = isChampion
+    ? alpha(gold, 0.85)
+    : isCardHovered
+      ? theme.palette.primary.main
+      : isLive
+        ? alpha(theme.palette.warning.main, 0.7)
+        : alpha(accent, isDark ? 0.45 : 0.32);
+
+  const cardShadow = isChampion
+    ? `0 0 0 2px ${alpha(gold, 0.5)}, 0 10px 30px ${alpha(gold, 0.35)}`
+    : isCardHovered
+      ? `0 10px 28px ${alpha(theme.palette.primary.main, 0.3)}`
+      : isLive
+        ? undefined // dùng animation glow
+        : `0 2px 10px ${alpha(accent, isDark ? 0.25 : 0.14)}`;
+
   return (
     <Box
       data-mkb-card={nodeKey || undefined}
@@ -462,23 +591,21 @@ export function ModernSeedCard({
         cursor: clickable ? "pointer" : "default",
         borderRadius: 2.5,
         overflow: "visible",
-        background: theme.palette.mode === "dark"
-          ? alpha(theme.palette.background.paper, 0.9)
+        background: isDark
+          ? alpha(theme.palette.background.paper, 0.92)
           : "#ffffff",
-        border: `1px solid ${
-          isCardHovered
-            ? theme.palette.primary.main
-            : statusMeta.border
-        }`,
-        boxShadow: isCardHovered
-          ? `0 8px 24px ${alpha(theme.palette.primary.main, 0.28)}`
-          : isLive
-            ? `0 4px 16px ${alpha(theme.palette.warning.main, 0.28)}`
-            : `0 1px 3px ${alpha(theme.palette.text.primary, 0.08)}`,
-        transition: "box-shadow .18s ease, border-color .18s ease, transform .12s ease",
+        backgroundImage: `linear-gradient(180deg, ${alpha(accent, isDark ? 0.12 : 0.06)}, transparent 42%)`,
+        border: `1px solid ${cardBorderColor}`,
+        borderTop: `3px solid ${isChampion ? gold : accent}`,
+        boxShadow: cardShadow,
+        animation: isLive
+          ? "mkb-live-glow 1.6s ease-in-out infinite"
+          : undefined,
+        transition:
+          "box-shadow .18s ease, border-color .18s ease, transform .12s ease",
         "&:hover": clickable
           ? {
-              transform: "translateY(-1px)",
+              transform: "translateY(-2px)",
             }
           : undefined,
       }}
@@ -488,20 +615,21 @@ export function ModernSeedCard({
           aria-hidden
           sx={{
             position: "absolute",
-            top: -14,
-            right: -10,
-            width: 32,
-            height: 32,
+            top: -16,
+            right: -12,
+            width: 36,
+            height: 36,
             borderRadius: "50%",
-            background: `linear-gradient(135deg, ${theme.palette.warning.light}, ${theme.palette.warning.dark})`,
+            background: "linear-gradient(135deg, #fbbf24, #d97706)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: `0 4px 12px ${alpha(theme.palette.warning.main, 0.55)}`,
+            boxShadow: `0 4px 14px ${alpha(gold, 0.6)}`,
             zIndex: 3,
+            animation: "mkb-float 2.4s ease-in-out infinite",
           }}
         >
-          <TrophyIcon sx={{ fontSize: 18, color: "#fff" }} />
+          <TrophyIcon sx={{ fontSize: 20, color: "#fff" }} />
         </Box>
       )}
 
@@ -516,8 +644,8 @@ export function ModernSeedCard({
           py: 0.75,
           borderTopLeftRadius: "inherit",
           borderTopRightRadius: "inherit",
-          background: alpha(statusMeta.fg, theme.palette.mode === "dark" ? 0.16 : 0.08),
-          borderBottom: `1px dashed ${alpha(theme.palette.divider, 1)}`,
+          background: `linear-gradient(135deg, ${alpha(accent, isDark ? 0.28 : 0.14)}, ${alpha(accent, isDark ? 0.1 : 0.04)})`,
+          borderBottom: `1px dashed ${alpha(accent, 0.3)}`,
         }}
       >
         <Stack direction="row" spacing={0.5} alignItems="center" sx={{ minWidth: 0 }}>
@@ -534,8 +662,8 @@ export function ModernSeedCard({
             component="span"
             sx={{
               fontSize: 11,
-              fontWeight: 800,
-              color: statusMeta.fg,
+              fontWeight: 900,
+              color: isDark ? lighten(accent, 0.35) : darken(accent, 0.12),
               letterSpacing: 0.4,
             }}
           >
@@ -545,7 +673,7 @@ export function ModernSeedCard({
             component="span"
             sx={{
               fontSize: 10.5,
-              fontWeight: 600,
+              fontWeight: 700,
               px: 0.6,
               py: 0.15,
               borderRadius: 0.8,
@@ -598,7 +726,7 @@ export function ModernSeedCard({
       </Box>
 
       {/* Team rows */}
-      <Box sx={{ p: 0.75, display: "flex", flexDirection: "column", gap: 0.5 }}>
+      <Box sx={{ p: 0.75, display: "flex", flexDirection: "column", gap: 0.25 }}>
         <TeamRow
           label={rawA}
           score={sA}
@@ -610,6 +738,7 @@ export function ModernSeedCard({
           isHovered={isHoverA}
           humanized={humA}
         />
+        <VsDivider accent={accent} />
         <TeamRow
           label={rawB}
           score={sB}
@@ -636,12 +765,73 @@ ModernSeedCard.propTypes = {
   hovered: PropTypes.string,
   setHovered: PropTypes.func,
   nodeKey: PropTypes.string,
+  accent: PropTypes.string,
+};
+
+/* ================= Round header chip (exported for reuse) ================= */
+export function ModernRoundChip({ title, count, accent, isFinal }) {
+  return (
+    <Chip
+      size="small"
+      icon={
+        isFinal ? (
+          <TrophyIcon sx={{ fontSize: 15, color: "#fff !important" }} />
+        ) : (
+          <MedalIcon sx={{ fontSize: 15, color: "#fff !important" }} />
+        )
+      }
+      label={
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Typography
+            component="span"
+            sx={{
+              fontSize: 12,
+              fontWeight: 800,
+              letterSpacing: 0.6,
+              color: "#fff",
+            }}
+          >
+            {title}
+          </Typography>
+          {count > 0 && (
+            <Typography
+              component="span"
+              sx={{
+                fontSize: 10.5,
+                fontWeight: 700,
+                color: "rgba(255,255,255,0.85)",
+                ml: 0.25,
+              }}
+            >
+              · {count} trận
+            </Typography>
+          )}
+        </Stack>
+      }
+      sx={{
+        background: `linear-gradient(135deg, ${accent}, ${darken(accent, 0.25)})`,
+        border: "none",
+        fontWeight: 700,
+        px: 1,
+        boxShadow: `0 3px 10px ${alpha(accent, 0.4)}`,
+        "& .MuiChip-icon": { ml: 0.5 },
+      }}
+    />
+  );
+}
+
+ModernRoundChip.propTypes = {
+  title: PropTypes.string,
+  count: PropTypes.number,
+  accent: PropTypes.string,
+  isFinal: PropTypes.bool,
 };
 
 /* ================= Column (round) ================= */
 function RoundColumn({
   round,
   colIndex,
+  totalCols,
   totalPairs,
   onOpen,
   championMatchId,
@@ -651,9 +841,10 @@ function RoundColumn({
   hovered,
   setHovered,
 }) {
-  const theme = useTheme();
   const columnHeight = totalPairs * (CARD_MIN_H + ROW_BASE_GAP);
   const seeds = round?.seeds || [];
+  const accent = accentForRound(colIndex, totalCols);
+  const isFinal = colIndex === totalCols - 1;
 
   return (
     <Box
@@ -676,36 +867,11 @@ function RoundColumn({
           justifyContent: "center",
         }}
       >
-        <Chip
-          size="small"
-          label={
-            <Stack direction="row" spacing={0.5} alignItems="center">
-              <Typography
-                component="span"
-                sx={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.6 }}
-              >
-                {round?.title || `Vòng ${colIndex + 1}`}
-              </Typography>
-              <Typography
-                component="span"
-                sx={{
-                  fontSize: 10.5,
-                  fontWeight: 600,
-                  color: "text.secondary",
-                  ml: 0.25,
-                }}
-              >
-                · {seeds.length} trận
-              </Typography>
-            </Stack>
-          }
-          sx={{
-            background: alpha(theme.palette.primary.main, 0.08),
-            color: theme.palette.primary.main,
-            border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
-            fontWeight: 700,
-            px: 1,
-          }}
+        <ModernRoundChip
+          title={round?.title || `Vòng ${colIndex + 1}`}
+          count={seeds.length}
+          accent={accent}
+          isFinal={isFinal}
         />
       </Box>
 
@@ -750,6 +916,7 @@ function RoundColumn({
                 hovered={hovered}
                 setHovered={setHovered}
                 nodeKey={nodeKey}
+                accent={accent}
               />
             </Box>
           );
@@ -762,6 +929,7 @@ function RoundColumn({
 RoundColumn.propTypes = {
   round: PropTypes.object,
   colIndex: PropTypes.number.isRequired,
+  totalCols: PropTypes.number.isRequired,
   totalPairs: PropTypes.number.isRequired,
   onOpen: PropTypes.func,
   championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
@@ -771,6 +939,42 @@ RoundColumn.propTypes = {
   hovered: PropTypes.string,
   setHovered: PropTypes.func,
 };
+
+/* ================= shared keyframes (exported string) ================= */
+export const MODERN_BRACKET_KEYFRAMES = `
+  @keyframes mkb-pulse {
+    0% { opacity: 0.4; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0.4; transform: scale(0.8); }
+  }
+  @keyframes mkb-live-glow {
+    0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.45), 0 4px 16px rgba(245, 158, 11, 0.25); }
+    50% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0), 0 4px 20px rgba(245, 158, 11, 0.4); }
+    100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0), 0 4px 16px rgba(245, 158, 11, 0.25); }
+  }
+  @keyframes mkb-float {
+    0% { transform: translateY(0); }
+    50% { transform: translateY(-4px); }
+    100% { transform: translateY(0); }
+  }
+`;
+
+/* ================= background pattern (exported sx builder) ================= */
+export function modernBracketBackdropSx(theme) {
+  const dot = alpha(
+    theme.palette.primary.main,
+    theme.palette.mode === "dark" ? 0.14 : 0.1,
+  );
+  const glow = alpha(
+    theme.palette.primary.main,
+    theme.palette.mode === "dark" ? 0.08 : 0.05,
+  );
+  return {
+    backgroundImage: `radial-gradient(circle at 50% 0%, ${glow}, transparent 65%), radial-gradient(${dot} 1px, transparent 1px)`,
+    backgroundSize: `100% 100%, 22px 22px`,
+    borderRadius: 2,
+  };
+}
 
 /* ================= Main component ================= */
 export default function ModernKnockoutBracket({
@@ -784,6 +988,7 @@ export default function ModernKnockoutBracket({
   zoom = 1,
 }) {
   const theme = useTheme();
+  const gradPrefix = useId().replace(/[^a-zA-Z0-9]/g, "");
   const rootRef = useRef(null);
   const [hovered, setHovered] = useState(null);
   const [connectors, setConnectors] = useState([]);
@@ -804,6 +1009,7 @@ export default function ModernKnockoutBracket({
     }
     const root = rootRef.current;
     let raf = 0;
+    const totalCols = rounds.length;
 
     const nodeMetrics = (key) => {
       const node = root.querySelector(`[data-mkb-card="${key}"]`);
@@ -863,7 +1069,12 @@ export default function ModernKnockoutBracket({
           next.push({
             key: `c-${ci}-${si}`,
             d,
-            highlight: false,
+            x1,
+            y1,
+            x2,
+            y2,
+            fromColor: accentForRound(ci, totalCols),
+            toColor: accentForRound(ci + 1, totalCols),
           });
         }
       }
@@ -907,15 +1118,10 @@ export default function ModernKnockoutBracket({
         width: "100%",
         overflowX: "auto",
         overflowY: "visible",
+        ...modernBracketBackdropSx(theme),
       }}
     >
-      <style>{`
-        @keyframes mkb-pulse {
-          0% { opacity: 0.4; transform: scale(0.8); }
-          50% { opacity: 1; transform: scale(1); }
-          100% { opacity: 0.4; transform: scale(0.8); }
-        }
-      `}</style>
+      <style>{MODERN_BRACKET_KEYFRAMES}</style>
       <Box
         sx={{
           position: "relative",
@@ -954,13 +1160,29 @@ export default function ModernKnockoutBracket({
               zIndex: 0,
             }}
           >
+            <defs>
+              {connectors.map((c) => (
+                <linearGradient
+                  key={`g-${c.key}`}
+                  id={`${gradPrefix}-${c.key}`}
+                  gradientUnits="userSpaceOnUse"
+                  x1={c.x1}
+                  y1={c.y1}
+                  x2={c.x2}
+                  y2={c.y2}
+                >
+                  <stop offset="0%" stopColor={alpha(c.fromColor, 0.55)} />
+                  <stop offset="100%" stopColor={alpha(c.toColor, 0.85)} />
+                </linearGradient>
+              ))}
+            </defs>
             {connectors.map((c) => (
               <path
                 key={c.key}
                 d={c.d}
                 fill="none"
-                stroke={alpha(theme.palette.primary.main, 0.45)}
-                strokeWidth="1.8"
+                stroke={`url(#${gradPrefix}-${c.key})`}
+                strokeWidth="2.2"
                 strokeLinecap="round"
               />
             ))}
@@ -971,6 +1193,7 @@ export default function ModernKnockoutBracket({
               <RoundColumn
                 round={round}
                 colIndex={ci}
+                totalCols={rounds.length}
                 totalPairs={totalPairs}
                 onOpen={onOpen}
                 championMatchId={championMatchId}

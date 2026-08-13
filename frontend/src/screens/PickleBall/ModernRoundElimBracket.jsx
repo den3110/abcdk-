@@ -4,22 +4,26 @@
 // ở round R+1 có thể lấy loser hoặc winner từ seed cụ thể ở round R, không
 // phải seed 2i/2i+1 chuẩn). Reuse ModernSeedCard từ ModernKnockoutBracket.jsx.
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useId } from "react";
 import PropTypes from "prop-types";
-import { Box, Chip, Stack, Typography, alpha, useTheme } from "@mui/material";
+import { Box, Stack, Typography, alpha, useTheme } from "@mui/material";
 
 import {
   ModernSeedCard,
+  ModernRoundChip,
   MODERN_CARD_W,
   MODERN_CARD_MIN_H,
+  MODERN_BRACKET_KEYFRAMES,
+  modernBracketBackdropSx,
+  accentForIndex,
 } from "./ModernKnockoutBracket";
 
 /* ================= constants ================= */
 const CARD_W = MODERN_CARD_W;
-const CARD_H = Math.max(MODERN_CARD_MIN_H, 132);
-const COL_GAP = 80;
-const ROW_GAP = 28;
-const HEADER_H = 50;
+const CARD_H = Math.max(MODERN_CARD_MIN_H, 140);
+const COL_GAP = 84;
+const ROW_GAP = 30;
+const HEADER_H = 54;
 const SEED_PAD_X = 6;
 
 /* ================= layout helpers (mirror buildRoundElimManualLayout) ================= */
@@ -113,6 +117,12 @@ function buildLayout(rounds = []) {
           key: `${source.key}->${target.key}`,
           d,
           isLoser: !!ref.isLoser,
+          x1: startX,
+          y1: source.centerY,
+          x2: endX,
+          y2: target.centerY,
+          fromColor: accentForIndex(roundIndex - 1),
+          toColor: accentForIndex(roundIndex),
         });
       });
     });
@@ -128,66 +138,6 @@ function buildLayout(rounds = []) {
   };
 }
 
-/* ================= column header (chip) ================= */
-function RoundHeaderChip({ title, count, x, theme }) {
-  return (
-    <Box
-      sx={{
-        position: "absolute",
-        left: x,
-        top: 4,
-        width: CARD_W,
-        display: "flex",
-        justifyContent: "center",
-        zIndex: 2,
-        pointerEvents: "none",
-      }}
-    >
-      <Chip
-        size="small"
-        label={
-          <Stack direction="row" spacing={0.5} alignItems="center">
-            <Typography
-              component="span"
-              sx={{ fontSize: 12, fontWeight: 800, letterSpacing: 0.6 }}
-            >
-              {title || `Vòng`}
-            </Typography>
-            {count > 0 && (
-              <Typography
-                component="span"
-                sx={{
-                  fontSize: 10.5,
-                  fontWeight: 600,
-                  color: "text.secondary",
-                  ml: 0.25,
-                }}
-              >
-                · {count} trận
-              </Typography>
-            )}
-          </Stack>
-        }
-        sx={{
-          background: alpha(theme.palette.primary.main, 0.08),
-          color: theme.palette.primary.main,
-          border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
-          fontWeight: 700,
-          px: 1,
-          pointerEvents: "auto",
-        }}
-      />
-    </Box>
-  );
-}
-
-RoundHeaderChip.propTypes = {
-  title: PropTypes.string,
-  count: PropTypes.number,
-  x: PropTypes.number.isRequired,
-  theme: PropTypes.object.isRequired,
-};
-
 /* ================= main component ================= */
 export default function ModernRoundElimBracket({
   rounds,
@@ -199,6 +149,7 @@ export default function ModernRoundElimBracket({
   zoom = 1,
 }) {
   const theme = useTheme();
+  const gradPrefix = useId().replace(/[^a-zA-Z0-9]/g, "");
   const [hovered, setHovered] = useState(null);
   const layout = useMemo(() => buildLayout(rounds), [rounds]);
 
@@ -207,8 +158,7 @@ export default function ModernRoundElimBracket({
 
   if (!rounds?.length) return null;
 
-  const loserColor = alpha(theme.palette.warning.main, 0.55);
-  const winnerColor = alpha(theme.palette.primary.main, 0.55);
+  const loserColor = alpha(theme.palette.warning.main, 0.6);
 
   return (
     <Box
@@ -216,15 +166,10 @@ export default function ModernRoundElimBracket({
         width: "100%",
         overflowX: "auto",
         overflowY: "visible",
+        ...modernBracketBackdropSx(theme),
       }}
     >
-      <style>{`
-        @keyframes mkb-pulse {
-          0% { opacity: 0.4; transform: scale(0.8); }
-          50% { opacity: 1; transform: scale(1); }
-          100% { opacity: 0.4; transform: scale(0.8); }
-        }
-      `}</style>
+      <style>{MODERN_BRACKET_KEYFRAMES}</style>
       <Box
         sx={{
           position: "relative",
@@ -257,13 +202,35 @@ export default function ModernRoundElimBracket({
               zIndex: 0,
             }}
           >
+            <defs>
+              {layout.connectors
+                .filter((c) => !c.isLoser)
+                .map((c) => (
+                  <linearGradient
+                    key={`g-${c.key}`}
+                    id={`${gradPrefix}-${c.key.replace(/[^a-zA-Z0-9]/g, "_")}`}
+                    gradientUnits="userSpaceOnUse"
+                    x1={c.x1}
+                    y1={c.y1}
+                    x2={c.x2}
+                    y2={c.y2}
+                  >
+                    <stop offset="0%" stopColor={alpha(c.fromColor, 0.55)} />
+                    <stop offset="100%" stopColor={alpha(c.toColor, 0.85)} />
+                  </linearGradient>
+                ))}
+            </defs>
             {layout.connectors.map((c) => (
               <path
                 key={c.key}
                 d={c.d}
                 fill="none"
-                stroke={c.isLoser ? loserColor : winnerColor}
-                strokeWidth="1.8"
+                stroke={
+                  c.isLoser
+                    ? loserColor
+                    : `url(#${gradPrefix}-${c.key.replace(/[^a-zA-Z0-9]/g, "_")})`
+                }
+                strokeWidth="2.2"
                 strokeLinecap="round"
                 strokeDasharray={c.isLoser ? "6 5" : "0"}
               />
@@ -272,14 +239,72 @@ export default function ModernRoundElimBracket({
 
           {/* round headers */}
           {layout.columns.map((col) => (
-            <RoundHeaderChip
+            <Box
               key={`h-${col.roundIndex}`}
-              title={col.title}
-              count={col.nodes.length}
-              x={col.x}
-              theme={theme}
-            />
+              sx={{
+                position: "absolute",
+                left: col.x,
+                top: 4,
+                width: CARD_W,
+                display: "flex",
+                justifyContent: "center",
+                zIndex: 2,
+              }}
+            >
+              <ModernRoundChip
+                title={col.title || `Vòng ${col.roundIndex + 1}`}
+                count={col.nodes.length}
+                accent={accentForIndex(col.roundIndex)}
+                isFinal={false}
+              />
+            </Box>
           ))}
+
+          {/* legend nhỏ giải thích đường nét đứt */}
+          {layout.connectors.some((c) => c.isLoser) && (
+            <Stack
+              direction="row"
+              spacing={1.5}
+              sx={{
+                position: "absolute",
+                right: 4,
+                top: 8,
+                zIndex: 2,
+                px: 1,
+                py: 0.4,
+                borderRadius: 1,
+                background: alpha(theme.palette.background.paper, 0.85),
+                border: `1px solid ${alpha(theme.palette.divider, 1)}`,
+              }}
+            >
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <Box
+                  sx={{
+                    width: 18,
+                    height: 0,
+                    borderTop: `2.2px solid ${alpha(theme.palette.primary.main, 0.7)}`,
+                    borderRadius: 1,
+                  }}
+                />
+                <Typography sx={{ fontSize: 10.5, color: "text.secondary" }}>
+                  Đội thắng đi tiếp
+                </Typography>
+              </Stack>
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <Box
+                  sx={{
+                    width: 18,
+                    height: 0,
+                    borderTop: `2.2px dashed ${loserColor}`,
+                    borderRadius: 1,
+                  }}
+                />
+                <Typography sx={{ fontSize: 10.5, color: "text.secondary" }}>
+                  Đội thua xuống nhánh
+                </Typography>
+              </Stack>
+            </Stack>
+          )}
 
           {/* seed cards */}
           {layout.columns.map((col) =>
@@ -304,6 +329,7 @@ export default function ModernRoundElimBracket({
                   hovered={hovered}
                   setHovered={setHovered}
                   nodeKey={node.key}
+                  accent={accentForIndex(col.roundIndex)}
                 />
               </Box>
             )),
