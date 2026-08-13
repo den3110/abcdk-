@@ -22,6 +22,10 @@ import {
   adminListBookings,
 } from "../controllers/admin/adminVenueController.js";
 import {
+  requireTournamentManager,
+  attachTournamentFromRegistration,
+} from "../utils/tournamentAuth.js";
+import {
   protect,
   authorize,
   isManagerTournament,
@@ -528,24 +532,27 @@ router
   .get(getTournaments) // GET  /api/admin/tournaments
   .post(adminCreateTournament); // POST /api/admin/tournaments
 
+// Các endpoint quản lý đăng ký — cho phép admin + creator + managers của giải
+// (không chỉ role admin toàn hệ thống). Trước dùng authorize("admin") chặn
+// managers → 403 "Forbidden – insufficient role" khi duyệt team waitlist.
 router
   .route("/tournaments/registrations/:regId/payment")
-  .all(protect, authorize("admin"))
+  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
   .put(adminUpdatePayment);
 
 router
   .route("/tournaments/registrations/:regId/checkin")
-  .all(protect, authorize("admin"))
+  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
   .put(adminCheckin);
 
 router
   .route("/tournaments/registrations/:regId/history")
-  .all(protect, authorize("admin"))
+  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
   .get(adminGetRegistrationHistory);
 
 router
   .route("/tournaments/registrations/:regId")
-  .all(protect, authorize("admin"))
+  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
   .patch(adminUpdateRegistration)
   .delete(adminDeleteRegistration);
 
@@ -576,13 +583,13 @@ router.get(
 router.get(
   "/tournaments/:id/registrations",
   protect,
-  authorize("admin"),
+  requireTournamentManager,
   getRegistrationsAdmin,
 );
 router.post(
   "/tournaments/:id/registrations",
   protect,
-  authorize("admin"),
+  requireTournamentManager,
   adminCreateRegistration,
 );
 

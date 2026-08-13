@@ -1,5 +1,6 @@
 import Tournament from "../models/tournamentModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
+import Registration from "../models/registrationModel.js";
 
 const normalizeRole = (role) =>
   String(role || "")
@@ -117,6 +118,32 @@ export async function canManageTournament(user, tournamentId) {
  * - Nếu ok → next()
  * - Nếu không → "cút" (403)
  */
+/**
+ * Middleware: resolve tournamentId từ registrationId trong URL (params.regId
+ * hoặc params.id) và gắn vào req.tournamentId. Dùng trước
+ * requireTournamentManager cho các route dạng
+ * `/tournaments/registrations/:regId/*`.
+ */
+export async function attachTournamentFromRegistration(req, res, next) {
+  try {
+    const regId = req.params?.regId || req.params?.id;
+    if (!regId) {
+      return res.status(400).json({ message: "Missing registration id" });
+    }
+    const reg = await Registration.findById(regId)
+      .select("tournament")
+      .lean();
+    if (!reg) {
+      return res.status(404).json({ message: "Registration not found" });
+    }
+    req.tournamentId = String(reg.tournament);
+    return next();
+  } catch (err) {
+    console.error("[attachTournamentFromRegistration] error:", err);
+    return res.status(500).json({ message: "Internal server error" });
+  }
+}
+
 export async function requireTournamentManager(req, res, next) {
   try {
     const user = req.user;
@@ -127,6 +154,9 @@ export async function requireTournamentManager(req, res, next) {
     const tournamentId =
       req.tournamentId ||
       req.params?.tournamentId ||
+      req.params?.tourId ||
+      req.params?.tid ||
+      req.params?.id ||
       req.body?.tournamentId ||
       req.query?.tournamentId ||
       req.tournament?._id;
