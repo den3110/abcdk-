@@ -1386,9 +1386,17 @@ export default function TournamentManagePage() {
   );
   const isManager = useMemo(() => {
     if (!me?._id || !tour) return false;
-    if (String(tour.createdBy) === String(me._id)) return true;
-    if (Array.isArray(tour.managers))
-      return tour.managers.some((m) => String(m?.user ?? m) === String(me._id));
+    const my = String(me._id);
+    // createdBy có thể là ObjectId string HOẶC populated object {_id, name, ...}
+    const createdById = String(tour.createdBy?._id ?? tour.createdBy ?? "");
+    if (createdById && createdById === my) return true;
+    if (Array.isArray(tour.managers)) {
+      return tour.managers.some((m) => {
+        // Manager row: { user: ObjectId | populated User, role? }
+        const uid = m?.user?._id ?? m?.user ?? m?._id ?? m;
+        return String(uid) === my;
+      });
+    }
     return !!tour?.isManager;
   }, [tour, me]);
   const canManage = isAdmin || isManager;

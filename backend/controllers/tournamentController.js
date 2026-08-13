@@ -3166,7 +3166,9 @@ const getTournamentById = asyncHandler(async (req, res) => {
     },
     status,
     managers,
-    _managerUserIds: managerRows.map((r) => String(r.user)),
+    // r.user đã được populate ở dòng ~3094 → phải lấy _id thay vì stringify
+    // object (bằng không sẽ ra "[object Object]" — bug FE stringify managers).
+    _managerUserIds: managerRows.map((r) => String(r.user?._id ?? r.user)),
     stats: {
       registrationsCount,
       waitlistedCount,
