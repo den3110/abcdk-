@@ -86,6 +86,7 @@ import {
 import { toast } from "react-toastify";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import MlpBracketView from "../../components/mlp/MlpBracketView";
+import ModernKnockoutBracket from "./ModernKnockoutBracket";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
@@ -649,6 +650,7 @@ function readStoredBracketUiVersion() {
 
 function normalizeBracketUiVersion(value) {
   const raw = String(value || "").trim().toLowerCase();
+  if (raw === "v4" || raw === "4" || raw === "modern") return "v4";
   if (raw === "v3" || raw === "3") return "v3";
   if (raw === "v2" || raw === "2" || raw === "true") return "v2";
   return "v1";
@@ -5478,6 +5480,7 @@ export default function TournamentBracket() {
   );
   const isBracketV3 = bracketUiVersion === "v3";
   const isBracketV2 = bracketUiVersion === "v2";
+  const isBracketV4 = bracketUiVersion === "v4";
   const [zoom, setZoom] = useState(1);
   const [filterOpen, setFilterOpen] = useState(false);
   const [bracketFullscreenOpen, setBracketFullscreenOpen] = useState(false);
@@ -11116,7 +11119,32 @@ export default function TournamentBracket() {
                   spacing={1}
                   sx={{ mb: 1 }}
                   flexWrap="wrap"
+                  alignItems="center"
                 >
+                  <Tooltip
+                    title={
+                      isBracketV4
+                        ? "Đang xem bản sơ đồ mới (dễ đọc, có tooltip). Bấm để về bản cũ."
+                        : "Xem trước bản sơ đồ mới — label dễ hiểu, card sạch hơn."
+                    }
+                    arrow
+                  >
+                    <Chip
+                      size="small"
+                      color={isBracketV4 ? "primary" : "default"}
+                      variant={isBracketV4 ? "filled" : "outlined"}
+                      clickable
+                      onClick={() =>
+                        setBracketUiMode(isBracketV4 ? "v1" : "v4")
+                      }
+                      label={
+                        isBracketV4
+                          ? "✨ Bản mới (đang xem)"
+                          : "✨ Xem bản sơ đồ mới"
+                      }
+                      sx={{ fontWeight: 700 }}
+                    />
+                  </Tooltip>
                   {current?.ko?.startKey && (
                     <Chip
                       size="small"
@@ -11180,16 +11208,29 @@ export default function TournamentBracket() {
                       borderRadius: 1,
                     }}
                   >
-                    <SymmetricKnockoutBracket
-                      rounds={roundsToRender}
-                      roundsKey={roundsKeyKO}
-                      onOpen={openMatchModal}
-                      championMatchId={finalMatchId}
-                      resolveSideLabel={resolveSideLabel}
-                      resolveSideHighlightId={resolveSideHighlightId}
-                      baseRoundStart={baseRoundStartForCurrent}
-                      zoom={zoom}
-                    />
+                    {isBracketV4 ? (
+                      <ModernKnockoutBracket
+                        rounds={roundsToRender}
+                        roundsKey={roundsKeyKO}
+                        onOpen={openMatchModal}
+                        championMatchId={finalMatchId}
+                        resolveSideLabel={resolveSideLabel}
+                        resolveSideHighlightId={resolveSideHighlightId}
+                        baseRoundStart={baseRoundStartForCurrent}
+                        zoom={zoom}
+                      />
+                    ) : (
+                      <SymmetricKnockoutBracket
+                        rounds={roundsToRender}
+                        roundsKey={roundsKeyKO}
+                        onOpen={openMatchModal}
+                        championMatchId={finalMatchId}
+                        resolveSideLabel={resolveSideLabel}
+                        resolveSideHighlightId={resolveSideHighlightId}
+                        baseRoundStart={baseRoundStartForCurrent}
+                        zoom={zoom}
+                      />
+                    )}
                   </Box>,
                   { controlsInline: Boolean(championPair) },
                 )}
