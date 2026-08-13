@@ -87,6 +87,7 @@ import { toast } from "react-toastify";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import MlpBracketView from "../../components/mlp/MlpBracketView";
 import ModernKnockoutBracket from "./ModernKnockoutBracket";
+import ModernRoundElimBracket from "./ModernRoundElimBracket";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
@@ -10855,6 +10856,38 @@ export default function TournamentBracket() {
                     />
                   </>
                 )}
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{ mb: 1 }}
+                  flexWrap="wrap"
+                  alignItems="center"
+                >
+                  <Tooltip
+                    title={
+                      isBracketV4
+                        ? "Đang xem bản sơ đồ mới (dễ đọc, có tooltip). Bấm để về bản cũ."
+                        : "Xem trước bản sơ đồ mới — label dễ hiểu, card sạch hơn."
+                    }
+                    arrow
+                  >
+                    <Chip
+                      size="small"
+                      color={isBracketV4 ? "primary" : "default"}
+                      variant={isBracketV4 ? "filled" : "outlined"}
+                      clickable
+                      onClick={() =>
+                        setBracketUiMode(isBracketV4 ? "v1" : "v4")
+                      }
+                      label={
+                        isBracketV4
+                          ? "✨ Bản mới (đang xem)"
+                          : "✨ Xem bản sơ đồ mới"
+                      }
+                      sx={{ fontWeight: 700 }}
+                    />
+                  </Tooltip>
+                </Stack>
                 {renderDiagramShell(
                   <Box
                     sx={{
@@ -10864,24 +10897,44 @@ export default function TournamentBracket() {
                       borderRadius: 1,
                     }}
                   >
-                    <Box
-                      className="re-bracket"
-                      sx={{
-                        display: "inline-block",
-                        transform: `scale(${zoom})`,
-                        transformOrigin: "0 0",
-                      }}
-                    >
-                      <RoundElimBracketLayout
-                        rounds={reRounds}
-                        onOpen={openMatchModal}
-                        championMatchId={championMatchId}
-                        resolveSideLabel={resolveSideLabel}
-                        resolveSideHighlightId={resolveSideHighlightId}
-                        baseRoundStart={baseRoundStartForCurrent}
-                        breakpoint={0}
-                      />
-                    </Box>
+                    {isBracketV4 ? (
+                      <Box
+                        sx={{
+                          display: "inline-block",
+                          transform: `scale(${zoom})`,
+                          transformOrigin: "0 0",
+                        }}
+                      >
+                        <ModernRoundElimBracket
+                          rounds={reRounds}
+                          onOpen={openMatchModal}
+                          championMatchId={championMatchId}
+                          resolveSideLabel={resolveSideLabel}
+                          resolveSideHighlightId={resolveSideHighlightId}
+                          baseRoundStart={baseRoundStartForCurrent}
+                          zoom={1}
+                        />
+                      </Box>
+                    ) : (
+                      <Box
+                        className="re-bracket"
+                        sx={{
+                          display: "inline-block",
+                          transform: `scale(${zoom})`,
+                          transformOrigin: "0 0",
+                        }}
+                      >
+                        <RoundElimBracketLayout
+                          rounds={reRounds}
+                          onOpen={openMatchModal}
+                          championMatchId={championMatchId}
+                          resolveSideLabel={resolveSideLabel}
+                          resolveSideHighlightId={resolveSideHighlightId}
+                          baseRoundStart={baseRoundStartForCurrent}
+                          breakpoint={0}
+                        />
+                      </Box>
+                    )}
                   </Box>,
                   { controlsInline: Boolean(championPair) },
                 )}

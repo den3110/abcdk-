@@ -392,8 +392,10 @@ TeamRow.propTypes = {
   showAvatar: PropTypes.bool,
 };
 
-/* ================= Seed card ================= */
-function ModernSeedCard({
+/* ================= Seed card (exported for reuse) ================= */
+export const MODERN_CARD_W = CARD_W;
+export const MODERN_CARD_MIN_H = CARD_MIN_H;
+export function ModernSeedCard({
   seed,
   onOpen,
   championMatchId,
