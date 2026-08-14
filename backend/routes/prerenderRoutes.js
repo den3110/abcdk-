@@ -10,6 +10,8 @@ const router = express.Router();
 
 router.get("/_health", prerenderHealth);
 // Catch-all — /prerender/anything/here?q=1
-router.get(/.*/, prerenderHandler);
+// Dùng /* thay vì regex vì express-router path-to-regexp
+router.get("/*", prerenderHandler);
+router.get("/", prerenderHandler);
 
 export default router;
