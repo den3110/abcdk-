@@ -158,11 +158,80 @@ export default function TournamentDetailPage() {
     }
   };
 
+  // ==== SEO: canonical + OG image thật + JSON-LD SportsEvent ====
+  const seoTitle = t?.name
+    ? `${t.name} — Giải đấu Pickleball`
+    : "Giải đấu Pickleball";
+  const seoDesc = t?.description
+    ? String(t.description).replace(/\s+/g, " ").slice(0, 240)
+    : t?.name
+      ? `Thông tin, điều lệ và danh sách đăng ký giải ${t.name} trên PickleTour.`
+      : "Thông tin, điều lệ và danh sách đăng ký giải đấu Pickleball trên PickleTour.";
+  const seoImage =
+    t?.image || t?.coverUrl || t?.poster || "https://pickletour.vn/icon-512.png";
+  const seoPath = `/tournament/${id}`;
+  const eventStatusMap = {
+    upcoming: "https://schema.org/EventScheduled",
+    ongoing: "https://schema.org/EventScheduled",
+    finished: "https://schema.org/EventCompleted",
+  };
+  const sportsEventLd = t
+    ? {
+        "@context": "https://schema.org",
+        "@type": "SportsEvent",
+        name: t.name,
+        description: seoDesc,
+        image: seoImage,
+        url: `https://pickletour.vn${seoPath}`,
+        sport: "Pickleball",
+        eventStatus:
+          eventStatusMap[t.status] || "https://schema.org/EventScheduled",
+        eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+        ...(t.startDate ? { startDate: new Date(t.startDate).toISOString() } : {}),
+        ...(t.endDate ? { endDate: new Date(t.endDate).toISOString() } : {}),
+        ...(t.location
+          ? {
+              location: {
+                "@type": "Place",
+                name: t.location,
+                ...(t.locationGeo?.lat && t.locationGeo?.lon
+                  ? {
+                      geo: {
+                        "@type": "GeoCoordinates",
+                        latitude: t.locationGeo.lat,
+                        longitude: t.locationGeo.lon,
+                      },
+                    }
+                  : {}),
+                ...(t.location
+                  ? {
+                      address: {
+                        "@type": "PostalAddress",
+                        addressCountry: t.locationGeo?.countryCode || "VN",
+                        addressLocality: t.location,
+                      },
+                    }
+                  : {}),
+              },
+            }
+          : {}),
+        organizer: {
+          "@type": "Organization",
+          name: "Pickletour",
+          url: "https://pickletour.vn",
+        },
+      }
+    : null;
+
   return (
     <>
       <SEOHead
-        title={`${t?.name || "Giải đấu"} — PickleTour`}
-        description={`Thông tin, điều lệ và danh sách đăng ký giải ${t?.name || "pickleball"} trên PickleTour.`}
+        title={seoTitle}
+        description={seoDesc}
+        path={seoPath}
+        ogImage={seoImage}
+        ogType="event"
+        structuredData={sportsEventLd}
       />
       <ShadowFrame style={{ minHeight: "100vh" }}>
         <Theme theme={neutralTheme}>

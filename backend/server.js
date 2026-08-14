@@ -83,6 +83,8 @@ import publicOverlayRoutes from "./routes/publicOverlayRoutes.js";
 import publicHomeRoutes from "./routes/publicHomeRoutes.js";
 import newsRoutes from "./routes/newsPublicRoutes.js";
 import seoNewsRoutes from "./routes/seoNewsPublicRoutes.js";
+import sitemapRoutes from "./routes/sitemapRoutes.js";
+import prerenderRoutes from "./routes/prerenderRoutes.js";
 import blogRoutes from "./routes/blogPublicRoutes.js";
 import appInitRoutes from "./routes/appInitRoutes.js";
 import leaderboardRoutes from "./routes/leaderboardRoutes.js";
@@ -324,6 +326,10 @@ app.use("/api/clubs", clubRoutes);
 app.use("/api/capture", captureRoutes);
 app.use("/api/news", newsRoutes);
 app.use("/api/seo-news", seoNewsRoutes);
+app.use("/api/sitemap", sitemapRoutes);
+// Prerender: nginx cần rewrite /path → /prerender/path khi UA là bot.
+// Mount ở root (không phải /api/*) để nginx map dễ hơn.
+app.use("/prerender", prerenderRoutes);
 app.use("/api/blog", blogRoutes);
 app.use("/api/weather", weatherRoutes);
 app.use("/api/admin/sponsors", adminSponsorRoutes);

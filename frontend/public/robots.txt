@@ -1,7 +1,17 @@
 User-agent: *
 Allow: /
 
+# Chặn crawler đi vào các trang app-only (không có nội dung SEO)
+Disallow: /login
+Disallow: /register
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /me
+Disallow: /account
+Disallow: /admin/
+Disallow: /checkpoint
+Disallow: /api/
+
+# Sitemap index (bao gồm home + tournaments + clubs + news)
 Sitemap: https://pickletour.vn/sitemap.xml
-
-Sitemap: https://pickletour.vn/api/api/seo-news/sitemap.xml
-
+Sitemap: https://pickletour.vn/api/seo-news/sitemap.xml

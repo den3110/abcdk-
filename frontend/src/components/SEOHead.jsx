@@ -65,11 +65,11 @@ export default function SEOHead({
         </script>
       ) : null}
 
-      {/* hreflang for multi-language SEO */}
+      {/* hreflang — site chỉ có tiếng Việt, chỉ khai báo vi + x-default.
+          Trước đây khai báo en trỏ cùng URL → Google bỏ qua i18n signal. */}
       {canonical ? (
         <>
           <link rel="alternate" hrefLang="vi" href={canonical} />
-          <link rel="alternate" hrefLang="en" href={canonical} />
           <link rel="alternate" hrefLang="x-default" href={canonical} />
         </>
       ) : null}

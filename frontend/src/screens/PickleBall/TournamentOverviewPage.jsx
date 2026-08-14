@@ -903,16 +903,28 @@ export default function TournamentOverviewPage() {
           location:
             tour?.location || t("tournaments.dashboard.locationFallback"),
         })}
-        image={tour?.cover}
-        path={`/tournament/${id}/overview`}
+        ogImage={
+          tour?.image ||
+          tour?.cover ||
+          tour?.poster ||
+          "https://pickletour.vn/icon-512.png"
+        }
+        ogType="event"
+        // Canonical trỏ về URL gốc /tournament/:id (không có /overview) —
+        // Google gộp về URL này thay vì mỗi tab (bracket/register/…) tự canonical.
+        path={`/tournament/${id}`}
         structuredData={[
           {
             "@context": "https://schema.org",
-            "@type": "Event",
+            "@type": "SportsEvent",
+            sport: "Pickleball",
             name: tour?.name,
             startDate: tour?.startDate,
             endDate: tour?.endDate,
-            eventStatus: "https://schema.org/EventScheduled",
+            eventStatus:
+              tour?.status === "finished"
+                ? "https://schema.org/EventCompleted"
+                : "https://schema.org/EventScheduled",
             eventAttendanceMode:
               "https://schema.org/OfflineEventAttendanceMode",
             location: {
