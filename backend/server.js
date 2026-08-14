@@ -261,6 +261,7 @@ const NON_API_PREFIXES = [
   "/.well-known",
   "/favicon",
   "/dl",
+  "/prerender", // SEO prerender endpoint — không prepend /api
 ];
 app.use((req, res, next) => {
   const url = req.url || "/";
