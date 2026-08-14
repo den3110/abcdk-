@@ -736,6 +736,7 @@ const ActionButtons = memo(
     onOpenPayment,
     onOpenPoster,
     onOpenComplaint,
+    onDemoteToWaitlist,
     busy,
     posterBusyId,
   }) => (
@@ -749,6 +750,7 @@ const ActionButtons = memo(
       onOpenPayment={onOpenPayment}
       onOpenPoster={onOpenPoster}
       onOpenComplaint={onOpenComplaint}
+      onDemoteToWaitlist={onDemoteToWaitlist}
       busy={busy}
       posterBusyId={posterBusyId}
     />
