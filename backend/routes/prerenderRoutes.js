@@ -9,9 +9,14 @@ import {
 const router = express.Router();
 
 router.get("/_health", prerenderHealth);
-// Catch-all — /prerender/anything/here?q=1
-// Dùng /* thay vì regex vì express-router path-to-regexp
-router.get("/*", prerenderHandler);
-router.get("/", prerenderHandler);
+// Catch-all cho MỌI path còn lại — dùng router.use() thay vì router.get()
+// với wildcard vì `/*` trong express 4.x + path-to-regexp gây edge case.
+router.use((req, res) => {
+  if (req.method !== "GET") {
+    res.status(405).type("text/plain").send("Prerender: GET only");
+    return;
+  }
+  return prerenderHandler(req, res);
+});
 
 export default router;
