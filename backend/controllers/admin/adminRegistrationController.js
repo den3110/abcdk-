@@ -356,11 +356,20 @@ export const adminUpdateRegistration = asyncHandler(async (req, res) => {
       registration.approvedAt = new Date();
       if (prevStatus === "waitlisted") promotedFromWaitlist = true;
     }
+    // Chuyển approved → waitlisted / rejected / withdrawn đều phải giảm
+    // counter (waitlisted không chiếm slot) và auto-promote cặp waitlist
+    // cũ nhất lên approved.
     if (
-      ["rejected", "withdrawn"].includes(nextStatus) &&
+      ["rejected", "withdrawn", "waitlisted"].includes(nextStatus) &&
       prevStatus === "approved"
     ) {
       demotedApproved = true;
+      // Nếu chuyển về waitlisted → clear approvedBy/approvedAt để không
+      // giữ dấu vết "đã duyệt".
+      if (nextStatus === "waitlisted") {
+        registration.approvedBy = null;
+        registration.approvedAt = null;
+      }
     }
   }
 

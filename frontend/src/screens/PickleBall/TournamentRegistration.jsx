@@ -42,6 +42,7 @@ import {
   Clear,
   Verified as VerifiedIcon,
   HourglassBottom as PendingIcon,
+  HourglassEmpty as WaitlistIcon,
   AccessTimeFilled,
   SportsTennis,
   LocationOn,
@@ -764,6 +765,7 @@ const ActionButtonsInner = ({
   onOpenPayment,
   onOpenPoster,
   onOpenComplaint,
+  onDemoteToWaitlist,
   busy,
   posterBusyId,
 }) => {
@@ -886,6 +888,19 @@ const ActionButtonsInner = ({
           {t("tournaments.registration.actions.complaint")}
         </ActionTile>
       </Tooltip>
+
+      {canManage && onDemoteToWaitlist && (
+        <Tooltip title="Chuyển cặp này về danh sách chờ duyệt (không tính vào chỉ tiêu)">
+          <ActionTile
+            color="#b45309"
+            icon={<WaitlistIcon fontSize="small" />}
+            onClick={() => onDemoteToWaitlist(r)}
+            disabled={busy?.demotingId === r._id}
+          >
+            {busy?.demotingId === r._id ? "Đang chuyển…" : "Chờ duyệt"}
+          </ActionTile>
+        </Tooltip>
+      )}
 
       {(canManage || isOwner) && (
         <Tooltip
@@ -1651,6 +1666,36 @@ export default function TournamentRegistration() {
     },
     [managerSetRegStatus],
   );
+  // Chuyển cặp đang approved (chính thức) → waitlist (chờ duyệt). Backend
+  // sẽ giảm counter registered + auto-promote cặp waitlist cũ nhất lên.
+  const [demotingId, setDemotingId] = useState(null);
+  const handleDemoteToWaitlist = useCallback(
+    async (reg) => {
+      if (!reg?._id) return;
+      const label = [reg?.player1?.fullName, reg?.player2?.fullName]
+        .filter(Boolean)
+        .join(" – ") || `cặp #${String(reg._id).slice(-6)}`;
+      const ok = window.confirm(
+        `Chuyển "${label}" từ danh sách chính thức về danh sách chờ duyệt?\n\nCặp sẽ không còn tính vào chỉ tiêu ${
+          tour?.maxPairs ? `${tour.maxPairs}/${tour.maxPairs}` : "cặp"
+        }, và cặp chờ duyệt cũ nhất sẽ tự lên chính thức nếu còn slot.`,
+      );
+      if (!ok) return;
+      try {
+        setDemotingId(reg._id);
+        await managerSetRegStatus({
+          regId: reg._id,
+          status: "waitlisted",
+        }).unwrap();
+        toast.success("Đã chuyển cặp về danh sách chờ duyệt");
+      } catch (err) {
+        toast.error(err?.data?.message || "Chuyển waitlist không thành công");
+      } finally {
+        setDemotingId(null);
+      }
+    },
+    [managerSetRegStatus, tour?.maxPairs],
+  );
 
   /* Form States */
   const [p1, setP1] = useState(null);
@@ -1790,8 +1835,8 @@ export default function TournamentRegistration() {
     (r) => r.payment?.status === "Paid",
   ).length;
   const busy = useMemo(
-    () => ({ settingPayment, deletingId: cancelingId }),
-    [settingPayment, cancelingId],
+    () => ({ settingPayment, deletingId: cancelingId, demotingId }),
+    [settingPayment, cancelingId, demotingId],
   );
 
   const statsLoading = tourLoading || regsLoading;
@@ -3399,6 +3444,7 @@ export default function TournamentRegistration() {
                             onOpenPayment={handleOpenPayment}
                             onOpenPoster={handleOpenPoster}
                             onOpenComplaint={handleOpenComplaint}
+                            onDemoteToWaitlist={handleDemoteToWaitlist}
                             getPlayerAvatar={getPlayerAvatar}
                             displayMode={displayMode}
                             isFreeTournament={isFreeTournament}
