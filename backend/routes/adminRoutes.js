@@ -449,6 +449,45 @@ router.post(
   freeTournamentCourtStationHttp,
 );
 
+// ─── Các endpoint quản lý đăng ký — cho phép admin + creator + managers của
+// giải. PHẢI KHAI BÁO TRƯỚC router.use(authorize("admin")) bên dưới, vì
+// middleware đó áp cho mọi route định nghĩa SAU nó (siết mọi request thành
+// role admin toàn hệ thống). Chain riêng: protect → attachTournament →
+// requireTournamentManager (canManageTournament = admin || creator || managers).
+router
+  .route("/tournaments/registrations/:regId/payment")
+  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
+  .put(adminUpdatePayment);
+
+router
+  .route("/tournaments/registrations/:regId/checkin")
+  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
+  .put(adminCheckin);
+
+router
+  .route("/tournaments/registrations/:regId/history")
+  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
+  .get(adminGetRegistrationHistory);
+
+router
+  .route("/tournaments/registrations/:regId")
+  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
+  .patch(adminUpdateRegistration)
+  .delete(adminDeleteRegistration);
+
+router.get(
+  "/tournaments/:id/registrations",
+  protect,
+  requireTournamentManager,
+  getRegistrationsAdmin,
+);
+router.post(
+  "/tournaments/:id/registrations",
+  protect,
+  requireTournamentManager,
+  adminCreateRegistration,
+);
+
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 
 router.get("/tournaments/:id/bracket-story", getAdminBracketStory);
@@ -532,30 +571,6 @@ router
   .get(getTournaments) // GET  /api/admin/tournaments
   .post(adminCreateTournament); // POST /api/admin/tournaments
 
-// Các endpoint quản lý đăng ký — cho phép admin + creator + managers của giải
-// (không chỉ role admin toàn hệ thống). Trước dùng authorize("admin") chặn
-// managers → 403 "Forbidden – insufficient role" khi duyệt team waitlist.
-router
-  .route("/tournaments/registrations/:regId/payment")
-  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
-  .put(adminUpdatePayment);
-
-router
-  .route("/tournaments/registrations/:regId/checkin")
-  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
-  .put(adminCheckin);
-
-router
-  .route("/tournaments/registrations/:regId/history")
-  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
-  .get(adminGetRegistrationHistory);
-
-router
-  .route("/tournaments/registrations/:regId")
-  .all(protect, attachTournamentFromRegistration, requireTournamentManager)
-  .patch(adminUpdateRegistration)
-  .delete(adminDeleteRegistration);
-
 // create bracket for a tournament
 router.post(
   "/tournaments/:id/brackets",
@@ -580,18 +595,8 @@ router.get(
   getTournamentBracketsStructure,
 );
 
-router.get(
-  "/tournaments/:id/registrations",
-  protect,
-  requireTournamentManager,
-  getRegistrationsAdmin,
-);
-router.post(
-  "/tournaments/:id/registrations",
-  protect,
-  requireTournamentManager,
-  adminCreateRegistration,
-);
+// (route /tournaments/:id/registrations list/create đã khai báo phía trên
+// trước router.use(authorize("admin")) — không lặp lại ở đây.)
 
 // Admin: list all matches
 router.get(
