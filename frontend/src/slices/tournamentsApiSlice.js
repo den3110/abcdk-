@@ -74,6 +74,11 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
     /* ---------------------------------- REG LIST ---------------------------------- */
     getRegistrations: builder.query({
       query: (tourId) => `/api/tournaments/${tourId}/registrations`,
+      // Provide tag để mutation duyệt/xoá invalidate → auto refetch (không cần F5).
+      providesTags: (result, error, tourId) => [
+        { type: "Registrations", id: tourId },
+        { type: "Registrations", id: "LIST" },
+      ],
       keepUnusedDataFor: 0,
     }),
     getTournamentRegistrationHistory: builder.query({
@@ -398,7 +403,9 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         body: { status },
       }),
       invalidatesTags: (r, e, { regId }) => [
-        "Registrations",
+        // Match với providesTags của getRegistrations để list auto refetch.
+        { type: "Registrations", id: "LIST" },
+        { type: "Registrations", id: regId },
         { type: "Registration", id: regId },
         { type: "RegistrationHistory", id: "LIST" },
       ],
