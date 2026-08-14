@@ -143,9 +143,24 @@ export const prerenderHandler = async (req, res) => {
       timeout: 20000,
     });
 
-    // Đợi react-helmet flush title dynamic (100-300ms tùy trang)
+    // Đợi react-helmet-async flush title/canonical/og dynamic. Test cho
+    // thấy 200ms không đủ cho các trang cần fetch nhiều query — 800ms an
+    // toàn. Ngoài ra chờ tới khi document.title khác default (nghĩa là
+    // SEOHead đã render với data thật).
+    try {
+      await page.waitForFunction(
+        () =>
+          document.title &&
+          !document.title.includes(
+            "Pickletour.vn - Kết nối cộng đồng",
+          ),
+        { timeout: 3000 },
+      );
+    } catch {
+      /* nếu title vẫn default sau 3s, cứ trả về (better than nothing) */
+    }
     await page.evaluate(
-      () => new Promise((resolve) => setTimeout(resolve, 200)),
+      () => new Promise((resolve) => setTimeout(resolve, 300)),
     );
 
     const html = await page.content();

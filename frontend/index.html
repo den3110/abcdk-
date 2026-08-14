@@ -37,34 +37,16 @@
       content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1"
     />
     <meta name="theme-color" content="#0d6efd" />
-    <link rel="canonical" href="https://pickletour.vn/" />
 
-    <!-- ===== Open Graph / Facebook ===== -->
+    <!-- ===== Open Graph — chỉ giữ tag STATIC.
+         Các tag DYNAMIC per-page (og:title/description/image/url + twitter:*
+         + canonical) do SEOHead component (react-helmet-async) render động
+         theo route để prerender puppeteer capture đúng meta cho từng trang.
+         Trước đây hardcode ở đây khiến canonical/og:image không đổi được. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Pickletour.vn" />
-    <meta
-      property="og:title"
-      content="Pickletour.vn - Kết nối cộng đồng &amp; quản lý giải đấu Pickleball"
-    />
-    <meta
-      property="og:description"
-      content="Nền tảng quản lý giải đấu Pickleball hàng đầu Việt Nam. Đăng ký giải đấu, theo dõi bảng xếp hạng, xem trực tiếp và kết nối cộng đồng thể thao."
-    />
-    <meta property="og:image" content="https://pickletour.vn/icon-512.png" />
-    <meta property="og:url" content="https://pickletour.vn/" />
     <meta property="og:locale" content="vi_VN" />
-
-    <!-- ===== Twitter Card ===== -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta
-      name="twitter:title"
-      content="Pickletour.vn - Kết nối cộng đồng &amp; quản lý giải đấu Pickleball"
-    />
-    <meta
-      name="twitter:description"
-      content="Nền tảng quản lý giải đấu Pickleball hàng đầu Việt Nam. Đăng ký giải đấu, theo dõi bảng xếp hạng, xem trực tiếp và kết nối cộng đồng thể thao."
-    />
-    <meta name="twitter:image" content="https://pickletour.vn/icon-512.png" />
 
     <!-- ===== Language & Geo =====
          Site chỉ có tiếng Việt — chỉ khai báo hreflang vi + x-default.
