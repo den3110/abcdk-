@@ -58,6 +58,8 @@ import {
   Switch,
   List,
   ListItemButton,
+  ToggleButtonGroup,
+  ToggleButton,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -1327,7 +1329,28 @@ export default function TournamentManagePage() {
     error: tourErr,
     refetch: refetchTour,
   } = useGetTournamentQuery(id);
-  const displayMode = getTournamentNameDisplayMode(tour);
+  // Display mode cho tên VĐV: mặc định lấy từ tour.displayNameMode; user
+  // có thể override tạm bằng nút toggle (persist localStorage per-user).
+  const NAME_MODE_KEY = "pickletour:manage:nameDisplayMode";
+  const [nameModeOverride, setNameModeOverride] = useState(() => {
+    try {
+      const v = window.localStorage.getItem(NAME_MODE_KEY);
+      return v === "fullName" || v === "nickname" ? v : "";
+    } catch {
+      return "";
+    }
+  });
+  const tourDisplayMode = getTournamentNameDisplayMode(tour);
+  const displayMode = nameModeOverride || tourDisplayMode;
+  const handleChangeNameMode = useCallback((_e, next) => {
+    if (next !== "nickname" && next !== "fullName") return;
+    setNameModeOverride(next);
+    try {
+      window.localStorage.setItem(NAME_MODE_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const {
     data: brackets = [],
     isLoading: brLoading,
@@ -4212,6 +4235,32 @@ export default function TournamentManagePage() {
                 </MenuItem>
               ))}
             </TextField>
+
+            {/* Toggle hiển thị tên VĐV — biệt danh vs họ và tên. Persist
+                per-user qua localStorage (áp dụng cho mọi giải user quản lý). */}
+            <Tooltip
+              title="Chuyển cách hiển thị tên VĐV trong trang này"
+              arrow
+            >
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={displayMode}
+                onChange={handleChangeNameMode}
+                sx={{
+                  height: 36,
+                  "& .MuiToggleButton-root": {
+                    px: 1.5,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    textTransform: "none",
+                  },
+                }}
+              >
+                <ToggleButton value="nickname">Biệt danh</ToggleButton>
+                <ToggleButton value="fullName">Họ và tên</ToggleButton>
+              </ToggleButtonGroup>
+            </Tooltip>
             </Box>
 
             <Box
