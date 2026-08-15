@@ -20,9 +20,10 @@ const BROWSER_UA =
 
 // Static extension → không cần prerender (nếu request lọt qua nginx UA map)
 const STATIC_EXTS = new Set([
-  ".js", ".css", ".map", ".xml", ".json", ".png", ".jpg", ".jpeg",
-  ".gif", ".svg", ".ico", ".webp", ".pdf", ".mp3", ".mp4", ".m4a",
-  ".mov", ".webm", ".webmanifest", ".woff", ".woff2", ".ttf", ".txt",
+  ".html", ".htm", ".js", ".css", ".map", ".xml", ".json",
+  ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp",
+  ".pdf", ".mp3", ".mp4", ".m4a", ".mov", ".webm",
+  ".webmanifest", ".woff", ".woff2", ".ttf", ".txt",
 ]);
 
 // Path prefix không cần prerender (auth-gated pages hoặc API)

@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Hướng dẫn cách chơi giải đấu MLP (Major League Pickleball) trên PickleTour — dành cho VĐV, đội trưởng, ban tổ chức và trọng tài.">
+<meta name="theme-color" content="#1E3A5F">
+<meta property="og:title" content="Hướng dẫn giải MLP — PickleTour">
+<meta property="og:description" content="Cách chơi giải đấu MLP trên PickleTour: format 4 sub-match, DreamBreaker, bảng xếp hạng và luồng đầy đủ cho mọi vai trò.">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://pickletour.vn/guides/mlp.html">
+<meta property="og:locale" content="vi_VN">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="https://pickletour.vn/guides/mlp.html">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🏓%3C/text%3E%3C/svg%3E">
+<title>Hướng dẫn giải MLP trên PickleTour</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --paper: #FAF7F0;
+    --ink: #0B1220;
+    --muted: #6B6558;
+    --rule: #E5E0D3;
+    --card: #FFFFFF;
+    --navy: #1E3A5F;
+    --navy-soft: #E8EEF6;
+    --court: #2D6A4F;
+    --court-soft: #E6F0EA;
+    --gold: #B8860B;
+    --gold-soft: #F5EAD1;
+    --warn: #A0522D;
+    --warn-soft: #F5E4D9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0E1620;
+      --ink: #F1ECDF;
+      --muted: #96907F;
+      --rule: #22303F;
+      --card: #16202D;
+      --navy: #7BA7D9;
+      --navy-soft: #1A2A3E;
+      --court: #7DCCA5;
+      --court-soft: #16302B;
+      --gold: #E8B84B;
+      --gold-soft: #2E2416;
+      --warn: #E29A6B;
+      --warn-soft: #2E1F17;
+    }
+  }
+  :root[data-theme="light"] {
+    --paper: #FAF7F0; --ink: #0B1220; --muted: #6B6558; --rule: #E5E0D3;
+    --card: #FFFFFF; --navy: #1E3A5F; --navy-soft: #E8EEF6;
+    --court: #2D6A4F; --court-soft: #E6F0EA; --gold: #B8860B; --gold-soft: #F5EAD1;
+    --warn: #A0522D; --warn-soft: #F5E4D9;
+  }
+  :root[data-theme="dark"] {
+    --paper: #0E1620; --ink: #F1ECDF; --muted: #96907F; --rule: #22303F;
+    --card: #16202D; --navy: #7BA7D9; --navy-soft: #1A2A3E;
+    --court: #7DCCA5; --court-soft: #16302B; --gold: #E8B84B; --gold-soft: #2E2416;
+    --warn: #E29A6B; --warn-soft: #2E1F17;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+    font-size: 16.5px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 780px; padding: 56px 24px 96px; margin: 0 auto; }
+  @media (max-width: 640px) {
+    .wrap { padding: 32px 18px 72px; }
+    body { font-size: 15.5px; }
+  }
+
+  /* --- typography --- */
+  h1, h2, h3 {
+    font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin: 0;
+  }
+  h1 {
+    font-size: clamp(34px, 5.5vw, 46px);
+    line-height: 1.08;
+    font-weight: 700;
+  }
+  h2 {
+    font-size: clamp(24px, 3.4vw, 30px);
+    line-height: 1.15;
+    font-weight: 700;
+    margin-top: 8px;
+  }
+  h3 {
+    font-size: 19px;
+    line-height: 1.25;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+  p { margin: 0 0 14px; }
+  p + p, p + ul, p + ol { margin-top: 0; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  li::marker { color: var(--muted); }
+  a { color: var(--navy); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:hover { text-decoration-thickness: 2px; }
+  code, kbd {
+    font-family: "SF Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    font-size: 0.88em;
+    background: var(--navy-soft);
+    color: var(--navy);
+    padding: 1px 6px;
+    border-radius: 4px;
+    letter-spacing: 0;
+  }
+  strong { font-weight: 700; color: var(--ink); }
+
+  /* --- hero --- */
+  .eyebrow {
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: 11.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .eyebrow::before {
+    content: "";
+    width: 24px;
+    height: 1px;
+    background: var(--muted);
+  }
+  .hero {
+    padding-bottom: 40px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 40px;
+  }
+  .hero .lede {
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+    margin: 20px 0 0;
+    max-width: 60ch;
+  }
+  .hero .lede strong { color: var(--ink); font-weight: 600; }
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 20px;
+    margin-top: 28px;
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .meta span strong { color: var(--ink); font-weight: 600; }
+
+  /* --- section --- */
+  section { margin-top: 56px; scroll-margin-top: 24px; }
+  section > h2 { margin-bottom: 16px; }
+  .section-intro {
+    color: var(--muted);
+    font-size: 15.5px;
+    max-width: 60ch;
+    margin-bottom: 24px;
+  }
+
+  /* --- role cards grid --- */
+  .roles {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin-top: 8px;
+  }
+  @media (max-width: 640px) { .roles { grid-template-columns: 1fr; } }
+  .role {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 18px 18px 16px;
+  }
+  .role h3 {
+    font-family: Georgia, serif;
+    font-size: 17px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .role h3 .who {
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .role ul { padding-left: 18px; margin: 0; font-size: 14.5px; line-height: 1.5; }
+  .role li { margin-bottom: 4px; color: var(--ink); }
+
+  /* --- slot table (WD/MD/XD1/XD2) --- */
+  .slots {
+    margin: 14px 0 20px;
+    display: grid;
+    grid-template-columns: 80px 1fr auto;
+    gap: 0;
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+  }
+  .slot-row {
+    display: contents;
+  }
+  .slot-row > div {
+    padding: 12px 14px;
+    border-top: 1px solid var(--rule);
+    display: flex;
+    align-items: center;
+  }
+  .slot-row:first-child > div { border-top: none; }
+  .slot-code {
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-weight: 700;
+    color: var(--navy);
+    font-size: 14px;
+    letter-spacing: 0.04em;
+  }
+  .slot-desc { font-size: 15px; }
+  .slot-order {
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+  }
+
+  /* --- callout --- */
+  .callout {
+    border-left: 3px solid var(--court);
+    background: var(--court-soft);
+    padding: 14px 16px 12px 18px;
+    margin: 18px 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .callout .lbl {
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--court);
+    font-weight: 700;
+    display: block;
+    margin-bottom: 6px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout.gold {
+    border-left-color: var(--gold);
+    background: var(--gold-soft);
+  }
+  .callout.gold .lbl { color: var(--gold); }
+  .callout.warn {
+    border-left-color: var(--warn);
+    background: var(--warn-soft);
+  }
+  .callout.warn .lbl { color: var(--warn); }
+
+  /* --- flow steps (numbered) --- */
+  .flow { list-style: none; padding: 0; margin: 8px 0 0; counter-reset: step; }
+  .flow > li {
+    position: relative;
+    padding-left: 54px;
+    padding-bottom: 24px;
+    margin-bottom: 0;
+    border-left: 1px solid var(--rule);
+    margin-left: 15px;
+  }
+  .flow > li:last-child { border-left-color: transparent; padding-bottom: 4px; }
+  .flow > li::before {
+    counter-increment: step;
+    content: counter(step, decimal-leading-zero);
+    position: absolute;
+    left: -15px;
+    top: -2px;
+    width: 30px;
+    height: 30px;
+    background: var(--paper);
+    border: 1px solid var(--navy);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--navy);
+    letter-spacing: 0;
+  }
+  .flow h3 {
+    font-family: Georgia, serif;
+    font-size: 17px;
+    margin-bottom: 4px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .flow h3 .actor {
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .flow p { font-size: 15px; color: var(--ink); margin-bottom: 0; line-height: 1.55; }
+
+  /* --- rank table --- */
+  .rank-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 6px;
+    font-size: 15px;
+  }
+  .rank-table th, .rank-table td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .rank-table th {
+    font-weight: 700;
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: transparent;
+  }
+  .rank-table td:first-child {
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    color: var(--navy);
+    font-weight: 700;
+    font-size: 13px;
+    width: 42px;
+  }
+  .rank-table td.term { font-weight: 600; width: 30%; }
+
+  /* --- FAQ --- */
+  details {
+    border-bottom: 1px solid var(--rule);
+    padding: 14px 0;
+  }
+  details:first-of-type { border-top: 1px solid var(--rule); }
+  details summary {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 15.5px;
+    list-style: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    color: var(--ink);
+  }
+  details summary::-webkit-details-marker { display: none; }
+  details summary::after {
+    content: "+";
+    font-family: "SF Mono", ui-monospace, Consolas, monospace;
+    font-size: 20px;
+    color: var(--muted);
+    font-weight: 400;
+    line-height: 1;
+    transition: transform 0.15s ease;
+  }
+  details[open] summary::after { content: "−"; }
+  details[open] summary { color: var(--navy); }
+  details .a { margin-top: 10px; color: var(--muted); font-size: 15px; }
+  details .a p { margin-bottom: 8px; }
+  details .a p:last-child { margin-bottom: 0; }
+
+  /* --- utility --- */
+  .footnote {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--rule);
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.55;
+  }
+
+  /* focus */
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--navy);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head><body>
+
+<div class="wrap">
+
+  <div class="hero">
+    <div class="eyebrow">PickleTour · Sổ tay giải đấu</div>
+    <h1>Giải đấu MLP — cách hoạt động và cách chơi</h1>
+    <p class="lede">
+      MLP (<em>Major League Pickleball</em>) là thể thức <strong>đối kháng theo đội</strong>:
+      mỗi đội có 4–8 VĐV, gặp nhau qua một chuỗi trận nhỏ hỗn hợp giới tính,
+      và khi hòa sẽ đánh <strong>DreamBreaker</strong> luân phiên 1-vs-1 để phân thắng bại.
+      Tài liệu này viết cho tất cả những ai tham gia trong app: VĐV, đội trưởng, trọng tài,
+      và ban tổ chức.
+    </p>
+    <div class="meta">
+      <span>Đọc trong <strong>~10 phút</strong></span>
+      <span>Áp dụng: <strong>giải mode MLP</strong></span>
+      <span>Cập nhật: <strong>08/2026</strong></span>
+    </div>
+  </div>
+
+  <!-- 1. MLP là gì -->
+  <section>
+    <div class="eyebrow">Nhập môn</div>
+    <h2>MLP là gì, khác gì giải đơn/đôi bình thường?</h2>
+    <p>
+      Ở giải <strong>đơn</strong> hoặc <strong>đôi</strong> thông thường,
+      đơn vị đăng ký là <em>một VĐV</em> hoặc <em>một cặp VĐV</em>. Bốc thăm sinh ra
+      nhánh knockout, ai thua bị loại, ai thắng đi tiếp.
+    </p>
+    <p>
+      Ở MLP, đơn vị đăng ký là <strong>một đội (team)</strong> gồm 4–8 VĐV. Khi hai đội
+      gặp nhau, họ không chơi <em>một trận duy nhất</em> mà chơi <strong>một "dual"</strong>
+      — chuỗi 4 sub-match liên tiếp (nữ đôi, nam đôi, đôi nam nữ 1, đôi nam nữ 2).
+      Đội thắng nhiều sub-match hơn thắng dual. Nếu hòa 2-2 thì phân định
+      bằng <strong>DreamBreaker</strong> — 1-vs-1 mỗi bên cử một chuỗi VĐV luân phiên chạm bóng.
+    </p>
+    <p>
+      Điểm hay của MLP là <strong>cả đội cùng đóng góp</strong>. Một VĐV yếu vẫn có
+      giá trị nếu bổ trợ tốt cho đồng đội ở sub-match phù hợp. Đội trưởng phải
+      chọn xếp cặp thông minh cho từng sub-match — đây chính là lớp chiến thuật
+      không có ở giải đôi thông thường.
+    </p>
+  </section>
+
+  <!-- 2. Ai làm gì -->
+  <section>
+    <div class="eyebrow">Bốn vai trò</div>
+    <h2>Ai làm gì trong một giải MLP</h2>
+    <p class="section-intro">
+      Mỗi người mở app sẽ thấy các nút và màn hình khác nhau tùy vai trò.
+      Đây là bức tranh tổng thể để biết ai chịu trách nhiệm phần nào.
+    </p>
+
+    <div class="roles">
+      <div class="role">
+        <h3>Ban tổ chức <span class="who">Creator / Manager</span></h3>
+        <ul>
+          <li>Tạo giải và bật mode <code>MLP</code>, cấu hình 4 sub-match, luật điểm, DreamBreaker</li>
+          <li>Duyệt team đăng ký, chia bảng (nếu có vòng bảng), bốc thăm</li>
+          <li>Sinh dual (round-robin trong bảng hoặc knockout), gán sân + trọng tài</li>
+          <li>Copy URL overlay livestream cho OBS</li>
+        </ul>
+      </div>
+
+      <div class="role">
+        <h3>Đội trưởng <span class="who">Captain</span></h3>
+        <ul>
+          <li>Đăng ký team: đặt tên, chọn màu, thêm đồng đội vào roster</li>
+          <li>Trước mỗi dual: check-in cho đội, <strong>xếp lineup</strong> từng sub-match</li>
+          <li>Khi hòa 2-2: chọn thứ tự VĐV cho DreamBreaker</li>
+          <li>Chỉ nhìn thấy team và dual của <strong>chính mình</strong>, không thấy lineup đối thủ trước khi lộ bài</li>
+        </ul>
+      </div>
+
+      <div class="role">
+        <h3>Vận động viên <span class="who">Player</span></h3>
+        <ul>
+          <li>Được đội trưởng thêm vào roster — không tự đăng ký lẻ</li>
+          <li>Xem lịch thi đấu, sân, giờ, và sub-match mình có tên</li>
+          <li>Theo dõi điểm trình đôi cập nhật sau mỗi sub-match</li>
+        </ul>
+      </div>
+
+      <div class="role">
+        <h3>Trọng tài <span class="who">Referee</span></h3>
+        <ul>
+          <li>Được BTC gán vào <strong>từng sub-match</strong> hoặc vào cụm sân</li>
+          <li>Chấm điểm sub-match qua bảng chấm chuẩn (giống trận thường)</li>
+          <li>Bấm điểm DreamBreaker theo bên A/B, app tự xoay VĐV theo luật</li>
+          <li>Không sửa được lineup hoặc gán sân — đó là việc của BTC</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Format 1 dual -->
+  <section>
+    <div class="eyebrow">Định dạng thi đấu</div>
+    <h2>Một dual diễn ra như thế nào</h2>
+    <p>
+      Khi hai đội A và B gặp nhau, họ chơi <strong>4 sub-match theo thứ tự cố định</strong>
+      do BTC cấu hình. Mặc định của PickleTour:
+    </p>
+
+    <div class="slots">
+      <div class="slot-row">
+        <div class="slot-code">WD</div>
+        <div class="slot-desc">Đôi nữ — 2 VĐV nữ mỗi đội</div>
+        <div class="slot-order">SUB #1</div>
+      </div>
+      <div class="slot-row">
+        <div class="slot-code">MD</div>
+        <div class="slot-desc">Đôi nam — 2 VĐV nam mỗi đội</div>
+        <div class="slot-order">SUB #2</div>
+      </div>
+      <div class="slot-row">
+        <div class="slot-code">XD1</div>
+        <div class="slot-desc">Đôi nam nữ 1 — 1 nam + 1 nữ mỗi đội</div>
+        <div class="slot-order">SUB #3</div>
+      </div>
+      <div class="slot-row">
+        <div class="slot-code">XD2</div>
+        <div class="slot-desc">Đôi nam nữ 2 — 1 nam + 1 nữ mỗi đội (khác XD1)</div>
+        <div class="slot-order">SUB #4</div>
+      </div>
+    </div>
+
+    <p>
+      Mỗi sub-match đá first-to-<strong>21 điểm, win-by-2</strong>, rally scoring
+      (mặc định — BTC có thể chỉnh sang 11 hoặc 15). Đội trưởng nộp lineup trước
+      từng sub-match, và trọng tài chấm bằng bảng chấm quen thuộc.
+    </p>
+
+    <div class="callout">
+      <span class="lbl">Điểm mấu chốt</span>
+      <p>
+        Bốn sub-match chạy <strong>xếp hàng theo thứ tự</strong> — không phải song song
+        (trừ khi BTC gán mỗi sub một sân riêng). VĐV có thể đá <strong>nhiều sub</strong> trong
+        cùng một dual, miễn tuân theo luật giới tính của slot đó.
+      </p>
+    </div>
+
+    <h3 style="margin-top: 32px;">DreamBreaker — khi hòa 2-2</h3>
+    <p>
+      Nếu sau 4 sub-match tỉ số hòa 2-2, dual không kết thúc mà chuyển sang
+      DreamBreaker. Đây là trận <strong>1-vs-1</strong>, first-to-21 điểm, <em>không</em>
+      win-by-2 — ai đến 21 trước là thắng.
+    </p>
+    <p>
+      Điểm hay: hai đội trưởng mỗi bên chọn <strong>một chuỗi VĐV thứ tự</strong>
+      (thường là 4 người), rồi <strong>xoay người sau mỗi 4 điểm</strong>. Nghĩa là
+      ở điểm 1–4 người thứ nhất của A đối đầu người thứ nhất của B; điểm 5–8 xoay
+      sang người thứ hai; và cứ thế lặp lại tới khi có 21.
+    </p>
+    <div class="callout gold">
+      <span class="lbl">Chiến thuật</span>
+      <p>
+        Cử ai làm người mở đầu quan trọng — họ có 4 điểm để tạo đà. Cử ai làm
+        người thứ 3 hoặc 4 cũng quan trọng vì họ có thể là người kết ván
+        ở đoạn 17–21. Đội trưởng nên biết đối thủ đã hết pha DreamBreaker chưa
+        (xem BXH các dual trước) để đọc chiến thuật.
+      </p>
+    </div>
+  </section>
+
+  <!-- 4. BXH & tiebreak -->
+  <section>
+    <div class="eyebrow">Bảng xếp hạng</div>
+    <h2>Cách xếp hạng và phân định khi bằng điểm</h2>
+    <p>
+      Mỗi dual thắng đội được <strong>1 điểm</strong> BXH; thua <strong>0 điểm</strong>. Không có hòa.
+      Khi cần so sánh giữa các đội cùng số dual thắng, hệ thống áp thứ tự
+      tiebreak sau, từng bậc một:
+    </p>
+
+    <table class="rank-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Tiêu chí</th>
+          <th>Ý nghĩa</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td class="term">Số dual thắng</td>
+          <td>Càng nhiều càng đứng trên</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td class="term">Đối đầu trực tiếp</td>
+          <td>Đội thắng khi hai đội trực tiếp gặp nhau đứng trên</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td class="term">Hiệu sub-match</td>
+          <td>(sub thắng) − (sub thua) tất cả dual</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td class="term">Hiệu điểm</td>
+          <td>(điểm ghi) − (điểm thua) tất cả sub-match, gồm cả DreamBreaker</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td class="term">Tên đội (A→Z)</td>
+          <td>Chỉ dùng khi tất cả tiêu chí trên bằng nhau</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <span class="lbl">Lưu ý về đối đầu trực tiếp</span>
+      <p>
+        Tiêu chí <strong>đối đầu trực tiếp</strong> chỉ áp dụng khi <em>đúng hai đội</em>
+        cùng số dual thắng. Nếu ba đội bằng nhau, app <strong>bỏ qua</strong> bậc này
+        và nhảy xuống hiệu sub-match — vì head-to-head 3 chiều thường không
+        đưa ra kết quả rõ ràng.
+      </p>
+    </div>
+  </section>
+
+  <!-- 5. Flow steps -->
+  <section>
+    <div class="eyebrow">Luồng đầy đủ</div>
+    <h2>Từ khi tạo giải đến khi trao cúp</h2>
+    <p class="section-intro">
+      Chín bước dưới đây là chuỗi hành động thực tế trong app,
+      liệt kê theo người phải làm.
+    </p>
+
+    <ol class="flow">
+      <li>
+        <h3>Tạo giải và bật MLP <span class="actor">BTC</span></h3>
+        <p>
+          Vào <em>Tạo giải mới</em> hoặc <em>Chỉnh sửa giải</em>, chọn <code>Mode = MLP</code>.
+          Cấu hình 4 sub-match (mặc định WD/MD/XD1/XD2), điểm thắng, luật DreamBreaker,
+          cỡ roster tối thiểu/tối đa, có bật vòng bảng hay không.
+        </p>
+      </li>
+      <li>
+        <h3>Team đăng ký <span class="actor">Đội trưởng</span></h3>
+        <p>
+          Đội trưởng mở trang đăng ký, đặt tên team, chọn màu, chọn logo (không bắt buộc)
+          và thêm đồng đội bằng search VĐV. Bản thân captain tự động được thêm vào
+          roster. Nếu giải giới hạn tổng điểm trình đôi, app sẽ báo đỏ khi vượt trần.
+        </p>
+      </li>
+      <li>
+        <h3>BTC duyệt team <span class="actor">BTC</span></h3>
+        <p>
+          Team do user thường tạo mặc định ở trạng thái <em>Chờ duyệt</em>. BTC vào
+          <em>Quản lý team</em> để duyệt hoặc từ chối. Đội quá số lượng cho phép
+          rơi vào danh sách chờ, tự động lên team chính khi có team khác rút.
+        </p>
+      </li>
+      <li>
+        <h3>Bốc thăm chia bảng <span class="actor">BTC</span></h3>
+        <p>
+          Nếu giải có vòng bảng, BTC bốc thăm với 3 chế độ: <em>ngẫu nhiên</em>,
+          <em>rắn</em> (đội mạnh trải đều), hoặc <em>thủ công</em>. Có thể phát trực tiếp
+          bốc thăm qua trang <code>/mlp/draw/live</code> để cộng đồng theo dõi.
+        </p>
+      </li>
+      <li>
+        <h3>Sinh dual <span class="actor">BTC</span></h3>
+        <p>
+          Sau khi chia bảng xong, chọn <em>Sinh dual</em> — app tự tạo round-robin
+          trong bảng (đôi khi 2 lượt đi–về). Với knockout, mỗi vòng có N dual
+          cho đến chung kết.
+        </p>
+      </li>
+      <li>
+        <h3>Gán sân và trọng tài <span class="actor">BTC</span></h3>
+        <p>
+          Mỗi dual có thể gán sân + trọng tài chung, hoặc gán <em>riêng cho từng
+          sub-match</em> để chạy song song trên nhiều sân. Nút <em>Tự động gán</em>
+          giúp phân bổ nhanh khi có nhiều dual cùng khung giờ.
+        </p>
+      </li>
+      <li>
+        <h3>Check-in và xếp lineup <span class="actor">Đội trưởng</span></h3>
+        <p>
+          Đến giờ đấu, đội trưởng bấm <em>Check-in</em>, sau đó vào từng sub-match
+          chọn 2 VĐV (theo luật giới tính). Chỉ đội trưởng đội A thấy và sửa
+          được lineup A, tương tự bên B.
+        </p>
+      </li>
+      <li>
+        <h3>Chấm sub-match <span class="actor">Trọng tài</span></h3>
+        <p>
+          Trọng tài chấm điểm qua bảng chấm quen thuộc (giống trận đôi thường).
+          Khi sub kết thúc, app tự cập nhật điểm trình đôi của 4 VĐV vừa đấu,
+          cộng vào BXH team.
+        </p>
+      </li>
+      <li>
+        <h3>DreamBreaker khi hòa <span class="actor">Đội trưởng + Trọng tài</span></h3>
+        <p>
+          Nếu sau 4 sub-match tỉ số 2-2, dual chuyển sang <em>Tie-break</em>. Đội
+          trưởng chọn thứ tự VĐV cho DreamBreaker, trọng tài bấm điểm bên A/B —
+          app tự xoay người theo luật 4-điểm-một-lượt. Khi có 21 điểm, dual
+          hoàn tất, BXH cập nhật.
+        </p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- 6. Trong app -->
+  <section>
+    <div class="eyebrow">Truy cập trong app</div>
+    <h2>Màn hình quan trọng và đường dẫn</h2>
+    <p class="section-intro">
+      Trên web (<code>pickletour.vn</code>) tất cả trang có URL rõ ràng, dễ share.
+      Trên mobile các trang tương ứng nằm trong tab <em>Giải đấu</em> → <em>MLP</em>.
+    </p>
+
+    <table class="rank-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Trang</th>
+          <th>Ai dùng</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td class="term">Đăng ký team</td>
+          <td>Đội trưởng — công khai</td>
+        </tr>
+        <tr>
+          <td>2</td>
+          <td class="term">Quản lý team</td>
+          <td>BTC — duyệt / rút / chỉnh</td>
+        </tr>
+        <tr>
+          <td>3</td>
+          <td class="term">Danh sách dual</td>
+          <td>Ai cũng xem được lịch + kết quả</td>
+        </tr>
+        <tr>
+          <td>4</td>
+          <td class="term">Chi tiết dual</td>
+          <td>Đội trưởng nộp lineup, trọng tài chấm</td>
+        </tr>
+        <tr>
+          <td>5</td>
+          <td class="term">BXH</td>
+          <td>Công khai — theo bảng hoặc tổng</td>
+        </tr>
+        <tr>
+          <td>6</td>
+          <td class="term">Bracket knockout</td>
+          <td>Công khai — sinh sau vòng bảng</td>
+        </tr>
+        <tr>
+          <td>7</td>
+          <td class="term">Overlay livestream</td>
+          <td>BTC — copy URL vào OBS</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout">
+      <span class="lbl">Gợi ý cho BTC</span>
+      <p>
+        Trang overlay livestream sinh cho <strong>từng cụm sân</strong>, tự chuyển từ
+        sub-match sang DreamBreaker khi dual chuyển trạng thái. Chỉ cần add browser
+        source vào OBS với URL này là stream Facebook/YouTube hiển thị đúng tỉ số
+        realtime, không cần thao tác tay.
+      </p>
+    </div>
+  </section>
+
+  <!-- 7. Q&A -->
+  <section>
+    <div class="eyebrow">Câu hỏi thường gặp</div>
+    <h2>Q&amp;A nhanh</h2>
+
+    <details>
+      <summary>Một VĐV có được đá cho hai team khác nhau trong cùng một giải không?</summary>
+      <div class="a">
+        <p>
+          Không. App khóa mỗi VĐV chỉ được nằm trong <strong>một team đã duyệt hoặc đang chờ duyệt</strong>
+          của cùng một giải. Nếu VĐV rút khỏi team hiện tại thì mới thêm được vào team khác.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Một VĐV có phải đá đủ 4 sub-match không?</summary>
+      <div class="a">
+        <p>
+          Không. Đội trưởng chọn lineup từng sub-match độc lập. Một VĐV có thể chỉ
+          đá 1 sub, có thể đá 3 sub, miễn tuân theo luật giới tính của slot đó
+          (nữ chỉ đá WD, XD1, XD2; nam chỉ đá MD, XD1, XD2).
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>DreamBreaker có nhất định cử 4 người không?</summary>
+      <div class="a">
+        <p>
+          Số lượng linh hoạt — đội trưởng có thể cử 2, 3, 4 người tùy chọn. App tự xoay
+          theo chỉ số điểm chia cho 4 (mặc định) modulo số người trong lineup. Cử 2
+          người nghĩa là mỗi lượt 4 điểm hoán đổi qua lại. Thực tế MLP chính thức
+          hay dùng 4 người vì tận dụng toàn đội.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Điểm trình đôi của VĐV thay đổi thế nào sau giải MLP?</summary>
+      <div class="a">
+        <p>
+          Cập nhật <strong>sau mỗi sub-match</strong>, không phải cuối dual. Nếu bạn đá 3 sub
+          trong 1 dual, hệ thống áp thuật toán rating 3 lần độc lập cho 3 sub đó.
+          DreamBreaker <em>không</em> tính vào điểm trình (vì là 1-vs-1 không phải đôi chuẩn),
+          nhưng vẫn tính vào hiệu điểm BXH team.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Nếu một team không thể tham gia dual (walkover) thì sao?</summary>
+      <div class="a">
+        <p>
+          BTC vào chi tiết dual, chọn <em>Buộc kết thúc</em> và chỉ định đội thắng.
+          Dual sẽ khép lại với ghi chú walkover, BXH cập nhật như dual bình thường
+          nhưng hiệu sub/hiệu điểm không đổi.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Đội trưởng nộp nhầm lineup có sửa được không?</summary>
+      <div class="a">
+        <p>
+          Có, miễn <strong>sub-match chưa bắt đầu</strong> (chưa có điểm nào). Sau khi
+          trọng tài mở bảng chấm và bấm điểm đầu tiên, lineup khóa. Muốn sửa
+          bắt buộc phải nhờ BTC reset sub-match đó.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>App có tự cảnh báo team vượt trần điểm trình không?</summary>
+      <div class="a">
+        <p>
+          Có. Nếu BTC set <em>Trần tổng điểm trình đôi</em>, form đăng ký hiện thanh
+          tổng điểm và nhảy đỏ khi vượt. Backend cũng chặn không cho lưu — không
+          cần lo lỡ tay bấm quá.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>VĐV mới muốn tham gia có phải tự tạo team không?</summary>
+      <div class="a">
+        <p>
+          Không nhất thiết. VĐV có thể <em>chờ được đội trưởng khác thêm vào</em> — chỉ cần
+          họ biết nickname hoặc số điện thoại của bạn để search. Chỉ cần tự tạo team
+          nếu bạn muốn làm đội trưởng của một team mới.
+        </p>
+      </div>
+    </details>
+  </section>
+
+  <div class="footnote">
+    Tài liệu này mô tả cấu hình mặc định của app PickleTour. BTC có thể điều chỉnh
+    một số thông số (thứ tự sub-match, điểm thắng, luật DreamBreaker) — hãy kiểm tra
+    trang <em>Cấu hình MLP</em> của giải cụ thể trước khi thi đấu.
+  </div>
+
+</div>
+</body></html>
