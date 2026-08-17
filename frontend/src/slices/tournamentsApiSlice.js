@@ -576,6 +576,62 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
+    // ═══ Bracket CRUD cho manager (được mở quyền BE ở commit 18b51fdd) ═══
+    createBracket: builder.mutation({
+      query: ({ tourId, body }) => ({
+        url: `/api/admin/tournaments/${tourId}/brackets`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: ["ADMIN_BRACKETS"],
+    }),
+    updateBracket: builder.mutation({
+      query: ({ tournamentId, bracketId, body }) => ({
+        url: `/api/admin/tournaments/${tournamentId}/brackets/${bracketId}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["ADMIN_BRACKETS"],
+    }),
+    deleteBracket: builder.mutation({
+      query: ({ tournamentId, bracketId }) => ({
+        url: `/api/admin/tournaments/${tournamentId}/brackets/${bracketId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: ["ADMIN_BRACKETS"],
+    }),
+    rebuildKnockoutBracket: builder.mutation({
+      query: ({ tournamentId, bracketId, body }) => ({
+        url: `/api/admin/tournaments/${tournamentId}/brackets/${bracketId}/knockout/rebuild`,
+        method: "POST",
+        body: body || {},
+      }),
+      invalidatesTags: ["ADMIN_BRACKETS"],
+    }),
+    clearBracketMatches: builder.mutation({
+      query: ({ bracketId }) => ({
+        url: `/api/admin/brackets/${bracketId}/matches/clear`,
+        method: "POST",
+      }),
+      invalidatesTags: ["ADMIN_BRACKETS"],
+    }),
+    buildRoundElimSkeleton: builder.mutation({
+      query: ({ bracketId, body }) => ({
+        url: `/api/admin/brackets/${bracketId}/round-elim/skeleton`,
+        method: "POST",
+        body: body || {},
+      }),
+      invalidatesTags: ["ADMIN_BRACKETS"],
+    }),
+    updateGroupStructure: builder.mutation({
+      query: ({ bracketId, groupId, body }) => ({
+        url: `/api/admin/brackets/${bracketId}/groups/${groupId}/structure`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["ADMIN_BRACKETS"],
+    }),
+
     managerReplaceRegPlayer: builder.mutation({
       query: ({ regId, slot, userId }) => ({
         url: `/api/registrations/${regId}/manager/replace-player`,
@@ -995,4 +1051,12 @@ export const {
   useAnalyzeRegistrationPosterMutation,
   useUploadRegistrationPosterTemplateMutation,
   useSetRegistrationPosterTemplateUrlMutation,
+  // Bracket CRUD cho manager
+  useCreateBracketMutation,
+  useUpdateBracketMutation,
+  useDeleteBracketMutation,
+  useRebuildKnockoutBracketMutation,
+  useClearBracketMatchesMutation,
+  useBuildRoundElimSkeletonMutation,
+  useUpdateGroupStructureMutation,
 } = tournamentsApiSlice;

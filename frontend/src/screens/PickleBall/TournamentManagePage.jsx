@@ -82,6 +82,7 @@ import {
   AutoAwesome as AutoAwesomeIcon,
   CloudUpload as CloudUploadIcon,
   InsertLink as InsertLinkIcon,
+  AccountTree as AccountTreeIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 
@@ -116,6 +117,7 @@ import ManageRefereesDialog from "../../components/RefereeManagerDialog";
 import TournamentManagersDialog from "../../components/TournamentManagersDialog";
 import LiveSetupDialog from "../../components/LiveSetupDialog";
 import TournamentCourtLiveMonitorDialog from "../../components/TournamentCourtLiveMonitorDialog";
+import BracketsPanel from "../../components/tournament-manage/BracketsPanel";
 import TournamentCourtLiveMonitorWatcher from "../../components/TournamentCourtLiveMonitorWatcher";
 import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 import TeamTournamentManageView from "../../components/teamTournament/TeamTournamentManageView";
@@ -3322,6 +3324,11 @@ export default function TournamentManagePage() {
       icon: <StadiumIcon fontSize="small" />,
     },
     {
+      value: "brackets",
+      label: "Vòng đấu",
+      icon: <AccountTreeIcon fontSize="small" />,
+    },
+    {
       value: "live",
       label: "Live",
       icon: <MovieIcon fontSize="small" />,
@@ -3389,6 +3396,10 @@ export default function TournamentManagePage() {
           onUpdated={handleCourtClustersUpdated}
         />
       );
+    }
+
+    if (v2SettingsSection === "brackets") {
+      return <BracketsPanel tourId={id} />;
     }
 
     if (v2SettingsSection === "live") {
