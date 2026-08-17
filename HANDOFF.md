@@ -1,13 +1,17 @@
-# PickleTour — HANDOFF Session (2026-08-12 → 2026-08-13)
+# PickleTour — HANDOFF Session (2026-08-13 → 2026-08-17)
 
-> Session cực dài ~2 ngày, **58 commits root + 38 commits mobile**. Chủ đề chính là
-> **Games platform hoàn chỉnh 6 game** (Poker cũ + 5 game mới: Phỏm/Sâm/Caro/Cờ Vua/Cờ Tướng),
-> cộng bug fix + UX cho MLP tournament + đăng ký giải.
+> Session ~5 ngày, **20 commits root + 7 commits mobile**. 8 chủ đề lớn:
 >
-> Session trước (2026-08-11 → 12) tập trung MLP vòng bảng + waitlist đăng ký + polish.
-> Đọc HANDOFF cũ ở [git tag `session-2026-08-12`](https://github.com/den3110/abcdk-) nếu cần.
+> 1. **Sơ đồ bracket v4 modern** (web + mobile) — KO đối xứng + Round Elim, palette accent theo vòng, gradient card + connector bezier, avatar deterministic color, live glow, champion float trophy. Gate `?ui=v4` + chip toggle.
+> 2. **Fix Poker side-pot bug + Sâm A-low straight** — bug NGHIÊM TRỌNG: all-in không bằng nhau bị mất hết chip. Fix `refundUncalledBet` + `buildSidePots` + rewrite showdown. Sâm giờ đánh được sảnh `A-2-3-4-5`.
+> 3. **Fix Poker chip UI mobile** — chip stack tách khỏi Seat container, không đè hole cards/tên.
+> 4. **Fix manager permission regression** — populate `managers.user`/`createdBy` object → FE stringify fail. Fix 3 file web + 3 file mobile + backend hygiene. Bonus fix 403 khi duyệt waitlist (route lift + realtime cache tags).
+> 5. **Feature: chuyển cặp chính thức → waitlist** — nút "Chờ duyệt" web + mobile, backend demote logic.
+> 6. **SEO overhaul** — canonical dynamic + JSON-LD SportsEvent + sitemap dynamic (63 tournaments + 14 clubs được index) + prerender puppeteer cho crawler (nginx UA map + rewrite).
+> 7. **Toggle displayMode tên VĐV** — biệt danh vs họ và tên trên trang manage.
+> 8. **Manager tự tạo bracket + manual pool + Blueprint AI (5 phase)** — mở quyền 15 endpoint bracket/plan/insert-slot cho manager, section "Vòng đấu" trong Cài đặt trang manage, dialog chia bảng thủ công, dialog Blueprint AI 3-step Stepper.
 >
-> Đọc kèm `HANDOVER.md` §0 mục "Session 2026-08-12→13" để nắm state hiện tại.
+> Đọc kèm `HANDOVER.md` §0 mục "Session 2026-08-13→17" để nắm state hiện tại.
 
 ---
 
@@ -15,251 +19,316 @@
 
 | Kênh | Version | Trạng thái |
 |---|---|---|
-| **Backend prod** (`pickletour.vn/api`) | commit `f9819f31` | ✅ Đã `pm2 restart server` sau commit cuối. `npm install chess.js` đã chạy trên VPS. |
-| **Frontend web** (`pickletour.vn`) | ~`bcef4390` | ✅ Rebuild + rsync xong turn giữa session (BTC + MLP fixes). Session này CHỦ YẾU sửa mobile, nên frontend web KHÔNG có thay đổi mới sau đó. |
-| **Mobile iOS OTA production** | Bundle `9bb3781` | ✅ Deploy **CHO CẢ `ios 1.1.13` + `ios 1.1.9`** (~15 lần push trong session). Session này push cả **Android target** `1.1.13` + `1.1.9` sau khi user override policy. |
-| **Mobile Android build local** | 1.1.13 (build 43 native, JS OTA `9bb3781`) | ✅ Build `pickletour-1.1.13.apk` (115MB) + `.aab` (160MB) tại `~/Desktop/pickletour-android/`. Chưa upload Play Console. |
+| **Backend prod** (`pickletour.vn/api`) | commit `ffbf6532` | ✅ Đã `pm2 restart server` (cluster id 6/7) sau commit cuối. Chromium deps đã cài (`libnss3` + libs) cho prerender. |
+| **Frontend web** (`pickletour.vn`) | ~`ffbf6532` | ✅ `yarn build:deploy` xong. Bundle mới có bracket v4, BracketsPanel, BlueprintDialog. Guides `/guides/mlp.html` + `.pdf` public. |
+| **Mobile iOS OTA production** | Bundle 1.1.13 (nhiều push) | ✅ Đã push nhiều lần trong session (bracket v4, fix poker UI, manager permission, waitlist demote, displayMode toggle). CHƯA push bundle 1.1.14 vì version 1.1.14 chưa lên store. |
+| **Mobile Android build local** | 1.1.14 build 44 native | ✅ Build `pickletour-1.1.14.{apk,aab}` (115MB + 160MB) tại `~/Desktop/pickletour-android/`. **CHƯA upload Play Console** — user tự upload. |
+| **Mobile iOS build 1.1.14** | Chưa build | ⏸ User cần tự Archive qua Xcode UI từ `ios/Pickletourvn.xcworkspace` (Pods sẵn). Version đã bump. |
 | **Admin panel** (Vercel) | không đổi | — |
+| **Nginx** | Updated | ✅ Thêm `/etc/nginx/conf.d/prerender-bot.conf` (UA map) + patch vhost pickletour.vn: `location /prerender/`, `location ^~ /guides/`, static file locations, bot rewrite trong `location /`. Backup tại `default.bak-*`. |
+| **SEO Guides live** | HTML + PDF | ✅ `pickletour.vn/guides/mlp.html` (31KB) + `mlp.pdf` (820KB). Cache 1h. |
 
 **Git remotes:**
 
 | Repo | Latest commit |
 |---|---|
-| `github.com/den3110/abcdk-` (root + backend + web) | `f9819f31` |
-| `github.com/den3110/pickletour-app` (mobile) | `9bb3781` |
+| `github.com/den3110/abcdk-` (root + backend + web) | `ffbf6532` |
+| `github.com/den3110/pickletour-app` (mobile) | `f97d284` |
 | `github.com/den3110/abcde` (admin) | không đổi |
 
 ---
 
 ## 2. OTA target policy
 
-User đã đổi policy giữa session (memory `ota_targets.md`):
+Vẫn theo memory `ota_targets.md` (session trước override):
 
-- **Trong session build tăng dần**: chỉ push `ios 1.1.13` mỗi commit, giữ `1.1.9` chờ đợt cuối
-- **Khi user báo "xong hết" / "final"** → push cả 4 target: iOS `1.1.13` + `1.1.9`, Android `1.1.13` + `1.1.9`
-- Session này đợt cuối user đã đẩy cả 4 target sau khi ship Games hub v1
+- **Build tăng dần trong session** → chỉ push `ios 1.1.13` mỗi commit tính năng
+- **Khi user báo "xong hết" / "final"** → push cả 4 target: iOS 1.1.13 + 1.1.9, Android 1.1.13 + 1.1.9
 
-Từ giờ mỗi lần build tính năng liên tục dùng rule mới. HANDOFF cũ §3.3 ("push cả 2 target") **đã lỗi thời** cho iOS-only.
+**Session này** đã push ios 1.1.13 nhiều lần. Chưa push Android OTA (theo policy: chờ user báo final).
+
+**Sau khi 1.1.14 live store** (Android Play + iOS App Store):
+- Cập nhật memory `ota_targets.md` sang mục tiêu `1.1.14`
+- OTA policy: song song 1-2 tuần push cả `1.1.13` (user chưa update store) + `1.1.14` (mới), sau đó chỉ giữ 1.1.14
 
 ---
 
 ## 3. Feature ship trong session
 
-### 3.1 Bổ sung MLP tournament (nửa đầu session)
+### 3.1 Sơ đồ bracket v4 modern (web + mobile)
 
-**`mlpConfig.maxTeamScore`** — cap tổng điểm ĐÔI của roster team ([`4bd4c6d1`](https://github.com/den3110/abcdk-/commit/4bd4c6d1)):
-- Schema field `MlpConfigSchema.maxTeamScore` (Number, null = không giới hạn)
-- Backend `createMlpTeam` + `updateMlpTeam` validate `computeTeamDoubleScore()` từ Ranking bulk
-- Web `MlpConfigDialog` TextField "Giới hạn tổng điểm trình đôi" + `MlpTeamsPage.TeamEditor` chip Tổng đôi/cap đổi đỏ + Alert + disable Save
-- Mobile `teams.tsx` mirror
+**Commits root:** `6aa08fcc → 95e9f1ef → 2c8bcd83` (visual upgrade)
+**Commits mobile:** `1d5e7f5`
 
-**Fix `TournamentCourtClusterDialog`** ([`0026030f`](https://github.com/den3110/abcdk-/commit/0026030f)):
-- Trọng tài thêm qua "Quản lý trọng tài" mới không hiện trong dropdown "Đứng sân" — do 2 endpoint song song:
-  - `/api/admin/tournaments/:tid/referees` (legacy, User.referee.tournaments)
-  - `/api/tournaments/:tid/referees` (mới, TournamentReferee collection)
-- Fix: dùng slice mới + union với legacy để backward-compat. Share tag `TournamentReferees:tid` → thêm/xoá auto-invalidate
+**Web** (`frontend/src/screens/PickleBall/`):
+- `ModernKnockoutBracket.jsx` (mới, 900+ dòng) — linear L→R layout, SVG connectors bezier gradient, `ModernSeedCard` với header gradient theo accent, VS divider, LivePulseDot animated, ChampionBadge float trophy, `ModernRoundChip` gradient filled với icon trophy/medal
+- `ModernRoundElimBracket.jsx` (mới, 350 dòng) — absolute cards positioned theo `buildLayout` (mirror `buildRoundElimManualLayout`), connectors solid gradient winner + dashed cam loser, legend chú thích
+- `TournamentBracket.jsx`: `normalizeBracketUiVersion` accept `v4`/`modern`, `isBracketV4` gate, chip toggle "✨ Bản mới" trong Stack chips ở top KO + RE blocks, conditional render
+- **Palette accent**: KO đếm ngược từ Chung kết (`gold` #f59e0b) → BK (`rose`) → TK (`violet`) → xanh dần. RE palette xuôi blue→violet→rose→amber
+- **Avatar color deterministic**: hash tên → 10 màu vibrant, ring nhẹ
 
-**BTC section trên trang đăng ký** ([`bcef4390`](https://github.com/den3110/abcdk-/commit/bcef4390), [`762213fb`](https://github.com/den3110/abcdk-/commit/762213fb)):
-- Backend `getTournamentById`: populate `createdBy` + `managers.user` với `name/nickname/avatar/phone`
-- Web/mobile: card "Ban tổ chức" ngay dưới hero, list card avatar + nhãn "Người tạo giải · Đồng quản lý"
-- **3 icon action**: tap card → mở PublicProfileDialog (dùng `getUserId({user: uid})` — bug shape đã fix), icon 💬 "Nhắn tin" mở DM qua `useOpenDmMutation` + navigate `/messages/:cid`, icon 📞 → tel: link
+**Mobile** (`pickletour-app-mobile/components/bracket/`):
+- `ModernBracketShared.tsx` (mới) — palette + humanizer + ModernSeedCard + ModernRoundChip + ModernBracketToggle. Dùng LinearGradient + Animated (RN)
+- `ModernKnockoutBracketRN.tsx` (mới) — react-native-svg connectors + ScrollView horizontal
+- `ModernRoundElimBracketRN.tsx` (mới) — absolute cards + gradient/dashed connectors + legend
+- `app/tournament/[id]/bracket.tsx`: gate `bracketUiVersion` state + AsyncStorage `pickletour:tournament-bracket:uiVersion`, chip toggle, conditional render
 
-**MLP registration view + team list**:
-- `MlpTournamentRegistrationView.jsx` TeamFormDialog: chip Đôi/Đơn ở search dropdown + roster + bar tổng đôi/cap + warning overCap ([`d0e83688`](https://github.com/den3110/abcdk-/commit/d0e83688))
-- Team list card danh sách team đã đăng ký hiện điểm mỗi VĐV + tổng đôi/đơn team ([`05e64397`](https://github.com/den3110/abcdk-/commit/05e64397))
-- Mobile MlpTeamsScreen card cũng hiện chip điểm
+**Label human-readable** (post-process, KHÔNG đụng resolveSideLabel gốc):
+- `W-V1-T16` → `Chờ thắng T16·V1` (+ tooltip "Đội thắng Trận 16 - Vòng 1")
+- `L-V2-T3` → `Chờ thua T3·V2`
+- `V1-B1-T2` → `Hạng 2 Bảng 1`
+- `BYE` → `Miễn đấu` (chip italic xám)
 
-### 3.2 Games platform — 6 game hoàn chỉnh
+### 3.2 Fix Poker side-pot + Sâm A-low straight
 
-**Restructure home icon** ([`0837b6e1`](https://github.com/den3110/pickletour-app/commit/0837b6e1)):
-- Icon "Poker" → **"Games"** trên `(tabs)/index.tsx` id:18
-- `/games` hub screen: grid tile Poker · Phỏm · Sâm · Caro · Cờ Vua · Cờ Tướng với subtitle + badge "Mới"
+**Commit:** `04c95084` (backend), `1697a81` (mobile UI)
 
-**Phỏm (Tá lả) — FULL PLAYABLE** ([`e8d4e539`](https://github.com/den3110/abcdk-/commit/e8d4e539) → [`9bafbcf5`](https://github.com/den3110/abcdk-/commit/9bafbcf5) → [`efcc1ddc`](https://github.com/den3110/abcdk-/commit/efcc1ddc)):
-- **Model** `PhomRoom` (4 seat, cards[], melds[], leftover, stage: waiting/dealing/playing/**downing**/showdown, discards[], deck)
-- **Engine** `phomEngine.js`:
-  - `startHand`: deal 9 lá (dealer 10), rotate dealer theo ván
-  - `findBestPartition()`: backtracking phân hoạch bài ra phỏm tối ưu (min lá lẻ)
-  - `isU()`: kiểm tra ù (bài trong tay tạo phỏm hết)
-  - `applyAction(draw_deck|draw_discard|discard)`: rule đơn giản (10 lá phải thảy, 9 lá phải bốc, không phân biệt dealer sau ván đầu). Auto-ù sau mỗi bốc
-  - Sau 4 vòng đủ → `stage = "downing"` (không endHand ngay)
-  - `applyDownAuto` / `applyDownManual(melds)` / `applyGuiBai(card, targetSeat, meldIdx)`: 3 lựa chọn trong phase downing
-  - `endHand`: sort theo leftoverValue, winner ăn stake × (n-1), móm phạt gấp đôi
-- **Auto-timeout server-side** khi quá `turnDeadlineAt` (30s)
-- **Mobile** `app/phom/[id].tsx` landscape:
-  - `FeltOval` xanh + `WoodBackground` gỗ nâu
-  - 4 seat rotate theo hero (bottom), hero seat KHÔNG render frame (che hand) → info bar riêng
-  - Discards hiện **trước mặt người vừa đánh** (dùng `fromSeat` map rotated idx → position %)
-  - Deck stack giữa bàn với badge cam số nọc còn lại
-  - Nút **"Bốc thẻ"** / **"Ăn+Hạ"** (≥3 lá chọn) khi có 9 lá; nút **"Đánh"** pill cam inline khi có 10 lá + 1 lá chọn
-  - Phase downing: 3 nút **"Hạ phỏm"** (blue) / **"Gửi bài"** (green stub) / **"Hạ tự động"** (orange)
-  - Hint "✓ Đã hạ. Chờ người khác…" sau khi confirm
+**Poker bug NGHIÊM TRỌNG** (`backend/services/pokerEngine.js`):
+- Trước: `room.pot` gộp mọi commit; `showdown` trao **trọn pot** cho winner → user 4000 all-in vs opp 1000 all-in mà thua → user mất HẾT 4000. Ngược lại: user 1000 all-in thắng đối thủ 4000 → user nhận 5000, đối thủ mất hết.
+- Fix: thêm `refundUncalledBet(room)` (refund phần overbet của người đóng góp cao nhất khi không ai match tới) + `buildSidePots(room)` (tách side pots theo tier contribution, eligibleSeatIdxs = không fold + contrib ≥ tier)
+- Rewrite `showdown` + `finishHandUncontested`: refund trước, sau đó chia từng pot cho winner ELIGIBLE
+- Test sanity: user 4k vs opp 1k, user thua → user còn 3000, opp có 2000 ✓
 
-**Sâm Lốc — FULL PLAYABLE** ([`efcc1ddc`](https://github.com/den3110/abcdk-/commit/efcc1ddc) → [`0d0e5e8`](https://github.com/den3110/pickletour-app/commit/0d0e5e8) → [`f9819f31`](https://github.com/den3110/abcdk-/commit/f9819f31)):
-- **Rank order fix ĐẶC BIỆT**: Sâm dùng `3 < 4 < ... < K < A < 2` (2 là heo cao nhất). Engine ban đầu dùng thứ tự Phỏm (2 nhỏ nhất) → không đè J bằng 2. Thêm `samRankValue` + `samSortHand` local, replace mọi `rankValue` trong `comboType`/`compareCombos`/`canCut`/fourPairs/straight detector
-- **Combo types**: single/pair/triple/quad/straight/**fourPairs** (4 đôi thông 8 lá)/dragon (sảnh rồng 10 lá 3→A)
-- **canCut rules** (chặt cross-type):
-  - Tứ quý chặt heo (single/pair/triple 2)
-  - 4 đôi thông chặt tứ quý + heo
-  - Sảnh rồng chặt tất cả
-  - Cùng loại chặt cao hơn (quad/fourPairs)
-- **Scoring per-card × stake** (thay vì flat):
-  - Winner (finishOrder 1) ăn tổng penalty của losers
-  - Loser thường: `stake × cardsLeft`
-  - Móm (còn 10 lá): `stake × 10 × 2`
-  - **Bị chặt heo**: track `seat.cutByHeoCount` (đánh 2 bị đè bởi quad/fourPairs/dragon) — penalty = móm
-  - **Bị bắt sâm**: `stake × 10 × 2 × 3`
-- **Xin Sâm flow**: stage mới `xin_sam` 10s countdown sau deal. 3 endpoint: `xin-sam` (mark claimer), `bat-sam` (mark catcher), `skip-xin-sam` (finishXinSam ngay). Auto-transition sau deadline
-- **Rule end**: 1 người hết bài = **kết thúc ván ngay** (không chờ 3 người). Seat còn lại xếp thứ tự theo `cards.length`
-- **Mobile** `app/sam/[id].tsx`:
-  - Nút "Xin Sâm" (orange) + "Bắt Sâm" (red) overlay trong phase xin_sam
-  - Combo hiện tại render **trước mặt seat vừa đánh** (không stack center)
-  - passBadge + finishedBadge (#1, #2...)
-  - Winners table hiện tên đúng (fix: `enrichWinners()` resolve từ populated seats sau `endHand`)
+**Sâm A-low straight** (`backend/services/samEngine.js`):
+- Trước: `comboType` guard `!ranks.includes("2")` → chặn mọi sảnh chứa 2, kể cả A-2-3-4-5
+- Fix: thêm nhánh detect A-low khi `ranks.includes("A") && ranks.includes("2")`, dùng mapping riêng `A=0, 2=1, 3=2, ..., K=12` để check consecutive. Length 3-9. Length 10 vẫn để "dragon" thường
+- `compareCombos`: sảnh A-low LUÔN nhỏ hơn sảnh thường (return -1); 2 A-low so bằng lá cao nhất không tính A/2
 
-**Caro (Gomoku) — FULL PLAYABLE** ([`6c13bc96`](https://github.com/den3110/abcdk-/commit/6c13bc96)):
-- Model `CaroRoom` (2 seat, board 15×15 flat array `["X"|"O"|""]`, moves[], winningLine)
-- Engine `caroEngine.js`:
-  - `startHand`: reset board, alternate first mover mỗi ván
-  - `applyMove(row, col)`: place X/O
-  - `checkWin(board, size, r, c, mark)`: 4 directions × dịch chuyển 0-4 lá, tìm 5 liên tiếp
-  - Auto-draw khi board đầy
-- Mobile `app/caro/[id].tsx` portrait:
-  - Board vàng gỗ với 15×15 grid, tap ô trống → X đỏ / O xanh
-  - PlayerBox 2 bên VS: avatar + mark + tên + chip + turn indicator vàng
-  - Win overlay + highlight 5 ô thắng vàng
+**Poker chip UI mobile** (`app/poker/[id].tsx`):
+- Trước: chip stack render bên trong `Seat` container với `top: 44 + betOffset.dy` → hero (bottom, dy<0) chip đè hole cards; non-hero corner đè plate name/chips
+- Fix: bỏ prop `betOffset` khỏi Seat, remove `<View style={styles.betDisplay}>` khỏi Seat. Component `BetChipStack` mới render ĐỘC LẬP absolute ở table level, position computed từ seat center + đẩy ra hướng tâm bàn đủ xa (max của pushX/Y) để nằm NGOÀI seat bounding box
 
-**Cờ Vua (Chess) — FULL PLAYABLE (dùng chess.js)** ([`dafecd73`](https://github.com/den3110/abcdk-/commit/dafecd73)):
-- **`npm install chess.js`** trên root + mobile (^1.4.0)
-- Model `ChessRoom` (2 seat, `fen`, moves với SAN)
-- Engine `chessEngine.js` wrap `new Chess(fen)`:
-  - `applyMove({ from, to, promotion="q" })` → chess.js validate + update FEN
-  - `isCheckmate/isStalemate/isDraw/isThreefoldRepetition/isInsufficientMaterial` → auto end với `resultReason`
-  - `applyResign(seatIndex)`: winner = opponent
-  - `legalMovesFrom(fen, from)`: export cho mobile highlight
-- Mobile `app/chess/[id].tsx`:
-  - Board 8×8 với Unicode pieces `♔♕♖♗♘♙` (uppercase = trắng)
-  - Board flip khi chơi bên đen (hero always at bottom)
-  - Tap quân của mình → highlight legal moves xanh lá (chess.js lookup client-side)
-  - Auto-detect promotion → default Queen
-  - Nút "Xin thua" alert confirm
+### 3.3 Fix manager permission regression (web + mobile)
 
-**Cờ Tướng (Xiangqi) — FULL PLAYABLE (custom engine)** ([`dafecd73`](https://github.com/den3110/abcdk-/commit/dafecd73)):
-- Model `XiangqiRoom` (2 seat, board flat 10×9 = 90 ô, uppercase=đỏ/lowercase=đen)
-- Piece encoding: `K`=Tướng, `A`=Sĩ, `E`=Tượng, `H`=Mã, `R`=Xe, `C`=Pháo, `P`=Tốt
-- Engine `xiangqiEngine.js` full rule (~250 lines):
-  - Initial board setup + `isLegalMove(board, from, to, red)` per piece type
-  - Tướng: 1 ô ngang/dọc trong cung (rows 7-9 / 0-2, cols 3-5)
-  - Sĩ: chéo 1 ô trong cung
-  - Tượng: chéo 2 ô, không vượt sông (row 4/5), mắt tượng không chắn
-  - Mã: L (2+1), chân mã không chắn
-  - Xe: ngang/dọc không có quân chắn
-  - **Pháo**: đi trống (0 quân chắn), **ăn phải có đúng 1 quân giữa**
-  - Tốt: trước sông chỉ đi thẳng, sau sông đi cả ngang
-  - **Face-to-face rule**: 2 tướng cùng cột không có quân chắn = nước không hợp lệ
-  - **Bắt K/k = thắng ngay**
-- Mobile `app/xiangqi/[id].tsx`:
-  - Board gỗ vàng 9×10, dòng sông = row 4/5 highlight `#FEF3C7`
-  - Quân dạng circle border 2px, chữ Hán: 帥仕相傌俥炮兵 (đỏ) / 將士象馬車砲卒 (đen)
-  - Tap → highlight ô chọn vàng, tap ô đích → nước đi
-  - Flip board cho bên đen
+**Root cause:** Commit session trước (`28c774b7`) populate `managers.user` + `createdBy` thành object User đầy đủ ở `getTournamentById`. FE stringify raw ObjectId cũ → `String(populatedUserObject) === "[object Object]"` → so sánh luôn `false` → managers bị coi non-manager → RTK query bị `skip: true`, nút Sửa/Xoá/Đánh dấu đã thu ẩn.
 
-### 3.3 Shared game infrastructure
+**Commits:** `dc1af4c8`, `4f6d136` (mobile), `82d42aa0`, `39a15dee`, `0e4d363b`, `cfc8abd` (mobile), `39e7aeab`
 
-**Components** (`components/games/`):
-- `GameTableUI.tsx`: `WoodBackground` (multi-layer gradient nâu) · `FeltOval` (rim gỗ + baize xanh + vignette) · `CardPro` (rounded corners + corner rank/suit + gradient back) · `SeatFrame` (avatar + gold border khi turn) · `EmptySeat` · `RoundIconBtn` (purple gradient) · **`SpeechBubble`** (chat bubble bay 4s trên avatar) · **`ConnectionBanner`** (offline/reconnecting)
-- `InviteFriendModal.tsx`: search user + chọn nhiều + gửi lời mời (push + in-app notif)
-- **`RoomListItem.tsx`** (mới): shared lobby card với avatar row (28x28 overlap), tên VĐV concat, empty slot icon, stage pill
+**Fix pattern** ở tất cả file:
+```js
+const uid = m?.user?._id ?? m?.user ?? m?._id ?? m;
+const createdById = tour.createdBy?._id ?? tour.createdBy;
+return String(uid) === String(me._id);
+```
 
-**Hooks** (`hook/`):
-- **`useGameAutoReconnect.ts`** (mới): NetInfo + AppState + socket disconnect listener. Khi active/online → force `socket.connect()` + `emit subscribeEvent` + `refetch()`. Polling fallback 5s. Return `connStatus`
-- Apply cho 5 game (Phỏm/Sâm/Caro/Chess/Xiangqi); Poker đã có pattern sẵn
+Files sửa:
+- **Web**: `TournamentManagePage.jsx:1387`, `TournamentRegistration.jsx:1595`, `TournamentOverviewPage.jsx:631`
+- **Mobile**: `app/tournament/[id]/home.tsx:179`, `manage.tsx:1780`, `register.tsx:1544`
+- **Backend hygiene**: `tournamentController.js:3169` — `_managerUserIds` dùng `r.user?._id ?? r.user`
+- **`TournamentConsoleShell.tsx`** dùng helper `sid()` đã handle populated → KHÔNG cần fix
 
-**Sound** (`lib/gameSound.ts` mới — standalone):
-- Ban đầu wrap pokerSounds → user báo không nghe sound
-- **Fix**: rewrite standalone dùng `require("../assets/sfx/click4.mp3")` **relative** (thay `@/` alias có thể fail OTA bundle). Verbose `console.log` errors. Fallback remote URL `https://pickletour.vn/uploads/sfx/click.mp3` khi bundled asset fail
-- Preset 10 kind `chip/deal/fold/check/call/raise/allin/win/lose/warning` với volume+rate khác
-- Wire vào 5 game screens: `playSound()` on move/action, `warmupSounds()` in useEffect mount
+**Bonus fix 403 "insufficient role" khi manager duyệt waitlist:**
+- Route `/api/admin/tournaments/registrations/:regId/*` bị `authorize("admin")` chặn
+- Fix bằng 2 bước:
+  1. Thêm helper `attachTournamentFromRegistration` + mở rộng `requireTournamentManager` đọc thêm `req.params.id / tourId / tid`
+  2. **DỜI 6 route registration lên TRƯỚC `router.use(protect, authorize("admin"))` line 452** — express match first-declared
+- Endpoint: PUT `/payment`, `/checkin`, GET `/history`, PATCH/DELETE `/registrations/:regId`, GET/POST `/tournaments/:id/registrations`
 
-### 3.4 Host system (chủ phòng) — áp dụng 5 game mới
+**Bonus fix realtime cache:**
+- `getRegistrations` query thiếu `providesTags` → mutation invalidate không match → phải F5
+- Fix: `providesTags: [{Registrations, tourId}, {Registrations, LIST}]` + `managerSetRegStatus` invalidate `[LIST, regId]`
+- Apply cả web + mobile slice
 
-Session gần cuối user yêu cầu:
+### 3.4 Feature: chuyển cặp chính thức → waitlist
 
-- **Auto-sit creator** vào ghế 0 khi tạo bàn (không cần bấm Ngồi)
-- **Chỉ chủ phòng bấm Bắt đầu** (`req.user._id === room.createdBy` else 403). Non-host thấy nút xám "CHỜ CHỦ PHÒNG"
-- **Chặn ngồi khi ván đang chơi** (`stage === "playing"` / `downing` / `xin_sam`) → throw "Ván đang chơi — vui lòng chờ ván kết thúc rồi vào"
-- **Transfer host khi rời**: nếu leaver là `createdBy` → gán `createdBy` cho seat còn user (tìm seat.find(s => s.user))
-- **Back button confirm**: mobile Alert "Thoát phòng?" → OK → `leaveRoom` + `router.back()`; nếu chưa ngồi thì back luôn
-- **Auto-close bàn khi hết người**: sau `leaveRoom`, `if (!seats.some(s => s.user)) room.status = "closed"` — bàn biến khỏi lobby list
+**Commits:** `8d8d9ba4` (BE + web), `8dc9fd0` (mobile), `39e7aeab` (fix prop drop)
 
-### 3.5 Realtime lobby list + avatars ([`acffb8c6`](https://github.com/den3110/abcdk-/commit/acffb8c6))
+**Backend** (`adminRegistrationController.js:344-365`):
+- Thêm `"waitlisted"` vào `demote` logic (trước chỉ `rejected/withdrawn`)
+- Khi `approved → waitlisted`: giảm `tour.registered`, clear `approvedBy/approvedAt`, chạy `autoPromoteRegistrationFromWaitlist`
 
-- Backend 5 controller: helper `broadcastLobby()` emit `<game>:lobby:updated` sau mỗi createRoom / update / leave
-- Socket handlers cho 5 game: `<game>:lobby:subscribe` / `:unsubscribe` join/leave room `<game>:lobby`
-- List endpoint response thêm `seatUsers: [{_id, nickname, name, avatar}]` + `createdBy`
-- Mobile 5 lobby screens: `useEffect` subscribe socket lobby, unsubscribe on unmount. Refetch on event
-- Render `<RoomListItem>` với avatar row (avatar 28x28 chồng nhau, empty slot outline icon, tên VĐV "A, B, C +2")
+**Web** (`TournamentRegistration.jsx`):
+- Handler `handleDemoteToWaitlist` với `window.confirm` mô tả hậu quả
+- `ActionButtonsInner`: nút mới icon `WaitlistIcon` (hourglass) màu amber `#b45309`, label "Chờ duyệt"
+- **Bug prop drop**: `ActionButtons` memo wrapper destructure explicit — thiếu `onDemoteToWaitlist` khiến prop bị drop. Fix commit riêng `39e7aeab`
 
-### 3.6 Speech bubble + avatar cho 3 game mới
+**Mobile** (`app/tournament/[id]/register.tsx`):
+- Handler với `Alert.alert` confirm (destructive style)
+- Nút icon `hourglass-outline` màu cam trong RegItem, chỉ hiện khi `canManage`
+- `busy.demotingId` để disable trong lúc call
 
-- Caro/Chess/Xiangqi: PlayerBox/PlayerBar render avatar tròn + fallback initial letter khi seat ngồi
-- Speech bubble: track `bubbles` state, useEffect watch `messages.length` → gán bubble cho sender 4s, cleanup tick 1s. Import shared `SpeechBubble` từ `GameTableUI`
+### 3.5 SEO overhaul
+
+**Commits:** `425db7ab`, `4cd5bc76`, `cf0acab6`, `40011a47`, `0eac7162`, `9f156991`
+
+**Phase A — HTML tĩnh:**
+- `index.html`: bỏ `maximum-scale=1, user-scalable=no` → thêm `viewport-fit=cover`. Bỏ hreflang `en` trỏ trùng URL. Bỏ hardcoded canonical + og:title/desc/image/url + twitter:* để Helmet control dynamic (giữ og:type/site_name/locale + twitter:card static)
+- `robots.txt`: fix double `/api/api/seo-news/sitemap.xml`, thêm Disallow auth pages
+- `SEOHead.jsx`: bỏ hreflang `en` giả trong dynamic head
+
+**Phase B — Canonical dynamic + JSON-LD SportsEvent:**
+- `TournamentDetailPage.jsx` (Astryx v3): thêm `ogImage` từ tour.image/coverUrl, `path` `/tournament/:id`, `ogType="event"`, JSON-LD SportsEvent với sport/startDate/endDate/location/geo/organizer/eventStatus
+- `TournamentOverviewPage.jsx` (v1): sửa prop `image` → `ogImage` (Helmet ignore), `@type` Event → SportsEvent, canonical `/tournament/:id` thay vì `/overview`, eventStatus map theo tour.status
+
+**Phase C — Sitemap dynamic:**
+- `backend/controllers/sitemapController.js` (mới): 3 endpoint
+  - `GET /api/sitemap/index.xml` — sitemap-index
+  - `GET /api/sitemap/tournaments.xml` — mọi giải `isTest=false`, sort mới nhất, 5000 URL cap
+  - `GET /api/sitemap/clubs.xml` — CLB `visibility="public"`
+- `frontend/public/sitemap.xml` chuyển thành sitemap-index trỏ static + tournaments + clubs + news
+- `frontend/public/sitemap-static.xml` (mới) chứa home + list pages cũ (9 URL)
+- **Kết quả**: 63 tournaments + 14 clubs được Google index (trước chỉ 9 URLs static)
+
+**Phase D — Prerender puppeteer:**
+- `backend/controllers/prerenderController.js` (mới, 210 dòng): browser singleton reuse (`getBrowser()` lazy launch), NodeCache TTL 1h, block image/font/media để render nhanh, UA browser (`Prerender` suffix) để nginx không loop rewrite, skip static ext (`.html`, `.js`, `.css`, `.jpg`, `.pdf`, `.woff`...) + skip auth path prefixes
+- Endpoint `GET /prerender/*` mount tại `server.js:332`
+- `/prerender/_health` endpoint debug (cache stats + browser alive)
+- **Nginx config trên VPS** (`/etc/nginx/conf.d/prerender-bot.conf` + patch `/etc/nginx/sites-enabled/default`):
+  - `map $http_user_agent $pkt_is_bot { ... 20 bot patterns ... }`
+  - `location /prerender/ { proxy_pass http://127.0.0.1:5001/prerender/; ... }`
+  - Trong `location / { if ($pkt_is_bot = 1) { rewrite ^(.*)$ /prerender$1 last; } ... }`
+  - `location ^~ /guides/`, static file exact matches cho `/robots.txt`, `/sitemap.xml`, `/favicon-64.png` etc để bot serve tĩnh không loop rewrite
+- **VPS deps**: `apt-get install libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2t64 libatspi2.0-0` (chromium runtime deps)
+
+**Bug fixes trong phase D:**
+- `NON_API_PREFIXES` middleware `server.js:265` tự prepend `/api` cho path không thuộc allowlist → cần thêm `/prerender` vào allowlist
+- `router.get(/.*/, ...)` không match trong express 4 path-to-regexp → chuyển sang `router.use(catch-all handler)`
+- Helmet không override hardcoded canonical/og trong index.html → bỏ hardcoded
+
+**Guides fix:**
+- `yarn build:deploy` dùng `rsync -a --delete dist/` xóa mọi thứ ngoài dist → guide files upload trực tiếp bị xóa mỗi rebuild
+- Fix: đưa vào `frontend/public/guides/{mlp.html, mlp.pdf}` → Vite copy vào dist mỗi lần build → không bị xóa
+- Thêm nginx `location ^~ /guides/ { try_files $uri =404; }` TRƯỚC bot rewrite → static serve trực tiếp
+- Cũng thêm `.html` vào STATIC_EXTS của prerenderController để backup guard
+
+**End-to-end verify:**
+- Bot Googlebot GET `/tournament/xxx` → 200, 86KB, title đúng "SE7ENPICK OPEN IV...", canonical `https://pickletour.vn/tournament/6a72dd73...` (đúng URL riêng), og:image poster giải, JSON-LD SportsEvent + BreadcrumbList + Place + PostalAddress
+- Browser normal → 200, 5.4KB SPA (không đổi behavior)
+
+### 3.6 Toggle displayMode tên VĐV
+
+**Commits:** `dc7dcc3e` (root), `5e8ed20` (mobile)
+
+Trang manage: option chuyển giữa "Biệt danh" (mặc định) và "Họ và tên". Persist per-user localStorage/AsyncStorage `pickletour:manage:nameDisplayMode`.
+
+**Web** (`TournamentManagePage.jsx:1387`):
+- State `nameModeOverride` + `handleChangeNameMode` callback
+- `displayMode = nameModeOverride || getTournamentNameDisplayMode(tour)`
+- ToggleButtonGroup ("Biệt danh" / "Họ và tên") trong toolbar cạnh dropdown "Tên overlay"
+
+**Mobile** (`app/tournament/[id]/manage.tsx`):
+- Đổi `personNickname(p)` thành `personName(p, mode)` toplevel + `pairLabel(pair, mode)`
+- State `nameMode` + AsyncStorage `NAME_MODE_STORAGE_KEY`
+- Wrapper `nameOfPlayer`, `labelOfPair` callback, dùng trong `resolveName`
+- Menu ba chấm header: item toggle với label động "Tên: Biệt danh → Đổi Họ và tên" (và ngược lại)
+
+Fallback: nếu `fullName` trống với mode="fullName" → fallback nickname (không hiện "—").
+
+### 3.7 Version bump 1.1.14 build 44
+
+**Commits:** `f97d284` (mobile), `2c5b3356` (root submodule bump)
+
+- `app.json`: version "1.1.14", buildNumber "44", versionCode 44
+- `android/app/build.gradle`: versionName "1.1.14", versionCode 44
+- 5 Info.plist (all iOS folders) qua `plutil -replace`: CFBundleShortVersionString=1.1.14, CFBundleVersion=44
+- 5 xcodeproj: MARKETING_VERSION=1.1.14, CURRENT_PROJECT_VERSION=44
+
+**Android build local**: `~/Desktop/pickletour-android/pickletour-1.1.14.{apk,aab}` (115MB + 160MB) — user upload Play Console.
+
+**iOS build**: user tự Archive qua Xcode UI từ **`ios/Pickletourvn.xcworkspace`** (Pods sẵn có). **KHÔNG dùng `ios 2/`** như HANDOVER cũ mention — `ios 2/` chưa có Pods và bị bug `tar extract` do path có dấu space. HANDOVER §3 mục 6 outdated về Live Activity — target Xcode ở cả 2 folder chỉ 1 target `Pickletourvn`.
+
+### 3.8 Manager tự tạo bracket + manual pool + Blueprint AI (5 phase)
+
+**Commits:** `18b51fdd` (BE Phase 1), `df7fcdce` (FE Phase 2+3), `ffbf6532` (FE Phase 5)
+
+**Phase 1 — Backend mở quyền** (`backend/routes/adminRoutes.js`):
+Thêm 15 route TRƯỚC `router.use(protect, authorize("admin"))` line 491 với chain riêng:
+- **Bracket CRUD**: `POST/PATCH/DELETE /tournaments/:id/brackets[/:bid]` + `knockout/rebuild` + `GET /brackets/:bid` + `matches/clear` + `batch-delete` + `round-elim/skeleton`
+- **Group slot**: `insert-slot` / `structure` / `generate-matches` per group
+- **Plan**: `/plan/auto`, `/plan/commit`, `/plan/impact`, `/plan/suggest`, `/plan/suggest-and-commit`, GET/PUT `/plan`
+
+Chain: `[protect, attachTournamentFromBracket, requireTournamentManager]` cho route có `:bracketId`, hoặc `[protect, requireTournamentManager]` cho route có `:id/:tourId/:tournamentId`. Draw endpoints đã manager-safe từ trước.
+
+**Route cũ dưới `router.use(authorize("admin"))` vẫn tồn tại** — Express match first-declared → route mới thắng.
+
+**Phase 2 + 3 — Frontend BracketsPanel** (`frontend/src/components/tournament-manage/BracketsPanel.jsx`, mới ~640 dòng):
+- Card list bracket: badge type, stage/order, số bảng hoặc drawSize, nút Sửa/Xoá/Rebuild(KO)/Clear matches, "Chia bảng thủ công" (group only)
+- **BracketEditorDialog**: form tạo/sửa với dropdown 5 type (`group/knockout/roundElim/round_robin/double_elim`), fields động: `groupCount+groupSize` (group), `drawSize+drawRounds` (KO/RE), `stage+order`, rules `bestOf+pointsToWin+winByTwo`
+- **ManualPoolAssignDialog** (Phase 3): table cặp reg với dropdown "Bảng" (A/B/C/None). Save → loop `insertRegistrationIntoGroup` cho mỗi cặp đổi, `autoGrowExpectedSize:true`. Header chip counter mỗi bảng
+- Wire vào `TournamentManagePage.jsx`: thêm item `v2SettingsItems` = `{value:"brackets", label:"Vòng đấu", icon:<AccountTreeIcon/>}` sau `courts`, thêm case renderer
+
+**Phase 5 — Blueprint AI Planner** (`frontend/src/components/tournament-manage/BlueprintDialog.jsx`, mới ~480 dòng):
+- MVP UX 3-step Stepper:
+  1. **Cấu hình**: input số cặp (auto-fill từ approved regs) + hint 4 chip (auto/group/po/ko)
+  2. **Xem plan**: 2 nút "🪄 AI đề xuất" (`planSuggest`, OpenAI) hoặc "⚙ Auto" (`planAuto`, deterministic fallback nếu OpenAI down). Preview 3 card stage summary + JSON raw có nút Copy
+  3. **Áp dụng**: impact preview (`planImpact`) với 6 type badge (unchanged/create/rebuild/update_rules/delete/locked_conflict + icon 🔒). 2 nút commit: "Áp dụng an toàn" (`safe_apply`) hoặc "⚠ Thay toàn bộ" (`replace_all`) + double confirm
+- Nút Blueprint AI đứng cạnh "Tạo vòng đấu" trong BracketsPanel header
+
+**Slice mới** (`frontend/src/slices/tournamentsApiSlice.js`):
+- Bracket CRUD: `useCreateBracketMutation`, `useUpdateBracketMutation`, `useDeleteBracketMutation`, `useRebuildKnockoutBracketMutation`, `useClearBracketMatchesMutation`, `useBuildRoundElimSkeletonMutation`, `useUpdateGroupStructureMutation`
+- Blueprint: `useGetTournamentPlanQuery`, `useUpdateTournamentPlanMutation`, `useSuggestTournamentPlanMutation`, `usePreviewBlueprintImpactMutation`, `useCommitTournamentPlanMutation`, `useAutoPlanTournamentMutation`
+
+**Không đụng logic**: controllers KHÔNG đổi, chỉ auth mount + layer UI mới. Admin panel `admin.pickletour.vn/admin/tournaments/:id/brackets` + `/blueprint` vẫn work y nguyên.
+
+### 3.9 Guides MLP (HTML + PDF hosted)
+
+**Commit + upload standalone:**
+- `frontend/public/guides/mlp.html` (31KB) — full HTML doc với DOCTYPE + head + hero + 8 section (bao gồm 4 roles, 4 sub-match + DreamBreaker, BXH tiebreak, luồng 9 bước, Q&A)
+- `frontend/public/guides/mlp.pdf` (820KB) — render qua Chrome headless từ standalone HTML
+- URL: `https://pickletour.vn/guides/mlp.html`, `.pdf`
+- Nginx `location ^~ /guides/` cache 1h, serve tĩnh trực tiếp
 
 ---
 
 ## 4. Bug fix + Landmine đã ghi nhận
 
-### 4.1 Sound OTA không hoạt động (đang test)
+### 4.1 (fixed) Poker mất chip khi all-in không bằng
+Fix `refundUncalledBet` + `buildSidePots`. Chi tiết §3.2.
 
-Turn giữa session user báo "chưa nghe âm thanh". Có 2 lần rewrite `gameSound.ts`:
-- Lần 1: wrap pokerSounds với dynamic `require("@/app/poker/pokerFx")` → user chọn dynamic require có thể fail trong metro OTA bundle
-- Lần 2 (**đang deploy**): standalone, `require("../assets/sfx/click4.mp3")` relative, verbose log, fallback URL `https://pickletour.vn/uploads/sfx/click.mp3`
+### 4.2 (fixed) Sâm không đánh được A-2-3-4-5
+Fix comboType thêm nhánh A-low + compareCombos ưu tiên nhỏ hơn. Chi tiết §3.2.
 
-**Chưa verify** user đã reload OTA + test lại. Nếu vẫn không nghe:
-- Kiểm tra logs `console.log("[gameSound]", ...)` trong dev tools
-- File remote URL `pickletour.vn/uploads/sfx/click.mp3` **chưa upload** — nếu bundled fail thì remote cũng fail → 0 sound. Upload file mp3 cùng path lên VPS `/var/www/pickletour.vn/uploads/sfx/click.mp3`
+### 4.3 (fixed) Manager thấy màn quản lý bị disable
+Fix stringify populated user object. Chi tiết §3.3.
 
-### 4.2 Sâm bug tên winners "?" (đã fix)
+### 4.4 (fixed) 403 "insufficient role" khi duyệt waitlist
+Fix bằng dời route lên trên wildcard middleware. Chi tiết §3.3.
 
-`endHand` viết `winners[i].userName = seat.user?.nickname` nhưng lúc endHand seat.user chỉ là ObjectId (chưa populate) → tên = "?". Fix: `enrichWinners(room)` chạy lúc serializeRoom, resolve tên từ populated `seats` sau khi populate. Apply cho cả Phỏm + Sâm.
+### 4.5 (fixed) Chip poker mobile đè hole cards
+Tách chip stack khỏi Seat container. Chi tiết §3.2.
 
-### 4.3 Sâm rank order (đã fix)
+### 4.6 (fixed) SPA canonical duplicate → Google deindex
+Bỏ hardcoded canonical trong index.html + Helmet dynamic set. Chi tiết §3.5.
 
-Sâm dùng thứ tự **3<4<...<K<A<2** (2 là heo cao nhất). Engine ban đầu dùng `rankValue` từ `cardDeck.js` — thứ tự Phỏm (2 nhỏ nhất). → 2 không đè được J. Fix: local `SAM_ORDER` + `samRankValue` + `samSortHand`. Apply mọi chỗ compare trong samEngine.
+### 4.7 (fixed) Sitemap chỉ 9 URL static → Google không thấy tournaments/clubs
+Sinh động qua backend endpoint. 63 + 14 URL mới lộ diện. Chi tiết §3.5.
 
-### 4.4 Sâm end rule sai (đã fix)
+### 4.8 (fixed) Zalo/FB share preview meta chung
+Prerender puppeteer + nginx UA rewrite. Chi tiết §3.5.
 
-Ban đầu chờ 3/4 người hết bài mới endHand. Rule đúng: **1 người hết bài = thắng ván ngay**. Fix trong `applyAction("play")`: sau khi `seat.hasFinished = true` + `finishOrder=1`, xếp thứ tự các seat còn lại theo `cards.length`, hasFinished all, endHand.
+### 4.9 (fixed) Guides bị xóa mỗi lần rebuild
+Đưa vào `public/guides/`. Chi tiết §3.5.
 
-### 4.5 Modal iOS crash landscape (đã fix)
+### 4.10 (fixed) Realtime không update sau duyệt reg
+Thêm `providesTags` cho `getRegistrations`. Chi tiết §3.3.
 
-Khi bấm "Mời bạn" trong landscape (Phỏm/Sâm) → crash `RCTFabricModalHostViewController shouldAutorotate is returning YES` vì screen lock landscape nhưng Modal expect autorotate. Fix: thêm `supportedOrientations={["portrait", "landscape", "landscape-left", "landscape-right"]}` cho tất cả `<Modal>` trong game rooms.
+### 4.11 (fixed) ActionButtons memo wrapper drop props
+Cần explicit destructure + forward TẤT CẢ props tương lai. Xem `TournamentRegistration.jsx:728`. Nếu add prop mới, phải update cả `ActionButtons` (memo) + `ActionButtonsInner`.
 
-### 4.6 RTK tagTypes warning (đã fix)
+### 4.12 (chưa fix) `swiss` bracket type chưa có generator
+Enum tồn tại nhưng builder không có code. Nếu user chọn type này → tạo bracket nhưng không sinh match được. **Cần đề phòng UI**: BracketEditorDialog **KHÔNG list swiss** trong dropdown 5 type (chỉ group/knockout/roundElim/round_robin/double_elim).
 
-Thêm `PhomRoom`, `SamRoom`, `CaroRoom`, `ChessRoom`, `XiangqiRoom` vào `apiSlice.js` tagTypes[]. Tránh warning `Tag type 'X' was used, but not specified`.
+### 4.13 (chưa fix) `protectSameClub` field không hoạt động
+`buildSeeding` chưa implement — chỉ enum trong `bracket.config.seeding.protectSameClub`. TODO comment ở `progressionService.js:345`.
 
-### 4.7 Ván mới báo "Ván đang chơi" (đã fix)
+### 4.14 (chưa fix) 3 hàm tính standings song song
+`groupStandings.js`, `progressionService.js:computeQualifiersFromGroups`, `drawController.js:buildStandingsForBracket` — fields + ordering khác nhau. Nếu cần source-of-truth thống nhất nên consolidate.
 
-Sau `endHand`, `stage = "showdown"`. `startHand` check `stage !== "waiting"` → block. Fix: check `stage !== "waiting" && stage !== "showdown"` cho cả Phỏm/Sâm/Caro/Chess/Xiangqi.
+### 4.15 (chưa fix) `seedType matchWinner/matchLoser` bị commented out trong enum
+`seedSourceSchemaModel.js:37-38` COMMENTED OUT, resolver vẫn xử lý. Mongoose validate strict sẽ reject nếu save Match với seed type này qua public API — chỉ dùng khi assign programmatic bypass validation.
 
-### 4.8 Hero seat che hand (đã fix)
+### 4.16 (chưa fix) iOS Pods bị bug tar-extract khi path có dấu space
+`ios 2/` folder không chạy `pod install` được (React Native prebuilt binaries fail tar extract). Workaround đã thử:
+- Symlink không giúp (cocoapods resolve realpath)
+- Env `RCT_USE_PREBUILT_RNCORE=0` + `Podfile.properties.json` `ios.buildReactNativeFromSource: true` → chạy được nhưng gặp lỗi khác (RNZipArchive iOS 15.5 mismatch, lottie-ios version conflict)
+- Recommended: dùng folder **`ios/`** (Pods đã sẵn, tên không space)
+- Nếu cần Live Activity widget từ `ios 2/`: cần rebuild Pods hoặc rename folder tạm thời
 
-Bottom seat position `top: 82%` overlap với hand strip bottom. Fix: nếu `i === 0 && !empty && isMine` → không render seat frame. Thay bằng hero info bar (chip + turn indicator) ở góc dưới-phải.
+### 4.17 (chưa fix) `ko.startKey` FE đọc từ `current?.ko?.startKey`
+Schema Bracket KHÔNG có field `ko`. Property này compose ở FE hoặc lấy từ DrawSession. Nếu định làm feature dựa vào startKey cần check nguồn thực tế.
 
-### 4.9 UI layout landscape (đã fix)
-
-- Top seat `top: 22%` (từ 12%) — tránh Dynamic Island
-- Left/right seat 14%/86% (từ 8%/92%) — tránh back button + purple stack
-- Timer bar `top: insets.top + 50` — không đè avatar top
-
-### 4.10 Legacy pokerFx dynamic require không load (chuyển sang static)
-
-Ban đầu code Phỏm/Sâm dùng `try { const { playFx } = require("@/app/poker/pokerFx"); playFx(...); } catch {}`. Fail silently. Fix: static import `playSound` từ `lib/gameSound.ts` mới.
-
-### 4.11 Sound bundled asset có thể fail OTA
-
-`@/` alias phụ thuộc Metro config. Trong OTA bundle (hot-updater) chưa chắc alias resolve. Fix: `require("../assets/sfx/click4.mp3")` relative. Nếu vẫn không nghe → verify path bundle mismatch.
+### 4.18 Nginx conflicting server name warnings
+`nginx -t` warn về `apispc.pickletour.vn`, `ytb.pickletour.vn` v.v. conflicting — không ảnh hưởng function, chỉ noise.
 
 ---
 
@@ -267,21 +336,18 @@ Ban đầu code Phỏm/Sâm dùng `try { const { playFx } = require("@/app/poker
 
 ### 5.1 Priority cao
 
-- 🔴 **Sound verify**: user báo chưa nghe. Đã ship version 3 của gameSound (standalone + relative + remote fallback). **CẦN USER TEST + FEEDBACK**. Nếu vẫn không nghe:
-  - Upload `click.mp3` lên `https://pickletour.vn/uploads/sfx/click.mp3` (tạm dùng chính `click4.mp3` từ mobile repo)
-  - Đọc log `[gameSound]` để trace lỗi
-- 🟡 **Backend prod đã restart**. VPS đã `npm install chess.js`. Nếu deploy tiếp cần chạy `npm install` khi có thay đổi package.json
-- 🟡 **Android build local có sẵn** tại `~/Desktop/pickletour-android/pickletour-1.1.13.{apk,aab}`. User có thể upload AAB lên Play Console hoặc share APK sideload
+- 🟡 **Deploy Android 1.1.14 Play Console** — file .aab ready tại `~/Desktop/pickletour-android/pickletour-1.1.14.aab` (160MB). User tự upload
+- 🟡 **Build + Deploy iOS 1.1.14 App Store** — user tự Archive qua Xcode UI từ `ios/Pickletourvn.xcworkspace` (Pods sẵn). Upload TestFlight → Submit for Review
+- 🟡 **Sau khi 1.1.14 live** — cập nhật memory `ota_targets.md` sang target `1.1.14`
 
 ### 5.2 Priority thấp
 
-- **Gửi bài Phỏm**: UI nút "Gửi bài" hiện Alert placeholder "đang hoàn thiện". Backend `applyGuiBai(card, targetSeat, meldIdx)` đã có. Cần wire UI: chọn 1 lá → tap phỏm người khác → server validate ghép + apply
-- **Poker chưa apply host system** (chủ phòng only start / auto-sit creator / back confirm / block sit mid-hand). Poker có ~500 lines pre-existing, session này để nguyên. Nếu apply sau: mirror pattern 5 game mới
-- **Sound assets nghèo**: chỉ 1 mp3 click4.mp3. Nên thêm mp3 riêng cho chip/deal/win/... vào `assets/sfx/`. Đây là rebuild binary — không OTA được. Alternative: dùng `playRemoteSound(url)` load từ VPS
-- **Xin sâm bắt sâm UI chưa test đủ**: seat.hasClaimedSam badge, banner countdown "Xin sâm · Xs" khi stage=xin_sam. Verify flow 4 người
-- **Chess promotion UI**: hiện auto-promote Queen. Không có picker cho Rook/Bishop/Knight. Nice-to-have
-- **Xiangqi chưa detect chiếu tướng**: user đánh nước để tướng bị chiếu vẫn valid. Chỉ end khi bắt K/k
-- **Web version cho 5 game mới**: chưa có (Poker cũng chưa). Nếu muốn ship: build room screen React MUI + reuse RTK slices
+- **Blueprint AI chỉ MVP** — chưa có form design chi tiết per stage (BlueprintDesignerStep của admin panel 5919 dòng chưa clone). User dùng "Auto" hoặc "AI đề xuất" rồi fine-tune qua BracketsPanel CRUD dialog
+- **Manual pool assign UX cải tiến** — drag-and-drop thay vì dropdown Select (hiện dùng Select)
+- **`bulkAssignSlotPlan` endpoint** cần `requireSuperAdmin` (adminRoutes.js:634) — chưa mở cho manager. Nếu cần: bỏ superadmin gate hoặc tạo endpoint mới
+- **`swiss` generator missing** — nếu ship feature swiss cần implement
+- **Live Activity widget iOS** — nếu chuyển sang `ios/` build thì có mất widget không? Cần verify với user
+- **Cleanup route cũ** dưới `router.use(authorize("admin"))` sau khi confirm route mới ổn định vài tuần
 
 ---
 
@@ -295,127 +361,148 @@ User: root
 Password: Hoang@07082026
 ```
 
-`PasswordAuthentication yes` + `PermitRootLogin yes` từ session trước.
+`PasswordAuthentication yes` + `PermitRootLogin yes`. Dùng qua sshpass:
+```bash
+SSHPASS='Hoang@07082026' sshpass -e ssh -o StrictHostKeyChecking=no root@103.90.225.130 "..."
+```
 
-### 6.2 OTA hot-updater — Rule mới trong session
+### 6.2 OTA hot-updater — Rule cũ vẫn áp
 
-Trong session build tăng dần:
 ```bash
 cd pickletour-app-mobile
 export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
 set -a && source .env.hotupdater && set +a
 
-# Chỉ ios 1.1.13 mỗi lần
+# Trong session build tăng dần — chỉ ios 1.1.13
 rm -rf .hot-updater/output
-./node_modules/.bin/hot-updater deploy -p ios -t 1.1.13 -c production -m "update game"
-```
+./node_modules/.bin/hot-updater deploy -p ios -t 1.1.13 -c production -m "update"
 
-Khi hoàn tất tính năng lớn (user báo "xong hết"):
-```bash
-for target in "ios 1.1.13" "ios 1.1.9" "android 1.1.13" "android 1.1.9"; do
+# Khi user báo final (SAU KHI 1.1.14 live store)
+for target in "ios 1.1.14" "ios 1.1.13" "android 1.1.14" "android 1.1.13"; do
   rm -rf .hot-updater/output
   ./node_modules/.bin/hot-updater deploy -p $(echo $target | cut -d' ' -f1) \
-    -t $(echo $target | cut -d' ' -f2) -c production -m "update game"
+    -t $(echo $target | cut -d' ' -f2) -c production -m "update"
 done
 ```
 
-### 6.3 Android keystore (đã có trong `~/.gradle/gradle.properties`)
+### 6.3 Android keystore + build (không đổi)
 
 ```
-PICKLETOUR_UPLOAD_STORE_FILE=app/pickletour-upload.jks
-PICKLETOUR_UPLOAD_STORE_PASSWORD=datistpham
-PICKLETOUR_UPLOAD_KEY_ALIAS=upload20260322
-PICKLETOUR_UPLOAD_KEY_PASSWORD=datistpham
-```
-
-### 6.4 Android build local
-
-```bash
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17
 export PATH=$JAVA_HOME/bin:$PATH
 export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 cd pickletour-app-mobile/android
-./gradlew :app:assembleRelease   # → app/build/outputs/apk/release/app-release.apk
-./gradlew :app:bundleRelease     # → app/build/outputs/bundle/release/app-release.aab
+./gradlew :app:bundleRelease :app:assembleRelease
 ```
 
-Build ~3-4 phút. `Java 17` bắt buộc (Java 11 không dùng được với RN 0.83).
+Output: `app/build/outputs/{apk,bundle}/release/app-release.{apk,aab}`. Copy sang `~/Desktop/pickletour-android/pickletour-1.1.14.{apk,aab}`.
 
-### 6.5 Restart backend nhanh
+### 6.4 iOS build qua Xcode UI
+
+```
+open "/Users/admin/Desktop/Projects/Pickletour/abcdk/pickletour-app-mobile/ios/Pickletourvn.xcworkspace"
+```
+Signing & Capabilities → check Team → Product → Archive → Organizer → Distribute App → App Store Connect → Upload.
+
+Version 1.1.14 build 44 đã bump sẵn. Pods đã có (Firebase, Clarity, BitByteData, ...) → không cần `pod install`.
+
+### 6.5 Backend restart nhanh
 
 ```bash
 SSHPASS='Hoang@07082026' sshpass -e ssh -o StrictHostKeyChecking=no root@103.90.225.130 \
-  "cd /abcdk- && git pull origin master 2>&1 | tail -3 && pm2 restart server 2>&1 | tail -3"
+  "cd /abcdk- && git pull origin master 2>&1 | tail -3 && pm2 restart server 2>&1 | grep server"
 ```
 
-Nếu có thay đổi `package.json`: thêm `&& npm install --no-audit` trước `pm2 restart`.
+Nếu `package.json` đổi: thêm `&& npm install --no-audit` trước pm2 restart.
 
-### 6.6 Frontend web rebuild
+### 6.6 Frontend web rebuild + deploy
 
 ```bash
 SSHPASS='Hoang@07082026' sshpass -e ssh -o StrictHostKeyChecking=no root@103.90.225.130 \
   "cd /abcdk-/frontend && yarn build:deploy 2>&1 | tail -5"
 ```
 
-`yarn build:deploy` = `vite build` + rsync `dist/` → `/var/www/pickletour.vn/`. ~2 phút.
+`yarn build:deploy` = `vite build` + `rsync -a --delete dist/ /var/www/pickletour.vn/`. ~1m50s.
+
+**Lưu ý**: `--delete` flag xóa mọi thứ ngoài dist. Files upload trực tiếp SSH sẽ bị xóa mỗi rebuild — cần đưa vào `frontend/public/` để Vite copy vào dist.
+
+### 6.7 Prerender debug
+
+```bash
+curl -sS https://pickletour.vn/prerender/_health   # cache stats + browser alive
+curl -sS -A "Googlebot" https://pickletour.vn/tournament/<id>  # test bot render
+```
+
+Nếu prerender fail 502: check `pm2 logs server --err` cho chromium missing libs.
 
 ---
 
-## 7. API endpoints mới (games)
+## 7. API endpoints mới trong session
 
-Tất cả tuân theo pattern `/api/<game>/rooms/*`:
+### 7.1 SEO
 
-| Endpoint | Method | Chức năng |
+| Endpoint | Method | Mô tả |
 |---|---|---|
-| `GET  /rooms` | public | List rooms (với `seatUsers` avatars + `createdBy`) |
-| `POST /rooms` | protect | Create + auto-sit creator vào seat 0 |
-| `GET  /rooms/:id` | protect | Get room detail |
-| `POST /rooms/:id/sit` | protect | Ngồi ghế (block khi playing) |
-| `POST /rooms/:id/leave` | protect | Rời ghế, transfer host, auto-close nếu empty |
-| `POST /rooms/:id/start` | protect | Bắt đầu ván (chỉ createdBy) |
-| `POST /rooms/:id/action` | protect | Game-specific action |
-| `POST /rooms/:id/chat` | protect | Chat |
-| `POST /rooms/:id/emoji` | protect | Emoji ephemeral (Phỏm/Sâm/Caro) |
-| `POST /rooms/:id/invite` | protect | Invite friends push notif |
+| `/api/sitemap/index.xml` | GET | Sitemap-index root (5 children) |
+| `/api/sitemap/tournaments.xml` | GET | Sitemap 5000 tournament URL |
+| `/api/sitemap/clubs.xml` | GET | Sitemap CLB public |
+| `/prerender/*` | GET | Puppeteer render SPA cho crawler (mounted /prerender, không /api/) |
+| `/prerender/_health` | GET | Debug cache + browser status |
 
-**Sâm-specific**: `POST /rooms/:id/xin-sam` · `/bat-sam` · `/skip-xin-sam`
-**Chess/Xiangqi-specific**: `POST /rooms/:id/resign`
+### 7.2 Manager-accessible (đã có trước, giờ mở quyền)
 
-Socket rooms:
-- `<game>:room:${id}` — mỗi phòng có event `<game>:room:updated`, `<game>:room:chat`, `<game>:room:emoji`
-- **`<game>:lobby`** — realtime lobby list, event `<game>:lobby:updated`
+Tất cả 15 endpoints trong `adminRoutes.js` lines TRƯỚC `router.use(authorize("admin"))` line 491 — chain manager:
+- `POST/PATCH/DELETE /api/admin/tournaments/:id/brackets[/:bid]`
+- `POST /api/admin/tournaments/:tid/brackets/:bid/knockout/rebuild`
+- `GET/POST /api/admin/brackets/:bid` (get, matches/clear, batch-delete, round-elim/skeleton)
+- `POST/PATCH /api/admin/brackets/:bid/groups/:gid/*` (insert-slot, structure, generate-matches)
+- `POST/GET/PUT /api/admin/tournaments/:id/plan/*` (auto, commit, impact, suggest, suggest-and-commit, /plan)
 
 ---
 
 ## 8. Snapshot commit history session
 
-**Root** `abcdk-`: `78483aa6 → f9819f31` (~58 commits root — chỉ list landmark):
+**Root** `abcdk-`: `db606cb4 → ffbf6532` (~20 commits, chỉ list landmark):
 
-1. [`4bd4c6d1`](https://github.com/den3110/abcdk-/commit/4bd4c6d1) — maxTeamScore MLP
-2. [`0026030f`](https://github.com/den3110/abcdk-/commit/0026030f) — Court cluster referee union
-3. [`bcef4390`](https://github.com/den3110/abcdk-/commit/bcef4390) — BTC section
-4. [`d0e83688`](https://github.com/den3110/abcdk-/commit/d0e83688) — MLP score UI
-5. [`e8d4e539`](https://github.com/den3110/abcdk-/commit/e8d4e539) — Phỏm + Sâm foundation Phase 2
-6. [`00b0b113`](https://github.com/den3110/abcdk-/commit/00b0b113) — Phỏm + Sâm engine Phase 3
-7. [`efcc1ddc`](https://github.com/den3110/abcdk-/commit/efcc1ddc) — Phase 4: chặt Sâm + auto-timeout + invite + timer
-8. [`92cec659`](https://github.com/den3110/abcdk-/commit/92cec659) — UI redesign shared components
-9. [`31a6476c`](https://github.com/den3110/abcdk-/commit/31a6476c) — Sâm scoring rework + xin sâm flow
-10. [`9bafbcf5`](https://github.com/den3110/abcdk-/commit/9bafbcf5) — Phỏm downing phase
-11. [`6c13bc96`](https://github.com/den3110/abcdk-/commit/6c13bc96) — Caro backend + mobile
-12. [`dafecd73`](https://github.com/den3110/abcdk-/commit/dafecd73) — Chess (chess.js) + Xiangqi custom
-13. [`560dc263`](https://github.com/den3110/abcdk-/commit/560dc263) — Host system + auto-sit + block mid-play
-14. [`acffb8c6`](https://github.com/den3110/abcdk-/commit/acffb8c6) — Realtime lobby + avatars + sound fix
-15. [`f9819f31`](https://github.com/den3110/abcdk-/commit/f9819f31) — Auto-close bàn khi hết người
+1. [`6aa08fcc`](https://github.com/den3110/abcdk-/commit/6aa08fcc) — bracket v4 modern KO web
+2. [`95e9f1ef`](https://github.com/den3110/abcdk-/commit/95e9f1ef) — bracket v4 modern Round Elim
+3. [`2c8bcd83`](https://github.com/den3110/abcdk-/commit/2c8bcd83) — visual upgrade v4 (accent palette + gradient)
+4. [`04c95084`](https://github.com/den3110/abcdk-/commit/04c95084) — Fix Poker side-pot + Sâm A-low
+5. [`dc1af4c8`](https://github.com/den3110/abcdk-/commit/dc1af4c8) — Fix manager permission (3 file web + backend hygiene)
+6. [`82d42aa0`](https://github.com/den3110/abcdk-/commit/82d42aa0) — realtime cache tags web + mobile bump
+7. [`0e4d363b`](https://github.com/den3110/abcdk-/commit/0e4d363b) — Fix 403 duyệt waitlist (route + middleware)
+8. [`39a15dee`](https://github.com/den3110/abcdk-/commit/39a15dee) — Dời route registration lên trên wildcard admin
+9. [`8d8d9ba4`](https://github.com/den3110/abcdk-/commit/8d8d9ba4) — Feature chuyển chính thức → waitlist
+10. [`39e7aeab`](https://github.com/den3110/abcdk-/commit/39e7aeab) — Fix ActionButtons forward onDemoteToWaitlist
+11. [`425db7ab`](https://github.com/den3110/abcdk-/commit/425db7ab) — SEO overhaul (canonical + JSON-LD + sitemap + prerender)
+12. [`40011a47`](https://github.com/den3110/abcdk-/commit/40011a47) — Fix prerender regex
+13. [`0eac7162`](https://github.com/den3110/abcdk-/commit/0eac7162) — Fix prerender router.use catch-all
+14. [`cf0acab6`](https://github.com/den3110/abcdk-/commit/cf0acab6) — Fix NON_API_PREFIXES include /prerender
+15. [`4cd5bc76`](https://github.com/den3110/abcdk-/commit/4cd5bc76) — Fix Helmet flush timing + bỏ hardcoded canonical
+16. [`9f156991`](https://github.com/den3110/abcdk-/commit/9f156991) — guides/mlp vào public folder
+17. [`dc7dcc3e`](https://github.com/den3110/abcdk-/commit/dc7dcc3e) — Toggle displayMode biệt danh/họ tên (web + mobile)
+18. [`2c5b3356`](https://github.com/den3110/abcdk-/commit/2c5b3356) — Bump submodule 1.1.14
+19. [`18b51fdd`](https://github.com/den3110/abcdk-/commit/18b51fdd) — Phase 1 mở quyền BE bracket + plan cho manager
+20. [`df7fcdce`](https://github.com/den3110/abcdk-/commit/df7fcdce) — Phase 2+3 BracketsPanel + ManualPoolAssign
+21. [`ffbf6532`](https://github.com/den3110/abcdk-/commit/ffbf6532) — Phase 5 BlueprintDialog
 
-**Mobile** `pickletour-app`: `ded141a → 9bb3781` (~38 commits mobile).
+**Mobile** `pickletour-app`: `9bb3781 → f97d284` (~7 commits):
+
+1. [`1d5e7f5`](https://github.com/den3110/pickletour-app/commit/1d5e7f5) — bracket v4 mobile
+2. [`1697a81`](https://github.com/den3110/pickletour-app/commit/1697a81) — Fix Poker chip UI mobile
+3. [`4f6d136`](https://github.com/den3110/pickletour-app/commit/4f6d136) — Fix manager stringify populated user
+4. [`cfc8abd`](https://github.com/den3110/pickletour-app/commit/cfc8abd) — providesTags fix (realtime)
+5. [`8dc9fd0`](https://github.com/den3110/pickletour-app/commit/8dc9fd0) — nút chuyển chính thức → waitlist mobile
+6. [`5e8ed20`](https://github.com/den3110/pickletour-app/commit/5e8ed20) — Toggle displayMode manage.tsx
+7. [`f97d284`](https://github.com/den3110/pickletour-app/commit/f97d284) — Bump 1.1.14 build 44
 
 ---
 
 ## 9. Câu hỏi còn mở
 
-1. **Sound có nghe chưa?** — Cần user test sau OTA gần nhất
-2. **Poker có cần apply host system?** — Session này skip, pattern cũ
-3. **Web version cho 5 game mới?** — Chưa có, chưa quyết
-4. **Chess promotion picker UI**: default Queen. Có cần picker chọn Rook/Knight/Bishop?
-5. **Xiangqi chiếu tướng detection**: hiện chỉ end khi bắt K. Có cần validate "không được để K bị chiếu sau nước đi của mình"?
-6. **AAB upload Play Console**: session này build sẵn `pickletour-1.1.13.aab` (160MB) tại `~/Desktop/pickletour-android/`. Chưa upload
+1. **iOS Live Activity widget** — có mất khi build từ `ios/` thay vì `ios 2/`? Cần user verify hoặc test sau khi 1.1.14 lên TestFlight
+2. **Bốc thăm online trên trang manage** — user báo "đã có rồi" → chưa clone UI từ admin. Nếu manager chưa dùng được, cần khảo sát endpoint `/api/draw/*` FE UI đâu
+3. **OpenAI credit** — Blueprint AI dùng `openai.responses.create` trong `planSuggest.js`. Rate limit? Fallback "Auto" đã có sẵn nếu OpenAI down
+4. **BlueprintDesignerStep chi tiết** — admin panel có form design per-stage (5919 dòng). Manager chỉ có MVP + BracketsPanel CRUD. Có cần clone full designer không?
+5. **Cleanup route cũ** — route CRUD bracket dưới `router.use(authorize("admin"))` line 491 giờ là dead code (route mới ở trên thắng). Xóa hay giữ để rollback dễ?
+6. **`bulkAssignSlotPlan` mở quyền manager** — hiện `requireSuperAdmin`. Nếu manager cần preassign slot fixed thì cần bỏ gate. Chưa quyết
