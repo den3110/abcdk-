@@ -25,6 +25,7 @@ import {
   requireTournamentManager,
   attachTournamentFromRegistration,
 } from "../utils/tournamentAuth.js";
+import { attachTournamentFromBracket } from "../utils/attachTournamentFromBracket.js";
 import {
   protect,
   authorize,
@@ -487,6 +488,135 @@ router.post(
   requireTournamentManager,
   adminCreateRegistration,
 );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ═════ MANAGER-ACCESSIBLE ENDPOINTS (bracket / plan / group-slot) ══════════
+// PHẢI KHAI BÁO TRƯỚC dòng router.use(authorize("admin")) bên dưới, vì
+// wildcard middleware siết mọi route định nghĩa sau nó thành role admin.
+// Chain riêng cho từng nhóm:
+//   - Có :bracketId trong URL → attachTournamentFromBracket + requireTournamentManager
+//   - Có :id / :tournamentId / :tourId (là tournamentId) → requireTournamentManager
+// canManageTournament = admin || creator || managers[] của giải đó.
+// KHÔNG đổi controller nào — chỉ thay tầng auth.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── Bracket CRUD (cần cả tạo/sửa/xoá/rebuild + skeleton/clear) ────────────
+router.post(
+  "/tournaments/:id/brackets",
+  protect,
+  requireTournamentManager,
+  adminCreateBracket,
+);
+router.delete(
+  "/tournaments/:tourId/brackets/:bracketId",
+  protect,
+  attachTournamentFromBracket,
+  requireTournamentManager,
+  deleteBracketCascade,
+);
+router.patch(
+  "/tournaments/:tournamentId/brackets/:bracketId",
+  protect,
+  attachTournamentFromBracket,
+  requireTournamentManager,
+  adminUpdateBracket,
+);
+router.post(
+  "/tournaments/:tournamentId/brackets/:bracketId/knockout/rebuild",
+  protect,
+  attachTournamentFromBracket,
+  requireTournamentManager,
+  rebuildKnockoutBracket,
+);
+router.get(
+  "/brackets/:bracketId",
+  protect,
+  attachTournamentFromBracket,
+  requireTournamentManager,
+  getAdminBracketById,
+);
+router.post(
+  "/brackets/:bracketId/matches/clear",
+  protect,
+  attachTournamentFromBracket,
+  requireTournamentManager,
+  clearBracketMatches,
+);
+router.post(
+  "/brackets/:bracketId/matches/batch-delete",
+  protect,
+  attachTournamentFromBracket,
+  requireTournamentManager,
+  batchDeleteMatches,
+);
+router.post(
+  "/brackets/:bracketId/round-elim/skeleton",
+  protect,
+  attachTournamentFromBracket,
+  requireTournamentManager,
+  buildRoundElimSkeleton,
+);
+
+// ─── Group slot / structure / manual pool assign ───────────────────────────
+router.post(
+  "/brackets/:bracketId/groups/:groupId/insert-slot",
+  protect,
+  attachTournamentFromBracket,
+  requireTournamentManager,
+  insertRegIntoGroupSlot,
+);
+router.patch(
+  "/brackets/:bracketId/groups/:groupId/structure",
+  protect,
+  attachTournamentFromBracket,
+  requireTournamentManager,
+  updateGroupStructure,
+);
+router.post(
+  "/brackets/:bracketId/groups/:groupId/generate-matches",
+  protect,
+  attachTournamentFromBracket,
+  requireTournamentManager,
+  generateGroupMatchesForTeam,
+);
+
+// ─── Plan / Blueprint (AI + manual) ────────────────────────────────────────
+router.post(
+  "/tournaments/:id/plan/auto",
+  protect,
+  requireTournamentManager,
+  planAuto,
+);
+router.post(
+  "/tournaments/:id/plan/commit",
+  protect,
+  requireTournamentManager,
+  planCommit,
+);
+router.post(
+  "/tournaments/:id/plan/impact",
+  protect,
+  requireTournamentManager,
+  planImpact,
+);
+router
+  .route("/tournaments/:id/plan")
+  .get(protect, requireTournamentManager, planGet)
+  .put(protect, requireTournamentManager, planUpdate);
+router.post(
+  "/tournaments/:id/plan/suggest",
+  protect,
+  requireTournamentManager,
+  suggestPlan,
+);
+router.post(
+  "/tournaments/:id/plan/suggest-and-commit",
+  protect,
+  requireTournamentManager,
+  suggestAndCommit,
+);
+
+// ─── END manager-accessible block ──────────────────────────────────────────
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 
