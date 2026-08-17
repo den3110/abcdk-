@@ -632,6 +632,55 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ["ADMIN_BRACKETS"],
     }),
 
+    // ═══ Blueprint AI planner (backend đã manager-safe) ═══
+    getTournamentPlan: builder.query({
+      query: (tourId) => `/api/admin/tournaments/${tourId}/plan`,
+      providesTags: (r, e, id) => [{ type: "TournamentPlan", id }],
+    }),
+    updateTournamentPlan: builder.mutation({
+      query: ({ tourId, body }) => ({
+        url: `/api/admin/tournaments/${tourId}/plan`,
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: (r, e, { tourId }) => [
+        { type: "TournamentPlan", id: tourId },
+      ],
+    }),
+    suggestTournamentPlan: builder.mutation({
+      query: ({ tourId, body }) => ({
+        url: `/api/admin/tournaments/${tourId}/plan/suggest`,
+        method: "POST",
+        body,
+      }),
+    }),
+    previewBlueprintImpact: builder.mutation({
+      query: ({ tourId, body }) => ({
+        url: `/api/admin/tournaments/${tourId}/plan/impact`,
+        method: "POST",
+        body,
+      }),
+    }),
+    commitTournamentPlan: builder.mutation({
+      query: ({ tourId, body }) => ({
+        url: `/api/admin/tournaments/${tourId}/plan/commit`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (r, e, { tourId }) => [
+        "ADMIN_BRACKETS",
+        { type: "TournamentPlan", id: tourId },
+      ],
+    }),
+    // Endpoint deterministic auto planner (không dùng AI, an toàn nếu OpenAI down)
+    autoPlanTournament: builder.mutation({
+      query: ({ tourId, body }) => ({
+        url: `/api/admin/tournaments/${tourId}/plan/auto`,
+        method: "POST",
+        body,
+      }),
+    }),
+
     managerReplaceRegPlayer: builder.mutation({
       query: ({ regId, slot, userId }) => ({
         url: `/api/registrations/${regId}/manager/replace-player`,
@@ -1059,4 +1108,11 @@ export const {
   useClearBracketMatchesMutation,
   useBuildRoundElimSkeletonMutation,
   useUpdateGroupStructureMutation,
+  // Blueprint AI planner
+  useGetTournamentPlanQuery,
+  useUpdateTournamentPlanMutation,
+  useSuggestTournamentPlanMutation,
+  usePreviewBlueprintImpactMutation,
+  useCommitTournamentPlanMutation,
+  useAutoPlanTournamentMutation,
 } = tournamentsApiSlice;

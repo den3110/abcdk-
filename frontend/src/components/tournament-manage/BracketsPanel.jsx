@@ -49,7 +49,9 @@ import {
   AccountTree as AccountTreeIcon,
   Layers as LayersIcon,
   OpenInNew as OpenInNewIcon,
+  AutoAwesome as AIIcon,
 } from "@mui/icons-material";
+import BlueprintDialog from "./BlueprintDialog";
 import { toast } from "react-toastify";
 import { Link as RouterLink } from "react-router-dom";
 
@@ -672,6 +674,7 @@ export default function BracketsPanel({ tourId }) {
   const [editing, setEditing] = useState(null);
   const [poolOpen, setPoolOpen] = useState(false);
   const [poolBracket, setPoolBracket] = useState(null);
+  const [blueprintOpen, setBlueprintOpen] = useState(false);
 
   const [deleteBracket, { isLoading: deleting }] = useDeleteBracketMutation();
   const [rebuildKO, { isLoading: rebuilding }] =
@@ -762,7 +765,7 @@ export default function BracketsPanel({ tourId }) {
             Tạo & cấu hình vòng bảng, nhánh loại trực tiếp, PO... cho giải.
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1}>
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
           <Tooltip title="Reload">
             <IconButton
               size="small"
@@ -771,6 +774,17 @@ export default function BracketsPanel({ tourId }) {
             >
               {isFetching ? <CircularProgress size={18} /> : <RefreshIcon />}
             </IconButton>
+          </Tooltip>
+          <Tooltip title="Để AI đề xuất blueprint tất cả vòng (bảng → PO → KO) trong 1 lần">
+            <Button
+              variant="outlined"
+              size="small"
+              color="secondary"
+              startIcon={<AIIcon />}
+              onClick={() => setBlueprintOpen(true)}
+            >
+              Blueprint AI
+            </Button>
           </Tooltip>
           <Button
             variant="contained"
@@ -930,6 +944,14 @@ export default function BracketsPanel({ tourId }) {
         }}
         tourId={tourId}
         bracket={poolBracket}
+      />
+      <BlueprintDialog
+        open={blueprintOpen}
+        onClose={() => {
+          setBlueprintOpen(false);
+          refetch();
+        }}
+        tourId={tourId}
       />
     </Paper>
   );
