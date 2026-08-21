@@ -88,6 +88,7 @@ import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import MlpBracketView from "../../components/mlp/MlpBracketView";
 import ModernKnockoutBracket from "./ModernKnockoutBracket";
 import ModernRoundElimBracket from "./ModernRoundElimBracket";
+import ModernGroupStage from "./ModernGroupStage";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
@@ -10620,34 +10621,59 @@ export default function TournamentBracket() {
               alignItems={{ xs: "stretch", sm: "center" }}
               sx={{ width: { xs: "100%", md: "auto" } }}
             >
-              <ToggleButtonGroup
-                size="small"
-                exclusive
-                value={groupViewMode}
-                onChange={handleGroupViewModeChange}
-                sx={{
-                  bgcolor: "background.default",
-                  borderRadius: 2,
-                  "& .MuiToggleButton-root": {
-                    px: 1.25,
-                    fontWeight: 700,
-                    borderColor: "divider",
-                  },
-                }}
+              <Tooltip
+                title={
+                  isBracketV4
+                    ? "Đang xem bản vòng bảng mới. Bấm để về bản cũ."
+                    : "Xem trước bản vòng bảng mới — card đẹp hơn, BXH trực quan."
+                }
+                arrow
               >
-                <ToggleButton value="classic">
-                  <Stack direction="row" spacing={0.75} alignItems="center">
-                    <ViewAgendaIcon sx={{ fontSize: 18 }} />
-                    <span>{t("tournaments.bracket.viewClassic")}</span>
-                  </Stack>
-                </ToggleButton>
-                <ToggleButton value="board">
-                  <Stack direction="row" spacing={0.75} alignItems="center">
-                    <TableRowsIcon sx={{ fontSize: 18 }} />
-                    <span>{t("tournaments.bracket.viewBoard")}</span>
-                  </Stack>
-                </ToggleButton>
-              </ToggleButtonGroup>
+                <Chip
+                  size="small"
+                  color={isBracketV4 ? "primary" : "default"}
+                  variant={isBracketV4 ? "filled" : "outlined"}
+                  clickable
+                  onClick={() => setBracketUiMode(isBracketV4 ? "v1" : "v4")}
+                  label={
+                    isBracketV4
+                      ? "✨ Bản mới (đang xem)"
+                      : "✨ Xem bản sơ đồ mới"
+                  }
+                  sx={{ fontWeight: 700, alignSelf: { xs: "flex-start", sm: "center" } }}
+                />
+              </Tooltip>
+
+              {!isBracketV4 && (
+                <ToggleButtonGroup
+                  size="small"
+                  exclusive
+                  value={groupViewMode}
+                  onChange={handleGroupViewModeChange}
+                  sx={{
+                    bgcolor: "background.default",
+                    borderRadius: 2,
+                    "& .MuiToggleButton-root": {
+                      px: 1.25,
+                      fontWeight: 700,
+                      borderColor: "divider",
+                    },
+                  }}
+                >
+                  <ToggleButton value="classic">
+                    <Stack direction="row" spacing={0.75} alignItems="center">
+                      <ViewAgendaIcon sx={{ fontSize: 18 }} />
+                      <span>{t("tournaments.bracket.viewClassic")}</span>
+                    </Stack>
+                  </ToggleButton>
+                  <ToggleButton value="board">
+                    <Stack direction="row" spacing={0.75} alignItems="center">
+                      <TableRowsIcon sx={{ fontSize: 18 }} />
+                      <span>{t("tournaments.bracket.viewBoard")}</span>
+                    </Stack>
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              )}
 
               <Button
                 size="small"
@@ -10786,9 +10812,17 @@ export default function TournamentBracket() {
           </Dialog>
 
           {renderLiveSpotlight()}
-          {groupViewMode === "board"
-            ? renderGroupBoardView()
-            : renderGroupBlocks()}
+          {isBracketV4 ? (
+            <ModernGroupStage
+              groups={groupEntries}
+              onOpenMatch={openMatchModal}
+              advancingColor={ADVANCING_STANDING_COLOR}
+            />
+          ) : groupViewMode === "board" ? (
+            renderGroupBoardView()
+          ) : (
+            renderGroupBlocks()
+          )}
         </Paper>
             )
       ) : current.type === "roundElim" ? (
