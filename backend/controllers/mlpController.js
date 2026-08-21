@@ -1772,17 +1772,37 @@ export const deleteMlpTeam = asyncHandler(async (req, res) => {
     res.status(403);
     throw new Error("Không có quyền");
   }
-  // Nếu team đã có dual match → không cho xoá cứng
-  const inMatch = await MlpDualMatch.exists({
+  // Nếu team đã có dual match → không cho xoá cứng (captain/non-manager).
+  // Manager/admin được phép, NHƯNG phải dọn luôn dual tham chiếu team này —
+  // nếu không, dual sẽ trỏ tới team đã xoá (con trỏ mồ côi) khiến LineupDialog
+  // hiện roster rỗng "Roster team chưa có VĐV" cho phía đó.
+  const dualsWithTeam = await MlpDualMatch.find({
     tournament: doc.tournament,
     $or: [{ teamA: doc._id }, { teamB: doc._id }],
-  });
-  if (inMatch && !isMgr) {
+  }).select("_id status");
+  if (dualsWithTeam.length && !isMgr) {
     res.status(400);
     throw new Error("Team đã có trận đấu, không thể xoá. Chỉ admin mới xoá được.");
   }
+  // Không cho xoá nếu có dual đã/đang diễn ra (tránh mất dữ liệu điểm).
+  const liveOrFinished = dualsWithTeam.filter((d) =>
+    ["live", "finished"].includes(String(d.status || "")),
+  );
+  if (liveOrFinished.length) {
+    res.status(400);
+    throw new Error(
+      "Team có trận đã/đang diễn ra — không thể xoá. Hãy reset vòng đấu trước.",
+    );
+  }
   const wasApprovedOrPending = ["approved", "pending"].includes(doc.status);
   const tournamentId = doc.tournament;
+  // Xoá kèm các dual (scheduled) tham chiếu team này để không để lại con trỏ
+  // mồ côi. Vòng đấu sẽ được sinh lại từ danh sách team hiện tại khi cần.
+  if (dualsWithTeam.length) {
+    await MlpDualMatch.deleteMany({
+      _id: { $in: dualsWithTeam.map((d) => d._id) },
+    });
+  }
   await doc.deleteOne();
 
   // Auto-promote FIFO khi team approved/pending bị xoá.
