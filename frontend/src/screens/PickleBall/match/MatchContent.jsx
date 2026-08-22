@@ -2601,6 +2601,44 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const shownGameScores =
     localPatch?.gameScores ?? mm?.gameScores ?? EMPTY_GAME_SCORES;
 
+  // Tay giao 1/2 (chỉ hiển thị — KHÔNG đụng backend). Đọc từ serve của trận:
+  //   serve.side = "A"|"B" (đội đang giao), serve.order|server = 1|2 (tay giao)
+  const serveInfo = (() => {
+    const sv = localPatch?.serve ?? mm?.serve ?? null;
+    if (!sv) return null;
+    const side = sv?.side === "B" ? "B" : "A";
+    const num = Number(sv?.order ?? sv?.server ?? 1) === 2 ? 2 : 1;
+    const hasData = sv?.side != null || sv?.order != null || sv?.server != null;
+    if (!hasData) return null;
+    return { side, num, serverId: sv?.serverId ? String(sv.serverId) : "" };
+  })();
+  const renderServeBadge = (side, { alignRight = false } = {}) => {
+    if (status !== "live" || !serveInfo || serveInfo.side !== side) return null;
+    return (
+      <Box
+        sx={{
+          mt: 0.75,
+          display: "flex",
+          justifyContent: {
+            xs: "flex-start",
+            sm: alignRight ? "flex-end" : "flex-start",
+          },
+        }}
+      >
+        <Chip
+          size="small"
+          label={`🏓 Đang giao · Tay ${serveInfo.num}`}
+          sx={{
+            fontWeight: 700,
+            bgcolor: "warning.light",
+            color: "warning.contrastText",
+            "& .MuiChip-label": { px: 1 },
+          }}
+        />
+      </Box>
+    );
+  };
+
   // Streams
   const normalizedStreams = useMemo(
     () => normalizeStreams(localPatch ? { ...mm, ...localPatch } : mm || {}),
@@ -3611,6 +3649,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 {resolvePendingSideLabel(mm, "A")}
               </Typography>
             )}
+            {renderServeBadge("A")}
           </Box>
 
           {/* Điểm hiện tại */}
@@ -3685,6 +3724,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 {resolvePendingSideLabel(mm, "B")}
               </Typography>
             )}
+            {renderServeBadge("B", { alignRight: true })}
           </Box>
         </Stack>
 
