@@ -1,3 +1,7 @@
+> 🆕 **Session 2026-08-22→23 — Nhắn tin/Bảng tin + fixes** (đọc `HANDOFF.md` §0 mới nhất):
+> Đã ship: chat react/reply/ghim/tin thoại; feed lưu bài/poll/chia sẻ kết quả trận (BE+web đã deploy, mobile đã OTA trừ nút share match-detail). Nhiều fix: vòng bảng v4 modern, quản trị trận mobile đầy đủ (AdminMatchTools), badge tay giao 1/2, sheet menu Chức năng (rnModalSheet shim), thêm trọng tài (xung đột endpoint RTK), lineup MLP team B (dual mồ côi), ẩn tile Games.
+> 🔴 **VIỆC CẦN LÀM NGAY:** crash "mở trận" (thiếu `Pressable` import) đã fix+push mobile `d9abd34` (dùng TouchableOpacity) nhưng **CHƯA OTA** (phiên trước bị macOS TCC chặn đọc `.env.hotupdater`). Session mới: `cd pickletour-app-mobile && git checkout -- components/match/MatchContent.tsx && git pull` rồi `hot-updater deploy -p ios -t 1.1.13/1.1.14`. Chi tiết §0 trong HANDOFF.md.
+
 # PickleTour — Tài liệu bàn giao (Handover)
 
 > **Dành cho:** đội nhận bàn giao (đọc bởi người + Claude/AI agent để tự setup).

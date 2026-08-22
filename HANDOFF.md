@@ -1,3 +1,50 @@
+# PickleTour — HANDOFF Session (2026-08-22 → 23) — Nhắn tin/Bảng tin + fixes
+
+> Phiên tập trung: **nhắn tin + bảng tin** (react/reply/ghim/tin thoại + lưu bài/poll/chia sẻ kết quả trận), cùng nhiều fix. Cuối phiên môi trường bị **macOS TCC chặn đọc file dự án** → không tự OTA được (xem §0.2).
+
+## §0. VIỆC CẦN LÀM NGAY (session mới)
+
+### 0.1 Đồng bộ working tree rồi OTA (crash đã fix trên repo)
+- Crash "mở trận đấu" (`Property 'Pressable' doesn't exist` ở `MatchContent.tsx`) đã **fix + push** ở mobile commit **`d9abd34`** (dùng `TouchableOpacity` thay `Pressable` cho nút "Chia sẻ kết quả"). Production OTA hiện tại (bản revert) KHÔNG crash; bản có nút share chỉ mới ở repo, **chưa OTA**.
+- ⚠️ Working tree mobile local có thể còn bản crash uncommitted (đã `git checkout 1ad5158 -- MatchContent.tsx` để debug). Làm:
+  ```bash
+  cd pickletour-app-mobile
+  git checkout -- components/match/MatchContent.tsx   # bỏ bản crash local
+  git pull origin master                               # lấy fix d9abd34
+  ```
+- Sau đó **push OTA** (đây là việc phiên trước KHÔNG làm được do TCC chặn `.env.hotupdater`):
+  ```bash
+  export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
+  set -a && source .env.hotupdater && set +a
+  for t in 1.1.13 1.1.14; do rm -rf .hot-updater/output; ./node_modules/.bin/hot-updater deploy -p ios -t $t -c production -m "share ket qua tran (TouchableOpacity)"; done
+  ```
+
+### 0.2 Môi trường: macOS TCC (nếu gặp lại)
+- Cuối phiên trước, sau khi chạy `xcodebuild`/simulator, tiến trình bị thu hồi quyền **đọc** thư mục `~/Desktop/Projects/...` (đọc/`.git`/OTA đều `Operation not permitted`, chỉ GHI được). Session/tiến trình mới thường có lại quyền; nếu không, cấp **System Settings → Privacy & Security → Files and Folders / Full Disk Access** cho Terminal/Claude Code. Khi build simulator macOS hỏi quyền → **Allow**.
+- Build simulator: `ios/.xcode.env.local` đã set `NODE_BINARY` = node **v22.23.2** (backup `.xcode.env.local.bak`). Nếu codegen fail `Cannot find module @react-native/codegen` → tắt `ENABLE_USER_SCRIPT_SANDBOXING` (pbxproj) hoặc dùng `npx expo run:ios`.
+
+## §1. Tính năng ĐÃ ship + deploy trong phiên
+Backend: đã `pm2 restart` (chat react/pin + feed save/vote + audio upload). Web: đã `build:deploy`. Mobile: đã OTA 1.1.13+1.1.14 (react/reply/ghim/tin thoại chat; lưu/poll/shared-match feed) — **trừ nút share ở match detail** (đang chờ OTA sau fix d9abd34).
+
+- **Chat react + reply**: `chatMessageModel.reactions[]`; `POST /api/chat/messages/:mid/react` + socket `chat:message:reaction`; populate `replyTo`. Web `MessagesPage.jsx`, mobile `app/messages/[cid].tsx`.
+- **Chat ghim + tin thoại**: `chatConversationModel.pinnedMessages[]`; `POST /api/chat/conversations/:cid/pin` + socket `chat:pinned:updated`; upload audio (`chatRoutes` AUDIO_MIME + attachment type `audio`+`durationSec`). Mobile: mic ghi âm (expo-audio `useAudioRecorder`) + `AudioMessage` playback. ⚠️ Kiểm tra `NSMicrophoneUsageDescription` trong Info.plist (5 folder ios) trước build store.
+- **Feed lưu bài**: `feedPostModel.savedBy[]`; `POST /api/feed/:id/save` + `GET /api/feed/saved`. UI nút Lưu (web+mobile). CHƯA có màn tab "Đã lưu" riêng (endpoint sẵn, thiếu UI).
+- **Feed poll**: `feedPostModel.poll`; `createPost` nhận poll; `POST /api/feed/:id/vote` + socket `feed:poll:updated`. Web `PollBlock` + editor; mobile `PollBlockRN` + editor.
+- **Feed chia sẻ kết quả trận**: `feedPostModel.sharedMatch`; `createPost` nhận sharedMatch. Web `MatchContent.jsx` nút + `SharedMatchCard`. Mobile `SharedMatchCardRN` + nút share (fix d9abd34).
+
+Fix khác trong phiên: vòng bảng v4 modern (ModernGroupStage web + ModernGroupStageRN mobile), badge MLP/TEAM tab Giải đấu (mobile), quản trị trận đầy đủ mobile (`components/match/AdminMatchTools.tsx`), badge tay giao 1/2 (web+mobile), fix sheet menu Chức năng (`components/sheets/rnModalSheet.tsx` shim RN Modal), fix thêm trọng tài (xung đột tên endpoint RTK → `listScopedTournamentReferees`), fix lineup MLP team B (dual mồ côi → cascade delete khi xoá team), fix reg stats không tính waitlist, ẩn tile Games (Home).
+
+## §2. Commits
+- Root `abcdk-`: `8cd7b4b2` (BE+web ghim/thoại/save/poll/sharedMatch) ← `b80a2689` (chat react/reply BE+web) ← `f05f9fb1` (tay giao) ← `4e2222d5` (vòng bảng v4 web) ← `15ba6d28` (fix referee) ← `06c72913` (fix MLP dual) …
+- Mobile `pickletour-app`: **`d9abd34`** (fix share TouchableOpacity — CẦN OTA) ← `04197a0` (revert nút share crash) ← `1ad5158` (pin/thoại/feed/share mobile) ← `5b950de` (chat react/reply) ← `e318587` (vòng bảng v4) …
+
+## §3. Còn mở
+- 🔴 OTA lại mobile sau fix d9abd34 (§0.1).
+- 🟡 Màn tab "Đã lưu" (feed) — endpoint `/api/feed/saved` sẵn, thiếu UI.
+- 🟡 Info.plist `NSMicrophoneUsageDescription` cho tin thoại iOS.
+
+---
+
 # PickleTour — HANDOFF Session (2026-08-13 → 2026-08-17)
 
 > Session ~5 ngày, **20 commits root + 7 commits mobile**. 8 chủ đề lớn:
