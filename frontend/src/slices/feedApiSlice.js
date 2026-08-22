@@ -117,6 +117,30 @@ export const feedApiSlice = apiSlice.injectEndpoints({
         }
       },
     }),
+    saveFeedPost: builder.mutation({
+      query: ({ id, save = true }) => ({
+        url: `/api/feed/${id}/save`,
+        method: "POST",
+        body: { save },
+      }),
+    }),
+    listSavedFeed: builder.query({
+      query: (arg = {}) => {
+        const p = new URLSearchParams();
+        if (arg.cursor) p.set("cursor", arg.cursor);
+        if (arg.limit) p.set("limit", String(arg.limit));
+        const qs = p.toString();
+        return { url: `/api/feed/saved${qs ? `?${qs}` : ""}`, method: "GET" };
+      },
+      providesTags: [{ type: "Feed", id: "SAVED" }],
+    }),
+    voteFeedPoll: builder.mutation({
+      query: ({ id, optionIds }) => ({
+        url: `/api/feed/${id}/vote`,
+        method: "POST",
+        body: { optionIds },
+      }),
+    }),
     shareFeedPost: builder.mutation({
       query: (id) => ({ url: `/api/feed/${id}/share`, method: "POST" }),
       async onQueryStarted(id, { dispatch, queryFulfilled, getState }) {
@@ -299,6 +323,9 @@ export const {
   useDeleteFeedPostMutation,
   useReactFeedPostMutation,
   useShareFeedPostMutation,
+  useSaveFeedPostMutation,
+  useListSavedFeedQuery,
+  useVoteFeedPollMutation,
   useReactFeedCommentMutation,
   useListFeedCommentsQuery,
   useCreateFeedCommentMutation,

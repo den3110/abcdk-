@@ -32,6 +32,8 @@ import {
   useMarkReadMutation,
   useDeleteMessageMutation,
   useReactMessageMutation,
+  usePinMessageMutation,
+  useGetConversationQuery,
   useUploadChatMediaMutation,
   messagesApiSlice,
 } from "../slices/messagesApiSlice.js";
@@ -137,7 +139,7 @@ function replySnippet(rt) {
   return "…";
 }
 
-function MessageBubble({ msg, isMine, onDelete, canDelete, onReply, onReact, myId }) {
+function MessageBubble({ msg, isMine, onDelete, canDelete, onReply, onReact, myId, onPin, isPinned }) {
   const [showReact, setShowReact] = useState(false);
   const reactions = msg.reactions || [];
   // Gom reactions theo emoji để hiển thị chip đếm
@@ -317,6 +319,20 @@ function MessageBubble({ msg, isMine, onDelete, canDelete, onReply, onReact, myI
           >
             ↩︎
           </Box>
+          <Box
+            component="span"
+            onClick={() => onPin?.(msg, !isPinned)}
+            title={isPinned ? "Bỏ ghim" : "Ghim"}
+            sx={{
+              cursor: "pointer",
+              fontSize: 14,
+              px: 0.5,
+              opacity: isPinned ? 1 : 0.7,
+              "&:hover": { opacity: 1 },
+            }}
+          >
+            📌
+          </Box>
         </Box>
       )}
       </Box>
@@ -387,6 +403,31 @@ function ChatPanel({ conversationId, me, onBack }) {
   const [uploadMedia] = useUploadChatMediaMutation();
   const [deleteMessage] = useDeleteMessageMutation();
   const [reactMessage] = useReactMessageMutation();
+  const [pinMessage] = usePinMessageMutation();
+  const { data: convFull } = useGetConversationQuery(conversationId, {
+    skip: !conversationId,
+  });
+  const [pinnedMessages, setPinnedMessages] = useState([]);
+  useEffect(() => {
+    setPinnedMessages(convFull?.pinnedMessages || []);
+  }, [convFull?.pinnedMessages]);
+
+  const pinnedIdSet = useMemo(
+    () => new Set((pinnedMessages || []).map((p) => String(p?._id || p))),
+    [pinnedMessages]
+  );
+  const handlePin = async (msg, pin) => {
+    try {
+      const r = await pinMessage({
+        cid: conversationId,
+        messageId: msg._id,
+        pin,
+      }).unwrap();
+      setPinnedMessages(r.pinnedMessages || []);
+    } catch (err) {
+      toast.error(err?.data?.message || "Ghim thất bại");
+    }
+  };
 
   const handleReact = async (mid, emoji) => {
     // Optimistic: cập nhật reactions trong cache ngay
@@ -488,9 +529,14 @@ function ChatPanel({ conversationId, me, onBack }) {
         )
       );
     };
+    const onPinned = (payload) => {
+      if (String(payload?.conversationId) !== String(conversationId)) return;
+      setPinnedMessages(payload.pinnedMessages || []);
+    };
     socket.on("chat:message:new", onNew);
     socket.on("chat:message:deleted", onDeleted);
     socket.on("chat:message:reaction", onReaction);
+    socket.on("chat:pinned:updated", onPinned);
     return () => {
       try {
         socket.emit("chat:unsubscribe", {
@@ -500,6 +546,7 @@ function ChatPanel({ conversationId, me, onBack }) {
       socket.off("chat:message:new", onNew);
       socket.off("chat:message:deleted", onDeleted);
       socket.off("chat:message:reaction", onReaction);
+      socket.off("chat:pinned:updated", onPinned);
     };
   }, [conversationId, dispatch, markRead]);
 
@@ -635,6 +682,38 @@ function ChatPanel({ conversationId, me, onBack }) {
           {title}
         </Typography>
       </Stack>
+      {pinnedMessages.length > 0 && (
+        <Box
+          sx={{
+            px: 2,
+            py: 1,
+            borderBottom: 1,
+            borderColor: "divider",
+            bgcolor: "action.hover",
+          }}
+        >
+          {pinnedMessages.map((pm) => (
+            <Stack
+              key={pm._id}
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              sx={{ py: 0.25 }}
+            >
+              <Typography sx={{ fontSize: 13 }}>📌</Typography>
+              <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                {pm.sender?.nickname || pm.sender?.name || ""}:
+              </Typography>
+              <Typography variant="caption" noWrap sx={{ flex: 1, color: "text.secondary" }}>
+                {replySnippet(pm)}
+              </Typography>
+              <IconButton size="small" onClick={() => handlePin(pm, false)}>
+                <XIcon size={13} />
+              </IconButton>
+            </Stack>
+          ))}
+        </Box>
+      )}
       <Box
         ref={scrollRef}
         sx={{
@@ -676,6 +755,8 @@ function ChatPanel({ conversationId, me, onBack }) {
                 onReply={setReplyTarget}
                 onReact={handleReact}
                 myId={me?._id}
+                onPin={handlePin}
+                isPinned={pinnedIdSet.has(String(m._id))}
               />
             </Fragment>
           );

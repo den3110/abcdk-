@@ -44,6 +44,25 @@ function toConvDTO(conv, viewerId) {
     muted: (c.mutedBy || [])
       .map(String)
       .includes(String(viewerId)),
+    // Danh sách id tin ghim (nếu đã populate thì rút gọn preview)
+    pinnedMessages: (c.pinnedMessages || []).map((pm) =>
+      pm && typeof pm === "object" && pm.content !== undefined
+        ? {
+            _id: pm._id,
+            content: pm.deletedAt ? "" : pm.content || "",
+            attachments: (pm.attachments || []).map((a) => ({ type: a?.type })),
+            sender:
+              pm.sender && typeof pm.sender === "object"
+                ? {
+                    _id: pm.sender._id,
+                    name: pm.sender.name,
+                    nickname: pm.sender.nickname,
+                  }
+                : pm.sender,
+            createdAt: pm.createdAt,
+          }
+        : { _id: pm }
+    ),
     createdAt: c.createdAt,
     updatedAt: c.updatedAt,
   };
@@ -282,12 +301,57 @@ export const getConversation = asyncHandler(async (req, res) => {
   const viewer = req.user;
   const conv = await ChatConversation.findById(req.params.cid)
     .populate("participants", USER_FIELDS)
-    .populate("tournament", "_id name image");
+    .populate("tournament", "_id name image")
+    .populate({
+      path: "pinnedMessages",
+      select: "_id content attachments sender deletedAt createdAt",
+      populate: { path: "sender", select: "_id name nickname" },
+    });
   if (!conv || !isParticipant(conv, viewer._id)) {
     res.status(404);
     throw new Error("Không tìm thấy hội thoại");
   }
   res.json(toConvDTO(conv, viewer._id));
+});
+
+// POST /api/chat/conversations/:cid/pin  { messageId, pin }
+// Ghim / gỡ ghim tin nhắn. Quyền: participant (nhóm giải → manager/admin nên
+// giới hạn, nhưng để đơn giản cho phép participant; có thể siết sau).
+export const pinMessage = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const conv = await ChatConversation.findById(req.params.cid);
+  if (!conv || !isParticipant(conv, viewer._id)) {
+    res.status(404);
+    throw new Error("Không tìm thấy hội thoại");
+  }
+  const messageId = req.body?.messageId;
+  if (!messageId || !mongoose.isValidObjectId(messageId)) {
+    res.status(400);
+    throw new Error("messageId không hợp lệ");
+  }
+  const pin = req.body?.pin !== false;
+  const cur = (conv.pinnedMessages || []).map(String);
+  const has = cur.includes(String(messageId));
+  if (pin && !has) {
+    // Giới hạn tối đa 5 tin ghim; đẩy tin cũ nhất ra nếu vượt
+    conv.pinnedMessages = [...conv.pinnedMessages, messageId].slice(-5);
+  } else if (!pin && has) {
+    conv.pinnedMessages = conv.pinnedMessages.filter(
+      (id) => String(id) !== String(messageId)
+    );
+  }
+  await conv.save();
+  const fresh = await ChatConversation.findById(conv._id).populate({
+    path: "pinnedMessages",
+    select: "_id content attachments sender deletedAt createdAt",
+    populate: { path: "sender", select: "_id name nickname" },
+  });
+  const dto = toConvDTO(fresh, viewer._id);
+  emitToConv(conv._id, "chat:pinned:updated", {
+    conversationId: String(conv._id),
+    pinnedMessages: dto.pinnedMessages,
+  });
+  res.json({ success: true, pinnedMessages: dto.pinnedMessages });
 });
 
 // PATCH /api/chat/conversations/:cid  { muted?, hidden? }

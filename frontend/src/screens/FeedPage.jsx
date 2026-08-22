@@ -38,6 +38,8 @@ import {
   ChevronRight,
   Share2,
   ArrowLeft,
+  Bookmark,
+  BarChart3,
 } from "lucide-react";
 import { useSelector } from "react-redux";
 import { useNavigate, useParams } from "react-router-dom";
@@ -51,6 +53,8 @@ import {
   useDeleteFeedPostMutation,
   useReactFeedPostMutation,
   useShareFeedPostMutation,
+  useSaveFeedPostMutation,
+  useVoteFeedPollMutation,
   useUploadFeedMediaMutation,
   useListFeedCommentsQuery,
   useCreateFeedCommentMutation,
@@ -152,11 +156,17 @@ function Composer({ me, onPosted }) {
   const [linkedTournament, setLinkedTournament] = useState(null);
   const [tournamentPickerOpen, setTournamentPickerOpen] = useState(false);
   const [selectedMentions, setSelectedMentions] = useState([]);
+  const [poll, setPoll] = useState(null); // {question, options:[""], multi}
   const fileRef = useRef(null);
   const [uploadMedia] = useUploadFeedMediaMutation();
   const [createPost] = useCreateFeedPostMutation();
 
-  const canPost = (content.trim() || media.length || linkedTournament) && !posting;
+  const pollValid =
+    poll &&
+    poll.options.filter((o) => o.trim()).length >= 2;
+  const canPost =
+    (content.trim() || media.length || linkedTournament || pollValid) &&
+    !posting;
 
   const handleFiles = async (e) => {
     const files = Array.from(e.target.files || []).slice(0, 10);
@@ -185,11 +195,19 @@ function Composer({ me, onPosted }) {
         media,
         linkedTournament: linkedTournament?._id || null,
         mentions: stillPresent,
+        poll: pollValid
+          ? {
+              question: poll.question,
+              multi: poll.multi,
+              options: poll.options.filter((o) => o.trim()),
+            }
+          : undefined,
       }).unwrap();
       setContent("");
       setMedia([]);
       setLinkedTournament(null);
       setSelectedMentions([]);
+      setPoll(null);
       onPosted?.();
     } catch (err) {
       toast.error(err?.data?.message || "Đăng thất bại");
@@ -298,6 +316,90 @@ function Composer({ me, onPosted }) {
                 ))}
               </Box>
             )}
+            {poll && (
+              <Box
+                sx={{
+                  p: 1.5,
+                  borderRadius: 2,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  bgcolor: "action.hover",
+                }}
+              >
+                <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                    📊 Bình chọn
+                  </Typography>
+                  <IconButton size="small" onClick={() => setPoll(null)}>
+                    <XIcon size={16} />
+                  </IconButton>
+                </Stack>
+                <TextField
+                  fullWidth
+                  size="small"
+                  placeholder="Câu hỏi bình chọn (VD: Ai vô địch?)"
+                  value={poll.question}
+                  onChange={(e) =>
+                    setPoll((p) => ({ ...p, question: e.target.value }))
+                  }
+                  sx={{ mb: 1 }}
+                />
+                <Stack spacing={1}>
+                  {poll.options.map((opt, i) => (
+                    <TextField
+                      key={i}
+                      fullWidth
+                      size="small"
+                      placeholder={`Lựa chọn ${i + 1}`}
+                      value={opt}
+                      onChange={(e) =>
+                        setPoll((p) => {
+                          const options = [...p.options];
+                          options[i] = e.target.value;
+                          return { ...p, options };
+                        })
+                      }
+                      InputProps={{
+                        endAdornment:
+                          poll.options.length > 2 ? (
+                            <IconButton
+                              size="small"
+                              onClick={() =>
+                                setPoll((p) => ({
+                                  ...p,
+                                  options: p.options.filter((_, j) => j !== i),
+                                }))
+                              }
+                            >
+                              <XIcon size={14} />
+                            </IconButton>
+                          ) : null,
+                      }}
+                    />
+                  ))}
+                </Stack>
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mt: 1 }}>
+                  {poll.options.length < 10 && (
+                    <Button
+                      size="small"
+                      onClick={() =>
+                        setPoll((p) => ({ ...p, options: [...p.options, ""] }))
+                      }
+                    >
+                      + Thêm lựa chọn
+                    </Button>
+                  )}
+                  <Box flex={1} />
+                  <Button
+                    size="small"
+                    variant={poll.multi ? "contained" : "outlined"}
+                    onClick={() => setPoll((p) => ({ ...p, multi: !p.multi }))}
+                  >
+                    {poll.multi ? "Chọn nhiều: Bật" : "Chọn nhiều: Tắt"}
+                  </Button>
+                </Stack>
+              </Box>
+            )}
             <Stack direction="row" alignItems="center" spacing={1}>
               <input
                 ref={fileRef}
@@ -322,6 +424,19 @@ function Composer({ me, onPosted }) {
                   sx={{ color: "#F59E0B" }}
                 >
                   <Trophy size={20} />
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Tạo bình chọn">
+                <IconButton
+                  size="small"
+                  onClick={() =>
+                    setPoll((p) =>
+                      p ? p : { question: "", options: ["", ""], multi: false }
+                    )
+                  }
+                  sx={{ color: "#7C3AED" }}
+                >
+                  <BarChart3 size={20} />
                 </IconButton>
               </Tooltip>
               <Box flex={1} />
@@ -914,12 +1029,183 @@ function CommentItem({
 }
 
 /* ─────────── PostCard ─────────── */
+function PollBlock({ poll, onVote }) {
+  const total = poll.totalVotes || 0;
+  const closed = poll.closesAt && new Date(poll.closesAt) < new Date();
+  return (
+    <Box
+      sx={{
+        mt: 1.5,
+        p: 1.5,
+        borderRadius: 2,
+        border: "1px solid",
+        borderColor: "divider",
+        bgcolor: "action.hover",
+      }}
+    >
+      {poll.question && (
+        <Typography sx={{ fontWeight: 700, mb: 1 }}>{poll.question}</Typography>
+      )}
+      <Stack spacing={1}>
+        {poll.options.map((o) => {
+          const pct = total > 0 ? Math.round((o.votes / total) * 100) : 0;
+          return (
+            <Box
+              key={o.id}
+              onClick={() => !closed && onVote(o.id)}
+              sx={{
+                position: "relative",
+                borderRadius: 1.5,
+                border: "1px solid",
+                borderColor: o.voted ? "primary.main" : "divider",
+                overflow: "hidden",
+                cursor: closed ? "default" : "pointer",
+                bgcolor: "background.paper",
+              }}
+            >
+              <Box
+                sx={{
+                  position: "absolute",
+                  inset: 0,
+                  width: `${pct}%`,
+                  bgcolor: o.voted ? "primary.light" : "action.selected",
+                  opacity: 0.5,
+                  transition: "width .3s",
+                }}
+              />
+              <Stack
+                direction="row"
+                justifyContent="space-between"
+                alignItems="center"
+                sx={{ position: "relative", px: 1.25, py: 0.75 }}
+              >
+                <Typography variant="body2" sx={{ fontWeight: o.voted ? 700 : 500 }}>
+                  {o.voted ? "✓ " : ""}
+                  {o.text}
+                </Typography>
+                <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                  {pct}% · {o.votes}
+                </Typography>
+              </Stack>
+            </Box>
+          );
+        })}
+      </Stack>
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
+        {total} lượt bình chọn{closed ? " · đã đóng" : ""}
+        {poll.multi ? " · chọn nhiều" : ""}
+      </Typography>
+    </Box>
+  );
+}
+
+function SharedMatchCard({ sm, nav }) {
+  const winA = sm.winner === "A";
+  const winB = sm.winner === "B";
+  return (
+    <Box
+      onClick={() => sm.matchId && nav(`/matches/${sm.matchId}`)}
+      sx={{
+        mt: 1.5,
+        borderRadius: 2,
+        border: "1px solid",
+        borderColor: "divider",
+        overflow: "hidden",
+        cursor: sm.matchId ? "pointer" : "default",
+      }}
+    >
+      <Box
+        sx={{
+          px: 1.5,
+          py: 0.75,
+          bgcolor: "primary.main",
+          color: "primary.contrastText",
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+        }}
+      >
+        <span>🏓</span>
+        <Typography variant="caption" sx={{ fontWeight: 700 }} noWrap>
+          {sm.tournamentName || "Kết quả trận đấu"}
+          {sm.code ? ` · ${sm.code}` : ""}
+        </Typography>
+      </Box>
+      <Stack
+        direction="row"
+        alignItems="center"
+        sx={{ px: 1.5, py: 1.25, gap: 1 }}
+      >
+        <Typography
+          sx={{ flex: 1, fontWeight: winA ? 800 : 500, textAlign: "left", color: winA ? "success.main" : "text.primary" }}
+        >
+          {sm.teamA || "Đội A"}
+        </Typography>
+        <Box sx={{ px: 1.5, py: 0.5, borderRadius: 1.5, bgcolor: "action.selected", minWidth: 78, textAlign: "center" }}>
+          <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1 }}>
+            {sm.scoreA} – {sm.scoreB}
+          </Typography>
+          {(sm.setsA || sm.setsB) ? (
+            <Typography variant="caption" color="text.secondary">
+              Sets {sm.setsA}–{sm.setsB}
+            </Typography>
+          ) : null}
+        </Box>
+        <Typography
+          sx={{ flex: 1, fontWeight: winB ? 800 : 500, textAlign: "right", color: winB ? "success.main" : "text.primary" }}
+        >
+          {sm.teamB || "Đội B"}
+        </Typography>
+      </Stack>
+    </Box>
+  );
+}
+
 function PostCard({ post, me, defaultShowComments = false }) {
   const nav = useNavigate();
   const [react] = useReactFeedPostMutation();
   const [deletePost] = useDeleteFeedPostMutation();
   const [reportPost] = useReportFeedPostMutation();
   const [sharePost] = useShareFeedPostMutation();
+  const [savePost] = useSaveFeedPostMutation();
+  const [votePoll] = useVoteFeedPollMutation();
+  const [saved, setSaved] = useState(!!post.saved);
+  const [poll, setPoll] = useState(post.poll || null);
+  useEffect(() => setSaved(!!post.saved), [post.saved]);
+  useEffect(() => setPoll(post.poll || null), [post.poll]);
+
+  const handleToggleSave = async () => {
+    const next = !saved;
+    setSaved(next);
+    try {
+      await savePost({ id: post._id, save: next }).unwrap();
+      toast.success(next ? "Đã lưu bài viết" : "Đã bỏ lưu");
+    } catch {
+      setSaved(!next);
+      toast.error("Thao tác thất bại");
+    }
+  };
+
+  const handleVote = async (optId) => {
+    if (!poll) return;
+    if (poll.closesAt && new Date(poll.closesAt) < new Date()) {
+      toast.info("Bình chọn đã đóng");
+      return;
+    }
+    // optimistic
+    const optionIds = poll.multi
+      ? poll.options
+          .filter((o) => (o.id === optId ? !o.voted : o.voted))
+          .map((o) => o.id)
+      : [optId];
+    try {
+      const r = await votePoll({ id: post._id, optionIds }).unwrap();
+      if (r?.poll) setPoll(r.poll);
+    } catch {
+      toast.error("Bình chọn thất bại");
+    }
+  };
+
   const [showComments, setShowComments] = useState(defaultShowComments);
   const [menuAnchor, setMenuAnchor] = useState(false);
   const [postReactorsOpen, setPostReactorsOpen] = useState(false);
@@ -1052,6 +1338,8 @@ function PostCard({ post, me, defaultShowComments = false }) {
         {post.linkedTournament && (
           <TournamentBubbleCard tour={post.linkedTournament} variant="feed" />
         )}
+        {post.sharedMatch && <SharedMatchCard sm={post.sharedMatch} nav={nav} />}
+        {poll && <PollBlock poll={poll} onVote={handleVote} />}
         {post.media?.length > 0 && (
           <Box
             sx={{
@@ -1175,6 +1463,18 @@ function PostCard({ post, me, defaultShowComments = false }) {
             sx={{ textTransform: "none", color: "text.secondary" }}
           >
             Chia sẻ
+          </Button>
+          <Button
+            size="small"
+            startIcon={<Bookmark size={16} fill={saved ? "currentColor" : "none"} />}
+            onClick={handleToggleSave}
+            sx={{
+              textTransform: "none",
+              color: saved ? "primary.main" : "text.secondary",
+              fontWeight: saved ? 700 : 400,
+            }}
+          >
+            {saved ? "Đã lưu" : "Lưu"}
           </Button>
           <Button
             size="small"

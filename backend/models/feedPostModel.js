@@ -54,6 +54,54 @@ const feedPostSchema = new Schema(
       default: "public",
     },
     reactions: { type: [reactionSchema], default: [] },
+    // Lưu bài (bookmark) — danh sách user đã lưu post này
+    savedBy: [{ type: Schema.Types.ObjectId, ref: "User", index: true }],
+    // Bài bình chọn (poll). null = post thường.
+    poll: {
+      type: new Schema(
+        {
+          question: { type: String, trim: true, maxlength: 300 },
+          multi: { type: Boolean, default: false },
+          closesAt: { type: Date, default: null },
+          options: {
+            type: [
+              new Schema(
+                {
+                  id: { type: String, required: true },
+                  text: { type: String, required: true, trim: true, maxlength: 120 },
+                  votes: [{ type: Schema.Types.ObjectId, ref: "User" }],
+                },
+                { _id: false }
+              ),
+            ],
+            default: [],
+          },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
+    // Snapshot trận đấu được chia sẻ (share match result). null = không.
+    sharedMatch: {
+      type: new Schema(
+        {
+          matchId: { type: Schema.Types.ObjectId, ref: "Match", default: null },
+          tournamentId: { type: Schema.Types.ObjectId, ref: "Tournament", default: null },
+          tournamentName: { type: String, trim: true },
+          code: { type: String, trim: true },
+          teamA: { type: String, trim: true },
+          teamB: { type: String, trim: true },
+          scoreA: { type: Number, default: 0 },
+          scoreB: { type: Number, default: 0 },
+          setsA: { type: Number, default: 0 },
+          setsB: { type: Number, default: 0 },
+          winner: { type: String, trim: true }, // "A" | "B" | ""
+          status: { type: String, trim: true },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     // denormalized counters — cập nhật atomic khi comment/reaction mutation
     reactionCount: { type: Number, default: 0, min: 0 },
     commentCount: { type: Number, default: 0, min: 0 },

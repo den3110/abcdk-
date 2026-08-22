@@ -18,6 +18,9 @@ import {
   listPostReactors,
   listCommentReactors,
   sharePost,
+  savePost,
+  listSavedPosts,
+  votePoll,
   reactComment,
   listComments,
   createComment,
@@ -170,6 +173,9 @@ const rlReport = rateLimit({
 // LIST
 router.get("/", optionalAuth, listFeed);
 
+// SAVED list phải nằm TRƯỚC "/:id" để không bị nuốt bởi param route
+router.get("/saved", protect, listSavedPosts);
+
 // COMMENTS list phải nằm TRƯỚC "/:id" để không bị nuốt
 router.get("/:id/comments", optionalAuth, listComments);
 
@@ -185,6 +191,9 @@ router.get("/:id/reactions", optionalAuth, listPostReactors);
 router.post("/:id/reports", protect, rlReport, reportTarget("post"));
 // Share: cho phép guest cũng ping (dùng optionalAuth). Chỉ tracking shareCount.
 router.post("/:id/share", optionalAuth, sharePost);
+// Lưu bài + bình chọn poll
+router.post("/:id/save", protect, savePost);
+router.post("/:id/vote", protect, votePoll);
 
 // POST CRUD
 router.post("/", protect, rlPost, createPost);

@@ -17,6 +17,7 @@ import {
   markRead,
   deleteMessage,
   reactMessage,
+  pinMessage,
   emitTyping,
 } from "../controllers/chatController.js";
 
@@ -36,6 +37,16 @@ const IMAGE_MIME = new Set([
   "image/gif",
 ]);
 const VIDEO_MIME = new Set(["video/mp4", "video/quicktime"]);
+const AUDIO_MIME = new Set([
+  "audio/m4a",
+  "audio/mp4",
+  "audio/x-m4a",
+  "audio/mpeg",
+  "audio/aac",
+  "audio/wav",
+  "audio/webm",
+  "audio/ogg",
+]);
 const FILE_MIME = new Set([
   "application/pdf",
   "application/msword",
@@ -61,6 +72,7 @@ const chatUpload = multer({
     if (
       IMAGE_MIME.has(file.mimetype) ||
       VIDEO_MIME.has(file.mimetype) ||
+      AUDIO_MIME.has(file.mimetype) ||
       FILE_MIME.has(file.mimetype)
     )
       return cb(null, true);
@@ -108,7 +120,9 @@ router.post(
         ? "image"
         : VIDEO_MIME.has(f.mimetype)
           ? "video"
-          : "file";
+          : AUDIO_MIME.has(f.mimetype)
+            ? "audio"
+            : "file";
       const rel = path
         .relative(ROOT_UPLOAD_DIR, f.path)
         .split(path.sep)
@@ -143,5 +157,6 @@ router.post("/conversations/:cid/read", protect, markRead);
 router.post("/conversations/:cid/typing", protect, rlTyping, emitTyping);
 router.delete("/messages/:mid", protect, deleteMessage);
 router.post("/messages/:mid/react", protect, reactMessage);
+router.post("/conversations/:cid/pin", protect, pinMessage);
 
 export default router;

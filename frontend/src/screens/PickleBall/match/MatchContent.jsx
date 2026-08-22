@@ -67,6 +67,7 @@ import {
   useListTournamentBracketsQuery,
   useListTournamentMatchesQuery,
 } from "../../../slices/tournamentsApiSlice";
+import { useCreateFeedPostMutation } from "../../../slices/feedApiSlice";
 import { useSocket } from "../../../context/SocketContext";
 import {
   getTournamentNameDisplayMode,
@@ -2771,6 +2772,46 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const currentGameScore = Array.isArray(shownGameScores)
     ? shownGameScores[shownGameScores.length - 1] || null
     : null;
+
+  // Chia sẻ kết quả trận thành bài đăng trên bảng tin
+  const handleShareResult = async () => {
+    const nameA = scorePairA
+      ? pairLabel(scorePairA, isSingle, displayMode)
+      : resolvePendingSideLabel(mm, "A");
+    const nameB = scorePairB
+      ? pairLabel(scorePairB, isSingle, displayMode)
+      : resolvePendingSideLabel(mm, "B");
+    const last = currentGameScore || { a: 0, b: 0 };
+    const setsAw = (shownGameScores || []).filter(
+      (g) => (g?.a ?? 0) > (g?.b ?? 0),
+    ).length;
+    const setsBw = (shownGameScores || []).filter(
+      (g) => (g?.b ?? 0) > (g?.a ?? 0),
+    ).length;
+    const sharedMatch = {
+      matchId: lockedId || mm?._id || null,
+      tournamentId: tournamentId || null,
+      tournamentName: tour?.name || "",
+      code: mm?.code || mm?.displayCode || "",
+      teamA: nameA,
+      teamB: nameB,
+      scoreA: Number(last.a) || 0,
+      scoreB: Number(last.b) || 0,
+      setsA: setsAw,
+      setsB: setsBw,
+      winner: mm?.winner === "A" || mm?.winner === "B" ? mm.winner : "",
+      status,
+    };
+    try {
+      await createFeedPost({
+        content: `Kết quả trận đấu: ${nameA} vs ${nameB}`,
+        sharedMatch,
+      }).unwrap();
+      toast.success("Đã chia sẻ kết quả lên bảng tin");
+    } catch (e) {
+      toast.error(e?.data?.message || "Chia sẻ thất bại");
+    }
+  };
   const activeStreamOpenUrl =
     activeStream?.openUrl ||
     (activeStream?.kind === "delayed_manifest" ? "" : activeStream?.url) ||
@@ -2944,6 +2985,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
   const [adminPatchMatch, { isLoading: patching }] =
     useAdminPatchMatchMutation();
+  const [createFeedPost] = useCreateFeedPostMutation();
   const [adminSwapMatchTeams, { isLoading: swappingTeams }] =
     useAdminSwapMatchTeamsMutation();
   const teamEditorBusy = patching || swappingTeams;
@@ -3727,6 +3769,19 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             {renderServeBadge("B", { alignRight: true })}
           </Box>
         </Stack>
+
+        {/* Chia sẻ kết quả lên bảng tin */}
+        <Box sx={{ mt: 1.5, textAlign: "center" }}>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<span>🏓</span>}
+            onClick={handleShareResult}
+            sx={{ textTransform: "none", borderRadius: 999 }}
+          >
+            Chia sẻ kết quả lên bảng tin
+          </Button>
+        </Box>
 
         {/* Bảng set điểm */}
         {!!(editMode ? editScores?.length : shownGameScores?.length) && (

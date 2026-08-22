@@ -56,6 +56,8 @@ const chatConversationSchema = new Schema(
     mutedBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
     // User "ẩn" hội thoại (không xoá messages, chỉ ẩn khỏi list của mình)
     hiddenFor: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    // Tin nhắn được ghim (BTC ghim thông báo quan trọng trong nhóm giải)
+    pinnedMessages: [{ type: Schema.Types.ObjectId, ref: "ChatMessage" }],
     // Admin flag
     isBlocked: { type: Boolean, default: false },
   },

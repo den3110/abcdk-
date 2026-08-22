@@ -198,6 +198,30 @@ function toPostDTO(post, viewerId) {
     isHidden: !!p.isHidden,
     isNsfw: !!p.isNsfw,
     myReaction: my,
+    // Lưu bài
+    saved: (p.savedBy || []).map(String).includes(String(viewerId || "")),
+    savedCount: (p.savedBy || []).length,
+    // Poll — kèm kết quả + lựa chọn của viewer
+    poll: p.poll
+      ? {
+          question: p.poll.question,
+          multi: !!p.poll.multi,
+          closesAt: p.poll.closesAt || null,
+          totalVotes: (p.poll.options || []).reduce(
+            (s, o) => s + (o.votes || []).length,
+            0
+          ),
+          options: (p.poll.options || []).map((o) => ({
+            id: o.id,
+            text: o.text,
+            votes: (o.votes || []).length,
+            voted: (o.votes || [])
+              .map(String)
+              .includes(String(viewerId || "")),
+          })),
+        }
+      : null,
+    sharedMatch: p.sharedMatch || null,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -365,7 +389,49 @@ export const createPost = asyncHandler(async (req, res) => {
   const visibility =
     req.body?.visibility === "followers" ? "followers" : "public";
 
-  if (!content.trim() && !media.length) {
+  // Poll: { question, options: [text], multi?, closesAt? } — client gửi text,
+  // server sinh id ổn định.
+  let poll = null;
+  const rawPoll = req.body?.poll;
+  if (rawPoll && Array.isArray(rawPoll.options)) {
+    const opts = rawPoll.options
+      .map((o) => String(o?.text ?? o ?? "").trim())
+      .filter(Boolean)
+      .slice(0, 10)
+      .map((text, i) => ({ id: `o${i}`, text: text.slice(0, 120), votes: [] }));
+    if (opts.length >= 2) {
+      poll = {
+        question: String(rawPoll.question || "").trim().slice(0, 300),
+        multi: !!rawPoll.multi,
+        closesAt: rawPoll.closesAt ? new Date(rawPoll.closesAt) : null,
+        options: opts,
+      };
+    }
+  }
+
+  // Shared match snapshot (chia sẻ kết quả trận) — client gửi snapshot đã tính.
+  let sharedMatch = null;
+  const rawSm = req.body?.sharedMatch;
+  if (rawSm && (rawSm.teamA || rawSm.teamB || rawSm.matchId)) {
+    sharedMatch = {
+      matchId: mongoose.isValidObjectId(rawSm.matchId) ? rawSm.matchId : null,
+      tournamentId: mongoose.isValidObjectId(rawSm.tournamentId)
+        ? rawSm.tournamentId
+        : null,
+      tournamentName: String(rawSm.tournamentName || "").slice(0, 200),
+      code: String(rawSm.code || "").slice(0, 40),
+      teamA: String(rawSm.teamA || "").slice(0, 200),
+      teamB: String(rawSm.teamB || "").slice(0, 200),
+      scoreA: Number(rawSm.scoreA) || 0,
+      scoreB: Number(rawSm.scoreB) || 0,
+      setsA: Number(rawSm.setsA) || 0,
+      setsB: Number(rawSm.setsB) || 0,
+      winner: ["A", "B"].includes(rawSm.winner) ? rawSm.winner : "",
+      status: String(rawSm.status || "").slice(0, 20),
+    };
+  }
+
+  if (!content.trim() && !media.length && !poll && !sharedMatch) {
     res.status(400);
     throw new Error("Bài viết cần có nội dung hoặc media");
   }
@@ -400,6 +466,8 @@ export const createPost = asyncHandler(async (req, res) => {
     mentions,
     linkedTournament,
     visibility,
+    poll,
+    sharedMatch,
   });
   const populated = await FeedPost.findById(post._id)
     .populate("author", AUTHOR_FIELDS)
@@ -526,6 +594,96 @@ export const sharePost = asyncHandler(async (req, res) => {
     shareCount: post.shareCount,
   });
   res.json({ postId: post._id, shareCount: post.shareCount });
+});
+
+// POST /api/feed/:id/save  { save?: boolean } — lưu / bỏ lưu bài
+export const savePost = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const post = await FeedPost.findById(req.params.id).select("savedBy deletedAt");
+  if (!post || post.deletedAt) {
+    res.status(404);
+    throw new Error("Không tìm thấy bài viết");
+  }
+  const save = req.body?.save !== false;
+  const uid = String(viewer._id);
+  const has = (post.savedBy || []).map(String).includes(uid);
+  if (save && !has) {
+    await FeedPost.updateOne(
+      { _id: post._id },
+      { $addToSet: { savedBy: viewer._id } }
+    );
+  } else if (!save && has) {
+    await FeedPost.updateOne(
+      { _id: post._id },
+      { $pull: { savedBy: viewer._id } }
+    );
+  }
+  res.json({ postId: post._id, saved: save });
+});
+
+// GET /api/feed/saved?limit=&cursor= — danh sách bài đã lưu của viewer
+export const listSavedPosts = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+  const cursor = decodeCursor(req.query.cursor);
+  const q = { savedBy: viewer._id, deletedAt: null, isHidden: false };
+  if (cursor?.lastId && mongoose.isValidObjectId(cursor.lastId)) {
+    q._id = { $lt: new mongoose.Types.ObjectId(cursor.lastId) };
+  }
+  const docs = await FeedPost.find(q)
+    .sort({ _id: -1 })
+    .limit(limit + 1)
+    .populate("author", AUTHOR_FIELDS)
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
+    .populate("mentions", AUTHOR_FIELDS);
+  const hasMore = docs.length > limit;
+  const items = docs.slice(0, limit).map((d) => toPostDTO(d, viewer._id));
+  const nextCursor = hasMore
+    ? encodeCursor({ lastId: String(docs[limit - 1]._id) })
+    : null;
+  res.json({ items, nextCursor, hasMore });
+});
+
+// POST /api/feed/:id/vote  { optionIds: [id] } — bình chọn poll (toggle)
+export const votePoll = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const post = await FeedPost.findById(req.params.id);
+  if (!post || post.deletedAt || post.isHidden || !post.poll) {
+    res.status(404);
+    throw new Error("Không tìm thấy bình chọn");
+  }
+  if (post.poll.closesAt && new Date(post.poll.closesAt) < new Date()) {
+    res.status(400);
+    throw new Error("Bình chọn đã đóng");
+  }
+  const uid = String(viewer._id);
+  const wanted = new Set(
+    (Array.isArray(req.body?.optionIds) ? req.body.optionIds : [])
+      .map(String)
+      .slice(0, post.poll.multi ? 10 : 1)
+  );
+  const opts = post.poll.options || [];
+  if (!post.poll.multi) {
+    // Single-choice: bỏ mọi vote cũ rồi set 1
+    for (const o of opts) o.votes = (o.votes || []).filter((v) => String(v) !== uid);
+    const target = opts.find((o) => wanted.has(String(o.id)));
+    if (target) target.votes.push(viewer._id);
+  } else {
+    for (const o of opts) {
+      const has = (o.votes || []).map(String).includes(uid);
+      if (wanted.has(String(o.id)) && !has) o.votes.push(viewer._id);
+      else if (!wanted.has(String(o.id)) && has)
+        o.votes = o.votes.filter((v) => String(v) !== uid);
+    }
+  }
+  post.markModified("poll");
+  await post.save();
+  const dto = toPostDTO(post, viewer._id);
+  emitToPost(post._id, "feed:poll:updated", {
+    postId: post._id,
+    poll: dto.poll,
+  });
+  res.json({ postId: post._id, poll: dto.poll });
 });
 
 // GET /api/feed/:id/reactions?type=&limit=&cursor=
