@@ -1,3 +1,5 @@
+> ✅ **CẬP NHẬT 2026-08-23 (cuối phiên):** OTA ĐÃ PUSH THÀNH CÔNG cho `ios 1.1.13` + `1.1.14` (channel production) với bản fix `d9abd34` (nút Chia sẻ kết quả dùng TouchableOpacity — hết crash). Chạy qua osascript vì Bash bị TCC chặn. **Session mới KHÔNG cần OTA lại** phần này; working tree mobile local đã `git reset --hard origin/master` về d9abd34.
+
 # PickleTour — HANDOFF Session (2026-08-22 → 23) — Nhắn tin/Bảng tin + fixes
 
 > Phiên tập trung: **nhắn tin + bảng tin** (react/reply/ghim/tin thoại + lưu bài/poll/chia sẻ kết quả trận), cùng nhiều fix. Cuối phiên môi trường bị **macOS TCC chặn đọc file dự án** → không tự OTA được (xem §0.2).
