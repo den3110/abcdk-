@@ -103,7 +103,7 @@ import {
 
 import {
   useBatchAssignRefereeMutation,
-  useListTournamentRefereesQuery,
+  useListScopedTournamentRefereesQuery,
 } from "../../slices/refereeScopeApiSlice";
 
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
@@ -2155,7 +2155,7 @@ export default function TournamentManagePage() {
     data: refData,
     isLoading: refsLoading,
     error: refsErr,
-  } = useListTournamentRefereesQuery({ tid: id }, { skip: false });
+  } = useListScopedTournamentRefereesQuery({ tid: id }, { skip: false });
 
   const refOptions = useMemo(() => {
     const list = Array.isArray(refData?.items)

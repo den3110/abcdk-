@@ -44,7 +44,7 @@ import {
   useDeleteCourtMutation,
   useSetCourtRefereeMutation,
 } from "../slices/adminCourtApiSlice";
-import { useListTournamentRefereesQuery } from "../slices/refereeScopeApiSlice";
+import { useListScopedTournamentRefereesQuery } from "../slices/refereeScopeApiSlice";
 import ResponsiveModal from "./ResponsiveModal";
 
 /* ---------------- helpers / formatters ---------------- */
@@ -498,7 +498,7 @@ export default function CourtManagerDialog({
 
   // Trọng tài của giải
   const { data: refsData, isLoading: loadingRefs } =
-    useListTournamentRefereesQuery(
+    useListScopedTournamentRefereesQuery(
       { tid: tournamentId, q: "" },
       { skip: !open || !tournamentId },
     );

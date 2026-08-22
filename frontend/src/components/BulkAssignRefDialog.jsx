@@ -26,7 +26,7 @@ import { toast } from "react-toastify";
 
 // 💡 chỉnh lại path cho đúng với dự án của bạn
 import {
-  useListTournamentRefereesQuery,
+  useListScopedTournamentRefereesQuery,
   useBatchAssignRefereeMutation,
 } from "../slices/refereeScopeApiSlice";
 
@@ -76,7 +76,7 @@ function BulkAssignRefDialog({
     isFetching,
     error: refsErr,
     refetch,
-  } = useListTournamentRefereesQuery(
+  } = useListScopedTournamentRefereesQuery(
     { tid: tournamentId },
     {
       skip: !open || !tournamentId,

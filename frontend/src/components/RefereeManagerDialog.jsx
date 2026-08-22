@@ -20,7 +20,7 @@ import { useEffect } from "react";
 import { useState } from "react";
 import PropTypes from "prop-types";
 import {
-  useListTournamentRefereesQuery,
+  useListScopedTournamentRefereesQuery,
   useUpsertTournamentRefereesMutation,
 } from "../slices/refereeScopeApiSlice";
 import { useAdminSearchRefereesQuery } from "../slices/tournamentsApiSlice";
@@ -60,7 +60,7 @@ export default function ManageRefereesDialog({
     data: assigned = [],
     isLoading: loadingAssigned,
     refetch: refetchAssigned,
-  } = useListTournamentRefereesQuery(
+  } = useListScopedTournamentRefereesQuery(
     { tid: tournamentId, q: "" },
     { skip: !open || !tournamentId },
   );

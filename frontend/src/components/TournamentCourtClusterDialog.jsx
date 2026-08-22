@@ -39,7 +39,7 @@ import {
   useUpdateTournamentCourtStationAssignmentConfigMutation,
 } from "../slices/courtClustersAdminApiSlice";
 import { useListTournamentRefereesQuery } from "../slices/tournamentsApiSlice";
-import { useListTournamentRefereesQuery as useListLegacyTournamentRefereesQuery } from "../slices/refereeScopeApiSlice";
+import { useListScopedTournamentRefereesQuery as useListLegacyTournamentRefereesQuery } from "../slices/refereeScopeApiSlice";
 import { useSocket } from "../context/SocketContext";
 import { useSocketRoomSet } from "../hook/useSocketRoomSet";
 import {

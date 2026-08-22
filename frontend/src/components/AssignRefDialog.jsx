@@ -36,7 +36,7 @@ import {
 import { toast } from "react-toastify";
 
 import {
-  useListTournamentRefereesQuery,
+  useListScopedTournamentRefereesQuery,
   useBatchAssignRefereeMutation,
 } from "../slices/refereeScopeApiSlice";
 import { useAdminGetMatchRefereesQuery } from "../slices/tournamentsApiSlice";
@@ -95,7 +95,7 @@ function AssignRefDialog({
     isFetching,
     error,
     refetch,
-  } = useListTournamentRefereesQuery(
+  } = useListScopedTournamentRefereesQuery(
     { tid: tournamentId, q: debouncedQ, limit },
     { skip: !open || !tournamentId },
   );

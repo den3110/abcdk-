@@ -11,7 +11,12 @@ export const refereeScopeApiSlice = apiSlice.injectEndpoints({
      *  và user.referee.tournaments có chứa tournamentId)
      *  GET /admin/tournaments/:tid/referees?q=<search>&limit=<n>
      */
-    listTournamentReferees: builder.query({
+    // ⚠️ Tên endpoint PHẢI khác `listTournamentReferees` của tournamentsApiSlice.
+    // Cùng tên → RTK injectEndpoints (overrideExisting:false) chỉ giữ 1 bản,
+    // bản kia bị bỏ → hook chạy sai định nghĩa. Trước đây bản tournaments
+    // (nhận string tid) thắng, nên consumer ở đây truyền object {tid,q} bị
+    // build URL `/tournaments/[object Object]/referees` → 400.
+    listScopedTournamentReferees: builder.query({
       // args: { tid, q?, limit? }
       query: ({ tid, q = "", limit = 50 }) => ({
         url: `/api/admin/tournaments/${enc(tid)}/referees`,
@@ -66,7 +71,7 @@ export const refereeScopeApiSlice = apiSlice.injectEndpoints({
 });
 
 export const {
-  useListTournamentRefereesQuery,
+  useListScopedTournamentRefereesQuery,
   useBatchAssignRefereeMutation,
   useUpsertTournamentRefereesMutation,
 } = refereeScopeApiSlice;
