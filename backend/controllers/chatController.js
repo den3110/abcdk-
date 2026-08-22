@@ -49,6 +49,22 @@ function toConvDTO(conv, viewerId) {
   };
 }
 
+// Rút gọn replyTo (khi đã populate) thành preview nhẹ để render quote.
+function toReplyPreview(rt) {
+  if (!rt) return null;
+  if (typeof rt !== "object") return { _id: rt }; // chưa populate → chỉ id
+  const s = rt.sender && typeof rt.sender === "object" ? rt.sender : null;
+  return {
+    _id: rt._id,
+    content: rt.deletedAt ? "" : rt.content || "",
+    attachments: (rt.attachments || []).map((a) => ({ type: a?.type })),
+    deletedAt: rt.deletedAt || null,
+    sender: s
+      ? { _id: s._id, name: s.name, nickname: s.nickname, avatar: s.avatar }
+      : rt.sender || null,
+  };
+}
+
 function toMessageDTO(msg) {
   const m = typeof msg.toObject === "function" ? msg.toObject() : { ...msg };
   return {
@@ -57,7 +73,11 @@ function toMessageDTO(msg) {
     sender: m.sender,
     content: m.content,
     attachments: m.attachments || [],
-    replyTo: m.replyTo,
+    replyTo: toReplyPreview(m.replyTo),
+    reactions: (m.reactions || []).map((r) => ({
+      user: r?.user?._id ? String(r.user._id) : String(r?.user || ""),
+      emoji: r?.emoji,
+    })),
     mentions: m.mentions || [],
     linkedTournament: m.linkedTournament || null,
     readBy: m.readBy || [],
@@ -68,6 +88,13 @@ function toMessageDTO(msg) {
     updatedAt: m.updatedAt,
   };
 }
+
+// Populate spec cho replyTo (dùng chung listMessages + sendMessage response)
+const REPLY_POPULATE = {
+  path: "replyTo",
+  select: "_id content attachments sender deletedAt",
+  populate: { path: "sender", select: "_id name nickname avatar" },
+};
 
 function emitToConv(convId, event, payload) {
   try {
@@ -308,6 +335,7 @@ export const listMessages = asyncHandler(async (req, res) => {
     .limit(limit + 1)
     .populate("sender", USER_FIELDS)
     .populate("mentions", USER_FIELDS)
+    .populate(REPLY_POPULATE)
     .populate("linkedTournament", "_id name image location startDate endDate status maxPairs");
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map(toMessageDTO);
@@ -395,6 +423,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
   const populated = await ChatMessage.findById(msg._id)
     .populate("sender", USER_FIELDS)
     .populate("mentions", USER_FIELDS)
+    .populate(REPLY_POPULATE)
     .populate("linkedTournament", "_id name image location startDate endDate status maxPairs");
   const dto = toMessageDTO(populated);
   await attachTournamentRegCounts([dto]);
@@ -471,6 +500,50 @@ export const deleteMessage = asyncHandler(async (req, res) => {
   res.json({ success: true });
 });
 
+// POST /api/chat/messages/:mid/react  { emoji }
+// Toggle reaction của viewer: cùng emoji → gỡ; khác/chưa có → set emoji đó.
+// emoji rỗng/null → gỡ reaction hiện tại.
+export const reactMessage = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const m = await ChatMessage.findById(req.params.mid);
+  if (!m || m.deletedAt) {
+    res.status(404);
+    throw new Error("Không tìm thấy tin nhắn");
+  }
+  const conv = await ChatConversation.findById(m.conversation).select(
+    "participants"
+  );
+  if (!conv || !isParticipant(conv, viewer._id)) {
+    res.status(403);
+    throw new Error("Không có quyền");
+  }
+  const emoji = String(req.body?.emoji || "").trim().slice(0, 16);
+  const uid = String(viewer._id);
+  const list = Array.isArray(m.reactions) ? m.reactions : [];
+  const existing = list.find((r) => String(r.user) === uid);
+  let action = "set";
+  if (!emoji || (existing && existing.emoji === emoji)) {
+    m.reactions = list.filter((r) => String(r.user) !== uid);
+    action = "remove";
+  } else if (existing) {
+    existing.emoji = emoji;
+  } else {
+    m.reactions = [...list, { user: viewer._id, emoji }];
+  }
+  await m.save();
+
+  const reactions = (m.reactions || []).map((r) => ({
+    user: String(r.user),
+    emoji: r.emoji,
+  }));
+  emitToConv(m.conversation, "chat:message:reaction", {
+    conversationId: String(m.conversation),
+    messageId: String(m._id),
+    reactions,
+  });
+  res.json({ success: true, action, reactions });
+});
+
 /* ─────────────────────── TYPING ─────────────────────── */
 
 // POST /api/chat/conversations/:cid/typing  (fire-and-forget)
@@ -531,6 +604,7 @@ export const adminListMessages = asyncHandler(async (req, res) => {
     .limit(limit + 1)
     .populate("sender", USER_FIELDS)
     .populate("mentions", USER_FIELDS)
+    .populate(REPLY_POPULATE)
     .populate("linkedTournament", "_id name image location startDate endDate status maxPairs");
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map(toMessageDTO);

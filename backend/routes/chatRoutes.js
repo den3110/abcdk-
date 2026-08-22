@@ -16,6 +16,7 @@ import {
   sendMessage,
   markRead,
   deleteMessage,
+  reactMessage,
   emitTyping,
 } from "../controllers/chatController.js";
 
@@ -141,5 +142,6 @@ router.post("/conversations/:cid/messages", protect, rlSend, sendMessage);
 router.post("/conversations/:cid/read", protect, markRead);
 router.post("/conversations/:cid/typing", protect, rlTyping, emitTyping);
 router.delete("/messages/:mid", protect, deleteMessage);
+router.post("/messages/:mid/react", protect, reactMessage);
 
 export default router;

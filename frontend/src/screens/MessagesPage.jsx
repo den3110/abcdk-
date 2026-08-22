@@ -31,6 +31,7 @@ import {
   useSendMessageMutation,
   useMarkReadMutation,
   useDeleteMessageMutation,
+  useReactMessageMutation,
   useUploadChatMediaMutation,
   messagesApiSlice,
 } from "../slices/messagesApiSlice.js";
@@ -122,7 +123,37 @@ function ConversationRow({ conv, me, active, onSelect }) {
   );
 }
 
-function MessageBubble({ msg, isMine, onDelete, canDelete }) {
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+
+function replySnippet(rt) {
+  if (!rt) return "";
+  if (rt.deletedAt) return "(tin nhắn đã xoá)";
+  if (rt.content) return rt.content;
+  const a = (rt.attachments || [])[0];
+  if (a?.type === "image") return "📷 Ảnh";
+  if (a?.type === "video") return "🎬 Video";
+  if (a?.type === "audio") return "🎤 Tin thoại";
+  if (a?.type) return "📎 Tệp";
+  return "…";
+}
+
+function MessageBubble({ msg, isMine, onDelete, canDelete, onReply, onReact, myId }) {
+  const [showReact, setShowReact] = useState(false);
+  const reactions = msg.reactions || [];
+  // Gom reactions theo emoji để hiển thị chip đếm
+  const grouped = useMemo(() => {
+    const map = new Map();
+    for (const r of reactions) {
+      const e = r.emoji;
+      if (!e) continue;
+      const cur = map.get(e) || { emoji: e, count: 0, mine: false };
+      cur.count += 1;
+      if (String(r.user) === String(myId)) cur.mine = true;
+      map.set(e, cur);
+    }
+    return Array.from(map.values());
+  }, [reactions, myId]);
+
   return (
     <Tooltip
       title={fmtBubbleTime(msg.createdAt)}
@@ -131,16 +162,27 @@ function MessageBubble({ msg, isMine, onDelete, canDelete }) {
       enterDelay={300}
     >
     <Box
+      onMouseEnter={() => setShowReact(true)}
+      onMouseLeave={() => setShowReact(false)}
       sx={{
         display: "flex",
-        justifyContent: isMine ? "flex-end" : "flex-start",
+        flexDirection: "column",
+        alignItems: isMine ? "flex-end" : "flex-start",
         my: 0.5,
       }}
     >
       <Box
+        sx={{
+          display: "flex",
+          flexDirection: isMine ? "row-reverse" : "row",
+          alignItems: "center",
+          gap: 0.5,
+          maxWidth: "82%",
+        }}
+      >
+      <Box
         onDoubleClick={canDelete ? onDelete : undefined}
         sx={{
-          maxWidth: "72%",
           bgcolor: isMine ? "primary.main" : "action.hover",
           color: isMine ? "primary.contrastText" : "text.primary",
           px: 1.5,
@@ -148,8 +190,38 @@ function MessageBubble({ msg, isMine, onDelete, canDelete }) {
           borderRadius: 3,
           borderBottomRightRadius: isMine ? 0.5 : 3,
           borderBottomLeftRadius: isMine ? 3 : 0.5,
+          minWidth: 0,
         }}
       >
+        {/* Quote reply */}
+        {msg.replyTo && (
+          <Box
+            sx={{
+              borderLeft: "3px solid",
+              borderColor: isMine ? "rgba(255,255,255,0.6)" : "primary.main",
+              pl: 1,
+              mb: 0.5,
+              opacity: 0.85,
+            }}
+          >
+            <Typography
+              variant="caption"
+              sx={{ fontWeight: 700, display: "block", color: "inherit" }}
+              noWrap
+            >
+              {msg.replyTo.sender?.nickname ||
+                msg.replyTo.sender?.name ||
+                "Trả lời"}
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ display: "block", color: "inherit", opacity: 0.9 }}
+              noWrap
+            >
+              {replySnippet(msg.replyTo)}
+            </Typography>
+          </Box>
+        )}
         {msg.attachments?.length > 0 &&
           msg.attachments.map((a, i) => (
             <Box key={i} sx={{ mb: 0.5 }}>
@@ -162,6 +234,13 @@ function MessageBubble({ msg, isMine, onDelete, canDelete }) {
                 />
               ) : a.type === "video" ? (
                 <Box component="video" src={a.url} controls sx={{ maxWidth: 240, borderRadius: 2 }} />
+              ) : a.type === "audio" ? (
+                <Box
+                  component="audio"
+                  src={a.url}
+                  controls
+                  sx={{ maxWidth: 240, height: 40 }}
+                />
               ) : (
                 <Typography
                   component="a"
@@ -196,6 +275,88 @@ function MessageBubble({ msg, isMine, onDelete, canDelete }) {
           />
         )}
       </Box>
+
+      {/* Hover actions: react + reply */}
+      {!msg.deletedAt && (showReact || false) && (
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 0.25,
+            bgcolor: "background.paper",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 999,
+            px: 0.5,
+            py: 0.25,
+            boxShadow: 1,
+          }}
+        >
+          {QUICK_EMOJIS.map((e) => (
+            <Box
+              key={e}
+              component="span"
+              onClick={() => onReact?.(msg._id, e)}
+              sx={{
+                cursor: "pointer",
+                fontSize: 16,
+                lineHeight: 1,
+                px: 0.25,
+                "&:hover": { transform: "scale(1.25)" },
+                transition: "transform .1s",
+              }}
+            >
+              {e}
+            </Box>
+          ))}
+          <Box
+            component="span"
+            onClick={() => onReply?.(msg)}
+            title="Trả lời"
+            sx={{ cursor: "pointer", fontSize: 15, px: 0.5, opacity: 0.7, "&:hover": { opacity: 1 } }}
+          >
+            ↩︎
+          </Box>
+        </Box>
+      )}
+      </Box>
+
+      {/* Reactions summary */}
+      {grouped.length > 0 && (
+        <Box
+          sx={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 0.5,
+            mt: 0.25,
+            justifyContent: isMine ? "flex-end" : "flex-start",
+          }}
+        >
+          {grouped.map((g) => (
+            <Box
+              key={g.emoji}
+              onClick={() => onReact?.(msg._id, g.emoji)}
+              sx={{
+                cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 0.25,
+                px: 0.75,
+                py: 0.1,
+                borderRadius: 999,
+                fontSize: 12,
+                bgcolor: g.mine ? "primary.light" : "action.selected",
+                color: g.mine ? "primary.contrastText" : "text.primary",
+                border: "1px solid",
+                borderColor: g.mine ? "primary.main" : "divider",
+              }}
+            >
+              <span>{g.emoji}</span>
+              <span style={{ fontWeight: 700 }}>{g.count}</span>
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
     </Tooltip>
   );
@@ -208,6 +369,7 @@ function ChatPanel({ conversationId, me, onBack }) {
   const [linkedTournament, setLinkedTournament] = useState(null);
   const [tournamentPickerOpen, setTournamentPickerOpen] = useState(false);
   const [selectedMentions, setSelectedMentions] = useState([]);
+  const [replyTarget, setReplyTarget] = useState(null);
   const fileRef = useRef(null);
   const scrollRef = useRef(null);
   const submittingRef = useRef(false);
@@ -224,6 +386,38 @@ function ChatPanel({ conversationId, me, onBack }) {
   const [markRead] = useMarkReadMutation();
   const [uploadMedia] = useUploadChatMediaMutation();
   const [deleteMessage] = useDeleteMessageMutation();
+  const [reactMessage] = useReactMessageMutation();
+
+  const handleReact = async (mid, emoji) => {
+    // Optimistic: cập nhật reactions trong cache ngay
+    dispatch(
+      messagesApiSlice.util.updateQueryData(
+        "listMessages",
+        { cid: String(conversationId) },
+        (draft) => {
+          const m = draft?.items?.find((x) => String(x._id) === String(mid));
+          if (!m) return;
+          const list = m.reactions || [];
+          const mineIdx = list.findIndex(
+            (r) => String(r.user) === String(me?._id)
+          );
+          if (mineIdx >= 0 && list[mineIdx].emoji === emoji) {
+            m.reactions = list.filter((_, i) => i !== mineIdx);
+          } else if (mineIdx >= 0) {
+            list[mineIdx].emoji = emoji;
+            m.reactions = [...list];
+          } else {
+            m.reactions = [...list, { user: String(me?._id), emoji }];
+          }
+        }
+      )
+    );
+    try {
+      await reactMessage({ mid, emoji }).unwrap();
+    } catch {
+      /* socket sẽ đồng bộ lại nếu lệch */
+    }
+  };
 
   useEffect(() => {
     if (conversationId) markRead(conversationId);
@@ -279,8 +473,24 @@ function ChatPanel({ conversationId, me, onBack }) {
         )
       );
     };
+    const onReaction = (payload) => {
+      if (String(payload?.conversationId) !== String(conversationId)) return;
+      dispatch(
+        messagesApiSlice.util.updateQueryData(
+          "listMessages",
+          { cid: String(conversationId) },
+          (draft) => {
+            const m = draft?.items?.find(
+              (x) => String(x._id) === String(payload.messageId)
+            );
+            if (m) m.reactions = payload.reactions || [];
+          }
+        )
+      );
+    };
     socket.on("chat:message:new", onNew);
     socket.on("chat:message:deleted", onDeleted);
+    socket.on("chat:message:reaction", onReaction);
     return () => {
       try {
         socket.emit("chat:unsubscribe", {
@@ -289,6 +499,7 @@ function ChatPanel({ conversationId, me, onBack }) {
       } catch {}
       socket.off("chat:message:new", onNew);
       socket.off("chat:message:deleted", onDeleted);
+      socket.off("chat:message:reaction", onReaction);
     };
   }, [conversationId, dispatch, markRead]);
 
@@ -330,11 +541,13 @@ function ChatPanel({ conversationId, me, onBack }) {
       .filter((m) => text.includes(`@${m.display}`))
       .map((m) => m._id);
     const payloadTour = linkedTournament?._id || null;
+    const payloadReplyTo = replyTarget?._id || null;
     // Clear input NGAY để tránh double submit từ Enter thứ 2 gõ liền tay
     setText("");
     setAttachments([]);
     setLinkedTournament(null);
     setSelectedMentions([]);
+    setReplyTarget(null);
     // Fallback: nếu IME onChange async fire sau Enter → clear lại
     setTimeout(() => setText(""), 30);
     try {
@@ -344,6 +557,7 @@ function ChatPanel({ conversationId, me, onBack }) {
         attachments: payloadAttach,
         mentions: payloadMentions,
         linkedTournament: payloadTour,
+        replyTo: payloadReplyTo,
       }).unwrap();
     } catch (err) {
       toast.error(err?.data?.message || "Gửi thất bại");
@@ -459,12 +673,46 @@ function ChatPanel({ conversationId, me, onBack }) {
                 isMine={isMine}
                 onDelete={() => handleDelete(m._id)}
                 canDelete={canDelete}
+                onReply={setReplyTarget}
+                onReact={handleReact}
+                myId={me?._id}
               />
             </Fragment>
           );
         })}
       </Box>
       <Box sx={{ borderTop: 1, borderColor: "divider", p: 1.5 }}>
+        {replyTarget && (
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              mb: 1,
+              px: 1,
+              py: 0.75,
+              borderLeft: "3px solid",
+              borderColor: "primary.main",
+              bgcolor: "action.hover",
+              borderRadius: 1,
+            }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, display: "block" }}>
+                Đang trả lời{" "}
+                {replyTarget.sender?.nickname ||
+                  replyTarget.sender?.name ||
+                  ""}
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap sx={{ display: "block" }}>
+                {replySnippet(replyTarget)}
+              </Typography>
+            </Box>
+            <IconButton size="small" onClick={() => setReplyTarget(null)}>
+              <XIcon size={16} />
+            </IconButton>
+          </Box>
+        )}
         {attachments.length > 0 && (
           <Stack direction="row" spacing={1} sx={{ mb: 1, flexWrap: "wrap" }}>
             {attachments.map((a, i) => (

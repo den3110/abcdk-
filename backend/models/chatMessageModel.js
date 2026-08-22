@@ -6,13 +6,28 @@ const { Schema } = mongoose;
 
 const attachmentSchema = new Schema(
   {
-    type: { type: String, enum: ["image", "video", "file"], required: true },
+    type: {
+      type: String,
+      enum: ["image", "video", "file", "audio"],
+      required: true,
+    },
     url: { type: String, required: true, trim: true },
     name: { type: String, trim: true },
     mime: { type: String, trim: true },
     sizeBytes: { type: Number, min: 0 },
     width: Number,
     height: Number,
+    // Cho audio (tin nhắn thoại): thời lượng giây
+    durationSec: { type: Number, min: 0 },
+  },
+  { _id: false }
+);
+
+// Reaction emoji trên 1 message. Mỗi user 1 reaction (toggle/đổi emoji).
+const reactionSchema = new Schema(
+  {
+    user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    emoji: { type: String, required: true, trim: true, maxlength: 16 },
   },
   { _id: false }
 );
@@ -48,6 +63,8 @@ const chatMessageSchema = new Schema(
     },
     // readBy: users đã xem tính đến message này
     readBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    // Reactions emoji (mỗi user tối đa 1)
+    reactions: { type: [reactionSchema], default: [] },
     // Metadata cho system message (ví dụ: "X đã tham gia giải")
     systemKind: {
       type: String,
