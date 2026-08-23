@@ -10,6 +10,15 @@ import MarketListing, {
 } from "../models/marketListingModel.js";
 import MarketOffer from "../models/marketOfferModel.js";
 import User from "../models/userModel.js";
+import { postDirectMessage } from "./chatController.js";
+
+const vnd = (n) => {
+  try {
+    return new Intl.NumberFormat("vi-VN").format(Number(n) || 0);
+  } catch {
+    return String(n || 0);
+  }
+};
 
 const SELLER_FIELDS = "_id name nickname avatar role cccdStatus verified province";
 
@@ -450,7 +459,7 @@ export const createOffer = asyncHandler(async (req, res) => {
   const id = oid(req.params.id);
   if (!id) return res.status(400).json({ message: "ID không hợp lệ" });
   const listing = await MarketListing.findById(id).select(
-    "seller status offerCount type"
+    "seller status offerCount type title price images"
   );
   if (!listing) return res.status(404).json({ message: "Không tìm thấy tin đăng" });
   if (String(listing.seller) === String(req.user._id)) {
@@ -470,6 +479,28 @@ export const createOffer = asyncHandler(async (req, res) => {
     message,
   });
   await MarketListing.updateOne({ _id: id }, { $inc: { offerCount: 1 } });
+
+  // Gửi thẳng thông tin trả giá + sản phẩm vào tin nhắn cho người bán
+  try {
+    const buyerName = req.user.nickname || req.user.name || "Người mua";
+    const lines = [
+      "💰 ĐỀ NGHỊ MUA SẢN PHẨM",
+      `🏓 ${listing.title || "Sản phẩm"}`,
+      `Giá đăng: ${vnd(listing.price)} đ`,
+      amount > 0
+        ? `Giá đề nghị: ${vnd(amount)} đ`
+        : "Giá đề nghị: (thương lượng)",
+      message ? `Lời nhắn: "${message}"` : "",
+      `🔗 https://pickletour.vn/marketplace/${String(id)}`,
+    ].filter(Boolean);
+    await postDirectMessage({
+      fromUserId: req.user._id,
+      toUserId: listing.seller,
+      content: lines.join("\n"),
+    });
+  } catch (e) {
+    // Không chặn luồng trả giá nếu gửi tin nhắn lỗi
+  }
 
   const populated = await offer.populate([
     { path: "buyer", select: SELLER_FIELDS },

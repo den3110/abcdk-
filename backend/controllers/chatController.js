@@ -706,3 +706,80 @@ export const adminDeleteMessage = asyncHandler(async (req, res) => {
   });
   res.json({ success: true });
 });
+
+/**
+ * Gửi 1 tin nhắn DM từ fromUserId -> toUserId (tự tạo hội thoại nếu chưa có).
+ * Dùng cho các luồng hệ thống (VD: trả giá sản phẩm trên Chợ gửi thẳng cho seller).
+ * Fire-and-forget: caller nên try/catch, lỗi ở đây không được làm hỏng luồng chính.
+ */
+export async function postDirectMessage({
+  fromUserId,
+  toUserId,
+  content,
+  attachments = [],
+}) {
+  if (!fromUserId || !toUserId) return null;
+  if (String(fromUserId) === String(toUserId)) return null;
+
+  const sorted = [String(fromUserId), String(toUserId)].sort();
+  let conv = await ChatConversation.findOne({
+    type: "dm",
+    participants: { $all: sorted, $size: 2 },
+  });
+  if (!conv) {
+    conv = await ChatConversation.create({
+      type: "dm",
+      participants: sorted,
+      initiator: fromUserId,
+    });
+  }
+
+  const text = String(content || "").slice(0, 4000);
+  const atts = Array.isArray(attachments) ? attachments.slice(0, 10) : [];
+
+  const msg = await ChatMessage.create({
+    conversation: conv._id,
+    sender: fromUserId,
+    content: text,
+    attachments: atts,
+    readBy: [fromUserId],
+  });
+
+  conv.lastMessage = {
+    text: text || (atts.length ? "[Đính kèm]" : ""),
+    sender: fromUserId,
+    at: new Date(),
+    hasAttachment: atts.length > 0,
+  };
+  conv.lastMessageAt = new Date();
+  if (typeof conv.bumpUnreadExcept === "function") {
+    conv.bumpUnreadExcept(fromUserId);
+  }
+  conv.hiddenFor = [];
+  await conv.save();
+
+  const populated = await ChatMessage.findById(msg._id)
+    .populate("sender", USER_FIELDS)
+    .populate(REPLY_POPULATE);
+  const dto = toMessageDTO(populated);
+
+  emitToConv(String(conv._id), "chat:message:new", {
+    conversationId: String(conv._id),
+    message: dto,
+  });
+  const io = getIO?.();
+  if (io) {
+    for (const p of conv.participants) {
+      io.to(`user:${String(p)}`).emit("chat:conversation:bumped", {
+        conversationId: String(conv._id),
+        lastMessage: conv.lastMessage,
+        lastMessageAt: conv.lastMessageAt,
+      });
+    }
+  }
+  try {
+    notifyChatMessage({ conversation: conv, message: populated, actorId: fromUserId });
+  } catch {}
+
+  return { conversationId: String(conv._id), messageId: String(msg._id) };
+}

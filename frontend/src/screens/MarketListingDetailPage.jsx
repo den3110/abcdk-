@@ -197,7 +197,7 @@ export default function MarketListingDetailPage() {
         amount: Number(String(offerAmount).replace(/\D/g, "")) || 0,
         message: offerMsg,
       }).unwrap();
-      toast.success("Đã gửi đề nghị tới người bán");
+      toast.success("Đã gửi đề nghị và nhắn tin cho người bán");
       setOfferOpen(false);
       setOfferAmount("");
       setOfferMsg("");
