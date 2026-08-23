@@ -72,6 +72,7 @@ import TournamentPickerDialog from "../components/feed/TournamentPickerDialog.js
 import FriendSuggestionsCard from "../components/feed/FriendSuggestionsCard.jsx";
 import TournamentBubbleCard from "../components/feed/TournamentBubbleCard.jsx";
 import { CONDITION_MAP, formatPrice } from "../constants/market";
+import { PLAY_STATUS, formatPlayTime, skillLabel } from "../constants/play";
 
 /* ─────────── constants ─────────── */
 const REACTION_EMOJI = {
@@ -1262,6 +1263,55 @@ function SharedListingCard({ sl, nav }) {
   );
 }
 
+function SharedPlayCard({ sp, nav }) {
+  const go = () => sp.playId && nav(`/play/${sp.playId}`);
+  const st = PLAY_STATUS[sp.status] || PLAY_STATUS.open;
+  const slotsLeft = Math.max(0, (sp.slots || 0) - (sp.acceptedCount || 0));
+  return (
+    <Box
+      onClick={go}
+      sx={{
+        mt: 1.5,
+        borderRadius: 2,
+        border: "1px solid",
+        borderColor: "divider",
+        overflow: "hidden",
+        cursor: sp.playId ? "pointer" : "default",
+        "&:hover": { borderColor: "#16a34a" },
+      }}
+    >
+      <Box sx={{ px: 1.5, py: 0.75, bgcolor: "#16a34a", color: "#fff", display: "flex", alignItems: "center", gap: 1 }}>
+        <span>🏓</span>
+        <Typography variant="caption" sx={{ fontWeight: 700, flex: 1 }} noWrap>
+          Kèo giao lưu · Tìm bạn đánh
+        </Typography>
+        <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: "rgba(255,255,255,.25)", fontSize: 11, fontWeight: 700 }}>
+          {st.label}
+        </Box>
+      </Box>
+      <Box sx={{ p: 1.5 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 15 }}>
+          {sp.title || sp.courtName || "Kèo pickleball"}
+        </Typography>
+        <Typography sx={{ fontSize: 13, color: "text.secondary", mt: 0.5 }}>
+          🕒 {formatPlayTime(sp.playAt)}
+        </Typography>
+        <Typography sx={{ fontSize: 13, color: "text.secondary" }}>
+          📍 {[sp.courtName, sp.province].filter(Boolean).join(", ") || "—"}
+        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mt: 1, gap: 1 }}>
+          <Typography sx={{ fontSize: 12.5, color: "text.secondary" }}>
+            {skillLabel(sp.skillMin, sp.skillMax)} · thiếu {slotsLeft} người
+          </Typography>
+          <Box sx={{ px: 1.5, py: 0.5, borderRadius: 999, bgcolor: sp.status === "open" ? "#16a34a" : "action.disabledBackground", color: sp.status === "open" ? "#fff" : "text.disabled", fontWeight: 700, fontSize: 12.5 }}>
+            {sp.status === "open" ? "Tham gia" : "Xem kèo"}
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
 function PostCard({ post, me, defaultShowComments = false }) {
   const nav = useNavigate();
   const [react] = useReactFeedPostMutation();
@@ -1441,6 +1491,7 @@ function PostCard({ post, me, defaultShowComments = false }) {
         )}
         {post.sharedMatch && <SharedMatchCard sm={post.sharedMatch} nav={nav} />}
         {post.sharedListing && <SharedListingCard sl={post.sharedListing} nav={nav} />}
+        {post.sharedPlay && <SharedPlayCard sp={post.sharedPlay} nav={nav} />}
         {poll && <PollBlock poll={poll} onVote={handleVote} />}
         {post.media?.length > 0 && (
           <Box

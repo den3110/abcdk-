@@ -11,6 +11,68 @@ import { getBlockedIdSet } from "./friendController.js";
 import { sendTelegramMessage } from "../services/telegram.service.js";
 import Ranking from "../models/rankingModel.js";
 import { attachTournamentRegCounts } from "../utils/enrichTournament.js";
+import MarketListing from "../models/marketListingModel.js";
+import PlayInvite from "../models/playInviteModel.js";
+
+// Cập nhật ảnh/giá/trạng thái sản phẩm Chợ được share lên feed theo dữ liệu LIVE
+async function enrichSharedListings(items) {
+  const ids = [];
+  for (const it of items) {
+    const lid = it?.sharedListing?.listingId;
+    if (lid) ids.push(String(lid));
+  }
+  if (!ids.length) return items;
+  const listings = await MarketListing.find({ _id: { $in: ids } })
+    .select("images status price title")
+    .lean();
+  const map = new Map(listings.map((l) => [String(l._id), l]));
+  for (const it of items) {
+    const sl = it?.sharedListing;
+    if (!sl?.listingId) continue;
+    const live = map.get(String(sl.listingId));
+    if (live) {
+      const firstImg = live.images?.[0]?.url || live.images?.[0] || "";
+      if (firstImg) sl.image = firstImg;
+      sl.status = live.status;
+      sl.price = live.price;
+      if (live.title) sl.title = live.title;
+    } else {
+      sl.deleted = true;
+    }
+  }
+  return items;
+}
+
+// Cập nhật thông tin kèo "Tìm bạn đánh" được share lên feed theo dữ liệu LIVE
+async function enrichSharedPlays(items) {
+  const ids = [];
+  for (const it of items) {
+    const pid = it?.sharedPlay?.playId;
+    if (pid) ids.push(String(pid));
+  }
+  if (!ids.length) return items;
+  const plays = await PlayInvite.find({ _id: { $in: ids } })
+    .select("title courtName province playAt status slots participants")
+    .lean();
+  const map = new Map(plays.map((p) => [String(p._id), p]));
+  for (const it of items) {
+    const sp = it?.sharedPlay;
+    if (!sp?.playId) continue;
+    const live = map.get(String(sp.playId));
+    if (live) {
+      sp.status = live.status;
+      sp.slots = live.slots;
+      sp.acceptedCount = (live.participants || []).filter(
+        (x) => x.status === "accepted"
+      ).length;
+      if (live.title || live.courtName) sp.title = live.title || live.courtName;
+      sp.playAt = live.playAt;
+    } else {
+      sp.deleted = true;
+    }
+  }
+  return items;
+}
 import { encodeCursor, decodeCursor } from "../utils/cursor.js";
 import { getIO } from "../socket/index.js";
 import {
@@ -223,6 +285,7 @@ function toPostDTO(post, viewerId) {
       : null,
     sharedMatch: p.sharedMatch || null,
     sharedListing: p.sharedListing || null,
+    sharedPlay: p.sharedPlay || null,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -337,6 +400,8 @@ export const listFeed = asyncHandler(async (req, res) => {
     attachAuthorScores(items),
     attachTournamentRegCounts(items),
     attachRecentComments(items, viewer?._id),
+    enrichSharedListings(items),
+    enrichSharedPlays(items),
   ]);
   const nextCursor = hasMore
     ? encodeCursor({ lastId: String(docs[limit - 1]._id) })
@@ -373,6 +438,8 @@ export const getPost = asyncHandler(async (req, res) => {
     attachAuthorScores([dto]),
     attachTournamentRegCounts([dto]),
     attachRecentComments([dto], viewer?._id),
+    enrichSharedListings([dto]),
+    enrichSharedPlays([dto]),
   ]);
   res.json(dto);
 });
@@ -452,7 +519,33 @@ export const createPost = asyncHandler(async (req, res) => {
     };
   }
 
-  if (!content.trim() && !media.length && !poll && !sharedMatch && !sharedListing) {
+  // Shared play snapshot (chia sẻ kèo Tìm bạn đánh)
+  let sharedPlay = null;
+  const rawSp = req.body?.sharedPlay;
+  if (rawSp && (rawSp.playId || rawSp.title || rawSp.courtName)) {
+    sharedPlay = {
+      playId: mongoose.isValidObjectId(rawSp.playId) ? rawSp.playId : null,
+      title: String(rawSp.title || "").slice(0, 200),
+      courtName: String(rawSp.courtName || "").slice(0, 200),
+      province: String(rawSp.province || "").slice(0, 80),
+      playAt: rawSp.playAt ? new Date(rawSp.playAt) : null,
+      skillMin: rawSp.skillMin != null && rawSp.skillMin !== "" ? Number(rawSp.skillMin) : null,
+      skillMax: rawSp.skillMax != null && rawSp.skillMax !== "" ? Number(rawSp.skillMax) : null,
+      slots: Number(rawSp.slots) || 0,
+      acceptedCount: Number(rawSp.acceptedCount) || 0,
+      hostName: String(rawSp.hostName || "").slice(0, 120),
+      status: String(rawSp.status || "").slice(0, 20),
+    };
+  }
+
+  if (
+    !content.trim() &&
+    !media.length &&
+    !poll &&
+    !sharedMatch &&
+    !sharedListing &&
+    !sharedPlay
+  ) {
     res.status(400);
     throw new Error("Bài viết cần có nội dung hoặc media");
   }
@@ -490,6 +583,7 @@ export const createPost = asyncHandler(async (req, res) => {
     poll,
     sharedMatch,
     sharedListing,
+    sharedPlay,
   });
   const populated = await FeedPost.findById(post._id)
     .populate("author", AUTHOR_FIELDS)

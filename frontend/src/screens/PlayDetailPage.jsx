@@ -18,13 +18,31 @@ import AccessTimeRoundedIcon from "@mui/icons-material/AccessTimeRounded";
 import PhoneRoundedIcon from "@mui/icons-material/PhoneRounded";
 import GroupsRoundedIcon from "@mui/icons-material/GroupsRounded";
 import { PLAY_STATUS, formatPlayTime, skillLabel } from "../constants/play";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import MenuItem from "@mui/material/MenuItem";
+import CampaignRoundedIcon from "@mui/icons-material/CampaignRounded";
+import EditRoundedIcon from "@mui/icons-material/EditRounded";
 import {
   useGetInviteQuery,
   useRequestJoinMutation,
   useRespondJoinMutation,
   useLeaveInviteMutation,
   useDeleteInviteMutation,
+  useUpdateInviteMutation,
 } from "../slices/playApiSlice";
+import { useCreateFeedPostMutation } from "../slices/feedApiSlice";
+
+// Date -> "YYYY-MM-DDTHH:mm" (local) cho input datetime-local
+function toLocalInput(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
 export default function PlayDetailPage() {
   const { id } = useParams();
@@ -35,7 +53,12 @@ export default function PlayDetailPage() {
   const [respondJoin] = useRespondJoinMutation();
   const [leaveInvite] = useLeaveInviteMutation();
   const [deleteInvite] = useDeleteInviteMutation();
+  const [updateInvite, { isLoading: updating }] = useUpdateInviteMutation();
+  const [createFeedPost, { isLoading: sharing }] = useCreateFeedPostMutation();
   const [note, setNote] = useState("");
+  const [editOpen, setEditOpen] = useState(false);
+  const [form, setForm] = useState({});
+  const setF = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   if (isLoading)
     return <Box sx={{ display: "grid", placeItems: "center", minHeight: "60vh" }}><CircularProgress /></Box>;
@@ -72,6 +95,57 @@ export default function PlayDetailPage() {
   const onDelete = async () => {
     if (!window.confirm("Xoá kèo này?")) return;
     try { await deleteInvite(it._id).unwrap(); navigate("/play"); } catch {}
+  };
+  const openEdit = () => {
+    setForm({
+      title: it.title || "",
+      courtName: it.courtName || "",
+      province: it.province || "",
+      district: it.district || "",
+      playAt: toLocalInput(it.playAt),
+      durationMin: it.durationMin || 90,
+      skillMin: it.skillMin ?? "",
+      skillMax: it.skillMax ?? "",
+      slots: it.slots || 1,
+      contactPhone: it.contactPhone || "",
+      note: it.note || "",
+      status: it.status,
+    });
+    setEditOpen(true);
+  };
+  const submitEdit = async () => {
+    try {
+      await updateInvite({ id: it._id, ...form }).unwrap();
+      toast.success("Đã cập nhật kèo");
+      setEditOpen(false);
+      refetch();
+    } catch (e) {
+      toast.error(e?.data?.message || "Cập nhật thất bại");
+    }
+  };
+  const handleShareToFeed = async () => {
+    if (!userInfo) return navigate("/login");
+    try {
+      await createFeedPost({
+        content: `🏓 Kèo giao lưu: ${it.title || it.courtName || "pickleball"}`,
+        sharedPlay: {
+          playId: it._id,
+          title: it.title || it.courtName || "",
+          courtName: it.courtName || "",
+          province: it.province || "",
+          playAt: it.playAt,
+          skillMin: it.skillMin,
+          skillMax: it.skillMax,
+          slots: it.slots,
+          acceptedCount: it.acceptedCount,
+          hostName: it.host?.nickname || it.host?.name || "",
+          status: it.status,
+        },
+      }).unwrap();
+      toast.success("Đã chia sẻ kèo lên bảng tin");
+    } catch (e) {
+      toast.error(e?.data?.message || "Chia sẻ thất bại");
+    }
   };
 
   const Person = ({ p, actions }) => (
@@ -135,7 +209,8 @@ export default function PlayDetailPage() {
         {/* Actions */}
         <Box sx={{ mt: 2 }}>
           {it.isHost ? (
-            <Box sx={{ display: "flex", gap: 1 }}>
+            <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+              <Button variant="contained" startIcon={<EditRoundedIcon />} onClick={openEdit}>Sửa kèo</Button>
               <Button variant="outlined" color="error" onClick={onDelete}>Xoá kèo</Button>
             </Box>
           ) : it.myStatus === "accepted" ? (
@@ -157,6 +232,17 @@ export default function PlayDetailPage() {
             <Chip label="Kèo đã đóng / đủ người" />
           )}
         </Box>
+
+        <Button
+          fullWidth
+          variant="outlined"
+          startIcon={<CampaignRoundedIcon />}
+          onClick={handleShareToFeed}
+          disabled={sharing}
+          sx={{ mt: 2 }}
+        >
+          {sharing ? "Đang chia sẻ…" : "Chia sẻ kèo lên bảng tin"}
+        </Button>
       </Box>
 
       {/* Host: pending requests */}
@@ -195,6 +281,40 @@ export default function PlayDetailPage() {
         ))}
         {accepted.length === 0 && <Typography sx={{ color: "text.secondary", fontSize: 14 }}>Chưa có ai được nhận.</Typography>}
       </Box>
+
+      {/* Edit dialog (host) */}
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 800 }}>Sửa kèo</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
+            <TextField label="Tiêu đề" value={form.title || ""} onChange={(e) => setF("title", e.target.value)} fullWidth />
+            <TextField label="Thời gian chơi" type="datetime-local" value={form.playAt || ""} onChange={(e) => setF("playAt", e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
+            <TextField label="Tên sân" value={form.courtName || ""} onChange={(e) => setF("courtName", e.target.value)} fullWidth />
+            <Box sx={{ display: "flex", gap: 2 }}>
+              <TextField label="Tỉnh/TP" value={form.province || ""} onChange={(e) => setF("province", e.target.value)} fullWidth />
+              <TextField label="Quận/Huyện" value={form.district || ""} onChange={(e) => setF("district", e.target.value)} fullWidth />
+            </Box>
+            <Box sx={{ display: "flex", gap: 2 }}>
+              <TextField label="Trình từ" type="number" value={form.skillMin ?? ""} onChange={(e) => setF("skillMin", e.target.value)} sx={{ flex: 1 }} />
+              <TextField label="Trình đến" type="number" value={form.skillMax ?? ""} onChange={(e) => setF("skillMax", e.target.value)} sx={{ flex: 1 }} />
+              <TextField label="Cần thêm" type="number" value={form.slots ?? 1} onChange={(e) => setF("slots", e.target.value)} sx={{ flex: 1 }} />
+            </Box>
+            <Box sx={{ display: "flex", gap: 2 }}>
+              <TextField select label="Trạng thái" value={form.status || "open"} onChange={(e) => setF("status", e.target.value)} sx={{ flex: 1 }}>
+                {[["open", "Đang mở"], ["full", "Đủ người"], ["closed", "Đóng"], ["done", "Đã diễn ra"], ["cancelled", "Huỷ"]].map(([v, l]) => (
+                  <MenuItem key={v} value={v}>{l}</MenuItem>
+                ))}
+              </TextField>
+              <TextField label="SĐT liên hệ" value={form.contactPhone || ""} onChange={(e) => setF("contactPhone", e.target.value)} sx={{ flex: 1 }} />
+            </Box>
+            <TextField label="Ghi chú" value={form.note || ""} onChange={(e) => setF("note", e.target.value)} multiline minRows={2} fullWidth />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setEditOpen(false)}>Huỷ</Button>
+          <Button variant="contained" onClick={submitEdit} disabled={updating}>Lưu</Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }

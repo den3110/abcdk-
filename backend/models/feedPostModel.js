@@ -125,6 +125,30 @@ const feedPostSchema = new Schema(
       ),
       default: null,
     },
+    // Chia sẻ kèo "Tìm bạn đánh" sang Bảng tin
+    sharedPlay: {
+      type: new Schema(
+        {
+          playId: {
+            type: Schema.Types.ObjectId,
+            ref: "PlayInvite",
+            default: null,
+          },
+          title: { type: String, trim: true },
+          courtName: { type: String, trim: true },
+          province: { type: String, trim: true },
+          playAt: { type: Date, default: null },
+          skillMin: { type: Number, default: null },
+          skillMax: { type: Number, default: null },
+          slots: { type: Number, default: 0 },
+          acceptedCount: { type: Number, default: 0 },
+          hostName: { type: String, trim: true },
+          status: { type: String, trim: true },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     // denormalized counters — cập nhật atomic khi comment/reaction mutation
     reactionCount: { type: Number, default: 0, min: 0 },
     commentCount: { type: Number, default: 0, min: 0 },
