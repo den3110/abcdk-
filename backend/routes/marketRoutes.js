@@ -3,6 +3,7 @@ import express from "express";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
+import sharp from "sharp";
 import rateLimit from "express-rate-limit";
 import { protect, optionalAuth } from "../middleware/authMiddleware.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
@@ -111,16 +112,28 @@ router.post(
   async (req, res) => {
     const files = Array.isArray(req.files) ? req.files : [];
     if (!files.length) return res.status(400).json({ message: "Không nhận được ảnh" });
-    const images = files.map((f) => {
-      const rel = path
-        .relative(ROOT_UPLOAD_DIR, f.path)
-        .split(path.sep)
-        .join("/");
-      return {
-        url: toPublicUrl(req, `/uploads/${rel}`),
-        mime: f.mimetype,
-      };
-    });
+    // Chuẩn hoá mọi ảnh về WebP (fix HEIC không xem được trên web + auto-xoay + nén)
+    const images = [];
+    for (const f of files) {
+      const base = path.basename(f.filename, path.extname(f.filename));
+      const outName = `${base}.webp`;
+      const outPath = path.join(MARKET_DIR, outName);
+      try {
+        await sharp(f.path)
+          .rotate() // auto-orient theo EXIF
+          .resize(1600, 1600, { fit: "inside", withoutEnlargement: true })
+          .webp({ quality: 82 })
+          .toFile(outPath);
+        // Xoá file gốc (heic/jpg) sau khi convert thành công
+        if (outPath !== f.path) fs.promises.unlink(f.path).catch(() => {});
+        const rel = path.relative(ROOT_UPLOAD_DIR, outPath).split(path.sep).join("/");
+        images.push({ url: toPublicUrl(req, `/uploads/${rel}`), mime: "image/webp" });
+      } catch (e) {
+        // Fallback: giữ nguyên file gốc nếu sharp không xử lý được
+        const rel = path.relative(ROOT_UPLOAD_DIR, f.path).split(path.sep).join("/");
+        images.push({ url: toPublicUrl(req, `/uploads/${rel}`), mime: f.mimetype });
+      }
+    }
     res.json({ images });
   }
 );
