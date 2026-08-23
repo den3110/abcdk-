@@ -11,6 +11,7 @@ import MarketListing, {
 import MarketOffer from "../models/marketOfferModel.js";
 import User from "../models/userModel.js";
 import { postDirectMessage } from "./chatController.js";
+import { createInAppNotifications } from "../services/inAppNotify.js";
 
 const vnd = (n) => {
   try {
@@ -497,6 +498,16 @@ export const createOffer = asyncHandler(async (req, res) => {
       content: lines.join("\n"),
       linkedListing: id, // gán sản phẩm -> hiện thẻ bấm được trong chat
     });
+    const buyerName2 = req.user.nickname || req.user.name || "Ai đó";
+    await createInAppNotifications({
+      recipients: listing.seller,
+      actorId: req.user._id,
+      type: "MARKET_OFFER_NEW",
+      title: "Có người trả giá sản phẩm",
+      body: `${buyerName2} đề nghị ${amount > 0 ? vnd(amount) + " đ" : "thương lượng"} cho "${listing.title || "sản phẩm"}"`,
+      url: `/marketplace/${String(id)}`,
+      data: { listingId: String(id) },
+    });
   } catch (e) {
     // Không chặn luồng trả giá nếu gửi tin nhắn lỗi
   }
@@ -572,6 +583,17 @@ export const respondOffer = asyncHandler(async (req, res) => {
       toUserId: offer.buyer,
       content,
       linkedListing: offer.listing,
+    });
+    await createInAppNotifications({
+      recipients: offer.buyer,
+      actorId: req.user._id,
+      type: accepted ? "MARKET_OFFER_ACCEPTED" : "MARKET_OFFER_REJECTED",
+      title: accepted ? "Đề nghị được chấp nhận 🎉" : "Đề nghị bị từ chối",
+      body: accepted
+        ? `Người bán đã chấp nhận đề nghị của bạn cho "${listing?.title || "sản phẩm"}"`
+        : `Người bán đã từ chối đề nghị cho "${listing?.title || "sản phẩm"}"`,
+      url: `/marketplace/${String(offer.listing)}`,
+      data: { listingId: String(offer.listing) },
     });
   } catch (e) {
     /* không chặn luồng */

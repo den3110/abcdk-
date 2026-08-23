@@ -23,6 +23,7 @@ import AddRoundedIcon from "@mui/icons-material/AddRounded";
 import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import BookmarkRoundedIcon from "@mui/icons-material/BookmarkRounded";
 import Inventory2RoundedIcon from "@mui/icons-material/Inventory2Rounded";
+import LocalOfferRoundedIcon from "@mui/icons-material/LocalOfferRounded";
 import CloseRoundedIcon from "@mui/icons-material/CloseRounded";
 import ListingCard from "../components/market/ListingCard";
 import { CATEGORIES, CONDITIONS, TYPES, SORTS } from "../constants/market";
@@ -134,6 +135,14 @@ export default function MarketplacePage() {
                 sx={{ color: "#fff", borderColor: "rgba(255,255,255,.6)", "&:hover": { borderColor: "#fff", bgcolor: "rgba(255,255,255,.12)" } }}
               >
                 Tin đã lưu
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<LocalOfferRoundedIcon />}
+                onClick={() => navigate("/marketplace/offers")}
+                sx={{ color: "#fff", borderColor: "rgba(255,255,255,.6)", "&:hover": { borderColor: "#fff", bgcolor: "rgba(255,255,255,.12)" } }}
+              >
+                Đề nghị của tôi
               </Button>
               <Button
                 variant="outlined"
