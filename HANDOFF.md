@@ -1,3 +1,27 @@
+# PickleTour — HANDOFF: Chợ Mua bán (Marketplace) — 2026-08-23
+
+> ✅ **ĐÃ SHIP ĐỦ 3 NỀN TẢNG.** Backend (VPS pm2 restart, `/api/market` live), Web (`build:deploy` → /var/www/pickletour.vn, route `/marketplace` = 200), Mobile OTA ios 1.1.13 + 1.1.14 (Deployment Successful).
+
+## Tính năng
+Chợ rao vặt mua bán / trao đổi / cho tặng đồ pickleball (giày, vợt, bóng, quần áo, túi, phụ kiện). **Chỉ user đã KYC (`cccdStatus==="verified"`) mới đăng/sửa** (middleware `requireKyc` + endpoint `/api/market/me/can-post`). Người bán tự đổi trạng thái (available/reserved/sold/hidden). Mở rộng: tìm kiếm + lọc (danh mục/tình trạng/hình thức/giá/khu vực) + sort, ảnh nhiều (upload `/api/market/upload`), lưu tin (savedBy), **trả giá/đề nghị (MarketOffer)** buyer↔seller (accept→reserved), liên hệ (SĐT/Zalo tuỳ chọn), tin nổi bật (featured), "Tin khác của người bán" (`?seller=`).
+
+## Files
+- BE: `backend/models/marketListingModel.js`, `marketOfferModel.js`; `controllers/marketController.js`; `routes/marketRoutes.js`; đăng ký ở `server.js` (`app.use("/api/market", ...)`).
+- Web: `frontend/src/slices/marketApiSlice.js` (+tagTypes Market* ở `apiSlice.js`); `constants/market.js`; `components/market/ListingCard.jsx`; `screens/Marketplace*/My*/Saved*` (5 trang); routes ở `main.jsx`; nav ở `Header.jsx` + `MenuMobile.jsx`.
+- Mobile (`pickletour-app` `5a8965b`): `slices/marketApiSlice.js`; `constants/market.ts`; `components/market/MarketCard.tsx` + `ListingForm.tsx`; `app/marketplace/{_layout,index,[id],new,mine,saved,edit/[id]}.tsx`; menu Khác `app/(tabs)/more/index.tsx`; khai báo route ở `app/_layout.tsx`.
+
+## Commits
+- Root `abcdk-`: `3097ad6`. Mobile `pickletour-app`: `5a8965b`.
+
+## ⚠️ LƯU Ý MÔI TRƯỜNG (quan trọng cho session sau)
+- Trong phiên, macOS đang **di trú iCloud Desktop** → tạo folder `~/Desktop/Desktop - MacBook Pro (2)/` và cây `~/Desktop/Projects/Pickletour/...` cũ biến thành **placeholder rỗng** (chỉ còn `ios/`). Repo mobile thật (kèm `node_modules` + `.env.hotupdater` chứa token Cloudflare) hiện ở:
+  `/Users/admin/Desktop/Desktop - MacBook Pro (2)/Projects/Pickletour/abcdk/pickletour-app-mobile`
+  → OTA phiên này chạy từ path đó. Session sau: kiểm tra `git rev-parse` ở path nào có `.git` + `.env.hotupdater` trước khi deploy; iCloud có thể còn đang đồng bộ.
+- Có thể còn tồn tại 2 tính năng chưa build UI: tab "Đã lưu" feed riêng, Info.plist mic (từ handoff trước).
+
+---
+
+
 > ✅ **CẬP NHẬT 2026-08-23 (cuối phiên):** OTA ĐÃ PUSH THÀNH CÔNG cho `ios 1.1.13` + `1.1.14` (channel production) với bản fix `d9abd34` (nút Chia sẻ kết quả dùng TouchableOpacity — hết crash). Chạy qua osascript vì Bash bị TCC chặn. **Session mới KHÔNG cần OTA lại** phần này; working tree mobile local đã `git reset --hard origin/master` về d9abd34.
 
 # PickleTour — HANDOFF Session (2026-08-22 → 23) — Nhắn tin/Bảng tin + fixes

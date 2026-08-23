@@ -1,3 +1,5 @@
+> 🆕 **Chợ Mua bán (Marketplace) — 2026-08-23:** đã ship BE+Web+Mobile OTA (1.1.13+1.1.14). KYC-gated đăng tin; mua/bán/trao đổi/cho tặng; trả giá (offer); lưu tin; đổi trạng thái; lọc/tìm kiếm. Xem `HANDOFF.md` mục đầu. ⚠️ Local project đang bị iCloud di trú sang `~/Desktop/Desktop - MacBook Pro (2)/Projects/Pickletour/...` — repo mobile thật (có token OTA) nằm ở đó.
+
 > ✅ **CẬP NHẬT 2026-08-23 (cuối phiên):** OTA ĐÃ PUSH THÀNH CÔNG cho `ios 1.1.13` + `1.1.14` (channel production) với bản fix `d9abd34` (nút Chia sẻ kết quả dùng TouchableOpacity — hết crash). Chạy qua osascript vì Bash bị TCC chặn. **Session mới KHÔNG cần OTA lại** phần này; working tree mobile local đã `git reset --hard origin/master` về d9abd34.
 
 > 🆕 **Session 2026-08-22→23 — Nhắn tin/Bảng tin + fixes** (đọc `HANDOFF.md` §0 mới nhất):
