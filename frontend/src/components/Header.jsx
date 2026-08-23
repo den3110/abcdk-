@@ -307,10 +307,15 @@ export default function Header() {
       bgcolor: active ? alpha(theme.palette.primary.main, 0.08) : "transparent",
       textTransform: "none",
       fontWeight: active ? 700 : 600,
-      fontSize: "0.95rem",
+      fontSize: { md: "0.85rem", lg: "0.92rem" },
       borderRadius: "8px",
-      px: 1.5,
+      px: { md: 1, lg: 1.35 },
       py: 0.8,
+      // Không cho chữ rớt xuống 2 dòng (VD "Giải đấu") -> header gọn gàng
+      whiteSpace: "nowrap",
+      flexShrink: 0,
+      minWidth: "auto",
+      lineHeight: 1.2,
       "&:hover": {
         backgroundColor: alpha(theme.palette.primary.main, 0.12),
         color: theme.palette.primary.main,
@@ -387,7 +392,7 @@ export default function Header() {
               orientation="vertical"
               flexItem
               sx={{
-                mx: 2,
+                mx: { md: 1, lg: 1.5 },
                 height: 24,
                 alignSelf: "center",
                 display: { xs: "none", md: "block" },
@@ -735,6 +740,12 @@ export default function Header() {
                     onClick={() => handleHeaderLinkClick("/profile")}
                     sx={{
                       lineHeight: 1.2,
+                      // Ẩn tên ở màn trung bình để header không bị chật, hiện lại từ lg
+                      display: { xs: "none", lg: "block" },
+                      maxWidth: 120,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                       color: isActive("/profile")
                         ? theme.palette.primary.main
                         : "text.primary",
