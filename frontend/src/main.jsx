@@ -51,6 +51,7 @@ import MarketListingDetailPage from "./screens/MarketListingDetailPage.jsx";
 import MarketListingFormPage from "./screens/MarketListingFormPage.jsx";
 import MyMarketListingsPage from "./screens/MyMarketListingsPage.jsx";
 import SavedMarketPage from "./screens/SavedMarketPage.jsx";
+import MatchViewerPage from "./screens/MatchViewerPage.jsx";
 import CoachesPage from "./screens/CoachesPage.jsx";
 import MlpTeamsPage from "./screens/PickleBall/MlpTeamsPage.jsx";
 import MlpDualsPage from "./screens/PickleBall/MlpDualsPage.jsx";
@@ -189,6 +190,8 @@ const router = sentryCreateBrowserRouter(
         <Route path="/marketplace/mine" element={<MyMarketListingsPage />} />
         <Route path="/marketplace/:id/edit" element={<MarketListingFormPage />} />
         <Route path="/marketplace/:id" element={<MarketListingDetailPage />} />
+        {/* Chi tiết trận đấu (từ link chia sẻ trên bảng tin) — param tên matchId */}
+        <Route path="/matches/:matchId" element={<MatchViewerPage />} />
         <Route path="/coaches" element={<CoachesPage />} />
         <Route path="/tournament/:id/mlp/teams" element={<MlpTeamsPage />} />
         <Route path="/tournament/:id/mlp/duals" element={<MlpDualsPage />} />
