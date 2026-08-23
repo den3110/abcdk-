@@ -42,6 +42,9 @@ const EMPTY = {
   location: { province: "", district: "" },
   contact: { phone: "", zalo: "", showPhone: false },
   tags: [],
+  hasVariants: false,
+  variantLabel: "Phân loại",
+  variants: [],
 };
 
 export default function MarketListingFormPage() {
@@ -77,6 +80,13 @@ export default function MarketListingFormPage() {
         location: existing.location || { province: "", district: "" },
         contact: existing.contact || { phone: "", zalo: "", showPhone: false },
         tags: existing.tags || [],
+        hasVariants: !!existing.hasVariants,
+        variantLabel: existing.variantLabel || "Phân loại",
+        variants: (existing.variants || []).map((v) => ({
+          name: v.name || "",
+          price: v.price ? String(v.price) : "",
+          stock: v.stock == null ? "" : String(v.stock),
+        })),
       });
     }
   }, [isEdit, existing]);
@@ -116,9 +126,20 @@ export default function MarketListingFormPage() {
   const submit = async () => {
     if (!form.title.trim()) return toast.info("Vui lòng nhập tiêu đề");
     if (!form.images.length) return toast.info("Vui lòng thêm ít nhất 1 ảnh");
+    const cleanVariants = (form.variants || [])
+      .filter((v) => v.name?.trim())
+      .map((v) => ({
+        name: v.name.trim(),
+        price: Number(String(v.price).replace(/\D/g, "")) || 0,
+        stock: v.stock === "" || v.stock == null ? null : Number(v.stock) || 0,
+      }));
+    if (form.hasVariants && !cleanVariants.length) {
+      return toast.info("Vui lòng thêm ít nhất 1 phân loại");
+    }
     const payload = {
       ...form,
       price: Number(String(form.price).replace(/\D/g, "")) || 0,
+      variants: cleanVariants,
     };
     try {
       if (isEdit) {
@@ -290,7 +311,71 @@ export default function MarketListingFormPage() {
         </TextField>
       </Box>
 
-      {form.type !== "giveaway" && (
+      {/* Phân loại hàng (nhiều loại, mỗi loại 1 giá) */}
+      {form.type === "sell" && (
+        <Box sx={{ mb: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={form.hasVariants}
+                onChange={(e) => set("hasVariants", e.target.checked)}
+              />
+            }
+            label="Nhiều phân loại (VD: size/màu — mỗi loại 1 giá)"
+          />
+          {form.hasVariants && (
+            <Box sx={{ mt: 1, p: 1.5, borderRadius: 2, border: "1px solid", borderColor: "divider" }}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Tên nhóm phân loại"
+                value={form.variantLabel}
+                onChange={(e) => set("variantLabel", e.target.value)}
+                placeholder="VD: Size, Màu sắc, Phân loại"
+                sx={{ mb: 1.5 }}
+              />
+              {(form.variants || []).map((v, i) => (
+                <Box key={i} sx={{ display: "flex", gap: 1, mb: 1, alignItems: "center" }}>
+                  <TextField
+                    size="small"
+                    label="Tên loại"
+                    value={v.name}
+                    onChange={(e) => {
+                      const arr = [...form.variants];
+                      arr[i] = { ...arr[i], name: e.target.value };
+                      set("variants", arr);
+                    }}
+                    placeholder="VD: 40, Đen - M"
+                    sx={{ flex: 1 }}
+                  />
+                  <TextField
+                    size="small"
+                    label="Giá (₫)"
+                    value={v.price}
+                    onChange={(e) => {
+                      const arr = [...form.variants];
+                      arr[i] = {
+                        ...arr[i],
+                        price: e.target.value.replace(/\D/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, "."),
+                      };
+                      set("variants", arr);
+                    }}
+                    sx={{ width: 130 }}
+                  />
+                  <IconButton size="small" color="error" onClick={() => set("variants", form.variants.filter((_, idx) => idx !== i))}>
+                    <CloseRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              ))}
+              <Button size="small" onClick={() => set("variants", [...(form.variants || []), { name: "", price: "", stock: "" }])}>
+                + Thêm phân loại
+              </Button>
+            </Box>
+          )}
+        </Box>
+      )}
+
+      {form.type !== "giveaway" && !form.hasVariants && (
         <Box sx={{ display: "grid", gap: 2, gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, mb: 2, alignItems: "center" }}>
           <TextField
             label={form.type === "trade" ? "Giá tham khảo (₫)" : "Giá bán (₫)"}

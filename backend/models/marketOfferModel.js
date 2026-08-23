@@ -31,6 +31,8 @@ const marketOfferSchema = new mongoose.Schema(
     },
     // Giá đề nghị (VND). Với trao đổi có thể 0 kèm message mô tả.
     amount: { type: Number, default: 0, min: 0 },
+    // Phân loại người mua chọn (nếu sản phẩm có nhiều loại)
+    variantName: { type: String, default: "", trim: true, maxlength: 60 },
     message: { type: String, default: "", maxlength: 500 },
     status: { type: String, enum: OFFER_STATUSES, default: "pending", index: true },
   },

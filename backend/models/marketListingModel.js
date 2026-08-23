@@ -76,6 +76,24 @@ const marketListingSchema = new mongoose.Schema(
     size: { type: String, default: "", trim: true, maxlength: 40 },
     color: { type: String, default: "", trim: true, maxlength: 40 },
 
+    // Phân loại hàng (như Shopee): 1 sản phẩm nhiều loại, mỗi loại 1 giá.
+    // price = giá thấp nhất trong các loại (để lọc/sort/hiển thị "từ X").
+    hasVariants: { type: Boolean, default: false },
+    variantLabel: { type: String, default: "", trim: true, maxlength: 40 }, // "Size", "Phân loại", "Màu"
+    variants: {
+      type: [
+        new mongoose.Schema(
+          {
+            name: { type: String, required: true, trim: true, maxlength: 60 }, // "40", "Đen - M"
+            price: { type: Number, default: 0, min: 0 },
+            stock: { type: Number, default: null }, // null = không quản lý số lượng
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
+
     images: { type: [imageSchema], default: [] },
 
     location: {

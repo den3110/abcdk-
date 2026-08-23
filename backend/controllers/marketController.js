@@ -25,6 +25,25 @@ const vnd = (n) => {
 const SELLER_FIELDS =
   "_id name nickname avatar role cccdStatus verified province marketRatingAvg marketRatingCount";
 
+// Chuẩn hoá danh sách phân loại (variants) + tính giá thấp nhất
+function parseVariants(variantsRaw) {
+  const list = (Array.isArray(variantsRaw) ? variantsRaw : [])
+    .map((v) => ({
+      name: String(v?.name || "").trim().slice(0, 60),
+      price: Math.max(0, Number(v?.price) || 0),
+      stock:
+        v?.stock == null || v?.stock === ""
+          ? null
+          : Math.max(0, Math.floor(Number(v.stock) || 0)),
+    }))
+    .filter((v) => v.name)
+    .slice(0, 30);
+  const prices = list.map((v) => v.price).filter((p) => p > 0);
+  const min = prices.length ? Math.min(...prices) : null;
+  const max = prices.length ? Math.max(...prices) : null;
+  return { list, min, max };
+}
+
 const isVerifiedKyc = (u) =>
   !!u && (u.cccdStatus === "verified" || u.verified === "verified");
 
@@ -66,6 +85,13 @@ function toListingDTO(doc, meUserId) {
     condition: obj.condition,
     type: obj.type,
     price: obj.price || 0,
+    hasVariants: !!obj.hasVariants,
+    variantLabel: obj.variantLabel || "",
+    variants: obj.variants || [],
+    priceMax:
+      obj.hasVariants && (obj.variants || []).length
+        ? Math.max(...obj.variants.map((v) => v.price || 0), 0)
+        : obj.price || 0,
     negotiable: !!obj.negotiable,
     tradeFor: obj.tradeFor || "",
     brand: obj.brand || "",
@@ -230,11 +256,24 @@ export const createListing = asyncHandler(async (req, res) => {
     contact,
     tags,
     status,
+    hasVariants,
+    variantLabel,
+    variants,
   } = req.body || {};
 
   if (!title || !String(title).trim()) {
     return res.status(400).json({ message: "Vui lòng nhập tiêu đề" });
   }
+
+  const useVariants = !!hasVariants;
+  const { list: variantList, min: variantMin } = parseVariants(variants);
+  if (useVariants && !variantList.length) {
+    return res.status(400).json({ message: "Vui lòng thêm ít nhất 1 phân loại" });
+  }
+  // Giá hiển thị/lọc = giá thấp nhất khi có phân loại
+  const basePrice = useVariants
+    ? variantMin ?? 0
+    : Math.max(0, Number(price) || 0);
   const imgs = Array.isArray(images)
     ? images
         .map((im) =>
@@ -258,7 +297,10 @@ export const createListing = asyncHandler(async (req, res) => {
     category: MARKET_CATEGORIES.includes(category) ? category : "other",
     condition: MARKET_CONDITIONS.includes(condition) ? condition : "good",
     type: MARKET_TYPES.includes(type) ? type : "sell",
-    price: Math.max(0, Number(price) || 0),
+    price: basePrice,
+    hasVariants: useVariants,
+    variantLabel: useVariants ? String(variantLabel || "Phân loại").slice(0, 40) : "",
+    variants: useVariants ? variantList : [],
     negotiable: negotiable == null ? true : !!negotiable,
     tradeFor: String(tradeFor || "").slice(0, 300),
     brand: String(brand || "").slice(0, 60),
@@ -308,6 +350,23 @@ export const updateListing = asyncHandler(async (req, res) => {
     doc.condition = b.condition;
   if (b.type !== undefined && MARKET_TYPES.includes(b.type)) doc.type = b.type;
   if (b.price !== undefined) doc.price = Math.max(0, Number(b.price) || 0);
+  // Phân loại
+  if (b.hasVariants !== undefined) doc.hasVariants = !!b.hasVariants;
+  if (b.variantLabel !== undefined)
+    doc.variantLabel = String(b.variantLabel || "").slice(0, 40);
+  if (b.variants !== undefined) {
+    const { list } = parseVariants(b.variants);
+    doc.variants = list;
+  }
+  // Đồng bộ: nếu có phân loại, price = giá thấp nhất
+  if (doc.hasVariants && (doc.variants || []).length) {
+    const prices = doc.variants.map((v) => v.price).filter((p) => p > 0);
+    if (prices.length) doc.price = Math.min(...prices);
+    if (!doc.variantLabel) doc.variantLabel = "Phân loại";
+  } else if (b.hasVariants === false) {
+    doc.variants = [];
+    doc.variantLabel = "";
+  }
   if (b.negotiable !== undefined) doc.negotiable = !!b.negotiable;
   if (b.tradeFor !== undefined) doc.tradeFor = String(b.tradeFor).slice(0, 300);
   if (b.brand !== undefined) doc.brand = String(b.brand).slice(0, 60);
@@ -457,6 +516,7 @@ function toOfferDTO(o) {
     buyer: obj.buyer?._id ? toSellerDTO(obj.buyer) : obj.buyer,
     seller: obj.seller?._id ? toSellerDTO(obj.seller) : obj.seller,
     amount: obj.amount || 0,
+    variantName: obj.variantName || "",
     message: obj.message || "",
     status: obj.status,
     createdAt: obj.createdAt,
@@ -479,12 +539,14 @@ export const createOffer = asyncHandler(async (req, res) => {
   }
   const amount = Math.max(0, Number(req.body?.amount) || 0);
   const message = String(req.body?.message || "").slice(0, 500);
+  const variantName = String(req.body?.variantName || "").slice(0, 60);
 
   const offer = await MarketOffer.create({
     listing: id,
     buyer: req.user._id,
     seller: listing.seller,
     amount,
+    variantName,
     message,
   });
   await MarketListing.updateOne({ _id: id }, { $inc: { offerCount: 1 } });
@@ -494,6 +556,7 @@ export const createOffer = asyncHandler(async (req, res) => {
     const buyerName = req.user.nickname || req.user.name || "Người mua";
     const lines = [
       "💰 ĐỀ NGHỊ MUA SẢN PHẨM",
+      variantName ? `Phân loại: ${variantName}` : "",
       `Giá đăng: ${vnd(listing.price)} đ`,
       amount > 0
         ? `Giá đề nghị: ${vnd(amount)} đ`

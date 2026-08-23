@@ -18,6 +18,7 @@ import {
   TYPE_MAP,
   STATUS_MAP,
   formatPrice,
+  priceRangeLabel,
   timeAgo,
 } from "../../constants/market";
 
@@ -175,7 +176,7 @@ export default function ListingCard({ item, onToggleSave, canSave = true }) {
         <Typography
           sx={{ fontWeight: 800, fontSize: 16, color: "primary.main", lineHeight: 1.2 }}
         >
-          {formatPrice(item.price, item.type)}
+          {priceRangeLabel(item)}
         </Typography>
         <Typography
           sx={{

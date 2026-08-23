@@ -37,6 +37,7 @@ import {
   STATUS_MAP,
   STATUSES,
   formatPrice,
+  priceRangeLabel,
   timeAgo,
 } from "../constants/market";
 import {
@@ -99,6 +100,11 @@ function OffersManager({ listingId }) {
               <Box component="span" sx={{ color: "primary.main", fontWeight: 800 }}>
                 · {formatPrice(o.amount, "sell")}
               </Box>
+              {o.variantName && (
+                <Box component="span" sx={{ fontSize: 12, color: "text.secondary", fontWeight: 600 }}>
+                  {" "}({o.variantName})
+                </Box>
+              )}
             </Typography>
             {o.message && (
               <Typography sx={{ fontSize: 13, color: "text.secondary" }}>
@@ -171,6 +177,7 @@ export default function MarketListingDetailPage() {
   const [offerAmount, setOfferAmount] = useState("");
   const [offerMsg, setOfferMsg] = useState("");
   const [showContact, setShowContact] = useState(false);
+  const [selVariant, setSelVariant] = useState(null);
 
   if (isLoading)
     return (
@@ -211,6 +218,7 @@ export default function MarketListingDetailPage() {
         id: item._id,
         amount: Number(String(offerAmount).replace(/\D/g, "")) || 0,
         message: offerMsg,
+        variantName: selVariant?.name || "",
       }).unwrap();
       toast.success("Đã gửi đề nghị và nhắn tin cho người bán");
       setOfferOpen(false);
@@ -378,13 +386,42 @@ export default function MarketListingDetailPage() {
             {item.title}
           </Typography>
           <Typography sx={{ fontWeight: 900, fontSize: { xs: 26, md: 32 }, color: "primary.main", mt: 1 }}>
-            {formatPrice(item.price, item.type)}
-            {item.negotiable && item.type === "sell" && item.price > 0 && (
+            {selVariant ? formatPrice(selVariant.price, item.type) : priceRangeLabel(item)}
+            {item.negotiable && item.type === "sell" && item.price > 0 && !item.hasVariants && (
               <Box component="span" sx={{ fontSize: 14, color: "text.secondary", fontWeight: 600, ml: 1 }}>
                 · Có thương lượng
               </Box>
             )}
           </Typography>
+
+          {/* Bộ chọn phân loại */}
+          {item.hasVariants && item.variants?.length > 0 && (
+            <Box sx={{ mt: 1.5 }}>
+              <Typography sx={{ fontSize: 13, fontWeight: 700, mb: 0.5 }}>
+                {item.variantLabel || "Phân loại"}:
+                {selVariant && (
+                  <Box component="span" sx={{ color: "primary.main", ml: 0.5 }}>{selVariant.name}</Box>
+                )}
+              </Typography>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+                {item.variants.map((v, i) => {
+                  const active = selVariant?.name === v.name;
+                  const out = v.stock === 0;
+                  return (
+                    <Chip
+                      key={i}
+                      label={`${v.name} · ${formatPrice(v.price, item.type)}`}
+                      onClick={out ? undefined : () => setSelVariant(active ? null : v)}
+                      color={active ? "primary" : "default"}
+                      variant={active ? "filled" : "outlined"}
+                      disabled={out}
+                      sx={{ fontWeight: 600, opacity: out ? 0.5 : 1 }}
+                    />
+                  );
+                })}
+              </Box>
+            </Box>
+          )}
           {item.type === "trade" && item.tradeFor && (
             <Typography sx={{ mt: 0.5, fontSize: 14, color: "text.secondary" }}>
               Muốn đổi: <b>{item.tradeFor}</b>
@@ -462,7 +499,13 @@ export default function MarketListingDetailPage() {
                 size="large"
                 startIcon={<LocalOfferRoundedIcon />}
                 disabled={!["available", "reserved"].includes(item.status)}
-                onClick={() => (userInfo ? setOfferOpen(true) : navigate("/login"))}
+                onClick={() => {
+                  if (!userInfo) return navigate("/login");
+                  if (item.hasVariants && !selVariant)
+                    return toast.info(`Vui lòng chọn ${item.variantLabel || "phân loại"}`);
+                  if (selVariant?.price) setOfferAmount(String(selVariant.price).replace(/\B(?=(\d{3})+(?!\d))/g, "."));
+                  setOfferOpen(true);
+                }}
               >
                 Trả giá / Đề nghị
               </Button>
@@ -617,7 +660,11 @@ export default function MarketListingDetailPage() {
         <DialogTitle sx={{ fontWeight: 800 }}>Gửi đề nghị mua</DialogTitle>
         <DialogContent>
           <Typography sx={{ fontSize: 14, color: "text.secondary", mb: 2 }}>
-            Giá đang đăng: <b>{formatPrice(item.price, item.type)}</b>
+            {selVariant ? (
+              <>Phân loại <b>{selVariant.name}</b> · Giá đăng: <b>{formatPrice(selVariant.price, item.type)}</b></>
+            ) : (
+              <>Giá đang đăng: <b>{priceRangeLabel(item)}</b></>
+            )}
           </Typography>
           <TextField
             fullWidth
