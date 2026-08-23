@@ -131,15 +131,20 @@ export default function PlayPage() {
   const [province, setProvince] = useState("");
   const [skill, setSkill] = useState("");
   const [page, setPage] = useState(1);
+  const [mine, setMine] = useState(false);
   const [openCreate, setOpenCreate] = useState(false);
   const [form, setForm] = useState(EMPTY);
 
   const params = useMemo(() => {
     const p = { page, limit: 20 };
-    if (province) p.province = province;
-    if (skill) p.skill = skill;
+    if (mine) {
+      p.mine = 1;
+    } else {
+      if (province) p.province = province;
+      if (skill) p.skill = skill;
+    }
     return p;
-  }, [province, skill, page]);
+  }, [province, skill, page, mine]);
 
   const { data, isLoading, isFetching } = useListInvitesQuery(params);
   const [createInvite, { isLoading: creating }] = useCreateInviteMutation();
@@ -197,24 +202,42 @@ export default function PlayPage() {
       </Box>
 
       <Container maxWidth="lg" sx={{ mt: { xs: -4, md: -5 } }}>
-        <Box sx={{ display: "flex", gap: 1.5, mb: 2, flexWrap: "wrap", bgcolor: "background.paper", p: 1.5, borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
-          <TextField
-            size="small"
-            label="Khu vực (Tỉnh/TP)"
-            value={province}
-            onChange={(e) => { setProvince(e.target.value); setPage(1); }}
-            sx={{ minWidth: 180 }}
+        {/* Tabs */}
+        <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+          <Chip
+            label="Khám phá"
+            onClick={() => { setMine(false); setPage(1); }}
+            color={!mine ? "primary" : "default"}
+            sx={{ fontWeight: 700, bgcolor: !mine ? undefined : "background.paper" }}
           />
-          <TextField
-            size="small"
-            label="Trình của bạn"
-            type="number"
-            value={skill}
-            onChange={(e) => { setSkill(e.target.value); setPage(1); }}
-            placeholder="VD: 3.0"
-            sx={{ width: 140 }}
+          <Chip
+            label="Kèo của tôi"
+            onClick={() => (userInfo ? (setMine(true), setPage(1)) : navigate("/login"))}
+            color={mine ? "primary" : "default"}
+            sx={{ fontWeight: 700, bgcolor: mine ? undefined : "background.paper" }}
           />
         </Box>
+
+        {!mine && (
+          <Box sx={{ display: "flex", gap: 1.5, mb: 2, flexWrap: "wrap", bgcolor: "background.paper", p: 1.5, borderRadius: 3, border: "1px solid", borderColor: "divider" }}>
+            <TextField
+              size="small"
+              label="Khu vực (Tỉnh/TP)"
+              value={province}
+              onChange={(e) => { setProvince(e.target.value); setPage(1); }}
+              sx={{ minWidth: 180 }}
+            />
+            <TextField
+              size="small"
+              label="Trình của bạn"
+              type="number"
+              value={skill}
+              onChange={(e) => { setSkill(e.target.value); setPage(1); }}
+              placeholder="VD: 3.0"
+              sx={{ width: 140 }}
+            />
+          </Box>
+        )}
 
         {isLoading ? (
           <Box sx={{ display: "grid", placeItems: "center", py: 8 }}><CircularProgress /></Box>

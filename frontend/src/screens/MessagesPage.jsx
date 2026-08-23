@@ -43,6 +43,7 @@ import MentionAutocomplete from "../components/feed/MentionAutocomplete.jsx";
 import TournamentPickerDialog from "../components/feed/TournamentPickerDialog.jsx";
 import TournamentBubbleCard from "../components/feed/TournamentBubbleCard.jsx";
 import ListingChatCard from "../components/market/ListingChatCard.jsx";
+import PlayChatCard from "../components/play/PlayChatCard.jsx";
 import {
   shouldShowTimeSeparator,
   fmtSeparator,
@@ -280,6 +281,7 @@ function MessageBubble({ msg, isMine, onDelete, canDelete, onReply, onReact, myI
         {msg.linkedListing && (
           <ListingChatCard listing={msg.linkedListing} isMine={isMine} />
         )}
+        {msg.linkedPlay && <PlayChatCard play={msg.linkedPlay} isMine={isMine} />}
       </Box>
 
       {/* Hover actions: react + reply */}

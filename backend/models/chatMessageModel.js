@@ -67,6 +67,12 @@ const chatMessageSchema = new Schema(
       ref: "MarketListing",
       default: null,
     },
+    // Gán kèo "Tìm bạn đánh" vào tin nhắn
+    linkedPlay: {
+      type: Schema.Types.ObjectId,
+      ref: "PlayInvite",
+      default: null,
+    },
     // readBy: users đã xem tính đến message này
     readBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
     // Reactions emoji (mỗi user tối đa 1)

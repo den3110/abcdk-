@@ -16,6 +16,8 @@ import { getBlockedIdSet } from "./friendController.js";
 const USER_FIELDS = "_id name nickname avatar role phone";
 const LISTING_SELECT =
   "_id title price type condition status images location";
+const PLAY_SELECT =
+  "_id title courtName province playAt skillMin skillMax slots status participants";
 
 const isAdmin = (u) => u?.role === "admin" || u?.role === "superAdmin";
 
@@ -102,6 +104,24 @@ function toMessageDTO(msg) {
     mentions: m.mentions || [],
     linkedTournament: m.linkedTournament || null,
     linkedListing: m.linkedListing || null,
+    linkedPlay: m.linkedPlay
+      ? (() => {
+          const p = m.linkedPlay.toObject ? m.linkedPlay.toObject() : m.linkedPlay;
+          if (!p || !p._id) return p;
+          return {
+            _id: p._id,
+            title: p.title,
+            courtName: p.courtName,
+            province: p.province,
+            playAt: p.playAt,
+            skillMin: p.skillMin,
+            skillMax: p.skillMax,
+            slots: p.slots,
+            status: p.status,
+            acceptedCount: (p.participants || []).filter((x) => x.status === "accepted").length,
+          };
+        })()
+      : null,
     readBy: m.readBy || [],
     systemKind: m.systemKind || null,
     editedAt: m.editedAt,
@@ -404,7 +424,8 @@ export const listMessages = asyncHandler(async (req, res) => {
     .populate("mentions", USER_FIELDS)
     .populate(REPLY_POPULATE)
     .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
-    .populate("linkedListing", LISTING_SELECT);
+    .populate("linkedListing", LISTING_SELECT)
+    .populate("linkedPlay", PLAY_SELECT);
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map(toMessageDTO);
   await attachTournamentRegCounts(items);
@@ -458,6 +479,10 @@ export const sendMessage = asyncHandler(async (req, res) => {
     mongoose.isValidObjectId(req.body.linkedListing)
       ? req.body.linkedListing
       : null;
+  const linkedPlay =
+    req.body?.linkedPlay && mongoose.isValidObjectId(req.body.linkedPlay)
+      ? req.body.linkedPlay
+      : null;
   const mentions = Array.isArray(req.body?.mentions)
     ? req.body.mentions
         .filter((id) => mongoose.isValidObjectId(id))
@@ -478,6 +503,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
     mentions,
     linkedTournament,
     linkedListing,
+    linkedPlay,
     readBy: [viewer._id],
   });
 
@@ -499,7 +525,8 @@ export const sendMessage = asyncHandler(async (req, res) => {
     .populate("mentions", USER_FIELDS)
     .populate(REPLY_POPULATE)
     .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
-    .populate("linkedListing", LISTING_SELECT);
+    .populate("linkedListing", LISTING_SELECT)
+    .populate("linkedPlay", PLAY_SELECT);
   const dto = toMessageDTO(populated);
   await attachTournamentRegCounts([dto]);
 
@@ -681,7 +708,8 @@ export const adminListMessages = asyncHandler(async (req, res) => {
     .populate("mentions", USER_FIELDS)
     .populate(REPLY_POPULATE)
     .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
-    .populate("linkedListing", LISTING_SELECT);
+    .populate("linkedListing", LISTING_SELECT)
+    .populate("linkedPlay", PLAY_SELECT);
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map(toMessageDTO);
   await attachTournamentRegCounts(items);
@@ -730,6 +758,7 @@ export async function postDirectMessage({
   content,
   attachments = [],
   linkedListing = null,
+  linkedPlay = null,
 }) {
   if (!fromUserId || !toUserId) return null;
   if (String(fromUserId) === String(toUserId)) return null;
@@ -759,6 +788,8 @@ export async function postDirectMessage({
       linkedListing && mongoose.isValidObjectId(linkedListing)
         ? linkedListing
         : null,
+    linkedPlay:
+      linkedPlay && mongoose.isValidObjectId(linkedPlay) ? linkedPlay : null,
     readBy: [fromUserId],
   });
 
@@ -778,7 +809,8 @@ export async function postDirectMessage({
   const populated = await ChatMessage.findById(msg._id)
     .populate("sender", USER_FIELDS)
     .populate(REPLY_POPULATE)
-    .populate("linkedListing", LISTING_SELECT);
+    .populate("linkedListing", LISTING_SELECT)
+    .populate("linkedPlay", PLAY_SELECT);
   const dto = toMessageDTO(populated);
 
   emitToConv(String(conv._id), "chat:message:new", {

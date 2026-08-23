@@ -98,8 +98,12 @@ export const listInvites = asyncHandler(async (req, res) => {
   } else if (mine === "1" && meId) {
     filter.$or = [{ host: meId }, { "participants.user": meId }];
   } else {
-    // Mặc định: kèo đang mở & còn trong tương lai (hoặc trong 6h qua)
-    filter.status = status && PLAY_STATUSES.includes(status) ? status : "open";
+    // Mặc định: kèo đang mở HOẶC đã đủ người (vẫn hiển thị, badge "Đã đủ người"),
+    // còn trong tương lai (hoặc trong 6h qua)
+    filter.status =
+      status && PLAY_STATUSES.includes(status)
+        ? status
+        : { $in: ["open", "full"] };
     filter.playAt = { $gte: new Date(Date.now() - 6 * 3600 * 1000) };
   }
   if (province) filter.province = new RegExp(String(province).trim(), "i");
@@ -264,6 +268,7 @@ export const requestJoin = asyncHandler(async (req, res) => {
       fromUserId: req.user._id,
       toUserId: doc.host,
       content: `🏓 Mình xin tham gia kèo "${doc.title || doc.courtName || "giao lưu"}"${note ? `: "${note}"` : ""}`,
+      linkedPlay: id,
     });
   } catch {}
 
@@ -324,6 +329,7 @@ export const respondJoin = asyncHandler(async (req, res) => {
       fromUserId: req.user._id,
       toUserId: uid,
       content,
+      linkedPlay: doc._id,
     });
   } catch {}
 
