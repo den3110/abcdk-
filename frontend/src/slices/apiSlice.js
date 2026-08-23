@@ -420,6 +420,12 @@ export const apiSlice = createApi({
     "MatchHistory",
     "RegistrationHistory",
     "SupportTicket",
+    "Market",
+    "MarketList",
+    "MarketMine",
+    "MarketSaved",
+    "MarketOffers",
+    "MarketMyOffers",
   ],
   endpoints: () => ({}),
 });

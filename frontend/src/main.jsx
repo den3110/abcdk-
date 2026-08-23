@@ -46,6 +46,11 @@ import TournamentCheckin from "./screens/PickleBall/TournamentCheckin.jsx";
 import TournamentBracket from "./screens/PickleBall/TournamentBracket.jsx";
 import RankingList from "./screens/RankingsScreen.jsx";
 import FeedPage from "./screens/FeedPage.jsx";
+import MarketplacePage from "./screens/MarketplacePage.jsx";
+import MarketListingDetailPage from "./screens/MarketListingDetailPage.jsx";
+import MarketListingFormPage from "./screens/MarketListingFormPage.jsx";
+import MyMarketListingsPage from "./screens/MyMarketListingsPage.jsx";
+import SavedMarketPage from "./screens/SavedMarketPage.jsx";
 import CoachesPage from "./screens/CoachesPage.jsx";
 import MlpTeamsPage from "./screens/PickleBall/MlpTeamsPage.jsx";
 import MlpDualsPage from "./screens/PickleBall/MlpDualsPage.jsx";
@@ -177,6 +182,13 @@ const router = sentryCreateBrowserRouter(
         <Route path="/pickle-ball/rankings" element={<RankingList />} />
         <Route path="/feed" element={<FeedPage />} />
         <Route path="/feed/post/:postId" element={<FeedPage />} />
+        {/* Chợ PickleTour — thứ tự: route cụ thể trước /:id */}
+        <Route path="/marketplace" element={<MarketplacePage />} />
+        <Route path="/marketplace/new" element={<MarketListingFormPage />} />
+        <Route path="/marketplace/saved" element={<SavedMarketPage />} />
+        <Route path="/marketplace/mine" element={<MyMarketListingsPage />} />
+        <Route path="/marketplace/:id/edit" element={<MarketListingFormPage />} />
+        <Route path="/marketplace/:id" element={<MarketListingDetailPage />} />
         <Route path="/coaches" element={<CoachesPage />} />
         <Route path="/tournament/:id/mlp/teams" element={<MlpTeamsPage />} />
         <Route path="/tournament/:id/mlp/duals" element={<MlpDualsPage />} />

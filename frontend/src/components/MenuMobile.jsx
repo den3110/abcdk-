@@ -24,6 +24,7 @@ import {
 import HomeRoundedIcon from "@mui/icons-material/HomeRounded";
 import EmojiEventsRoundedIcon from "@mui/icons-material/EmojiEventsRounded";
 import NewspaperRoundedIcon from "@mui/icons-material/NewspaperRounded";
+import StorefrontRoundedIcon from "@mui/icons-material/StorefrontRounded";
 import AssessmentRoundedIcon from "@mui/icons-material/AssessmentRounded";
 import NotificationsRoundedIcon from "@mui/icons-material/NotificationsRounded";
 import MoreHorizRoundedIcon from "@mui/icons-material/MoreHorizRounded";
@@ -221,7 +222,9 @@ export default function MobileBottomNav() {
   };
 
   const moreItems = useMemo(() => {
-    const base = [];
+    const base = [
+      { label: "Chợ Mua bán", icon: <StorefrontRoundedIcon />, path: "/marketplace" },
+    ];
     if (user) {
       base.push(
         { label: "Hồ sơ", icon: <PersonRoundedIcon />, path: "/profile" },

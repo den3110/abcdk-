@@ -98,6 +98,7 @@ export default function Header() {
       // Nhắn tin đã có bubble floating góc phải → không cần link nav.
       // Đặt sân đã ẩn khỏi nav (chuyển vào menu Thêm nếu cần).
       ...(userInfo ? [{ label: "Bảng tin", path: "/feed" }] : []),
+      { label: "Chợ", path: "/marketplace" },
     ],
     [t, userInfo],
   );
