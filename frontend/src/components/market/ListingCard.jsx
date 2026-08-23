@@ -256,6 +256,14 @@ export default function ListingCard({ item, onToggleSave, canSave = true }) {
             <Typography noWrap sx={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
               {item.seller.nickname || item.seller.name}
             </Typography>
+            {item.seller.ratingCount > 0 && (
+              <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.2, color: "#f59e0b" }}>
+                <StarRoundedIcon sx={{ fontSize: 13 }} />
+                <Typography sx={{ fontSize: 11, fontWeight: 700, color: "text.secondary" }}>
+                  {item.seller.ratingAvg?.toFixed(1)}
+                </Typography>
+              </Box>
+            )}
             {item.seller.verified && (
               <Tooltip title="Đã xác minh danh tính">
                 <VerifiedRoundedIcon sx={{ fontSize: 15, color: "#2563eb" }} />

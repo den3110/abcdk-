@@ -137,6 +137,30 @@ export const marketApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ["MarketMyOffers"],
     }),
+
+    // Boost (đẩy tin)
+    boostListing: builder.mutation({
+      query: (id) => ({ url: `/api/market/${id}/boost`, method: "POST" }),
+      invalidatesTags: (r, e, id) => [{ type: "Market", id }, "MarketList", "MarketMine"],
+    }),
+
+    // Đánh giá người bán
+    listSellerReviews: builder.query({
+      query: (sellerId) => ({ url: `/api/market/sellers/${sellerId}/reviews`, method: "GET" }),
+      providesTags: (r, e, id) => [{ type: "SellerReviews", id }],
+    }),
+    upsertSellerReview: builder.mutation({
+      query: ({ sellerId, rating, comment, listingId }) => ({
+        url: `/api/market/sellers/${sellerId}/reviews`,
+        method: "POST",
+        body: { rating, comment, listingId },
+      }),
+      invalidatesTags: (r, e, { sellerId }) => [{ type: "SellerReviews", id: sellerId }],
+    }),
+    deleteSellerReview: builder.mutation({
+      query: ({ reviewId }) => ({ url: `/api/market/reviews/${reviewId}`, method: "DELETE" }),
+      invalidatesTags: (r, e, { sellerId }) => [{ type: "SellerReviews", id: sellerId }],
+    }),
   }),
   overrideExisting: false,
 });
@@ -158,4 +182,8 @@ export const {
   useMyOffersQuery,
   useRespondOfferMutation,
   useCancelOfferMutation,
+  useBoostListingMutation,
+  useListSellerReviewsQuery,
+  useUpsertSellerReviewMutation,
+  useDeleteSellerReviewMutation,
 } = marketApiSlice;

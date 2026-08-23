@@ -426,6 +426,7 @@ export const apiSlice = createApi({
     "MarketSaved",
     "MarketOffers",
     "MarketMyOffers",
+    "SellerReviews",
     "Play",
     "PlayList",
   ],

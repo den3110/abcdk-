@@ -9,6 +9,7 @@ import MarketListing, {
   MARKET_STATUSES,
 } from "../models/marketListingModel.js";
 import MarketOffer from "../models/marketOfferModel.js";
+import SellerReview from "../models/sellerReviewModel.js";
 import User from "../models/userModel.js";
 import { postDirectMessage } from "./chatController.js";
 import { createInAppNotifications } from "../services/inAppNotify.js";
@@ -21,7 +22,8 @@ const vnd = (n) => {
   }
 };
 
-const SELLER_FIELDS = "_id name nickname avatar role cccdStatus verified province";
+const SELLER_FIELDS =
+  "_id name nickname avatar role cccdStatus verified province marketRatingAvg marketRatingCount";
 
 const isVerifiedKyc = (u) =>
   !!u && (u.cccdStatus === "verified" || u.verified === "verified");
@@ -45,6 +47,8 @@ function toSellerDTO(u) {
     avatar: obj.avatar || "",
     province: obj.province || "",
     verified: isVerifiedKyc(obj),
+    ratingAvg: Math.round((obj.marketRatingAvg || 0) * 10) / 10,
+    ratingCount: obj.marketRatingCount || 0,
   };
 }
 
@@ -75,7 +79,10 @@ function toListingDTO(doc, meUserId) {
     views: obj.views || 0,
     savedCount: savedBy.length,
     offerCount: obj.offerCount || 0,
-    featured: !!obj.featured,
+    featured:
+      !!obj.featured ||
+      !!(obj.featuredUntil && new Date(obj.featuredUntil).getTime() > Date.now()),
+    bumpedAt: obj.bumpedAt || obj.createdAt,
     saved: meId ? savedBy.includes(meId) : false,
     isOwner: meId ? sellerId === meId : false,
     seller: toSellerDTO(obj.seller),
@@ -143,17 +150,18 @@ export const listListings = asyncHandler(async (req, res) => {
   let sortSpec;
   switch (sort) {
     case "price_asc":
-      sortSpec = { featured: -1, price: 1, createdAt: -1 };
+      sortSpec = { price: 1, bumpedAt: -1 };
       break;
     case "price_desc":
-      sortSpec = { featured: -1, price: -1, createdAt: -1 };
+      sortSpec = { price: -1, bumpedAt: -1 };
       break;
     case "popular":
-      sortSpec = { featured: -1, views: -1, createdAt: -1 };
+      sortSpec = { views: -1, bumpedAt: -1 };
       break;
     case "newest":
     default:
-      sortSpec = { featured: -1, createdAt: -1 };
+      // Tin được "đẩy" (bumpedAt mới) lên đầu
+      sortSpec = { bumpedAt: -1 };
       break;
   }
 
@@ -628,4 +636,158 @@ export const canPost = asyncHandler(async (req, res) => {
       ? ""
       : "Bạn cần xác minh danh tính (CCCD/KYC) trước khi đăng tin mua bán.",
   });
+});
+
+/* ─────────────────── BOOST (đẩy tin nổi bật) ─────────────────── */
+// POST /api/market/:id/boost  (chủ tin, tối đa 1 lần / 12h / tin)
+export const boostListing = asyncHandler(async (req, res) => {
+  const id = oid(req.params.id);
+  if (!id) return res.status(400).json({ message: "ID không hợp lệ" });
+  const doc = await MarketListing.findById(id);
+  if (!doc) return res.status(404).json({ message: "Không tìm thấy tin đăng" });
+  if (String(doc.seller) !== String(req.user._id)) {
+    return res.status(403).json({ message: "Bạn không có quyền đẩy tin này" });
+  }
+  if (!["available", "reserved"].includes(doc.status)) {
+    return res.status(400).json({ message: "Chỉ đẩy được tin đang bán" });
+  }
+  const now = Date.now();
+  if (doc.lastBoostAt && now - new Date(doc.lastBoostAt).getTime() < 12 * 3600 * 1000) {
+    const mins = Math.ceil(
+      (12 * 3600 * 1000 - (now - new Date(doc.lastBoostAt).getTime())) / 60000
+    );
+    return res.status(429).json({
+      message: `Bạn vừa đẩy tin này rồi. Thử lại sau ~${Math.ceil(mins / 60)} giờ.`,
+    });
+  }
+  doc.bumpedAt = new Date();
+  doc.lastBoostAt = new Date();
+  doc.featured = true;
+  doc.featuredUntil = new Date(now + 2 * 24 * 3600 * 1000); // nổi bật 2 ngày
+  await doc.save();
+  const populated = await doc.populate("seller", SELLER_FIELDS);
+  res.json(toListingDTO(populated, req.user._id));
+});
+
+/* ─────────────────── SELLER REVIEWS (đánh giá người bán) ─────────────────── */
+async function recomputeSellerRating(sellerId) {
+  const agg = await SellerReview.aggregate([
+    { $match: { seller: new mongoose.Types.ObjectId(String(sellerId)) } },
+    { $group: { _id: "$seller", avg: { $avg: "$rating" }, count: { $sum: 1 } } },
+  ]);
+  const avg = agg[0]?.avg || 0;
+  const count = agg[0]?.count || 0;
+  await User.updateOne(
+    { _id: sellerId },
+    { $set: { marketRatingAvg: avg, marketRatingCount: count } }
+  );
+  return { avg, count };
+}
+
+function reviewDTO(r) {
+  const o = r.toObject ? r.toObject() : r;
+  return {
+    _id: o._id,
+    rating: o.rating,
+    comment: o.comment || "",
+    reviewer: o.reviewer?._id ? toSellerDTO(o.reviewer) : o.reviewer,
+    createdAt: o.createdAt,
+  };
+}
+
+// GET /api/market/sellers/:sellerId/reviews
+export const listSellerReviews = asyncHandler(async (req, res) => {
+  const sid = oid(req.params.sellerId);
+  if (!sid) return res.status(400).json({ message: "ID không hợp lệ" });
+  const pg = Math.max(parseInt(req.query.page, 10) || 1, 1);
+  const lim = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+  const meId = req.user?._id;
+
+  const [reviews, total, seller] = await Promise.all([
+    SellerReview.find({ seller: sid })
+      .sort({ createdAt: -1 })
+      .skip((pg - 1) * lim)
+      .limit(lim)
+      .populate("reviewer", SELLER_FIELDS),
+    SellerReview.countDocuments({ seller: sid }),
+    User.findById(sid).select("marketRatingAvg marketRatingCount"),
+  ]);
+
+  // Đánh giá của chính viewer (nếu có)
+  let myReview = null;
+  let canReview = false;
+  if (meId && String(meId) !== String(sid)) {
+    const mine = reviews.find(
+      (r) => String(r.reviewer?._id || r.reviewer) === String(meId)
+    );
+    myReview = mine
+      ? reviewDTO(mine)
+      : await SellerReview.findOne({ seller: sid, reviewer: meId }).then((r) =>
+          r ? reviewDTO(r) : null
+        );
+    // Chỉ cho đánh giá nếu đã từng trả giá cho người bán này
+    const hasOffer = await MarketOffer.exists({ seller: sid, buyer: meId });
+    canReview = !!hasOffer;
+  }
+
+  res.json({
+    items: reviews.map(reviewDTO),
+    page: pg,
+    total,
+    hasMore: pg * lim < total,
+    ratingAvg: Math.round((seller?.marketRatingAvg || 0) * 10) / 10,
+    ratingCount: seller?.marketRatingCount || 0,
+    myReview,
+    canReview,
+  });
+});
+
+// POST /api/market/sellers/:sellerId/reviews  { rating, comment, listingId }
+export const upsertSellerReview = asyncHandler(async (req, res) => {
+  const sid = oid(req.params.sellerId);
+  if (!sid) return res.status(400).json({ message: "ID không hợp lệ" });
+  if (String(sid) === String(req.user._id)) {
+    return res.status(400).json({ message: "Không thể tự đánh giá chính mình" });
+  }
+  const rating = Math.max(1, Math.min(5, Math.round(Number(req.body?.rating) || 0)));
+  if (!rating) return res.status(400).json({ message: "Vui lòng chọn số sao" });
+
+  // Gate: phải từng trả giá cho người bán này
+  const hasOffer = await MarketOffer.exists({ seller: sid, buyer: req.user._id });
+  if (!hasOffer) {
+    return res.status(403).json({
+      message: "Bạn cần từng liên hệ/trả giá sản phẩm của người này mới đánh giá được.",
+    });
+  }
+
+  const comment = String(req.body?.comment || "").slice(0, 1000);
+  const listingId = oid(req.body?.listingId);
+  const doc = await SellerReview.findOneAndUpdate(
+    { seller: sid, reviewer: req.user._id },
+    { $set: { rating, comment, listing: listingId || null } },
+    { new: true, upsert: true }
+  ).populate("reviewer", SELLER_FIELDS);
+
+  const { avg, count } = await recomputeSellerRating(sid);
+  res.status(201).json({
+    review: reviewDTO(doc),
+    ratingAvg: Math.round(avg * 10) / 10,
+    ratingCount: count,
+  });
+});
+
+// DELETE /api/market/reviews/:reviewId  (người viết tự xoá)
+export const deleteSellerReview = asyncHandler(async (req, res) => {
+  const rid = oid(req.params.reviewId);
+  if (!rid) return res.status(400).json({ message: "ID không hợp lệ" });
+  const r = await SellerReview.findById(rid);
+  if (!r) return res.status(404).json({ message: "Không tìm thấy đánh giá" });
+  const isAdmin = req.user?.role === "admin" || req.user?.isAdmin;
+  if (String(r.reviewer) !== String(req.user._id) && !isAdmin) {
+    return res.status(403).json({ message: "Bạn không có quyền xoá" });
+  }
+  const sid = r.seller;
+  await r.deleteOne();
+  await recomputeSellerRating(sid);
+  res.json({ ok: true });
 });

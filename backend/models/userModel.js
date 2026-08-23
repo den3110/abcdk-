@@ -205,6 +205,9 @@ const userSchema = new mongoose.Schema(
 
     /* ------- Avatar + giới thiệu ------- */
     avatar: { type: String, default: "" },
+    // Uy tín người bán trên Chợ (denormalized từ SellerReview)
+    marketRatingAvg: { type: Number, default: 0 },
+    marketRatingCount: { type: Number, default: 0 },
     avatarOptimization: {
       type: AvatarOptimizationSchema,
       default: () => ({}),

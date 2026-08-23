@@ -48,8 +48,12 @@ import {
   useListListingOffersQuery,
   useRespondOfferMutation,
 } from "../slices/marketApiSlice";
+import { useBoostListingMutation } from "../slices/marketApiSlice";
 import { useCreateFeedPostMutation } from "../slices/feedApiSlice";
 import CampaignRoundedIcon from "@mui/icons-material/CampaignRounded";
+import RocketLaunchRoundedIcon from "@mui/icons-material/RocketLaunchRounded";
+import StarRating from "../components/market/StarRating";
+import SellerReviewsSection from "../components/market/SellerReviewsSection";
 
 function OffersManager({ listingId }) {
   const { data, isLoading } = useListListingOffersQuery(listingId);
@@ -150,6 +154,17 @@ export default function MarketListingDetailPage() {
   const [updateStatus] = useUpdateListingStatusMutation();
   const [deleteListing] = useDeleteListingMutation();
   const [createFeedPost, { isLoading: sharing }] = useCreateFeedPostMutation();
+  const [boostListing, { isLoading: boosting }] = useBoostListingMutation();
+
+  const onBoost = async () => {
+    try {
+      await boostListing(item._id).unwrap();
+      toast.success("Đã đẩy tin lên đầu · nổi bật 2 ngày");
+      refetch();
+    } catch (e) {
+      toast.error(e?.data?.message || "Không đẩy được tin");
+    }
+  };
 
   const [activeImg, setActiveImg] = useState(0);
   const [offerOpen, setOfferOpen] = useState(false);
@@ -408,7 +423,16 @@ export default function MarketListingDetailPage() {
                   ))}
                 </Select>
               </Box>
-              <Box sx={{ display: "flex", gap: 1 }}>
+              <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+                <Button
+                  variant="contained"
+                  startIcon={<RocketLaunchRoundedIcon />}
+                  onClick={onBoost}
+                  disabled={boosting || !["available", "reserved"].includes(item.status)}
+                  sx={{ bgcolor: "#f59e0b", "&:hover": { bgcolor: "#d97706" } }}
+                >
+                  {boosting ? "Đang đẩy…" : "Đẩy tin"}
+                </Button>
                 <Button
                   variant="outlined"
                   startIcon={<EditRoundedIcon />}
@@ -498,9 +522,20 @@ export default function MarketListingDetailPage() {
                     <VerifiedRoundedIcon sx={{ fontSize: 17, color: "#2563eb" }} />
                   )}
                 </Box>
-                <Typography sx={{ fontSize: 13, color: "text.secondary" }}>
-                  {item.seller.verified ? "Đã xác minh danh tính" : "Người bán"}
-                </Typography>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                  {item.seller.ratingCount > 0 ? (
+                    <>
+                      <StarRating value={item.seller.ratingAvg} size={15} />
+                      <Typography sx={{ fontSize: 12.5, color: "text.secondary" }}>
+                        {item.seller.ratingAvg?.toFixed(1)} · {item.seller.ratingCount} đánh giá
+                      </Typography>
+                    </>
+                  ) : (
+                    <Typography sx={{ fontSize: 13, color: "text.secondary" }}>
+                      {item.seller.verified ? "Đã xác minh danh tính" : "Chưa có đánh giá"}
+                    </Typography>
+                  )}
+                </Box>
               </Box>
               <Button
                 variant="text"
@@ -562,6 +597,20 @@ export default function MarketListingDetailPage() {
           </Box>
         </Box>
       </Box>
+
+      {/* Đánh giá người bán */}
+      {item.seller && (
+        <Box sx={{ mt: 4 }}>
+          <Typography sx={{ fontWeight: 800, mb: 1.5, fontSize: 18 }}>
+            Đánh giá người bán
+          </Typography>
+          <SellerReviewsSection
+            sellerId={item.seller._id}
+            listingId={item._id}
+            userInfo={userInfo}
+          />
+        </Box>
+      )}
 
       {/* Offer dialog */}
       <Dialog open={offerOpen} onClose={() => setOfferOpen(false)} fullWidth maxWidth="xs">

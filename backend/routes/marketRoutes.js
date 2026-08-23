@@ -23,6 +23,10 @@ import {
   respondOffer,
   cancelOffer,
   canPost,
+  boostListing,
+  listSellerReviews,
+  upsertSellerReview,
+  deleteSellerReview,
 } from "../controllers/marketController.js";
 
 const router = express.Router();
@@ -146,6 +150,11 @@ router.get("/mine", protect, myListings);
 router.get("/offers/mine", protect, myOffers);
 router.get("/me/can-post", protect, canPost);
 
+// Đánh giá người bán
+router.get("/sellers/:sellerId/reviews", optionalAuth, listSellerReviews);
+router.post("/sellers/:sellerId/reviews", protect, upsertSellerReview);
+router.delete("/reviews/:reviewId", protect, deleteSellerReview);
+
 router.post("/", protect, requireKyc, rlCreate, createListing);
 
 // Offers (static path segments trước param generic)
@@ -155,6 +164,7 @@ router.delete("/offers/:offerId", protect, cancelOffer);
 router.get("/:id/offers", protect, listListingOffers);
 router.post("/:id/offers", protect, rlOffer, createOffer);
 router.post("/:id/save", protect, toggleSave);
+router.post("/:id/boost", protect, boostListing);
 router.patch("/:id/status", protect, updateStatus);
 router.put("/:id", protect, requireKyc, updateListing);
 router.delete("/:id", protect, deleteListing);

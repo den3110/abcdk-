@@ -104,6 +104,11 @@ const marketListingSchema = new mongoose.Schema(
 
     // Admin có thể ghim tin nổi bật
     featured: { type: Boolean, default: false },
+    // Đẩy tin nổi bật có thời hạn (featured = featuredUntil > now)
+    featuredUntil: { type: Date, default: null },
+    // Thời điểm được "đẩy lên đầu" — dùng để sort mới nhất
+    bumpedAt: { type: Date, default: Date.now, index: true },
+    lastBoostAt: { type: Date, default: null },
 
     soldAt: { type: Date, default: null },
   },
