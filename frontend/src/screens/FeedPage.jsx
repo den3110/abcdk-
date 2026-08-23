@@ -32,6 +32,7 @@ import {
   MessageCircle,
   Flag,
   Trash2,
+  Pencil,
   Pin,
   Trophy,
   X as XIcon,
@@ -51,6 +52,7 @@ import {
   useGetFeedPostQuery,
   useCreateFeedPostMutation,
   useDeleteFeedPostMutation,
+  useUpdateFeedPostMutation,
   useReactFeedPostMutation,
   useShareFeedPostMutation,
   useSaveFeedPostMutation,
@@ -1316,6 +1318,9 @@ function PostCard({ post, me, defaultShowComments = false }) {
   const nav = useNavigate();
   const [react] = useReactFeedPostMutation();
   const [deletePost] = useDeleteFeedPostMutation();
+  const [updatePost] = useUpdateFeedPostMutation();
+  const [editOpen, setEditOpen] = useState(false);
+  const [editContent, setEditContent] = useState(post.content || "");
   const [reportPost] = useReportFeedPostMutation();
   const [sharePost] = useShareFeedPostMutation();
   const [savePost] = useSaveFeedPostMutation();
@@ -1824,6 +1829,18 @@ function PostCard({ post, me, defaultShowComments = false }) {
         <DialogTitle>Tuỳ chọn</DialogTitle>
         <DialogContent>
           <Stack spacing={1} sx={{ minWidth: 240 }}>
+            {isMine && (
+              <Button
+                startIcon={<Pencil size={16} />}
+                onClick={() => {
+                  setMenuAnchor(false);
+                  setEditContent(post.content || "");
+                  setEditOpen(true);
+                }}
+              >
+                Sửa bài viết
+              </Button>
+            )}
             {canModerate && (
               <Button
                 startIcon={<Trash2 size={16} />}
@@ -1849,6 +1866,45 @@ function PostCard({ post, me, defaultShowComments = false }) {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setMenuAnchor(false)}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Sửa bài viết */}
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 800 }}>Sửa bài viết</DialogTitle>
+        <DialogContent>
+          <TextField
+            fullWidth
+            multiline
+            minRows={3}
+            autoFocus
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+            placeholder="Nội dung bài viết…"
+            sx={{ mt: 1 }}
+          />
+          {(post.sharedListing || post.sharedPlay || post.sharedMatch) && (
+            <Typography sx={{ mt: 1, fontSize: 12.5, color: "text.secondary" }}>
+              * Phần đính kèm (sản phẩm/kèo/trận) được giữ nguyên.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setEditOpen(false)}>Huỷ</Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              try {
+                await updatePost({ id: post._id, content: editContent }).unwrap();
+                toast.success("Đã cập nhật bài viết");
+                setEditOpen(false);
+              } catch (e) {
+                toast.error(e?.data?.message || "Cập nhật thất bại");
+              }
+            }}
+          >
+            Lưu
+          </Button>
         </DialogActions>
       </Dialog>
     </Card>
