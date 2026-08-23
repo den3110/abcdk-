@@ -485,18 +485,17 @@ export const createOffer = asyncHandler(async (req, res) => {
     const buyerName = req.user.nickname || req.user.name || "Người mua";
     const lines = [
       "💰 ĐỀ NGHỊ MUA SẢN PHẨM",
-      `🏓 ${listing.title || "Sản phẩm"}`,
       `Giá đăng: ${vnd(listing.price)} đ`,
       amount > 0
         ? `Giá đề nghị: ${vnd(amount)} đ`
         : "Giá đề nghị: (thương lượng)",
       message ? `Lời nhắn: "${message}"` : "",
-      `🔗 https://pickletour.vn/marketplace/${String(id)}`,
     ].filter(Boolean);
     await postDirectMessage({
       fromUserId: req.user._id,
       toUserId: listing.seller,
       content: lines.join("\n"),
+      linkedListing: id, // gán sản phẩm -> hiện thẻ bấm được trong chat
     });
   } catch (e) {
     // Không chặn luồng trả giá nếu gửi tin nhắn lỗi
@@ -559,6 +558,25 @@ export const respondOffer = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Hành động không hợp lệ" });
   }
   await offer.save();
+
+  // Báo cho người mua kết quả (kèm thẻ sản phẩm bấm được)
+  try {
+    const listing = await MarketListing.findById(offer.listing).select("title");
+    const sellerName = req.user.nickname || req.user.name || "Người bán";
+    const accepted = offer.status === "accepted";
+    const content = accepted
+      ? `✅ ${sellerName} đã CHẤP NHẬN đề nghị ${vnd(offer.amount)} đ của bạn cho "${listing?.title || "sản phẩm"}". Nhắn tin để chốt giao dịch nhé!`
+      : `❌ ${sellerName} đã từ chối đề nghị ${vnd(offer.amount)} đ cho "${listing?.title || "sản phẩm"}".`;
+    await postDirectMessage({
+      fromUserId: req.user._id,
+      toUserId: offer.buyer,
+      content,
+      linkedListing: offer.listing,
+    });
+  } catch (e) {
+    /* không chặn luồng */
+  }
+
   const populated = await offer.populate("buyer", SELLER_FIELDS);
   res.json(toOfferDTO(populated));
 });

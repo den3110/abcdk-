@@ -42,6 +42,7 @@ import MentionText from "../components/feed/MentionText.jsx";
 import MentionAutocomplete from "../components/feed/MentionAutocomplete.jsx";
 import TournamentPickerDialog from "../components/feed/TournamentPickerDialog.jsx";
 import TournamentBubbleCard from "../components/feed/TournamentBubbleCard.jsx";
+import ListingChatCard from "../components/market/ListingChatCard.jsx";
 import {
   shouldShowTimeSeparator,
   fmtSeparator,
@@ -275,6 +276,9 @@ function MessageBubble({ msg, isMine, onDelete, canDelete, onReply, onReact, myI
             tour={msg.linkedTournament}
             variant={isMine ? "chatMine" : "chat"}
           />
+        )}
+        {msg.linkedListing && (
+          <ListingChatCard listing={msg.linkedListing} isMine={isMine} />
         )}
       </Box>
 

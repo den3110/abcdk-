@@ -61,6 +61,12 @@ const chatMessageSchema = new Schema(
       ref: "Tournament",
       default: null,
     },
+    // Gán sản phẩm Chợ vào tin nhắn (bấm mở thẳng trang sản phẩm)
+    linkedListing: {
+      type: Schema.Types.ObjectId,
+      ref: "MarketListing",
+      default: null,
+    },
     // readBy: users đã xem tính đến message này
     readBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
     // Reactions emoji (mỗi user tối đa 1)

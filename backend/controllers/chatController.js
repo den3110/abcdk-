@@ -14,6 +14,8 @@ import { attachTournamentRegCounts } from "../utils/enrichTournament.js";
 import { getBlockedIdSet } from "./friendController.js";
 
 const USER_FIELDS = "_id name nickname avatar role phone";
+const LISTING_SELECT =
+  "_id title price type condition status images location";
 
 const isAdmin = (u) => u?.role === "admin" || u?.role === "superAdmin";
 
@@ -99,6 +101,7 @@ function toMessageDTO(msg) {
     })),
     mentions: m.mentions || [],
     linkedTournament: m.linkedTournament || null,
+    linkedListing: m.linkedListing || null,
     readBy: m.readBy || [],
     systemKind: m.systemKind || null,
     editedAt: m.editedAt,
@@ -400,7 +403,8 @@ export const listMessages = asyncHandler(async (req, res) => {
     .populate("sender", USER_FIELDS)
     .populate("mentions", USER_FIELDS)
     .populate(REPLY_POPULATE)
-    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs");
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
+    .populate("linkedListing", LISTING_SELECT);
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map(toMessageDTO);
   await attachTournamentRegCounts(items);
@@ -449,13 +453,18 @@ export const sendMessage = asyncHandler(async (req, res) => {
     mongoose.isValidObjectId(req.body.linkedTournament)
       ? req.body.linkedTournament
       : null;
+  const linkedListing =
+    req.body?.linkedListing &&
+    mongoose.isValidObjectId(req.body.linkedListing)
+      ? req.body.linkedListing
+      : null;
   const mentions = Array.isArray(req.body?.mentions)
     ? req.body.mentions
         .filter((id) => mongoose.isValidObjectId(id))
         .map((id) => new mongoose.Types.ObjectId(String(id)))
         .slice(0, 20)
     : [];
-  if (!content.trim() && !attachments.length && !linkedTournament) {
+  if (!content.trim() && !attachments.length && !linkedTournament && !linkedListing) {
     res.status(400);
     throw new Error("Tin nhắn không thể trống");
   }
@@ -468,6 +477,7 @@ export const sendMessage = asyncHandler(async (req, res) => {
     replyTo,
     mentions,
     linkedTournament,
+    linkedListing,
     readBy: [viewer._id],
   });
 
@@ -488,7 +498,8 @@ export const sendMessage = asyncHandler(async (req, res) => {
     .populate("sender", USER_FIELDS)
     .populate("mentions", USER_FIELDS)
     .populate(REPLY_POPULATE)
-    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs");
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
+    .populate("linkedListing", LISTING_SELECT);
   const dto = toMessageDTO(populated);
   await attachTournamentRegCounts([dto]);
 
@@ -669,7 +680,8 @@ export const adminListMessages = asyncHandler(async (req, res) => {
     .populate("sender", USER_FIELDS)
     .populate("mentions", USER_FIELDS)
     .populate(REPLY_POPULATE)
-    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs");
+    .populate("linkedTournament", "_id name image location startDate endDate status maxPairs")
+    .populate("linkedListing", LISTING_SELECT);
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map(toMessageDTO);
   await attachTournamentRegCounts(items);
@@ -717,6 +729,7 @@ export async function postDirectMessage({
   toUserId,
   content,
   attachments = [],
+  linkedListing = null,
 }) {
   if (!fromUserId || !toUserId) return null;
   if (String(fromUserId) === String(toUserId)) return null;
@@ -742,6 +755,10 @@ export async function postDirectMessage({
     sender: fromUserId,
     content: text,
     attachments: atts,
+    linkedListing:
+      linkedListing && mongoose.isValidObjectId(linkedListing)
+        ? linkedListing
+        : null,
     readBy: [fromUserId],
   });
 
@@ -760,7 +777,8 @@ export async function postDirectMessage({
 
   const populated = await ChatMessage.findById(msg._id)
     .populate("sender", USER_FIELDS)
-    .populate(REPLY_POPULATE);
+    .populate(REPLY_POPULATE)
+    .populate("linkedListing", LISTING_SELECT);
   const dto = toMessageDTO(populated);
 
   emitToConv(String(conv._id), "chat:message:new", {
