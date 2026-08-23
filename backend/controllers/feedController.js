@@ -222,6 +222,7 @@ function toPostDTO(post, viewerId) {
         }
       : null,
     sharedMatch: p.sharedMatch || null,
+    sharedListing: p.sharedListing || null,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -431,7 +432,27 @@ export const createPost = asyncHandler(async (req, res) => {
     };
   }
 
-  if (!content.trim() && !media.length && !poll && !sharedMatch) {
+  // Shared listing snapshot (chia sẻ sản phẩm từ Chợ)
+  let sharedListing = null;
+  const rawSl = req.body?.sharedListing;
+  if (rawSl && (rawSl.listingId || rawSl.title)) {
+    sharedListing = {
+      listingId: mongoose.isValidObjectId(rawSl.listingId)
+        ? rawSl.listingId
+        : null,
+      title: String(rawSl.title || "").slice(0, 200),
+      price: Number(rawSl.price) || 0,
+      type: String(rawSl.type || "").slice(0, 20),
+      condition: String(rawSl.condition || "").slice(0, 20),
+      category: String(rawSl.category || "").slice(0, 20),
+      image: String(rawSl.image || "").slice(0, 500),
+      sellerName: String(rawSl.sellerName || "").slice(0, 120),
+      status: String(rawSl.status || "").slice(0, 20),
+      province: String(rawSl.province || "").slice(0, 80),
+    };
+  }
+
+  if (!content.trim() && !media.length && !poll && !sharedMatch && !sharedListing) {
     res.status(400);
     throw new Error("Bài viết cần có nội dung hoặc media");
   }
@@ -468,6 +489,7 @@ export const createPost = asyncHandler(async (req, res) => {
     visibility,
     poll,
     sharedMatch,
+    sharedListing,
   });
   const populated = await FeedPost.findById(post._id)
     .populate("author", AUTHOR_FIELDS)

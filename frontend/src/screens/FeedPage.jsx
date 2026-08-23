@@ -71,6 +71,7 @@ import MentionAutocomplete from "../components/feed/MentionAutocomplete.jsx";
 import TournamentPickerDialog from "../components/feed/TournamentPickerDialog.jsx";
 import FriendSuggestionsCard from "../components/feed/FriendSuggestionsCard.jsx";
 import TournamentBubbleCard from "../components/feed/TournamentBubbleCard.jsx";
+import { CONDITION_MAP, formatPrice } from "../constants/market";
 
 /* ─────────── constants ─────────── */
 const REACTION_EMOJI = {
@@ -1161,6 +1162,106 @@ function SharedMatchCard({ sm, nav }) {
   );
 }
 
+function SharedListingCard({ sl, nav }) {
+  const go = () => sl.listingId && nav(`/marketplace/${sl.listingId}`);
+  const cond = CONDITION_MAP[sl.condition];
+  const sold = sl.status === "sold";
+  const ctaLabel = sold
+    ? "Đã bán"
+    : sl.type === "trade"
+    ? "Xem / Đổi"
+    : sl.type === "giveaway"
+    ? "Nhận ngay"
+    : "Mua ngay";
+  return (
+    <Box
+      onClick={go}
+      sx={{
+        mt: 1.5,
+        borderRadius: 2,
+        border: "1px solid",
+        borderColor: "divider",
+        overflow: "hidden",
+        display: "flex",
+        cursor: sl.listingId ? "pointer" : "default",
+        transition: "border-color .2s",
+        "&:hover": { borderColor: "primary.main" },
+      }}
+    >
+      <Box
+        sx={{
+          width: 118,
+          minWidth: 118,
+          height: 118,
+          bgcolor: "action.hover",
+          position: "relative",
+        }}
+      >
+        {sl.image ? (
+          <Box
+            component="img"
+            src={sl.image}
+            alt={sl.title}
+            sx={{
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+              filter: sold ? "grayscale(.6)" : "none",
+            }}
+          />
+        ) : (
+          <Box sx={{ width: "100%", height: "100%", display: "grid", placeItems: "center", fontSize: 34 }}>
+            🛍️
+          </Box>
+        )}
+      </Box>
+      <Box sx={{ p: 1.25, flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 0.4 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          <span style={{ fontSize: 13 }}>🛍️</span>
+          <Typography variant="caption" sx={{ fontWeight: 700, color: "primary.main" }}>
+            Sản phẩm trên Chợ
+          </Typography>
+        </Box>
+        <Typography
+          sx={{
+            fontWeight: 700,
+            fontSize: 14,
+            lineHeight: 1.3,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}
+        >
+          {sl.title || "Sản phẩm"}
+        </Typography>
+        <Typography sx={{ color: "primary.main", fontWeight: 900, fontSize: 16 }}>
+          {formatPrice(sl.price, sl.type)}
+        </Typography>
+        <Box sx={{ mt: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+          <Typography variant="caption" color="text.secondary" noWrap>
+            {[cond?.label, sl.province].filter(Boolean).join(" · ")}
+          </Typography>
+          <Box
+            sx={{
+              px: 1.5,
+              py: 0.5,
+              borderRadius: 999,
+              bgcolor: sold ? "action.disabledBackground" : "primary.main",
+              color: sold ? "text.disabled" : "#fff",
+              fontWeight: 700,
+              fontSize: 12.5,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {ctaLabel}
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
 function PostCard({ post, me, defaultShowComments = false }) {
   const nav = useNavigate();
   const [react] = useReactFeedPostMutation();
@@ -1339,6 +1440,7 @@ function PostCard({ post, me, defaultShowComments = false }) {
           <TournamentBubbleCard tour={post.linkedTournament} variant="feed" />
         )}
         {post.sharedMatch && <SharedMatchCard sm={post.sharedMatch} nav={nav} />}
+        {post.sharedListing && <SharedListingCard sl={post.sharedListing} nav={nav} />}
         {poll && <PollBlock poll={poll} onVote={handleVote} />}
         {post.media?.length > 0 && (
           <Box

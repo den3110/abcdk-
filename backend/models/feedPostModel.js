@@ -102,6 +102,29 @@ const feedPostSchema = new Schema(
       ),
       default: null,
     },
+    // Chia sẻ sản phẩm từ Chợ sang Bảng tin (snapshot để hiển thị nhanh)
+    sharedListing: {
+      type: new Schema(
+        {
+          listingId: {
+            type: Schema.Types.ObjectId,
+            ref: "MarketListing",
+            default: null,
+          },
+          title: { type: String, trim: true },
+          price: { type: Number, default: 0 },
+          type: { type: String, trim: true }, // sell | trade | giveaway
+          condition: { type: String, trim: true },
+          category: { type: String, trim: true },
+          image: { type: String, trim: true },
+          sellerName: { type: String, trim: true },
+          status: { type: String, trim: true },
+          province: { type: String, trim: true },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     // denormalized counters — cập nhật atomic khi comment/reaction mutation
     reactionCount: { type: Number, default: 0, min: 0 },
     commentCount: { type: Number, default: 0, min: 0 },

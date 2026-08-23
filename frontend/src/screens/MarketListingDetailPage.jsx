@@ -48,6 +48,8 @@ import {
   useListListingOffersQuery,
   useRespondOfferMutation,
 } from "../slices/marketApiSlice";
+import { useCreateFeedPostMutation } from "../slices/feedApiSlice";
+import CampaignRoundedIcon from "@mui/icons-material/CampaignRounded";
 
 function OffersManager({ listingId }) {
   const { data, isLoading } = useListListingOffersQuery(listingId);
@@ -147,6 +149,7 @@ export default function MarketListingDetailPage() {
   const [createOffer, { isLoading: offering }] = useCreateOfferMutation();
   const [updateStatus] = useUpdateListingStatusMutation();
   const [deleteListing] = useDeleteListingMutation();
+  const [createFeedPost, { isLoading: sharing }] = useCreateFeedPostMutation();
 
   const [activeImg, setActiveImg] = useState(0);
   const [offerOpen, setOfferOpen] = useState(false);
@@ -221,6 +224,34 @@ export default function MarketListingDetailPage() {
       navigate("/marketplace/mine");
     } catch {
       toast.error("Xoá thất bại");
+    }
+  };
+
+  const handleShareToFeed = async () => {
+    if (!userInfo) {
+      toast.info("Vui lòng đăng nhập để chia sẻ");
+      return navigate("/login");
+    }
+    const sharedListing = {
+      listingId: item._id,
+      title: item.title,
+      price: item.price,
+      type: item.type,
+      condition: item.condition,
+      category: item.category,
+      image: item.images?.[0]?.url || item.images?.[0] || "",
+      sellerName: item.seller?.nickname || item.seller?.name || "",
+      status: item.status,
+      province: item.location?.province || "",
+    };
+    try {
+      await createFeedPost({
+        content: `Mình đang bán trên Chợ: ${item.title}`,
+        sharedListing,
+      }).unwrap();
+      toast.success("Đã chia sẻ sản phẩm lên bảng tin");
+    } catch (e) {
+      toast.error(e?.data?.message || "Chia sẻ thất bại");
     }
   };
 
@@ -480,6 +511,18 @@ export default function MarketListingDetailPage() {
               </Button>
             </Box>
           )}
+
+          {/* Chia sẻ lên bảng tin */}
+          <Button
+            fullWidth
+            variant="outlined"
+            startIcon={<CampaignRoundedIcon />}
+            onClick={handleShareToFeed}
+            disabled={sharing}
+            sx={{ mt: 2 }}
+          >
+            {sharing ? "Đang chia sẻ…" : "Chia sẻ lên bảng tin"}
+          </Button>
         </Box>
       </Box>
 
