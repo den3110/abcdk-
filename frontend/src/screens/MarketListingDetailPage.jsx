@@ -199,7 +199,8 @@ export default function MarketListingDetailPage() {
   const cat = CATEGORY_MAP[item.category];
   const type = TYPE_MAP[item.type];
   const status = STATUS_MAP[item.status];
-  const images = item.images?.length ? item.images : [];
+  const images =
+    (selVariant?.images?.length ? selVariant.images : item.images) || [];
   const mainImg = images[activeImg]?.url || images[activeImg] || "";
 
   const onSave = async () => {
@@ -411,7 +412,7 @@ export default function MarketListingDetailPage() {
                     <Chip
                       key={i}
                       label={`${v.name} · ${formatPrice(v.price, item.type)}`}
-                      onClick={out ? undefined : () => setSelVariant(active ? null : v)}
+                      onClick={out ? undefined : () => { setSelVariant(active ? null : v); setActiveImg(0); }}
                       color={active ? "primary" : "default"}
                       variant={active ? "filled" : "outlined"}
                       disabled={out}

@@ -87,6 +87,7 @@ const marketListingSchema = new mongoose.Schema(
             name: { type: String, required: true, trim: true, maxlength: 60 }, // "40", "Đen - M"
             price: { type: Number, default: 0, min: 0 },
             stock: { type: Number, default: null }, // null = không quản lý số lượng
+            images: { type: [imageSchema], default: [] }, // ảnh riêng của phân loại
           },
           { _id: false }
         ),

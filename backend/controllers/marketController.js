@@ -27,6 +27,17 @@ const SELLER_FIELDS =
 
 // Chuẩn hoá danh sách phân loại (variants) + tính giá thấp nhất
 function parseVariants(variantsRaw) {
+  const normImgs = (arr) =>
+    (Array.isArray(arr) ? arr : [])
+      .map((im) =>
+        typeof im === "string"
+          ? { url: im }
+          : im && im.url
+          ? { url: im.url, mime: im.mime || "", w: im.w || 0, h: im.h || 0 }
+          : null
+      )
+      .filter(Boolean)
+      .slice(0, 8);
   const list = (Array.isArray(variantsRaw) ? variantsRaw : [])
     .map((v) => ({
       name: String(v?.name || "").trim().slice(0, 60),
@@ -35,6 +46,7 @@ function parseVariants(variantsRaw) {
         v?.stock == null || v?.stock === ""
           ? null
           : Math.max(0, Math.floor(Number(v.stock) || 0)),
+      images: normImgs(v?.images),
     }))
     .filter((v) => v.name)
     .slice(0, 30);

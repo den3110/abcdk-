@@ -17,7 +17,7 @@ import {
 } from "../../slices/marketApiSlice";
 
 export default function SellerReviewsSection({ sellerId, listingId, userInfo }) {
-  const { data, isLoading } = useListSellerReviewsQuery(sellerId, { skip: !sellerId });
+  const { data, isLoading, refetch } = useListSellerReviewsQuery(sellerId, { skip: !sellerId });
   const [upsert, { isLoading: saving }] = useUpsertSellerReviewMutation();
   const [del] = useDeleteSellerReviewMutation();
   const [rating, setRating] = useState(0);
@@ -38,6 +38,7 @@ export default function SellerReviewsSection({ sellerId, listingId, userInfo }) 
     if (!rating) return toast.info("Vui lòng chọn số sao");
     try {
       await upsert({ sellerId, rating, comment, listingId }).unwrap();
+      await refetch();
       toast.success("Đã gửi đánh giá");
     } catch (e) {
       toast.error(e?.data?.message || "Không gửi được đánh giá");
@@ -47,6 +48,7 @@ export default function SellerReviewsSection({ sellerId, listingId, userInfo }) 
     if (!data?.myReview) return;
     try {
       await del({ reviewId: data.myReview._id, sellerId }).unwrap();
+      await refetch();
       setRating(0);
       setComment("");
     } catch {}

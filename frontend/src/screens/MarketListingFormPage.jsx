@@ -52,6 +52,7 @@ export default function MarketListingFormPage() {
   const isEdit = !!id;
   const navigate = useNavigate();
   const fileRef = useRef(null);
+  const variantFileRef = useRef(null);
 
   const { data: canPostData, isLoading: canPostLoading } = useCanPostQuery();
   const { data: existing } = useGetListingQuery(id, { skip: !isEdit });
@@ -86,6 +87,7 @@ export default function MarketListingFormPage() {
           name: v.name || "",
           price: v.price ? String(v.price) : "",
           stock: v.stock == null ? "" : String(v.stock),
+          images: v.images || [],
         })),
       });
     }
@@ -112,6 +114,27 @@ export default function MarketListingFormPage() {
     }
   };
 
+  const [variantTarget, setVariantTarget] = useState(null);
+  const onPickVariantFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    const vi = variantTarget;
+    if (!files.length || vi == null) return;
+    const fd = new FormData();
+    files.forEach((f) => fd.append("files", f));
+    try {
+      const res = await uploadMedia(fd).unwrap();
+      const arr = [...form.variants];
+      const cur = arr[vi]?.images || [];
+      arr[vi] = { ...arr[vi], images: [...cur, ...(res.images || [])].slice(0, 8) };
+      set("variants", arr);
+    } catch (err) {
+      toast.error(err?.data?.message || "Tải ảnh thất bại");
+    } finally {
+      if (variantFileRef.current) variantFileRef.current.value = "";
+      setVariantTarget(null);
+    }
+  };
+
   const removeImage = (i) =>
     set("images", form.images.filter((_, idx) => idx !== i));
 
@@ -132,6 +155,7 @@ export default function MarketListingFormPage() {
         name: v.name.trim(),
         price: Number(String(v.price).replace(/\D/g, "")) || 0,
         stock: v.stock === "" || v.stock == null ? null : Number(v.stock) || 0,
+        images: v.images || [],
       }));
     if (form.hasVariants && !cleanVariants.length) {
       return toast.info("Vui lòng thêm ít nhất 1 phân loại");
@@ -335,38 +359,68 @@ export default function MarketListingFormPage() {
                 sx={{ mb: 1.5 }}
               />
               {(form.variants || []).map((v, i) => (
-                <Box key={i} sx={{ display: "flex", gap: 1, mb: 1, alignItems: "center" }}>
-                  <TextField
-                    size="small"
-                    label="Tên loại"
-                    value={v.name}
-                    onChange={(e) => {
-                      const arr = [...form.variants];
-                      arr[i] = { ...arr[i], name: e.target.value };
-                      set("variants", arr);
-                    }}
-                    placeholder="VD: 40, Đen - M"
-                    sx={{ flex: 1 }}
-                  />
-                  <TextField
-                    size="small"
-                    label="Giá (₫)"
-                    value={v.price}
-                    onChange={(e) => {
-                      const arr = [...form.variants];
-                      arr[i] = {
-                        ...arr[i],
-                        price: e.target.value.replace(/\D/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, "."),
-                      };
-                      set("variants", arr);
-                    }}
-                    sx={{ width: 130 }}
-                  />
-                  <IconButton size="small" color="error" onClick={() => set("variants", form.variants.filter((_, idx) => idx !== i))}>
-                    <CloseRoundedIcon fontSize="small" />
-                  </IconButton>
+                <Box key={i} sx={{ mb: 1.5, p: 1, borderRadius: 1.5, bgcolor: "action.hover" }}>
+                  <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                    <TextField
+                      size="small"
+                      label="Tên loại"
+                      value={v.name}
+                      onChange={(e) => {
+                        const arr = [...form.variants];
+                        arr[i] = { ...arr[i], name: e.target.value };
+                        set("variants", arr);
+                      }}
+                      placeholder="VD: 40, Đen - M"
+                      sx={{ flex: 1 }}
+                    />
+                    <TextField
+                      size="small"
+                      label="Giá (₫)"
+                      value={v.price}
+                      onChange={(e) => {
+                        const arr = [...form.variants];
+                        arr[i] = {
+                          ...arr[i],
+                          price: e.target.value.replace(/\D/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, "."),
+                        };
+                        set("variants", arr);
+                      }}
+                      sx={{ width: 130 }}
+                    />
+                    <IconButton size="small" color="error" onClick={() => set("variants", form.variants.filter((_, idx) => idx !== i))}>
+                      <CloseRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                  {/* Ảnh của phân loại */}
+                  <Box sx={{ display: "flex", gap: 0.75, mt: 1, flexWrap: "wrap" }}>
+                    {(v.images || []).map((im, ii) => (
+                      <Box key={ii} sx={{ position: "relative", width: 52, height: 52 }}>
+                        <Box component="img" src={im.url || im} sx={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 1 }} />
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            const arr = [...form.variants];
+                            arr[i] = { ...arr[i], images: (arr[i].images || []).filter((_, idx) => idx !== ii) };
+                            set("variants", arr);
+                          }}
+                          sx={{ position: "absolute", top: -8, right: -8, bgcolor: "error.main", color: "#fff", p: 0.2, "&:hover": { bgcolor: "error.dark" } }}
+                        >
+                          <CloseRoundedIcon sx={{ fontSize: 13 }} />
+                        </IconButton>
+                      </Box>
+                    ))}
+                    {(v.images || []).length < 8 && (
+                      <Box
+                        onClick={() => { setVariantTarget(i); setTimeout(() => variantFileRef.current?.click(), 0); }}
+                        sx={{ width: 52, height: 52, border: "1px dashed", borderColor: "divider", borderRadius: 1, display: "grid", placeItems: "center", cursor: "pointer", fontSize: 11, color: "text.secondary" }}
+                      >
+                        + Ảnh
+                      </Box>
+                    )}
+                  </Box>
                 </Box>
               ))}
+              <input ref={variantFileRef} type="file" accept="image/*" multiple hidden onChange={onPickVariantFiles} />
               <Button size="small" onClick={() => set("variants", [...(form.variants || []), { name: "", price: "", stock: "" }])}>
                 + Thêm phân loại
               </Button>
