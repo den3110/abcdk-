@@ -267,6 +267,7 @@ export default function Header() {
 
   const moreMenuItems = useMemo(() => {
     const items = [
+      { label: "Tìm bạn đánh", path: "/play" },
       { label: t("header.nav.news"), path: "/news" },
       { label: "Docs", path: "/docs/api" },
     ];

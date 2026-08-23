@@ -224,6 +224,7 @@ export default function MobileBottomNav() {
   const moreItems = useMemo(() => {
     const base = [
       { label: "Chợ Mua bán", icon: <StorefrontRoundedIcon />, path: "/marketplace" },
+      { label: "Tìm bạn đánh", icon: <SportsTennisRoundedIcon />, path: "/play" },
     ];
     if (user) {
       base.push(

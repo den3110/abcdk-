@@ -426,6 +426,8 @@ export const apiSlice = createApi({
     "MarketSaved",
     "MarketOffers",
     "MarketMyOffers",
+    "Play",
+    "PlayList",
   ],
   endpoints: () => ({}),
 });
