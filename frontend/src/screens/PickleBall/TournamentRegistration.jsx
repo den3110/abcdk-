@@ -1829,6 +1829,25 @@ export default function TournamentRegistration() {
   const evType = normType(tour?.eventType);
   const isSingles = evType === "single";
   const isDoubles = evType === "double";
+
+  // Danh sách TỪNG VĐV (tách khỏi cặp) xếp theo điểm trình giảm dần.
+  // score đã được backend tính theo đúng loại giải (đơn/đôi).
+  const [athletesOpen, setAthletesOpen] = useState(false);
+  const rankedAthletes = useMemo(() => {
+    const players = [];
+    const seen = new Set();
+    for (const r of activeList) {
+      for (const pl of [r?.player1, r?.player2]) {
+        if (!pl) continue;
+        const key = String(pl.user || pl.phone || pl.nickName || pl.fullName || "");
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        players.push(pl);
+      }
+    }
+    players.sort((a, b) => (Number(b?.score) || 0) - (Number(a?.score) || 0));
+    return players;
+  }, [activeList]);
   const isFreeTournament = tour?.isFreeRegistration === true;
   const cap = getScoreCap(tour, isSingles);
   const eachCap = Number(tour?.singleCap ?? 0);
@@ -3377,6 +3396,15 @@ export default function TournamentRegistration() {
                     size="small"
                     sx={{ fontWeight: "bold", height: 24 }}
                   />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<Groups fontSize="small" />}
+                    onClick={() => setAthletesOpen(true)}
+                    sx={{ textTransform: "none", fontWeight: 700, borderRadius: 2 }}
+                  >
+                    Các VĐV đã đăng ký
+                  </Button>
                 </Stack>
                 <TextField
                   placeholder={t(
@@ -3858,6 +3886,84 @@ export default function TournamentRegistration() {
         userId={profileDlg.userId}
         onClose={handleCloseProfile}
       />
+
+      {/* 6. Xếp hạng từng VĐV theo điểm trình */}
+      <Dialog
+        open={athletesOpen}
+        onClose={() => setAthletesOpen(false)}
+        fullWidth
+        maxWidth="xs"
+        scroll="paper"
+      >
+        <DialogTitle sx={{ fontWeight: 800 }}>
+          Các VĐV đã đăng ký
+          <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
+            {rankedAthletes.length} VĐV · xếp theo điểm trình {isSingles ? "đơn" : "đôi"}
+          </Typography>
+        </DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
+          {rankedAthletes.length === 0 ? (
+            <Box p={4} textAlign="center" color="text.secondary">
+              Chưa có VĐV nào đăng ký.
+            </Box>
+          ) : (
+            rankedAthletes.map((pl, idx) => {
+              const rank = idx + 1;
+              const medal =
+                rank === 1 ? "#F59E0B" : rank === 2 ? "#94A3B8" : rank === 3 ? "#B45309" : null;
+              const name = pl.nickName || pl.fullName || "VĐV";
+              return (
+                <Stack
+                  key={String(pl.user || pl.phone || idx)}
+                  direction="row"
+                  alignItems="center"
+                  spacing={1.5}
+                  sx={{
+                    px: 2,
+                    py: 1.25,
+                    borderBottom: "1px solid",
+                    borderColor: "divider",
+                  }}
+                >
+                  <Box
+                    sx={{
+                      width: 28,
+                      textAlign: "center",
+                      fontWeight: 800,
+                      fontSize: 15,
+                      color: medal || "text.secondary",
+                    }}
+                  >
+                    {rank}
+                  </Box>
+                  <Avatar src={pl.avatar || undefined} sx={{ width: 38, height: 38 }}>
+                    {name.charAt(0)}
+                  </Avatar>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography fontWeight={700} noWrap>
+                      {name}
+                    </Typography>
+                    {pl.fullName && pl.nickName && pl.fullName !== pl.nickName && (
+                      <Typography variant="caption" color="text.secondary" noWrap display="block">
+                        {pl.fullName}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Chip
+                    label={(Number(pl.score) || 0).toFixed(3)}
+                    color="primary"
+                    size="small"
+                    sx={{ fontWeight: 800 }}
+                  />
+                </Stack>
+              );
+            })
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAthletesOpen(false)}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
