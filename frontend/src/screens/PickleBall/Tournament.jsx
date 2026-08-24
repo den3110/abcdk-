@@ -533,140 +533,105 @@ export default function TournamentDashboard() {
       fontSize: "0.9rem",
     };
 
+    const secSx = { ...btnSx, flex: 1, minWidth: 0 };
     const adminOrMgr = canManage(t);
+    const isUpcoming = t.status === "upcoming";
+    const isOngoing = t.status === "ongoing";
+    const isFinished = t.status === "finished";
+    // Ẩn nút khi giải chưa có dữ liệu tương ứng.
+    const showSchedule = Number(t?.matchesTotal) > 0;
+    const showBracket = Number(t?.bracketsTotal) > 0;
+    const zaloUrl = t?.zaloGroupUrl || DEFAULT_ZALO_GROUP;
 
-    // Case 1: Admin/Manager
-    if (adminOrMgr) {
-      return (
-        <Grid container spacing={1}>
-          <Grid size={{ xs: 12 }}>
-            <Button
-              component={RouterLink}
-              to={`/tournament/${t._id}/register`}
-              fullWidth
-              variant="contained"
-              color="primary"
-              startIcon={<HowToRegIcon />}
-              sx={registerBigSx}
-            >
-              {translate("tournaments.actions.register")}
-            </Button>
-          </Grid>
-
-          <Grid size={{ xs: 12 }}>
-            <Button
-              component={RouterLink}
-              to={`/tournament/${t._id}/schedule`}
-              fullWidth
-              variant="outlined"
-              color="primary"
-              startIcon={<EventNoteIcon />}
-              sx={btnSx}
-            >
-              {translate("tournaments.actions.schedule")}
-            </Button>
-          </Grid>
-
-          <Grid size={{ xs: 12 }}>
-            <Button
-              component={RouterLink}
-              to={`/tournament/${t._id}/bracket`}
-              fullWidth
-              variant="outlined"
-              color="info"
-              startIcon={<AccountTreeIcon />}
-              sx={btnSx}
-            >
-              {translate("tournaments.actions.bracket")}
-            </Button>
-          </Grid>
-        </Grid>
-      );
-    }
-
-    // Case 2: User - Upcoming
-    if (t.status === "upcoming") {
-      return (
-        <Grid container spacing={1}>
-          <Grid size={{ xs: 12 }}>
-            <Button
-              component={RouterLink}
-              to={`/tournament/${t._id}/register`}
-              fullWidth
-              variant="contained"
-              color="primary"
-              startIcon={<HowToRegIcon />}
-              sx={registerBigSx}
-            >
-              {translate("tournaments.actions.register")}
-            </Button>
-          </Grid>
-
-          <Grid size={{ xs: 12 }}>
-            <Button
-              component={RouterLink}
-              to={`/tournament/${t._id}/bracket`}
-              fullWidth
-              variant="outlined"
-              color="info"
-              startIcon={<AccountTreeIcon />}
-              sx={btnSx}
-            >
-              {translate("tournaments.actions.bracket")}
-            </Button>
-          </Grid>
-        </Grid>
-      );
-    }
-
-    // Case 3: User - Ongoing (Schedule + Bracket)
-    if (t.status === "ongoing") {
-      return (
-        <Grid container spacing={1}>
-          <Grid size={{ xs: 12 }}>
-            <Button
-              component={RouterLink}
-              to={`/tournament/${t._id}/schedule`}
-              fullWidth
-              variant="contained"
-              color="primary"
-              startIcon={<EventNoteIcon />}
-              sx={btnSx}
-            >
-              {translate("tournaments.actions.schedule")}
-            </Button>
-          </Grid>
-
-          <Grid size={{ xs: 12 }}>
-            <Button
-              component={RouterLink}
-              to={`/tournament/${t._id}/bracket`}
-              fullWidth
-              variant="outlined"
-              color="info"
-              startIcon={<AccountTreeIcon />}
-              sx={btnSx}
-            >
-              {translate("tournaments.actions.bracket")}
-            </Button>
-          </Grid>
-        </Grid>
-      );
-    }
-
-    // Case 4: User - Finished
-    return (
+    const bigRegister = (
+      <Button
+        component={RouterLink}
+        to={`/tournament/${t._id}/register`}
+        fullWidth
+        variant="contained"
+        color="primary"
+        startIcon={<HowToRegIcon />}
+        sx={registerBigSx}
+      >
+        {translate("tournaments.actions.register")}
+      </Button>
+    );
+    const bigSchedule = (
+      <Button
+        component={RouterLink}
+        to={`/tournament/${t._id}/schedule`}
+        fullWidth
+        variant="contained"
+        color="primary"
+        startIcon={<EventNoteIcon />}
+        sx={btnSx}
+      >
+        {translate("tournaments.actions.schedule")}
+      </Button>
+    );
+    const secSchedule = (
+      <Button
+        component={RouterLink}
+        to={`/tournament/${t._id}/schedule`}
+        variant="outlined"
+        color="primary"
+        startIcon={<EventNoteIcon />}
+        sx={secSx}
+      >
+        {translate("tournaments.actions.schedule")}
+      </Button>
+    );
+    const secBracket = (
       <Button
         component={RouterLink}
         to={`/tournament/${t._id}/bracket`}
-        fullWidth
         variant="outlined"
         color="info"
         startIcon={<AccountTreeIcon />}
-        sx={btnSx}
+        sx={secSx}
       >
-        {translate("tournaments.actions.viewResults")}
+        {isFinished
+          ? translate("tournaments.actions.viewResults")
+          : translate("tournaments.actions.bracket")}
       </Button>
+    );
+    const zaloBtn = (
+      <Button
+        component="a"
+        href={zaloUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        startIcon={<ChatBubbleIcon />}
+        sx={{
+          ...secSx,
+          color: "#fff",
+          bgcolor: "#0068FF",
+          "&:hover": { bgcolor: "#0057d6" },
+        }}
+      >
+        Zalo
+      </Button>
+    );
+
+    // Nút chính (to) — chỉ đăng ký (upcoming/admin) hoặc lịch (ongoing user).
+    let primary = null;
+    let scheduleIsPrimary = false;
+    if (adminOrMgr || isUpcoming) {
+      primary = bigRegister;
+    } else if (isOngoing && showSchedule) {
+      primary = bigSchedule;
+      scheduleIsPrimary = true;
+    }
+
+    return (
+      <Box>
+        {primary && <Box sx={{ mb: 1 }}>{primary}</Box>}
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+          {adminOrMgr && showSchedule && !scheduleIsPrimary && secSchedule}
+          {showBracket && secBracket}
+          {zaloBtn}
+        </Box>
+      </Box>
     );
   };
 
@@ -880,28 +845,6 @@ export default function TournamentDashboard() {
           <CardActions sx={{ p: 2, pt: 0, mt: "auto" }}>
             <Box width="100%">
               <Actions t={t} />
-              <Button
-                component="a"
-                href={t?.zaloGroupUrl || DEFAULT_ZALO_GROUP}
-                target="_blank"
-                rel="noopener noreferrer"
-                fullWidth
-                startIcon={<ChatBubbleIcon />}
-                sx={{
-                  mt: 1,
-                  borderRadius: 2,
-                  textTransform: "none",
-                  fontWeight: 700,
-                  fontSize: "0.8125rem",
-                  py: 1,
-                  minHeight: 40,
-                  color: "#fff",
-                  bgcolor: "#0068FF",
-                  "&:hover": { bgcolor: "#0057d6" },
-                }}
-              >
-                Nhóm Zalo
-              </Button>
             </Box>
           </CardActions>
         </GlassCard>

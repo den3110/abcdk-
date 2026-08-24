@@ -3012,9 +3012,27 @@ const getTournaments = asyncHandler(async (req, res) => {
       },
     },
     {
+      // Đếm số trận để FE ẩn nút "Lịch đấu" khi giải chưa có lịch.
+      $lookup: {
+        from: "matches",
+        let: { tid: "$_id" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$tournament", "$$tid"] } } },
+          { $count: "total" },
+        ],
+        as: "_mc",
+      },
+    },
+    {
+      $addFields: {
+        matchesTotal: { $ifNull: [{ $arrayElemAt: ["$_mc.total", 0] }, 0] },
+      },
+    },
+    {
       $project: {
         _rc: 0,
         _bc: 0,
+        _mc: 0,
         _startInstant: 0,
         _endInstant: 0,
         _isOngoing: 0,
