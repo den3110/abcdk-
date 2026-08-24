@@ -454,6 +454,7 @@ const createSchema = Joi.object({
     .max(20_000)
     .default("")
     .label(FIELD_LABELS.contactHtml),
+  zaloGroupUrl: Joi.string().allow("").max(500).default("").label("Link nhóm Zalo"),
   contentHtml: Joi.string()
     .allow("")
     .max(100_000)
@@ -528,6 +529,7 @@ const updateSchema = Joi.object({
   location: Joi.string().trim().min(2).label(FIELD_LABELS.location),
   contactHtml: Joi.string().allow("").label(FIELD_LABELS.contactHtml),
   contentHtml: Joi.string().allow("").label(FIELD_LABELS.contentHtml),
+  zaloGroupUrl: Joi.string().allow("").max(500).label("Link nhóm Zalo"),
 
   noRankDelta: boolLoose.label("Không áp dụng điểm trình"),
   allowExceedMaxRating: boolLoose.label("Cho phép vượt quá điểm trình"),

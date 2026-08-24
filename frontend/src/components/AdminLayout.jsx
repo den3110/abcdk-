@@ -21,6 +21,7 @@ import {
 import PeopleIcon from "@mui/icons-material/People";
 import HomeIcon from "@mui/icons-material/Home";
 import ArticleIcon from "@mui/icons-material/Article";
+import CampaignIcon from "@mui/icons-material/Campaign";
 import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import SecurityIcon from "@mui/icons-material/Security";
@@ -104,6 +105,11 @@ export default function AdminLayout({ children }) {
       label: t("admin.layout.news"),
       icon: <ArticleIcon />,
       path: "/admin/news",
+    },
+    {
+      label: tx("admin.layout.broadcast", "Gửi thông báo"),
+      icon: <CampaignIcon />,
+      path: "/admin/broadcast",
     },
     {
       label: tx("admin.layout.pikoraOps", "Pikora Bot Ops"),

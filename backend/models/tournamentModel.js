@@ -253,6 +253,8 @@ const tournamentSchema = new mongoose.Schema(
     },
     contactHtml: { type: String, default: "" },
     contentHtml: { type: String, default: "" },
+    // Link nhóm Zalo của giải đấu (admin đặt khi tạo/sửa) — user bấm để tham gia
+    zaloGroupUrl: { type: String, default: "", trim: true },
     timezone: { type: String, default: "Asia/Ho_Chi_Minh" },
 
     startAt: { type: Date, default: null },

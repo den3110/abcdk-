@@ -25,6 +25,7 @@ import {
   Copy,
   Landmark,
   MapPin,
+  MessageCircle,
   ShieldCheck,
   Swords,
   Ticket,
@@ -433,6 +434,17 @@ export default function TournamentDetailPage() {
                         <Text type="supporting" color="secondary">Chưa có thông tin liên hệ.</Text>
                       </div>
                     )}
+                    {t?.zaloGroupUrl ? (
+                      <a
+                        href={t.zaloGroupUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ marginTop: 14, display: "inline-flex", alignItems: "center", gap: 9, padding: "11px 18px", borderRadius: 12, background: "#0068FF", color: "#fff", fontWeight: 700, fontSize: 14.5, textDecoration: "none" }}
+                      >
+                        <MessageCircle size={17} />
+                        Tham gia nhóm Zalo
+                      </a>
+                    ) : null}
                   </div>
                 </div>
               </div>

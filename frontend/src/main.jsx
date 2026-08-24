@@ -97,6 +97,7 @@ import AvatarOptimizationPage from "./screens/admin/AvatarOptimizationPage.jsx";
 import ChatBotOpsPage from "./screens/admin/ChatBotOpsPage.jsx";
 import IdentitySecurityPage from "./screens/admin/IdentitySecurityPage.jsx";
 import AssessmentHistoryPage from "./screens/admin/AssessmentHistoryPage.jsx";
+import BroadcastPage from "./screens/admin/BroadcastPage.jsx";
 import Forbidden403 from "./screens/403.jsx";
 import ServiceUnavailable from "./screens/503.jsx";
 import PublicProfilePage from "./screens/PublicProfilePage.jsx";
@@ -307,6 +308,7 @@ const router = sentryCreateBrowserRouter(
         <Route path="identity-security" element={<IdentitySecurityPage />} />
         <Route path="assessment-history" element={<AssessmentHistoryPage />} />
         <Route path="news" element={<NewsPage />} />
+        <Route path="broadcast" element={<BroadcastPage />} />
         <Route path="pikora-ops" element={<ChatBotOpsPage />} />
         <Route
           path="avatar-optimization"
