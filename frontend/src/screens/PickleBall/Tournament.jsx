@@ -33,6 +33,7 @@ import HowToRegIcon from "@mui/icons-material/HowToReg";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import EventNoteIcon from "@mui/icons-material/EventNote";
 import FilterListIcon from "@mui/icons-material/FilterList";
+import ChatBubbleIcon from "@mui/icons-material/ChatBubble";
 
 import { useGetTournamentsQuery } from "../../slices/tournamentsApiSlice";
 import { useSelector } from "react-redux";
@@ -44,6 +45,9 @@ import { DateRangePicker } from "@mui/x-date-pickers-pro/DateRangePicker";
 
 // ====== Zoom components ======
 import { DEFAULT_FALLBACK, ZoomableWrapper } from "../../components/Zoom";
+
+// Nhóm Zalo cộng đồng — fallback khi giải chưa đặt link Zalo riêng.
+const DEFAULT_ZALO_GROUP = "https://zalo.me/g/yarnhm129";
 import SponsorMarquee from "../../components/SponsorMarquee";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext.jsx";
@@ -775,14 +779,22 @@ export default function TournamentDashboard() {
 
           <CardContent sx={{ flexGrow: 1, p: 2, pb: 1 }}>
             <Typography
+              component={RouterLink}
+              to={`/tournament/${t._id}`}
               variant="subtitle1"
               fontWeight={800}
               sx={{
+                display: "block",
+                color: "inherit",
+                textDecoration: "none",
                 minHeight: `calc(2em * ${tournamentTitleLineHeight} + 0.16em)`,
                 lineHeight: tournamentTitleLineHeight,
                 pt: "0.08em",
                 pb: "0.08em",
                 mb: 1,
+                cursor: "pointer",
+                transition: "color .15s ease",
+                "&:hover": { color: "primary.main" },
               }}
             >
               {t.name}
@@ -868,6 +880,28 @@ export default function TournamentDashboard() {
           <CardActions sx={{ p: 2, pt: 0, mt: "auto" }}>
             <Box width="100%">
               <Actions t={t} />
+              <Button
+                component="a"
+                href={t?.zaloGroupUrl || DEFAULT_ZALO_GROUP}
+                target="_blank"
+                rel="noopener noreferrer"
+                fullWidth
+                startIcon={<ChatBubbleIcon />}
+                sx={{
+                  mt: 1,
+                  borderRadius: 2,
+                  textTransform: "none",
+                  fontWeight: 700,
+                  fontSize: "0.8125rem",
+                  py: 1,
+                  minHeight: 40,
+                  color: "#fff",
+                  bgcolor: "#0068FF",
+                  "&:hover": { bgcolor: "#0057d6" },
+                }}
+              >
+                Nhóm Zalo
+              </Button>
             </Box>
           </CardActions>
         </GlassCard>
