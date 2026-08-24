@@ -324,6 +324,17 @@ export default function TournamentDetailPage() {
                         <GrayPill label={st === "finished" ? "Kết quả & sơ đồ" : "Sơ đồ thi đấu"} href={`/tournament/${id}/bracket`} size="lg" />
                         {st !== "finished" && <GrayPill label="Check-in" href={`/tournament/${id}/checkin`} size="lg" />}
                         {canManage && <GrayPill label="Quản lý giải" href={`/tournament/${id}/manage`} size="lg" />}
+                        {t?.zaloGroupUrl && (
+                          <a
+                            href={t.zaloGroupUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "0 22px", height: 48, borderRadius: 999, background: "#0068FF", color: "#fff", fontWeight: 750, fontSize: 15, textDecoration: "none", whiteSpace: "nowrap" }}
+                          >
+                            <MessageCircle size={18} />
+                            Nhóm Zalo
+                          </a>
+                        )}
                       </div>
                     </div>
 
@@ -434,17 +445,6 @@ export default function TournamentDetailPage() {
                         <Text type="supporting" color="secondary">Chưa có thông tin liên hệ.</Text>
                       </div>
                     )}
-                    {t?.zaloGroupUrl ? (
-                      <a
-                        href={t.zaloGroupUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ marginTop: 14, display: "inline-flex", alignItems: "center", gap: 9, padding: "11px 18px", borderRadius: 12, background: "#0068FF", color: "#fff", fontWeight: 700, fontSize: 14.5, textDecoration: "none" }}
-                      >
-                        <MessageCircle size={17} />
-                        Tham gia nhóm Zalo
-                      </a>
-                    ) : null}
                   </div>
                 </div>
               </div>
