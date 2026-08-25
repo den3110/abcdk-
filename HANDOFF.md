@@ -1,3 +1,41 @@
+> ## 🆕 Session 2026-08-25 — Vận hành giải đấu: xếp giờ, hàng đợi sân, vòng bảng, Zalo, BTC
+>
+> **Trạng thái:** tất cả đã push master 3 repo + OTA mobile (iOS/Android × 1.1.14 + 1.1.13, channel production). Backend/frontend `abcdk-` lên qua **CI khi push master** — ⚠️ **XÁC NHẬN CI đã deploy tới HEAD** (nhiều tính năng cần backend mới). `admin-pickletour` (repo `abcde`) cần **deploy lại** để hiện ô "Link nhóm Zalo".
+>
+> ### Tính năng đã ship phiên này
+> 1. **Link nhóm Zalo theo giải** — field `zaloGroupUrl` (tournamentModel + Joi admin schema); ô nhập trong `admin-pickletour` TournamentFormPage; nút "Nhóm Zalo" ở web/mobile (chi tiết giải + thẻ danh sách), **fallback** nhóm cộng đồng `https://zalo.me/g/yarnhm129`.
+> 2. **Ô Fanpage + Zalo trang chủ** — web footer (`SiteFooter.jsx`) + mobile home (`(tabs)/index.tsx`). FB `https://www.facebook.com/pickletour2025/`.
+> 3. **Trang admin broadcast** — `/admin/broadcast` (frontend) dùng endpoint SẴN CÓ `POST /api/events/global/broadcast`.
+> 4. **Click tên giải → chi tiết** (web V1 `PickleBall/Tournament.jsx`).
+> 5. **Fix chi tiết bài viết mobile** — hiện lại giải đấu/bình chọn/kết quả trận: component `components/feed/PostAttachments.tsx` (web vốn đã đúng qua `PostCard`).
+> 6. **"Các VĐV đã đăng ký"** ở trang Đăng ký — tách từng VĐV (không theo cặp), sắp theo điểm trình đơn/đôi; **bấm tên → mở hồ sơ**. Web `TournamentRegistration.jsx` + mobile `register.tsx`.
+> 7. **Bộ lọc đăng ký cho quản lý** — vượt điểm trình / chưa thanh toán / VĐV chưa chấm trình (score=0) / VĐV chưa dự giải nào (`scoreTotalTours=0`). Web + mobile.
+> 8. **Ẩn nút Lịch đấu/Sơ đồ khi giải chưa có** — thêm `matchesTotal` + `bracketsTotal` vào aggregate list `getTournaments`. Nút Zalo gọn 1 dòng + cùng style pill (mobile `ZaloBtn`).
+> 9. **⭐ Tự động tính giờ bắt đầu trận** — `backend/services/matchAutoSchedule.service.js`:
+>    - mode `plan` (từ `firstMatchStartAt` nhập tay || `startDate`@7h) + mode `live` (tính lại từ bây giờ theo **thời lượng TB thực tế** trận đã xong).
+>    - Thời lượng = phút/set (11→10',15→15',21→20') × số set thắng (bestOf) + 5' nghỉ; xếp vào N sân "sân rảnh sớm nhất nhận trận kế"; tôn trọng phụ thuộc `previousA/B`.
+>    - Endpoint `POST /api/tournaments/:id/auto-schedule` body `{ courts?, mode?, startAt? }` (owner/admin/manager). **Auto-hook** sau `drawCommit`.
+>    - Model: `tournament.firstMatchStartAt`, `match.autoCourtNo` (số sân 1..N gán khi xếp).
+>    - Nút "Tự động xếp giờ" (dialog nhập giờ) + "Tính lại theo tiến độ" ở **Lịch đấu** + **Quản lý giải** (web), + Lịch đấu (mobile HH:mm).
+> 10. **⭐ Màn hình hàng đợi sân** — `/tournament/:id/queue` (web full-screen tối, cho TV) + mobile `queue.tsx`. Gom trận theo `autoCourtNo`: mỗi sân hiện trận LIVE + trận kế tiếp + giờ. Link ở Lịch đấu/Quản lý giải.
+> 11. **⭐ Thêm/Chuyển cặp vòng bảng (sau bốc thăm)** — `drawController`: `POST /brackets/:bracketId/groups/:groupId/add-pair` (thêm cặp + sinh trận vòng tròn cả bảng) & `POST /brackets/:bracketId/move-pair` (xoá trận bảng cũ + tạo bảng mới), autoGrow `expectedSize`, chặn nếu đã đá. Web `GroupPairsManagerDialog.jsx` (nút "Thêm / Chuyển cặp" ở `BracketsPanel`) + mobile `group-pairs.tsx` (link ở Lịch đấu).
+> 12. **⭐ Sửa Ban tổ chức (chức vụ + ẩn/hiện từng người)** — `TournamentManager.title/hidden` + `Tournament.creatorTitle/creatorHidden`; `PATCH /api/tournaments/:id/organizers/:userId` (creator hoặc co-manager); `getTournamentById` trả `title/hidden`. Web `TournamentManagersDialog.jsx` (dialog "Quản lý BTC" trên trang manage) + mobile `organizers.tsx` (link ở Lịch đấu). Display lọc `hidden` + dùng `title` (web+mobile register).
+>
+> ### Bug đã fix phiên này
+> - **Crash trang Đăng ký (mobile)** — thiếu `import Pressable` trong `register.tsx`. Hotfix + OTA.
+> - **Giờ nhập 9h nhưng ra 7h** — mutation `autoScheduleTournament` (RTK, web+mobile) gửi thiếu `mode` + `startAt`. Đã sửa gửi đủ.
+> - **Hàng đợi sân trống** — nhánh `view=schedule` của `listTournamentMatchesScheduleView` dùng `.select([...])` tường minh, **thiếu `autoCourtNo`** → đã thêm.
+>
+> ### ⚙️ Vận hành / lưu ý quan trọng (đọc kỹ trước khi làm session mới)
+> - **3 repo riêng** (cùng nằm trong `abcdk/` local trên iCloud): `abcdk-` = backend+frontend (git root `abcdk/`), `abcde` = `admin-pickletour`, `pickletour-app` = `pickletour-app-mobile`.
+> - **iCloud làm git treo** (`fatal: mmap failed`) trên cây local → **commit/push qua clone `/tmp`** (`git clone --depth 1 <url> /tmp/xxx`, copy/re-apply thay đổi, push). Cây iCloud hay **offload (dataless)/cũ hơn master** — luôn `git diff --numstat` để chắc chỉ thêm dòng, không revert. Xem memory `[[icloud-git-mmap-workaround]]`.
+> - **OTA (hot-updater, Cloudflare R2/D1) cần Node ≥ v22** (wrangler). Dùng nvm: `export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"`. Cần `.env.hotupdater` ở root mobile. Deploy **cả iOS + Android × target 1.1.14 và 1.1.13** (`npx --no-install hot-updater deploy -p ios|android -t 1.1.14|1.1.13 -c production -m "..."`). Clone mới cần `npm install --ignore-scripts --no-audit --no-fund` (node_modules gitignored, ~1.4G, ~15s). Xem memory `[[ota-deploy-node22]]`.
+> - **Backend/frontend deploy = CI khi push `abcdk-` master.** Nếu CI không tự chạy phải deploy tay. Các tính năng phiên này **cần backend mới**: auto-schedule (startAt/autoCourtNo/live), matchesTotal/bracketsTotal, BTC organizers, add/move cặp, broadcast.
+> - **API base**: `pickletour.vn/api`. Frontend gọi `/api/api/...` (double `/api`) nhưng proxy tự rewrite — không sao.
+> - **HEAD hiện tại**: `abcdk-` = `e1d088e`, `pickletour-app` = `8a27697`, `abcde` = `24a41de`.
+
+---
+
 # PickleTour — HANDOFF: Chợ Mua bán (Marketplace) — 2026-08-23
 
 > ✅ **ĐÃ SHIP ĐỦ 3 NỀN TẢNG.** Backend (VPS pm2 restart, `/api/market` live), Web (`build:deploy` → /var/www/pickletour.vn, route `/marketplace` = 200), Mobile OTA ios 1.1.13 + 1.1.14 (Deployment Successful).

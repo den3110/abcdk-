@@ -1,3 +1,5 @@
+> 🆕 **Session 2026-08-25:** xếp giờ tự động + hàng đợi sân + thêm/chuyển cặp vòng bảng + sửa Ban tổ chức (chức vụ/ẩn-hiện) + Zalo/broadcast/lọc đăng ký + nhiều fix. Đã push 3 repo + OTA (1.1.14/1.1.13). **Đọc `HANDOFF.md` §đầu.** ⚠️ Xác nhận CI deploy `abcdk-` (backend cần cho auto-schedule/queue/BTC/vòng bảng).
+
 > 🆕 **Chợ Mua bán (Marketplace) — 2026-08-23:** đã ship BE+Web+Mobile OTA (1.1.13+1.1.14). KYC-gated đăng tin; mua/bán/trao đổi/cho tặng; trả giá (offer); lưu tin; đổi trạng thái; lọc/tìm kiếm. Xem `HANDOFF.md` mục đầu. ⚠️ Local project đang bị iCloud di trú sang `~/Desktop/Desktop - MacBook Pro (2)/Projects/Pickletour/...` — repo mobile thật (có token OTA) nằm ở đó.
 
 > ✅ **CẬP NHẬT 2026-08-23 (cuối phiên):** OTA ĐÃ PUSH THÀNH CÔNG cho `ios 1.1.13` + `1.1.14` (channel production) với bản fix `d9abd34` (nút Chia sẻ kết quả dùng TouchableOpacity — hết crash). Chạy qua osascript vì Bash bị TCC chặn. **Session mới KHÔNG cần OTA lại** phần này; working tree mobile local đã `git reset --hard origin/master` về d9abd34.
