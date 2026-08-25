@@ -4013,11 +4013,17 @@ export default function TournamentRegistration() {
                   direction="row"
                   alignItems="center"
                   spacing={1.5}
+                  onClick={() => pl.user && handleOpenProfile(pl)}
                   sx={{
                     px: 2,
                     py: 1.25,
                     borderBottom: "1px solid",
                     borderColor: "divider",
+                    cursor: pl.user ? "pointer" : "default",
+                    transition: "background-color .15s ease",
+                    "&:hover": pl.user
+                      ? { bgcolor: "action.hover" }
+                      : undefined,
                   }}
                 >
                   <Box
