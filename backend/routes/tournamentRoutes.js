@@ -31,6 +31,7 @@ import {
   addManager,
   listManagers,
   removeManager,
+  updateOrganizer,
   verifyTournamentManager,
   verifyTournamentReferee,
 } from "../controllers/tournamentManagerController.js";
@@ -104,6 +105,8 @@ router.get("/matches/:id", getMatchPublic);
 router.get("/:id/managers", protect, listManagers);
 router.post("/:id/managers", protect, addManager);
 router.delete("/:id/managers/:userId", protect, removeManager);
+// Sửa chức vụ / ẩn-hiện 1 thành viên BTC (creator hoặc đồng quản lý)
+router.patch("/:id/organizers/:userId", protect, updateOrganizer);
 
 // Pool trọng tài của giải — dùng khi cấu hình CourtStation.defaultReferees
 router.get("/:tid/referees", optionalAuth, listReferees);

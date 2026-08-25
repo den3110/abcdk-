@@ -251,6 +251,9 @@ const tournamentSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    // Override hiển thị BTC cho NGƯỜI TẠO GIẢI (creator).
+    creatorTitle: { type: String, default: "" }, // trống = "Người tạo giải"
+    creatorHidden: { type: Boolean, default: false },
     contactHtml: { type: String, default: "" },
     contentHtml: { type: String, default: "" },
     // Link nhóm Zalo của giải đấu (admin đặt khi tạo/sửa) — user bấm để tham gia

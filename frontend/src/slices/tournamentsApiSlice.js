@@ -305,6 +305,22 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    // Sửa chức vụ / ẩn-hiện 1 thành viên BTC (creator hoặc đồng quản lý).
+    updateOrganizer: builder.mutation({
+      query: ({ tournamentId, userId, title, hidden }) => ({
+        url: `/api/tournaments/${tournamentId}/organizers/${userId}`,
+        method: "PATCH",
+        body: {
+          ...(title !== undefined ? { title } : {}),
+          ...(hidden !== undefined ? { hidden } : {}),
+        },
+      }),
+      invalidatesTags: (_r, _e, { tournamentId }) => [
+        { type: "TournamentManagers", id: tournamentId },
+        { type: "Tournaments", id: tournamentId },
+      ],
+    }),
+
     getMatchPublic: builder.query({
       query: (matchId) => `/api/tournaments/matches/${matchId}`,
       keepUnusedDataFor: 30,
@@ -1082,6 +1098,7 @@ export const {
   useListTournamentManagersQuery,
   useAddTournamentManagerMutation,
   useRemoveTournamentManagerMutation,
+  useUpdateOrganizerMutation,
   useGetMatchPublicQuery,
   useCancelRegistrationMutation,
   useCreateRegInviteMutation,

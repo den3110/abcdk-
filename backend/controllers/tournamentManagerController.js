@@ -24,6 +24,66 @@ async function canManageManagers(reqUser, tournamentId) {
   return String(tournament.createdBy || "") === String(reqUser._id || "");
 }
 
+/** PATCH /api/tournaments/:id/organizers/:userId  body: { title?, hidden? }
+ *  Sửa chức vụ / ẩn-hiện 1 thành viên BTC (creator hoặc đồng quản lý). */
+export const updateOrganizer = asyncHandler(async (req, res) => {
+  const { id, userId } = req.params;
+  if (!mongoose.isValidObjectId(id) || !mongoose.isValidObjectId(userId)) {
+    res.status(400);
+    throw new Error("Tham số không hợp lệ.");
+  }
+  const allowed = await canManageManagers(req.user, id);
+  if (!allowed) {
+    res.status(403);
+    throw new Error("Bạn không có quyền chỉnh sửa Ban tổ chức.");
+  }
+  const tour = await Tournament.findById(id).select(
+    "createdBy creatorTitle creatorHidden"
+  );
+  if (!tour) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+
+  const patch = {};
+  if (typeof req.body?.title === "string")
+    patch.title = String(req.body.title).slice(0, 60);
+  if (typeof req.body?.hidden === "boolean") patch.hidden = req.body.hidden;
+  if (!("title" in patch) && !("hidden" in patch)) {
+    res.status(400);
+    throw new Error("Không có gì để cập nhật.");
+  }
+
+  if (String(tour.createdBy) === String(userId)) {
+    if ("title" in patch) tour.creatorTitle = patch.title;
+    if ("hidden" in patch) tour.creatorHidden = patch.hidden;
+    await tour.save();
+    return res.json({
+      ok: true,
+      userId,
+      title: tour.creatorTitle,
+      hidden: tour.creatorHidden,
+      isCreator: true,
+    });
+  }
+
+  const tm = await TournamentManager.findOne({ tournament: id, user: userId });
+  if (!tm) {
+    res.status(404);
+    throw new Error("Không tìm thấy thành viên Ban tổ chức.");
+  }
+  if ("title" in patch) tm.title = patch.title;
+  if ("hidden" in patch) tm.hidden = patch.hidden;
+  await tm.save();
+  return res.json({
+    ok: true,
+    userId,
+    title: tm.title,
+    hidden: tm.hidden,
+    isCreator: false,
+  });
+});
+
 /** GET /api/tournaments/:id/managers */
 export async function listManagers(req, res) {
   const { id } = req.params;

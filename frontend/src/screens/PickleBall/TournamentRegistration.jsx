@@ -2424,7 +2424,8 @@ export default function TournamentRegistration() {
   // để hiển thị "Người tạo · Đồng quản lý" nếu 1 user giữ cả 2 vai.
   const organizers = useMemo(() => {
     const map = new Map();
-    const push = (u, label) => {
+    const push = (u, label, hidden) => {
+      if (hidden) return; // ẩn khỏi danh sách BTC công khai
       if (!u || typeof u !== "object" || !u._id) return;
       const uid = String(u._id);
       if (!map.has(uid)) {
@@ -2439,12 +2440,21 @@ export default function TournamentRegistration() {
       const entry = map.get(uid);
       if (!entry.labels.includes(label)) entry.labels.push(label);
     };
-    push(tour?.createdBy, "Người tạo giải");
+    push(
+      tour?.createdBy,
+      tour?.creatorTitle || "Người tạo giải",
+      tour?.creatorHidden,
+    );
     (Array.isArray(tour?.managers) ? tour.managers : []).forEach((m) =>
-      push(m?.user, "Đồng quản lý"),
+      push(m?.user, m?.title || "Đồng quản lý", m?.hidden),
     );
     return Array.from(map.values());
-  }, [tour?.createdBy, tour?.managers]);
+  }, [
+    tour?.createdBy,
+    tour?.managers,
+    tour?.creatorTitle,
+    tour?.creatorHidden,
+  ]);
 
   const handleCloseProfile = useCallback(() => {
     setProfileDlg({ open: false, userId: null });

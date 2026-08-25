@@ -24,6 +24,8 @@ import {
 import {
   Add as AddIcon,
   DeleteOutline as DeleteOutlineIcon,
+  Visibility as VisibilityIcon,
+  VisibilityOff as VisibilityOffIcon,
   Group as GroupIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
@@ -31,6 +33,8 @@ import {
   useAddTournamentManagerMutation,
   useListTournamentManagersQuery,
   useRemoveTournamentManagerMutation,
+  useUpdateOrganizerMutation,
+  useGetTournamentQuery,
 } from "../slices/tournamentsApiSlice";
 import { useLazySearchUserQuery } from "../slices/usersApiSlice";
 import { useLanguage } from "../context/LanguageContext";
@@ -49,6 +53,87 @@ const avatarLetter = (user) => {
   const label = personName(user).trim();
   return (label[0] || "U").toUpperCase();
 };
+
+// 1 dòng BTC: avatar + tên + ô nhập chức vụ + nút ẩn/hiện (+ xoá nếu là co-manager).
+function OrganizerRow({
+  user,
+  roleLabel,
+  title,
+  hidden,
+  isCreator,
+  saving,
+  onSaveTitle,
+  onToggleHidden,
+  onRemove,
+}) {
+  const [val, setVal] = useState(title || "");
+  useEffect(() => setVal(title || ""), [title]);
+  return (
+    <Stack
+      direction="row"
+      alignItems="center"
+      spacing={1}
+      sx={{
+        px: 1.25,
+        py: 1,
+        borderRadius: 1.5,
+        border: "1px solid",
+        borderColor: "divider",
+        opacity: hidden ? 0.55 : 1,
+      }}
+    >
+      <Avatar src={user?.avatar || ""} sx={{ width: 36, height: 36 }}>
+        {avatarLetter(user)}
+      </Avatar>
+      <Box sx={{ width: { xs: 84, sm: 110 }, flexShrink: 0, minWidth: 0 }}>
+        <Typography variant="body2" fontWeight={600} noWrap>
+          {personName(user)}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" noWrap>
+          {isCreator ? "Người tạo" : "Đồng quản lý"}
+        </Typography>
+      </Box>
+      <TextField
+        size="small"
+        placeholder={roleLabel}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={() => {
+          if ((title || "") !== val) onSaveTitle(val);
+        }}
+        sx={{ flex: 1, minWidth: 90 }}
+        inputProps={{ maxLength: 60 }}
+      />
+      <Tooltip
+        title={hidden ? "Đang ẩn — bấm để hiện" : "Đang hiện — bấm để ẩn"}
+        arrow
+      >
+        <IconButton
+          size="small"
+          onClick={() => onToggleHidden(!hidden)}
+          disabled={saving}
+          color={hidden ? "default" : "primary"}
+        >
+          {hidden ? (
+            <VisibilityOffIcon fontSize="small" />
+          ) : (
+            <VisibilityIcon fontSize="small" />
+          )}
+        </IconButton>
+      </Tooltip>
+      {!isCreator && onRemove && (
+        <IconButton
+          size="small"
+          color="error"
+          onClick={onRemove}
+          disabled={saving}
+        >
+          <DeleteOutlineIcon fontSize="small" />
+        </IconButton>
+      )}
+    </Stack>
+  );
+}
 
 export default function TournamentManagersDialog({
   open,
@@ -78,6 +163,21 @@ export default function TournamentManagersDialog({
     useAddTournamentManagerMutation();
   const [removeManager, { isLoading: removingManager }] =
     useRemoveTournamentManagerMutation();
+  const [updateOrganizer, { isLoading: savingOrganizer }] =
+    useUpdateOrganizerMutation();
+  const { data: tourData } = useGetTournamentQuery(tournamentId, {
+    skip: !open || !tournamentId,
+  });
+  const creatorUser = tourData?.createdBy;
+
+  const saveOrganizer = async (userId, patch) => {
+    try {
+      await updateOrganizer({ tournamentId, userId, ...patch }).unwrap();
+      onChanged?.();
+    } catch (e) {
+      toast.error(e?.data?.message || "Cập nhật BTC thất bại.");
+    }
+  };
 
   const saving = addingManager || removingManager;
 
@@ -373,65 +473,38 @@ export default function TournamentManagersDialog({
                 spacing={1}
                 sx={{ listStyle: "none", p: 0, m: 0 }}
               >
+                {creatorUser && (
+                  <OrganizerRow
+                    user={creatorUser}
+                    roleLabel="Người tạo giải"
+                    title={tourData?.creatorTitle || ""}
+                    hidden={!!tourData?.creatorHidden}
+                    isCreator
+                    saving={savingOrganizer}
+                    onSaveTitle={(v) =>
+                      saveOrganizer(sid(creatorUser), { title: v })
+                    }
+                    onToggleHidden={(h) =>
+                      saveOrganizer(sid(creatorUser), { hidden: h })
+                    }
+                  />
+                )}
                 {managerRows.map((row) => (
-                  <Stack
+                  <OrganizerRow
                     key={row?._id || sid(row?.user)}
-                    direction="row"
-                    alignItems="center"
-                    justifyContent="space-between"
-                    spacing={1.5}
-                    sx={{
-                      px: 1.25,
-                      py: 1,
-                      borderRadius: 1.5,
-                      border: "1px solid",
-                      borderColor: "divider",
-                    }}
-                  >
-                    <Stack
-                      direction="row"
-                      spacing={1.25}
-                      alignItems="center"
-                      sx={{ minWidth: 0 }}
-                    >
-                      <Avatar src={row?.user?.avatar || ""}>
-                        {avatarLetter(row?.user)}
-                      </Avatar>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography variant="body2" fontWeight={600} noWrap>
-                          {personName(row?.user)}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          noWrap
-                        >
-                          {personContact(row?.user)}
-                        </Typography>
-                      </Box>
-                    </Stack>
-
-                    <Tooltip
-                      title={t(
-                        "tournaments.manage.managerRemove",
-                        undefined,
-                        "Remove",
-                      )}
-                      arrow
-                    >
-                      <span>
-                        <IconButton
-                          edge="end"
-                          size="small"
-                          color="error"
-                          onClick={() => requestRemoveManager(row)}
-                          disabled={saving}
-                        >
-                          <DeleteOutlineIcon />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
-                  </Stack>
+                    user={row?.user}
+                    roleLabel="Đồng quản lý"
+                    title={row?.title || ""}
+                    hidden={!!row?.hidden}
+                    saving={savingOrganizer || saving}
+                    onSaveTitle={(v) =>
+                      saveOrganizer(sid(row?.user), { title: v })
+                    }
+                    onToggleHidden={(h) =>
+                      saveOrganizer(sid(row?.user), { hidden: h })
+                    }
+                    onRemove={() => requestRemoveManager(row)}
+                  />
                 ))}
               </Stack>
             )}

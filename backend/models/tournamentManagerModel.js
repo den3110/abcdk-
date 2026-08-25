@@ -16,6 +16,10 @@ const tournamentManagerSchema = new mongoose.Schema(
       index: true,
     },
     role: { type: String, enum: ["manager"], default: "manager" },
+    // Chức vụ tuỳ chỉnh hiển thị (BTC sửa được). Trống = mặc định "Đồng quản lý".
+    title: { type: String, default: "" },
+    // Ẩn khỏi danh sách BTC công khai (BTC vẫn thấy để bật/tắt).
+    hidden: { type: Boolean, default: false },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true, strict: true }

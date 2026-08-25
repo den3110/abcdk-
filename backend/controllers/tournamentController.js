@@ -3113,7 +3113,7 @@ const getTournamentById = asyncHandler(async (req, res) => {
     paidCount,
   ] = await Promise.all([
     TournamentManager.find({ tournament: id })
-      .select("user role")
+      .select("user role title hidden")
       .populate("user", "name nickname avatar phone")
       .lean(),
     Registration.countDocuments(approvedFilter),
@@ -3128,7 +3128,12 @@ const getTournamentById = asyncHandler(async (req, res) => {
     }),
   ]);
 
-  const managers = managerRows.map((r) => ({ user: r.user, role: r.role }));
+  const managers = managerRows.map((r) => ({
+    user: r.user,
+    role: r.role,
+    title: r.title || "",
+    hidden: !!r.hidden,
+  }));
   const now = new Date();
   const startInstant = tour.startAt || tour.startDate;
   const endInstant = tour.endAt || tour.endDate;
