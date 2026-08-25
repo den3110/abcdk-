@@ -567,6 +567,26 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: (r, e, arg) => [{ type: "Matches", id: arg.bracketId }],
     }),
 
+    // Thêm 1 cặp vào bảng + tự sinh trận vòng tròn với cả bảng.
+    addPairToGroup: builder.mutation({
+      query: ({ bracketId, groupId, regId }) => ({
+        url: `/api/draw/brackets/${bracketId}/groups/${groupId}/add-pair`,
+        method: "POST",
+        body: { regId },
+      }),
+      invalidatesTags: (r, e, arg) => [{ type: "Matches", id: arg.bracketId }],
+    }),
+
+    // Chuyển 1 cặp sang bảng khác (xoá trận bảng cũ + tạo trận bảng mới).
+    movePairBetweenGroups: builder.mutation({
+      query: ({ bracketId, regId, toGroupId }) => ({
+        url: `/api/draw/brackets/${bracketId}/move-pair`,
+        method: "POST",
+        body: { regId, toGroupId },
+      }),
+      invalidatesTags: (r, e, arg) => [{ type: "Matches", id: arg.bracketId }],
+    }),
+
     insertRegistrationIntoGroup: builder.mutation({
       query: ({
         bracketId,
@@ -1089,6 +1109,8 @@ export const {
   useStopTournamentDrawMutation,
   useGetBracketQuery,
   useGenerateGroupMatchesMutation,
+  useAddPairToGroupMutation,
+  useMovePairBetweenGroupsMutation,
   useInsertRegistrationIntoGroupMutation,
   useGenerateGroupMatchesForRegistrationMutation,
   useManagerReplaceRegPlayerMutation,

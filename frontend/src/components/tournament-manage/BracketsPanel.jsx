@@ -52,6 +52,7 @@ import {
   AutoAwesome as AIIcon,
 } from "@mui/icons-material";
 import BlueprintDialog from "./BlueprintDialog";
+import GroupPairsManagerDialog from "./GroupPairsManagerDialog";
 import { toast } from "react-toastify";
 import { Link as RouterLink } from "react-router-dom";
 
@@ -675,6 +676,8 @@ export default function BracketsPanel({ tourId }) {
   const [poolOpen, setPoolOpen] = useState(false);
   const [poolBracket, setPoolBracket] = useState(null);
   const [blueprintOpen, setBlueprintOpen] = useState(false);
+  const [pairsMgrOpen, setPairsMgrOpen] = useState(false);
+  const [pairsMgrBracket, setPairsMgrBracket] = useState(null);
 
   const [deleteBracket, { isLoading: deleting }] = useDeleteBracketMutation();
   const [rebuildKO, { isLoading: rebuilding }] =
@@ -903,6 +906,19 @@ export default function BracketsPanel({ tourId }) {
                         Chia bảng thủ công
                       </Button>
                     )}
+                    {(b.type === "group" || b.type === "round_robin") && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="secondary"
+                        onClick={() => {
+                          setPairsMgrBracket(b);
+                          setPairsMgrOpen(true);
+                        }}
+                      >
+                        Thêm / Chuyển cặp
+                      </Button>
+                    )}
                     {(b.type === "knockout" || b.type === "double_elim") && (
                       <Button
                         size="small"
@@ -952,6 +968,15 @@ export default function BracketsPanel({ tourId }) {
           refetch();
         }}
         tourId={tourId}
+      />
+      <GroupPairsManagerDialog
+        open={pairsMgrOpen}
+        onClose={() => {
+          setPairsMgrOpen(false);
+          refetch();
+        }}
+        tourId={tourId}
+        bracket={pairsMgrBracket}
       />
     </Paper>
   );

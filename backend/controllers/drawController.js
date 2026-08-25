@@ -2339,6 +2339,221 @@ export async function buildStandingsForBracket(bracketId) {
   return out;
 }
 
+// Tạo 1 trận vòng bảng cho 1 pool.
+async function createGroupMatch({ br, group, order, pairA, pairB, defaultRules }) {
+  return Match.create({
+    tournament: br.tournament,
+    bracket: br._id,
+    format: "group",
+    pool: { id: group._id, name: group.name },
+    rrRound: null,
+    round: 1,
+    order,
+    pairA,
+    pairB,
+    rules: { ...defaultRules },
+    gameScores: [],
+    status: "scheduled",
+  });
+}
+
+async function nextPoolOrder(bracketId, poolId) {
+  const last = await Match.findOne({ bracket: bracketId, "pool.id": poolId })
+    .sort({ order: -1 })
+    .select("order")
+    .lean();
+  return (Number(last?.order) >= 0 ? Number(last.order) : -1) + 1;
+}
+
+// POST /brackets/:bracketId/groups/:groupId/add-pair  body: { regId }
+// Thêm 1 cặp (đã đăng ký) vào 1 bảng + tự sinh trận vòng tròn với cả bảng.
+export const addPairToGroup = expressAsyncHandler(async (req, res) => {
+  const { bracketId, groupId } = req.params;
+  const regId = String(req.body?.regId || "");
+  if (
+    !mongoose.isValidObjectId(bracketId) ||
+    !mongoose.isValidObjectId(regId)
+  ) {
+    res.status(400);
+    throw new Error("Tham số không hợp lệ.");
+  }
+  const br = await Bracket.findById(bracketId);
+  if (!br) {
+    res.status(404);
+    throw new Error("Bracket not found");
+  }
+  if (!["group", "round_robin", "gsl"].includes(br.type)) {
+    res.status(400);
+    throw new Error("Bracket không phải vòng bảng.");
+  }
+  const group = (br.groups || []).find(
+    (g) => String(g._id) === String(groupId)
+  );
+  if (!group) {
+    res.status(404);
+    throw new Error("Không tìm thấy bảng.");
+  }
+  const reg = await Registration.findOne({
+    _id: regId,
+    tournament: br.tournament,
+  })
+    .select("_id")
+    .lean();
+  if (!reg) {
+    res.status(400);
+    throw new Error("Cặp đăng ký không thuộc giải này.");
+  }
+  const already = (br.groups || []).some((g) =>
+    (g.regIds || []).some((id) => String(id) === regId)
+  );
+  if (already) {
+    res.status(400);
+    throw new Error("Cặp đã ở trong một bảng.");
+  }
+
+  const existingIds = (group.regIds || []).map(String);
+  group.regIds.push(regId);
+  // Nới expectedSize nếu vượt (giống insert-slot autoGrow).
+  if (Number(group.expectedSize) > 0 && group.regIds.length > group.expectedSize) {
+    group.expectedSize = group.regIds.length;
+  }
+  await br.save();
+
+  const defaultRules = br?.config?.rules || {
+    bestOf: 1,
+    pointsToWin: 11,
+    winByTwo: true,
+  };
+  let order = await nextPoolOrder(br._id, group._id);
+  const createdIds = [];
+  for (const oppId of existingIds) {
+    const doc = await createGroupMatch({
+      br,
+      group,
+      order: order++,
+      pairA: regId,
+      pairB: oppId,
+      defaultRules,
+    });
+    createdIds.push(String(doc._id));
+  }
+
+  const io = req.app.get("io");
+  emitTournamentInvalidate(io, {
+    tournamentId: br.tournament,
+    bracketId: br._id,
+    reason: "group_pair_added",
+  });
+  res.json({ ok: true, created: createdIds.length, matchIds: createdIds });
+  setImmediate(() =>
+    sendGroupSlotAssignedNotifications(br).catch(() => {})
+  );
+});
+
+// POST /brackets/:bracketId/move-pair  body: { regId, toGroupId }
+// Chuyển 1 cặp sang bảng khác: xoá trận (chưa đá) ở bảng cũ + tạo trận ở bảng mới.
+export const movePairBetweenGroups = expressAsyncHandler(async (req, res) => {
+  const { bracketId } = req.params;
+  const regId = String(req.body?.regId || "");
+  const toGroupId = String(req.body?.toGroupId || "");
+  if (
+    !mongoose.isValidObjectId(bracketId) ||
+    !mongoose.isValidObjectId(regId) ||
+    !mongoose.isValidObjectId(toGroupId)
+  ) {
+    res.status(400);
+    throw new Error("Tham số không hợp lệ.");
+  }
+  const br = await Bracket.findById(bracketId);
+  if (!br) {
+    res.status(404);
+    throw new Error("Bracket not found");
+  }
+  const toGroup = (br.groups || []).find((g) => String(g._id) === toGroupId);
+  if (!toGroup) {
+    res.status(404);
+    throw new Error("Không tìm thấy bảng đích.");
+  }
+  const fromGroup = (br.groups || []).find((g) =>
+    (g.regIds || []).some((id) => String(id) === regId)
+  );
+  if (!fromGroup) {
+    res.status(400);
+    throw new Error("Cặp chưa ở trong bảng nào.");
+  }
+  if (String(fromGroup._id) === toGroupId) {
+    res.status(400);
+    throw new Error("Cặp đã ở bảng này.");
+  }
+
+  const played = await Match.exists({
+    bracket: br._id,
+    "pool.id": fromGroup._id,
+    status: { $in: ["live", "finished"] },
+    $or: [{ pairA: regId }, { pairB: regId }],
+  });
+  if (played) {
+    res.status(400);
+    throw new Error(
+      "Cặp đã có trận đang/đã đá ở bảng cũ — không thể chuyển."
+    );
+  }
+
+  await Match.deleteMany({
+    bracket: br._id,
+    "pool.id": fromGroup._id,
+    $or: [{ pairA: regId }, { pairB: regId }],
+  });
+
+  fromGroup.regIds = (fromGroup.regIds || []).filter(
+    (id) => String(id) !== regId
+  );
+  const targetExisting = (toGroup.regIds || [])
+    .map(String)
+    .filter((id) => id !== regId);
+  toGroup.regIds.push(regId);
+  if (Number(toGroup.expectedSize) > 0 && toGroup.regIds.length > toGroup.expectedSize) {
+    toGroup.expectedSize = toGroup.regIds.length;
+  }
+  await br.save();
+
+  const defaultRules = br?.config?.rules || {
+    bestOf: 1,
+    pointsToWin: 11,
+    winByTwo: true,
+  };
+  let order = await nextPoolOrder(br._id, toGroup._id);
+  const createdIds = [];
+  for (const oppId of targetExisting) {
+    const doc = await createGroupMatch({
+      br,
+      group: toGroup,
+      order: order++,
+      pairA: regId,
+      pairB: oppId,
+      defaultRules,
+    });
+    createdIds.push(String(doc._id));
+  }
+
+  const io = req.app.get("io");
+  emitTournamentInvalidate(io, {
+    tournamentId: br.tournament,
+    bracketId: br._id,
+    reason: "group_pair_moved",
+  });
+  res.json({
+    ok: true,
+    from: String(fromGroup._id),
+    to: toGroupId,
+    created: createdIds.length,
+    matchIds: createdIds,
+  });
+  setImmediate(() =>
+    sendGroupSlotAssignedNotifications(br).catch(() => {})
+  );
+});
+
 // Đẩy đội thắng sang trận kế tiếp nếu có cấu trúc nextMatch/nextSlot
 async function propagateWinnerToNextMatch(matchId) {
   const m = await Match.findById(matchId).lean();
