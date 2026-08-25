@@ -99,6 +99,7 @@ import {
   useSetRegistrationPosterTemplateUrlMutation,
   useUpdateOverlayMutation,
   useGetRegistrationsQuery,
+  useAutoScheduleTournamentMutation,
 } from "../../slices/tournamentsApiSlice";
 
 import {
@@ -1425,6 +1426,61 @@ export default function TournamentManagePage() {
     return !!tour?.isManager;
   }, [tour, me]);
   const canManage = isAdmin || isManager;
+
+  // Tự động xếp giờ thi đấu (plan/live).
+  const [autoSchedule, { isLoading: autoScheduling }] =
+    useAutoScheduleTournamentMutation();
+  const [schedDlgOpen, setSchedDlgOpen] = useState(false);
+  const [startAtInput, setStartAtInput] = useState("");
+  const runAutoSchedule = async ({ mode = "plan", startAt, courts } = {}) => {
+    try {
+      const res = await autoSchedule({
+        tourId: id,
+        mode,
+        startAt,
+        courts,
+      }).unwrap();
+      toast.success(
+        `Đã ${mode === "live" ? "tính lại theo tiến độ" : "xếp giờ"} ${res.updated} trận trên ${res.courtCount} sân.` +
+          (mode === "live" && res.avgUsedMin
+            ? ` (TB thực tế ~${res.avgUsedMin}p/${res.sampleCount} trận)`
+            : ""),
+      );
+      return true;
+    } catch (e) {
+      if (e?.data?.code === "NO_COURTS") {
+        const n = window.prompt(
+          "Giải chưa có sân. Nhập số sân để xếp giờ:",
+          "5",
+        );
+        const num = Number(n);
+        if (num > 0) return runAutoSchedule({ mode, startAt, courts: num });
+        return false;
+      }
+      toast.error(e?.data?.message || "Xếp giờ thất bại.");
+      return false;
+    }
+  };
+  const openScheduleDialog = () => {
+    const base = tour?.firstMatchStartAt
+      ? new Date(tour.firstMatchStartAt)
+      : (() => {
+          const d = tour?.startDate ? new Date(tour.startDate) : new Date();
+          d.setHours(7, 0, 0, 0);
+          return d;
+        })();
+    const pad = (n) => String(n).padStart(2, "0");
+    setStartAtInput(
+      `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}T${pad(base.getHours())}:${pad(base.getMinutes())}`,
+    );
+    setSchedDlgOpen(true);
+  };
+  const submitScheduleDialog = async () => {
+    const iso = startAtInput ? new Date(startAtInput).toISOString() : undefined;
+    const ok = await runAutoSchedule({ mode: "plan", startAt: iso });
+    if (ok) setSchedDlgOpen(false);
+  };
+
   const {
     data: registrations = [],
     isLoading: registrationsLoading,
@@ -4203,6 +4259,26 @@ export default function TournamentManagePage() {
               {t("tournaments.manage.manageCourts")}
             </Button>
 
+            {/* Tự động xếp giờ thi đấu */}
+            <Button
+              variant="outlined"
+              size="small"
+              color="primary"
+              disabled={autoScheduling}
+              onClick={openScheduleDialog}
+            >
+              {autoScheduling ? "Đang xếp giờ…" : "Tự động xếp giờ"}
+            </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              color="success"
+              disabled={autoScheduling}
+              onClick={() => runAutoSchedule({ mode: "live" })}
+            >
+              Tính lại theo tiến độ
+            </Button>
+
             {/* Thiết lập LIVE TOÀN GIẢI */}
             <Tooltip title={t("tournaments.manage.liveSetupAllHint")} arrow>
               <Button
@@ -5683,6 +5759,40 @@ export default function TournamentManagePage() {
         onClose={() => setBulkVideoDlg({ open: false, url: "" })}
         onSubmit={submitBatchSetVideo}
       />
+
+      {/* ===== Dialog nhập giờ bắt đầu để tự động xếp giờ ===== */}
+      <Dialog
+        open={schedDlgOpen}
+        onClose={() => setSchedDlgOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 800 }}>Tự động xếp giờ</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Nhập giờ bắt đầu trận đầu tiên. Hệ thống sẽ tính giờ cho toàn bộ các
+            trận dựa trên số sân và thời lượng từng trận.
+          </Typography>
+          <TextField
+            type="datetime-local"
+            label="Giờ bắt đầu trận đầu"
+            value={startAtInput}
+            onChange={(e) => setStartAtInput(e.target.value)}
+            fullWidth
+            InputLabelProps={{ shrink: true }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSchedDlgOpen(false)}>Huỷ</Button>
+          <Button
+            variant="contained"
+            disabled={autoScheduling || !startAtInput}
+            onClick={submitScheduleDialog}
+          >
+            {autoScheduling ? "Đang xếp…" : "Xếp giờ"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
