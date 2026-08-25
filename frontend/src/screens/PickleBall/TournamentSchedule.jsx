@@ -42,6 +42,7 @@ import {
   useListTournamentBracketsQuery,
   useVerifyManagerQuery,
   useVerifyRefereeQuery,
+  useAutoScheduleTournamentMutation,
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
@@ -1375,6 +1376,37 @@ export default function TournamentSchedule() {
   const canReferee = !!verifyRefereeRes?.isReferee;
   const canOpenRefereeCenter = isAdmin || canReferee;
   const canEdit = isAdmin || isManager;
+
+  const [autoSchedule, { isLoading: autoScheduling }] =
+    useAutoScheduleTournamentMutation();
+  const handleAutoSchedule = async (courtsOverride) => {
+    try {
+      const res = await autoSchedule({
+        tourId: id,
+        courts: courtsOverride,
+      }).unwrap();
+      refetchMatches?.();
+      window.alert(
+        `Đã tự động xếp giờ ${res.updated} trận trên ${res.courtCount} sân.\n` +
+          `Bắt đầu: ${new Date(res.baseStart).toLocaleString("vi-VN")}` +
+          (res.lastEnd
+            ? `\nDự kiến kết thúc: ${new Date(res.lastEnd).toLocaleString("vi-VN")}`
+            : ""),
+      );
+    } catch (e) {
+      if (e?.data?.code === "NO_COURTS") {
+        const n = window.prompt(
+          "Giải chưa có sân. Nhập số sân để xếp giờ:",
+          "5",
+        );
+        const num = Number(n);
+        if (num > 0) return handleAutoSchedule(num);
+        return;
+      }
+      window.alert(e?.data?.message || "Tự động xếp giờ thất bại.");
+    }
+  };
+
   const theme = useTheme();
   // Detect mobile để render skeleton
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
@@ -1797,6 +1829,17 @@ export default function TournamentSchedule() {
                   size="small"
                 >
                   {t("tournaments.schedule.manageTournament")}
+                </Button>
+              )}
+              {canEdit && (
+                <Button
+                  variant="outlined"
+                  color="primary"
+                  size="small"
+                  disabled={autoScheduling}
+                  onClick={() => handleAutoSchedule()}
+                >
+                  {autoScheduling ? "Đang xếp giờ…" : "Tự động xếp giờ"}
                 </Button>
               )}
               {canOpenRefereeCenter && (

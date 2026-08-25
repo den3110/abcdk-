@@ -10,6 +10,7 @@ import Match from "../models/matchModel.js";
 import User from "../models/userModel.js";
 import { planGroups } from "../utils/draw/groupPlanner.js";
 import { buildRoundRobin } from "../utils/draw/roundRobin.js";
+import { autoScheduleTournament } from "../services/matchAutoSchedule.service.js";
 import {
   selectNextCandidate,
   advanceCursor,
@@ -1653,6 +1654,14 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
     reason: "draw_committed",
   });
   await publishDrawLiveSnapshot(io, sess.tournament, req.user);
+
+  // Tự động tính giờ bắt đầu các trận ngay sau khi commit bốc thăm (best-effort;
+  // không chặn commit nếu giải chưa tạo sân hoặc có lỗi).
+  try {
+    await autoScheduleTournament(String(sess.tournament));
+  } catch (e) {
+    console.warn("[drawCommit] auto-schedule skipped:", e?.message || e);
+  }
 
   res.json({ ok: true, created, session: sess });
 });

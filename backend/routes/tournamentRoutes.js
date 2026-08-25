@@ -9,6 +9,7 @@ import {
   listTournamentBrackets,
   listTournamentMatches,
   searchTournaments,
+  autoScheduleTournamentMatches,
 } from "../controllers/tournamentController.js";
 import {
   createRegistration,
@@ -56,6 +57,12 @@ const router = express.Router();
 router.route("/").get(optionalAuth, getTournaments);
 router.patch("/:id([0-9a-fA-F]{24})/overlay", protect, updateTournamentOverlay);
 router.route("/:id([0-9a-fA-F]{24})").get(optionalAuth, getTournamentById); // 💡  chi tiết
+// Tự động tính giờ bắt đầu các trận (admin | owner | manager)
+router.post(
+  "/:id([0-9a-fA-F]{24})/auto-schedule",
+  protect,
+  autoScheduleTournamentMatches,
+);
 // sau này thêm POST / PUT / DELETE nếu cần
 router
   .route("/:id/registrations")

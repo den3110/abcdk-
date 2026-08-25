@@ -8,6 +8,7 @@ import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import User from "../models/userModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
+import { autoScheduleTournament } from "../services/matchAutoSchedule.service.js";
 import Registration from "../models/registrationModel.js";
 import DrawSession from "../models/drawSessionModel.js";
 import Court from "../models/courtModel.js";
@@ -3273,6 +3274,46 @@ function sanitizeKoMeta(raw) {
   }
   return ko;
 }
+
+// POST /api/tournaments/:id/auto-schedule
+// Tự động tính giờ bắt đầu cho toàn bộ trận của giải. Quyền: admin | owner | manager.
+// body: { courts?: number }  (ép số sân khi giải chưa tạo Court)
+export const autoScheduleTournamentMatches = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    res.status(400);
+    throw new Error("Invalid ID");
+  }
+  const tour = await Tournament.findById(id).select("_id createdBy").lean();
+  if (!tour) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+  const userId = String(req.user?._id || req.user?.id || "");
+  const allowed =
+    isAdminLikeUser(req.user) ||
+    (tour.createdBy && String(tour.createdBy) === userId) ||
+    (userId &&
+      (await TournamentManager.exists({ tournament: id, user: userId })));
+  if (!allowed) {
+    res.status(403);
+    throw new Error("Bạn không có quyền xếp lịch cho giải này");
+  }
+
+  const courts =
+    Number(req.body?.courts) > 0 ? Number(req.body.courts) : undefined;
+  try {
+    const result = await autoScheduleTournament(id, { courts });
+    return res.json({ ok: true, ...result });
+  } catch (e) {
+    if (e?.code === "NO_COURTS") {
+      return res
+        .status(400)
+        .json({ ok: false, code: "NO_COURTS", message: e.message });
+    }
+    throw e;
+  }
+});
 
 /* ========== Controller ========== */
 export const listTournamentBrackets = asyncHandler(async (req, res, next) => {
