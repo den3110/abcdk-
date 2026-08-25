@@ -73,10 +73,14 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
 
     // Tự động tính giờ bắt đầu các trận. body: { courts? }
     autoScheduleTournament: builder.mutation({
-      query: ({ tourId, courts }) => ({
+      query: ({ tourId, courts, mode, startAt }) => ({
         url: `/api/tournaments/${tourId}/auto-schedule`,
         method: "POST",
-        body: courts ? { courts } : {},
+        body: {
+          ...(courts ? { courts } : {}),
+          ...(mode ? { mode } : {}),
+          ...(startAt ? { startAt } : {}),
+        },
       }),
     }),
 
