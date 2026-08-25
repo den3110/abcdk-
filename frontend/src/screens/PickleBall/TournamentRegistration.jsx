@@ -1852,6 +1852,54 @@ export default function TournamentRegistration() {
   const cap = getScoreCap(tour, isSingles);
   const eachCap = Number(tour?.singleCap ?? 0);
   const delta = getMaxDelta(tour);
+
+  // Bộ lọc cho quản lý/admin: đôi vượt trình / chưa thanh toán / VĐV chưa chấm
+  // trình (=0) / VĐV chưa từng dự giải nào (scoreTotalTours=0). Semantics: AND.
+  const REG_FILTERS = useMemo(
+    () => [
+      { key: "over", label: "Vượt điểm trình" },
+      { key: "unpaid", label: "Chưa thanh toán" },
+      { key: "unrated", label: "VĐV chưa chấm trình" },
+      { key: "newbie", label: "VĐV chưa dự giải nào" },
+    ],
+    [],
+  );
+  const [regFilters, setRegFilters] = useState(() => new Set());
+  const toggleRegFilter = (key) =>
+    setRegFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const matchRegFilter = (r, key) => {
+    const EPS = 0.001;
+    const players = [r?.player1, r?.player2].filter(Boolean);
+    if (key === "over") {
+      const total = totalScoreOf(r, isSingles);
+      const overTotal = cap > 0 && total != null && total > cap + EPS;
+      const overSingle =
+        eachCap > 0 && players.some((p) => Number(p.score) > eachCap + EPS);
+      return overTotal || overSingle;
+    }
+    if (key === "unpaid") {
+      return String(r?.payment?.status || "").toLowerCase() !== "paid";
+    }
+    if (key === "unrated") {
+      return players.some((p) => Number(p.score) === 0);
+    }
+    if (key === "newbie") {
+      return players.some((p) => Number(p.scoreTotalTours || 0) === 0);
+    }
+    return true;
+  };
+  const filteredItems = useMemo(() => {
+    if (!canManage || regFilters.size === 0) return displayedItems;
+    return displayedItems.filter((r) =>
+      [...regFilters].every((key) => matchRegFilter(r, key)),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayedItems, regFilters, canManage, cap, eachCap, isSingles]);
   const paidCount = activeList.filter(
     (r) => r.payment?.status === "Paid",
   ).length;
@@ -3431,6 +3479,51 @@ export default function TournamentRegistration() {
                 />
               </Box>
 
+              {/* Bộ lọc cho quản lý/admin */}
+              {canManage && (
+                <Box
+                  sx={{
+                    px: 2,
+                    pb: 1.5,
+                    display: "flex",
+                    gap: 1,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    bgcolor: "background.paper",
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontWeight: 700 }}
+                  >
+                    Lọc:
+                  </Typography>
+                  {REG_FILTERS.map((f) => {
+                    const active = regFilters.has(f.key);
+                    return (
+                      <Chip
+                        key={f.key}
+                        label={f.label}
+                        size="small"
+                        color={active ? "primary" : "default"}
+                        variant={active ? "filled" : "outlined"}
+                        onClick={() => toggleRegFilter(f.key)}
+                        sx={{ fontWeight: 600 }}
+                      />
+                    );
+                  })}
+                  {regFilters.size > 0 && (
+                    <Chip
+                      label={`Khớp: ${filteredItems.length}`}
+                      size="small"
+                      variant="outlined"
+                      color="info"
+                    />
+                  )}
+                </Box>
+              )}
+
               {/* Content */}
               <Box sx={{ flex: 1, bgcolor: "background.default" }}>
                 {listInitialLoading ? (
@@ -3443,17 +3536,19 @@ export default function TournamentRegistration() {
                       ))}
                     </Grid>
                   </Box>
-                ) : activeList.length === 0 ? (
+                ) : filteredItems.length === 0 ? (
                   <Box p={4} textAlign="center" color="text.secondary">
                     <Groups sx={{ fontSize: 48, opacity: 0.3, mb: 1 }} />
                     <Typography>
-                      {t("tournaments.registration.list.empty")}
+                      {activeList.length === 0
+                        ? t("tournaments.registration.list.empty")
+                        : "Không có đôi nào khớp bộ lọc."}
                     </Typography>
                   </Box>
                 ) : (
                   <Box sx={{ p: 2 }}>
                     <Grid container spacing={2}>
-                      {displayedItems.map((r, i) => (
+                      {filteredItems.map((r, i) => (
                         <Grid key={r._id} size={{ xs: 12, md: 6 }}>
                           <RegCard
                             r={r}
