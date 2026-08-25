@@ -1,14 +1,15 @@
 // Tự động tính giờ bắt đầu (scheduledAt) cho toàn bộ trận của 1 giải.
 //
-// Ý tưởng: xếp trận lần lượt vào N sân theo kiểu "sân nào rảnh sớm nhất nhận
-// trận kế tiếp". Với N sân + các trận cùng thời lượng, N trận đầu khởi động
-// cùng lúc (7h), N trận sau nối tiếp… đúng như mong đợi của BTC. Tôn trọng
-// phụ thuộc vòng loại (previousA/previousB phải kết thúc trước).
+// Xếp trận lần lượt vào N sân theo kiểu "sân nào rảnh sớm nhất nhận trận kế".
+// Tôn trọng phụ thuộc vòng loại (previousA/previousB phải kết thúc trước).
 //
-// Thời lượng 1 trận = phút/set (theo pointsToWin) × số set cần thắng (bestOf)
-//   11 → 10', 15 → 15', 21 → 20'   (mặc định 15' nếu lạ)
-//   bestOf 1 → ×1, 3 → ×2, 5 → ×3
-// Giữa 2 trận cùng sân cộng thêm TURNOVER_BUFFER_MIN phút nghỉ/chuyển sân.
+// 2 chế độ:
+//  - "plan" (mặc định): tính từ giờ bắt đầu trận đầu (opts.startAt →
+//    tour.firstMatchStartAt → startDate lúc 7h). Dùng thời lượng ước lượng theo
+//    thể thức: 11→10', 15→15', 21→20' (× số set cần thắng theo bestOf) + 5' nghỉ.
+//  - "live": tính LẠI từ THỜI ĐIỂM HIỆN TẠI cho các trận chưa đá, dựa trên
+//    thời lượng TRUNG BÌNH THỰC TẾ đo được từ các trận đã kết thúc (linh hoạt
+//    theo tiến độ giải). Trận đang live được tính chiếm sân tới lúc dự kiến xong.
 import { DateTime } from "luxon";
 import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
@@ -18,7 +19,8 @@ import Tournament from "../models/tournamentModel.js";
 const PER_SET_MINUTES = { 11: 10, 15: 15, 21: 20 };
 const DEFAULT_SET_MINUTES = 15;
 const TURNOVER_BUFFER_MIN = 5; // nghỉ/chuyển sân giữa 2 trận cùng sân
-const START_HOUR = 7; // bắt đầu 7h sáng ngày khai mạc
+const START_HOUR = 7; // mặc định 7h nếu chưa cấu hình
+const MIN_SAMPLES = 3; // số trận tối thiểu để dùng trung bình thực tế
 
 function gamesToWin(bestOf) {
   const b = Number(bestOf) || 1;
@@ -27,20 +29,75 @@ function gamesToWin(bestOf) {
   return 1;
 }
 
-function matchPlayMinutes(m) {
+function staticPlayMinutes(m) {
   const pts = Number(m?.rules?.pointsToWin) || 11;
   const perSet = PER_SET_MINUTES[pts] || DEFAULT_SET_MINUTES;
   return perSet * gamesToWin(m?.rules?.bestOf);
 }
 
+// Đo thời lượng trung bình thực tế (phút) của các trận đã kết thúc.
+async function measureAvgDurations(tournamentId) {
+  const finished = await Match.find({
+    tournament: tournamentId,
+    status: "finished",
+    startedAt: { $ne: null },
+    finishedAt: { $ne: null },
+  })
+    .select("rules.pointsToWin startedAt finishedAt")
+    .lean();
+
+  const byPts = {};
+  let allSum = 0;
+  let allN = 0;
+  for (const m of finished) {
+    const dur =
+      (new Date(m.finishedAt).getTime() - new Date(m.startedAt).getTime()) /
+      60000;
+    if (!(dur > 0 && dur < 240)) continue; // loại nhiễu (âm / quá 4 tiếng)
+    const pts = Number(m?.rules?.pointsToWin) || 11;
+    byPts[pts] = byPts[pts] || { sum: 0, n: 0 };
+    byPts[pts].sum += dur;
+    byPts[pts].n += 1;
+    allSum += dur;
+    allN += 1;
+  }
+  const avgByPts = {};
+  const countByPts = {};
+  for (const k of Object.keys(byPts)) {
+    avgByPts[k] = byPts[k].sum / byPts[k].n;
+    countByPts[k] = byPts[k].n;
+  }
+  return {
+    avgByPts,
+    countByPts,
+    avgAll: allN > 0 ? allSum / allN : null,
+    sampleCount: allN,
+  };
+}
+
+// Thời lượng dự kiến (phút) của 1 trận, ưu tiên trung bình thực tế ở chế độ live.
+function playMinutes(m, mode, measured) {
+  if (mode === "live" && measured) {
+    const pts = Number(m?.rules?.pointsToWin) || 11;
+    if ((measured.countByPts[pts] || 0) >= MIN_SAMPLES && measured.avgByPts[pts]) {
+      return measured.avgByPts[pts];
+    }
+    if (measured.sampleCount >= MIN_SAMPLES && measured.avgAll) {
+      return measured.avgAll;
+    }
+  }
+  return staticPlayMinutes(m);
+}
+
 /**
  * @param {string} tournamentId
- * @param {{ courts?: number }} [opts] courts: ép số sân (khi giải chưa tạo Court)
- * @returns {Promise<{updated:number, courtCount:number, baseStart:Date, lastEnd:Date|null}>}
+ * @param {{ courts?: number, startAt?: string|Date, mode?: "plan"|"live", persistStartAt?: boolean }} [opts]
+ * @returns {Promise<{updated:number, courtCount:number, mode:string, baseStart:Date, lastEnd:Date|null, avgUsedMin:number|null, sampleCount:number}>}
  */
 export async function autoScheduleTournament(tournamentId, opts = {}) {
+  const { mode = "plan", persistStartAt = false } = opts;
   const tour = await Tournament.findById(tournamentId)
-    .select("startDate startAt timezone")
+    .select("startDate startAt timezone firstMatchStartAt")
     .lean();
   if (!tour) {
     const e = new Error("Tournament not found");
@@ -49,7 +106,6 @@ export async function autoScheduleTournament(tournamentId, opts = {}) {
   }
   const tz = tour.timezone || "Asia/Ho_Chi_Minh";
 
-  // Số sân: ưu tiên override, nếu không thì đếm Court active của giải.
   let courtCount =
     Number(opts.courts) > 0 ? Math.floor(Number(opts.courts)) : 0;
   if (!courtCount) {
@@ -65,6 +121,41 @@ export async function autoScheduleTournament(tournamentId, opts = {}) {
     throw e;
   }
 
+  // Giờ mốc.
+  let baseMs;
+  if (mode === "live") {
+    baseMs = DateTime.now()
+      .setZone(tz)
+      .set({ second: 0, millisecond: 0 })
+      .toMillis();
+  } else {
+    let base;
+    if (opts.startAt) {
+      base = DateTime.fromJSDate(new Date(opts.startAt)).setZone(tz);
+    } else if (tour.firstMatchStartAt) {
+      base = DateTime.fromJSDate(new Date(tour.firstMatchStartAt)).setZone(tz);
+    } else {
+      base = (
+        tour.startDate
+          ? DateTime.fromJSDate(new Date(tour.startDate))
+          : DateTime.now()
+      )
+        .setZone(tz)
+        .set({ hour: START_HOUR, minute: 0, second: 0, millisecond: 0 });
+    }
+    baseMs = base.toMillis();
+  }
+
+  // Lưu lại giờ trận đầu để lần auto (sau bốc thăm) dùng đúng giờ đã cấu hình.
+  if (persistStartAt && opts.startAt && mode !== "live") {
+    await Tournament.updateOne(
+      { _id: tournamentId },
+      { $set: { firstMatchStartAt: new Date(baseMs) } },
+    );
+  }
+
+  const measured = mode === "live" ? await measureAvgDurations(tournamentId) : null;
+
   const brackets = await Bracket.find({ tournament: tournamentId })
     .select("_id stage order")
     .lean();
@@ -78,16 +169,23 @@ export async function autoScheduleTournament(tournamentId, opts = {}) {
   // Chỉ xếp các trận chưa đá (không đụng trận đang live / đã xong).
   const matches = await Match.find({
     tournament: tournamentId,
-    status: { $nin: ["finished", "live"] },
+    status: { $in: ["scheduled", "queued", "assigned"] },
   })
     .select("_id bracket round rrRound order previousA previousB rules")
     .lean();
 
   if (!matches.length) {
-    return { updated: 0, courtCount, baseStart: null, lastEnd: null };
+    return {
+      updated: 0,
+      courtCount,
+      mode,
+      baseStart: new Date(baseMs),
+      lastEnd: null,
+      avgUsedMin: measured?.avgAll ? Math.round(measured.avgAll) : null,
+      sampleCount: measured?.sampleCount || 0,
+    };
   }
 
-  // Thứ tự thi đấu: vòng bảng (stage nhỏ) trước KO; trong bracket theo round, order.
   matches.sort((a, b) => {
     const ba = bOrder.get(String(a.bracket)) || { stage: 0, order: 0 };
     const bb = bOrder.get(String(b.bracket)) || { stage: 0, order: 0 };
@@ -100,24 +198,38 @@ export async function autoScheduleTournament(tournamentId, opts = {}) {
     );
   });
 
-  const baseDt = (
-    tour.startDate
-      ? DateTime.fromJSDate(new Date(tour.startDate))
-      : DateTime.now()
-  )
-    .setZone(tz)
-    .set({ hour: START_HOUR, minute: 0, second: 0, millisecond: 0 });
-  const baseMs = baseDt.toMillis();
-
   const courtFreeAt = new Array(courtCount).fill(baseMs);
   const endMsById = new Map();
+
+  // Chế độ live: trận đang live chiếm sân tới lúc dự kiến xong.
+  if (mode === "live") {
+    const liveMatches = await Match.find({
+      tournament: tournamentId,
+      status: "live",
+      startedAt: { $ne: null },
+    })
+      .select("_id rules startedAt")
+      .lean();
+    const liveEnds = [];
+    for (const lm of liveMatches) {
+      const durMs = playMinutes(lm, mode, measured) * 60000;
+      const est = new Date(lm.startedAt).getTime() + durMs;
+      const endMs = Math.max(est, baseMs);
+      endMsById.set(String(lm._id), endMs); // để trận phụ thuộc chờ đúng
+      liveEnds.push(endMs);
+    }
+    liveEnds.sort((a, b) => b - a);
+    for (let i = 0; i < Math.min(courtCount, liveEnds.length); i++) {
+      courtFreeAt[i] = liveEnds[i];
+    }
+  }
+
   const ops = [];
   let lastEnd = baseMs;
 
   for (const m of matches) {
-    const playMs = matchPlayMinutes(m) * 60000;
+    const playMs = playMinutes(m, mode, measured) * 60000;
 
-    // Trận phụ thuộc: chỉ bắt đầu khi cả 2 feeder kết thúc.
     let depReady = baseMs;
     for (const p of [m.previousA, m.previousB]) {
       if (p && endMsById.has(String(p))) {
@@ -125,7 +237,6 @@ export async function autoScheduleTournament(tournamentId, opts = {}) {
       }
     }
 
-    // Chọn sân rảnh sớm nhất.
     let ci = 0;
     for (let i = 1; i < courtCount; i++) {
       if (courtFreeAt[i] < courtFreeAt[ci]) ci = i;
@@ -150,8 +261,11 @@ export async function autoScheduleTournament(tournamentId, opts = {}) {
   return {
     updated: ops.length,
     courtCount,
+    mode,
     baseStart: new Date(baseMs),
     lastEnd: new Date(lastEnd),
+    avgUsedMin: measured?.avgAll ? Math.round(measured.avgAll) : null,
+    sampleCount: measured?.sampleCount || 0,
   };
 }
 

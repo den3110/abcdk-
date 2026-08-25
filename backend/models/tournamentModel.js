@@ -258,6 +258,8 @@ const tournamentSchema = new mongoose.Schema(
     timezone: { type: String, default: "Asia/Ho_Chi_Minh" },
 
     startAt: { type: Date, default: null },
+    // Giờ bắt đầu TRẬN ĐẦU do BTC cấu hình để hệ thống tự tính giờ các trận.
+    firstMatchStartAt: { type: Date, default: null },
     endAt: { type: Date, default: null },
 
     drawSettings: { type: DrawSettingsSchema, default: () => ({}) },

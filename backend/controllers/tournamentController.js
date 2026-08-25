@@ -3302,8 +3302,17 @@ export const autoScheduleTournamentMatches = asyncHandler(async (req, res) => {
 
   const courts =
     Number(req.body?.courts) > 0 ? Number(req.body.courts) : undefined;
+  const mode = req.body?.mode === "live" ? "live" : "plan";
+  const startAt = req.body?.startAt ? new Date(req.body.startAt) : undefined;
+  const validStartAt =
+    startAt && !Number.isNaN(startAt.getTime()) ? startAt : undefined;
   try {
-    const result = await autoScheduleTournament(id, { courts });
+    const result = await autoScheduleTournament(id, {
+      courts,
+      mode,
+      startAt: validStartAt,
+      persistStartAt: Boolean(validStartAt),
+    });
     return res.json({ ok: true, ...result });
   } catch (e) {
     if (e?.code === "NO_COURTS") {
