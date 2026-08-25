@@ -81,6 +81,7 @@ import DrawPage from "./screens/draw/DrawPage.jsx";
 import DrawLivePage from "./screens/draw/DrawLivePage.jsx";
 import NotFound from "./screens/NotFound.jsx";
 import TournamentSchedule from "./screens/PickleBall/TournamentSchedule.jsx";
+import TournamentCourtQueue from "./screens/PickleBall/TournamentCourtQueue.jsx";
 import TournamentManagePage from "./screens/PickleBall/TournamentManagePage.jsx";
 import OverlayStudioPage from "./screens/PickleBall/OverlayStudioPage.jsx";
 import TournamentOverviewPage from "./screens/TournamentDetailScreen.jsx";
@@ -183,6 +184,10 @@ const router = sentryCreateBrowserRouter(
         <Route
           path="/tournament/:id/schedule"
           element={<TournamentSchedule />}
+        />
+        <Route
+          path="/tournament/:id/queue"
+          element={<TournamentCourtQueue />}
         />
         <Route path="/pickle-ball/rankings" element={<RankingList />} />
         <Route path="/feed" element={<FeedPage />} />

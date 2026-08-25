@@ -1887,6 +1887,17 @@ export default function TournamentSchedule() {
                   Tính lại theo tiến độ
                 </Button>
               )}
+              <Button
+                component="a"
+                href={`/tournament/${id}/queue`}
+                target="_blank"
+                rel="noopener noreferrer"
+                variant="outlined"
+                color="inherit"
+                size="small"
+              >
+                Màn hình hàng đợi sân
+              </Button>
               {canOpenRefereeCenter && (
                 <Button
                   component={RouterLink}

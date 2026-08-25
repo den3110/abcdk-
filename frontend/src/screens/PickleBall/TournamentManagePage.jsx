@@ -4278,6 +4278,17 @@ export default function TournamentManagePage() {
             >
               Tính lại theo tiến độ
             </Button>
+            <Button
+              component="a"
+              href={`/tournament/${id}/queue`}
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="outlined"
+              size="small"
+              color="inherit"
+            >
+              Màn hình hàng đợi sân
+            </Button>
 
             {/* Thiết lập LIVE TOÀN GIẢI */}
             <Tooltip title={t("tournaments.manage.liveSetupAllHint")} arrow>

@@ -251,7 +251,7 @@ export async function autoScheduleTournament(tournamentId, opts = {}) {
     ops.push({
       updateOne: {
         filter: { _id: m._id },
-        update: { $set: { scheduledAt: new Date(start) } },
+        update: { $set: { scheduledAt: new Date(start), autoCourtNo: ci + 1 } },
       },
     });
   }

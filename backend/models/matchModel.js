@@ -220,6 +220,8 @@ const matchSchema = new Schema(
     nextSlot: { type: String, enum: ["A", "B", null], default: null },
 
     scheduledAt: { type: Date, default: null },
+    // Số sân do bộ tính giờ tự động gán (1..N) — dùng cho màn hình hàng đợi sân.
+    autoCourtNo: { type: Number, default: null, index: true },
     court: { type: Schema.Types.ObjectId, ref: "Court", default: null },
     courtLabel: { type: String, default: "" },
     courtCluster: { type: String, default: "Main", index: true }, // cụm sân
