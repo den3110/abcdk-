@@ -94,6 +94,7 @@ import {
   useDeletePollMutation,
   useListPostsQuery,
   useCreatePostMutation,
+  useUpdatePostMutation,
   useDeletePostMutation,
   useReactPostMutation,
   useListPostCommentsQuery,
@@ -1351,8 +1352,12 @@ function PostCard({ club, post, isMember, canManage, authUserId }) {
   const id = club._id;
   const [react] = useReactPostMutation();
   const [delPost] = useDeletePostMutation();
+  const [updatePost] = useUpdatePostMutation();
   const [showComments, setShowComments] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(post.content || "");
   const isAuthor = String(post.author?._id) === String(authUserId);
+  const canEdit = isAuthor || canManage;
   const canDelete = isAuthor || canManage;
 
   const doReact = async () => {
@@ -1372,22 +1377,53 @@ function PostCard({ club, post, isMember, canManage, authUserId }) {
       toast.error(getApiErrMsg(err));
     }
   };
+  const doPin = async () => {
+    try {
+      await updatePost({ id, postId: post._id, pinned: !post.pinned }).unwrap();
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+  const saveEdit = async () => {
+    try {
+      await updatePost({ id, postId: post._id, content: editText }).unwrap();
+      setEditing(false);
+      toast.success("Đã lưu.");
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
 
   return (
-    <Card style={{ padding: 16 }}>
+    <Card style={{ padding: 16, ...(post.pinned ? { borderColor: "rgba(240,194,75,.4)" } : null) }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <A href={`/user/${post.author?._id}`} style={{ flexShrink: 0 }}>
           <Avatar size="medium" src={post.author?.avatar || undefined} name={post.author?.fullName || "?"} />
         </A>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ color: C.head, fontWeight: 700, fontSize: 14.5 }}>
+          <div style={{ color: C.head, fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", gap: 6 }}>
             {post.author?.nickname || post.author?.fullName || "Người dùng"}
+            {post.pinned && (
+              <span style={{ ...chip, color: "#F0C24B", borderColor: "rgba(240,194,75,.3)", background: "rgba(240,194,75,.08)", fontSize: 10.5, padding: "1px 7px" }}>
+                <Pin size={10} /> Ghim
+              </span>
+            )}
           </div>
           <div style={{ color: C.muted, fontSize: 12 }}>
             {fmtDateTime(post.createdAt)}
             {post.visibility === "members" ? " · Chỉ thành viên" : ""}
           </div>
         </div>
+        {canManage && (
+          <Btn variant="ghost" size="sm" onClick={doPin} title={post.pinned ? "Bỏ ghim" : "Ghim"}>
+            {post.pinned ? <PinOff size={15} /> : <Pin size={15} />}
+          </Btn>
+        )}
+        {canEdit && !editing && (
+          <Btn variant="ghost" size="sm" onClick={() => { setEditText(post.content || ""); setEditing(true); }} title="Sửa">
+            <Pencil size={15} />
+          </Btn>
+        )}
         {canDelete && (
           <Btn variant="ghost" size="sm" onClick={doDelete} title="Xoá">
             <Trash2 size={15} />
@@ -1395,12 +1431,26 @@ function PostCard({ club, post, isMember, canManage, authUserId }) {
         )}
       </div>
 
-      {post.content && (
-        <div style={{ color: C.body, fontSize: 14.5, lineHeight: 1.6, marginTop: 10, whiteSpace: "pre-wrap" }}>
-          {post.content}
+      {editing ? (
+        <div style={{ marginTop: 10 }}>
+          <textarea
+            style={{ ...fieldStyle, minHeight: 70, resize: "vertical" }}
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <Btn variant="primary" size="sm" onClick={saveEdit}>Lưu</Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setEditing(false)}>Huỷ</Btn>
+          </div>
         </div>
+      ) : (
+        post.content && (
+          <div style={{ color: C.body, fontSize: 14.5, lineHeight: 1.6, marginTop: 10, whiteSpace: "pre-wrap" }}>
+            {post.content}
+          </div>
+        )
       )}
-      {post.imageUrl && (
+      {post.imageUrl && !editing && (
         <img src={post.imageUrl} alt="" style={{ maxWidth: "100%", borderRadius: 12, marginTop: 10, display: "block" }} />
       )}
 

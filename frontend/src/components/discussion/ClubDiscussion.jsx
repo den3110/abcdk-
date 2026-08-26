@@ -13,6 +13,7 @@ import {
   IconButton,
   Divider,
   Link,
+  Chip,
 } from "@mui/material";
 import { Link as RouterLink } from "react-router-dom";
 import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
@@ -23,12 +24,15 @@ import DeleteOutline from "@mui/icons-material/DeleteOutline";
 import ForumIcon from "@mui/icons-material/Forum";
 import ImageOutlined from "@mui/icons-material/ImageOutlined";
 import CloseIcon from "@mui/icons-material/Close";
+import PushPinIcon from "@mui/icons-material/PushPin";
+import EditOutlined from "@mui/icons-material/EditOutlined";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import dayjs from "dayjs";
 import {
   useListPostsQuery,
   useCreatePostMutation,
+  useUpdatePostMutation,
   useDeletePostMutation,
   useReactPostMutation,
   useListPostCommentsQuery,
@@ -148,9 +152,13 @@ function Comments({ clubId, postId, isMember, canManage, authUserId }) {
 function PostCard({ clubId, post, isMember, canManage, authUserId }) {
   const [react] = useReactPostMutation();
   const [delPost] = useDeletePostMutation();
+  const [updatePost] = useUpdatePostMutation();
   const [showComments, setShowComments] = useState(false);
-  const canDelete =
-    String(post.author?._id) === String(authUserId) || canManage;
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(post.content || "");
+  const isAuthor = String(post.author?._id) === String(authUserId);
+  const canEdit = isAuthor || canManage;
+  const canDelete = isAuthor || canManage;
 
   const doReact = async () => {
     try {
@@ -169,31 +177,111 @@ function PostCard({ clubId, post, isMember, canManage, authUserId }) {
       toast.error(getApiErrMsg(e));
     }
   };
+  const doPin = async () => {
+    try {
+      await updatePost({
+        id: clubId,
+        postId: post._id,
+        pinned: !post.pinned,
+      }).unwrap();
+    } catch (e) {
+      toast.error(getApiErrMsg(e));
+    }
+  };
+  const saveEdit = async () => {
+    try {
+      await updatePost({
+        id: clubId,
+        postId: post._id,
+        content: editText,
+      }).unwrap();
+      setEditing(false);
+      toast.success("Đã lưu");
+    } catch (e) {
+      toast.error(getApiErrMsg(e));
+    }
+  };
 
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3 }}>
+    <Card
+      variant="outlined"
+      sx={{
+        borderRadius: 3,
+        ...(post.pinned ? { borderColor: "warning.main" } : null),
+      }}
+    >
       <CardHeader
         avatar={<Avatar src={post.author?.avatar} />}
-        title={post.author?.nickname || post.author?.fullName || "Người dùng"}
+        title={
+          <Stack direction="row" spacing={1} alignItems="center">
+            <span>
+              {post.author?.nickname || post.author?.fullName || "Người dùng"}
+            </span>
+            {post.pinned && (
+              <Chip size="small" color="warning" label="Ghim" sx={{ height: 20 }} />
+            )}
+          </Stack>
+        }
         subheader={
           fmt(post.createdAt) +
           (post.visibility === "members" ? " · Chỉ thành viên" : "")
         }
         action={
-          canDelete ? (
-            <IconButton onClick={doDelete}>
-              <DeleteOutline />
-            </IconButton>
-          ) : null
+          <Stack direction="row">
+            {canManage && (
+              <IconButton onClick={doPin} title={post.pinned ? "Bỏ ghim" : "Ghim"}>
+                <PushPinIcon
+                  fontSize="small"
+                  color={post.pinned ? "warning" : "inherit"}
+                />
+              </IconButton>
+            )}
+            {canEdit && !editing && (
+              <IconButton
+                onClick={() => {
+                  setEditText(post.content || "");
+                  setEditing(true);
+                }}
+                title="Sửa"
+              >
+                <EditOutlined fontSize="small" />
+              </IconButton>
+            )}
+            {canDelete && (
+              <IconButton onClick={doDelete} title="Xoá">
+                <DeleteOutline fontSize="small" />
+              </IconButton>
+            )}
+          </Stack>
         }
       />
       <CardContent sx={{ pt: 0 }}>
-        {!!post.content && (
-          <Typography sx={{ whiteSpace: "pre-wrap", mb: 1 }}>
-            {post.content}
-          </Typography>
+        {editing ? (
+          <Box sx={{ mb: 1 }}>
+            <TextField
+              fullWidth
+              multiline
+              minRows={2}
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+            />
+            <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+              <Button variant="contained" size="small" onClick={saveEdit}>
+                Lưu
+              </Button>
+              <Button size="small" onClick={() => setEditing(false)}>
+                Huỷ
+              </Button>
+            </Stack>
+          </Box>
+        ) : (
+          !!post.content && (
+            <Typography sx={{ whiteSpace: "pre-wrap", mb: 1 }}>
+              {post.content}
+            </Typography>
+          )
         )}
-        {!!post.imageUrl && (
+        {!!post.imageUrl && !editing && (
           <Box
             component="img"
             src={post.imageUrl}
