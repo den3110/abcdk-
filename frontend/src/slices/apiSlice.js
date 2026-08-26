@@ -406,6 +406,7 @@ export const apiSlice = createApi({
     "ClubPhoto",
     "ClubFinance",
     "ClubDues",
+    "ClubSession",
     "AvatarOptimization",
     "LiveCluster",
     "LiveCourt",

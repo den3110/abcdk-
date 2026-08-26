@@ -64,6 +64,15 @@ import {
   unpayDues,
   getMyDues,
 } from "../controllers/duesController.js";
+import {
+  listSessions,
+  createSession,
+  updateSession,
+  deleteSession,
+  checkinSession,
+  listAttendance,
+  attendanceStats,
+} from "../controllers/sessionController.js";
 
 const router = express.Router();
 
@@ -274,6 +283,15 @@ router.get("/:id/dues/my", protect, loadClub, loadMembership, getMyDues);
 router.get("/:id/dues/period", protect, loadClub, loadMembership, requireAdmin, getPeriodStatus);
 router.post("/:id/dues/pay", protect, loadClub, loadMembership, requireAdmin, payDues);
 router.delete("/:id/dues/pay", protect, loadClub, loadMembership, requireAdmin, unpayDues);
+
+// ========== SESSIONS (buổi tập + điểm danh) ==========
+router.get("/:id/sessions/stats", passProtect, loadClub, loadMembership, attendanceStats);
+router.get("/:id/sessions", passProtect, loadClub, loadMembership, listSessions);
+router.post("/:id/sessions", protect, loadClub, loadMembership, requireAdmin, createSession);
+router.patch("/:id/sessions/:sessionId", protect, loadClub, loadMembership, requireAdmin, updateSession);
+router.delete("/:id/sessions/:sessionId", protect, loadClub, loadMembership, requireAdmin, deleteSession);
+router.post("/:id/sessions/:sessionId/checkin", protect, loadClub, loadMembership, checkinSession);
+router.get("/:id/sessions/:sessionId/attendance", passProtect, loadClub, loadMembership, listAttendance);
 
 
 export default router;

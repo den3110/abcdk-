@@ -463,6 +463,55 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         { type: "ClubFinance", id },
       ],
     }),
+
+    // SESSIONS (buổi tập + điểm danh)
+    listSessions: builder.query({
+      query: ({ id, page = 1, limit = 40 }) => ({
+        url: `/api/clubs/${id}/sessions?page=${page}&limit=${limit}`,
+      }),
+      providesTags: (res, err, { id }) => [{ type: "ClubSession", id }],
+    }),
+    createSession: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/sessions`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubSession", id }],
+    }),
+    updateSession: builder.mutation({
+      query: ({ id, sessionId, ...body }) => ({
+        url: `/api/clubs/${id}/sessions/${sessionId}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubSession", id }],
+    }),
+    deleteSession: builder.mutation({
+      query: ({ id, sessionId }) => ({
+        url: `/api/clubs/${id}/sessions/${sessionId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubSession", id }],
+    }),
+    checkinSession: builder.mutation({
+      query: ({ id, sessionId, member }) => ({
+        url: `/api/clubs/${id}/sessions/${sessionId}/checkin`,
+        method: "POST",
+        body: member ? { member } : {},
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubSession", id }],
+    }),
+    listSessionAttendance: builder.query({
+      query: ({ id, sessionId }) => ({
+        url: `/api/clubs/${id}/sessions/${sessionId}/attendance`,
+      }),
+      providesTags: (res, err, { id }) => [{ type: "ClubSession", id }],
+    }),
+    sessionStats: builder.query({
+      query: ({ id }) => ({ url: `/api/clubs/${id}/sessions/stats` }),
+      providesTags: (res, err, { id }) => [{ type: "ClubSession", id }],
+    }),
   }),
   overrideExisting: false,
 });
@@ -536,4 +585,13 @@ export const {
   useGetMyDuesQuery,
   usePayDuesMutation,
   useUnpayDuesMutation,
+
+  // sessions
+  useListSessionsQuery,
+  useCreateSessionMutation,
+  useUpdateSessionMutation,
+  useDeleteSessionMutation,
+  useCheckinSessionMutation,
+  useListSessionAttendanceQuery,
+  useSessionStatsQuery,
 } = clubsApiSlice;

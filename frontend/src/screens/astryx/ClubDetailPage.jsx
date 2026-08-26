@@ -59,6 +59,7 @@ import {
   ArrowDownRight,
   Download,
   Plus as PlusIcon,
+  CalendarCheck,
 } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
@@ -121,6 +122,13 @@ import {
   useGetMyDuesQuery,
   usePayDuesMutation,
   useUnpayDuesMutation,
+  useListSessionsQuery,
+  useCreateSessionMutation,
+  useUpdateSessionMutation,
+  useDeleteSessionMutation,
+  useCheckinSessionMutation,
+  useListSessionAttendanceQuery,
+  useSessionStatsQuery,
 } from "../../slices/clubsApiSlice.js";
 
 /* ------------------------------ tokens ------------------------------ */
@@ -2263,6 +2271,209 @@ function FinanceTab({ club, my }) {
   );
 }
 
+/* =============================== SESSIONS =============================== */
+function SessionAttendees({ clubId, session }) {
+  const [open, setOpen] = useState(false);
+  const { data, isFetching } = useListSessionAttendanceQuery(
+    { id: clubId, sessionId: session._id },
+    { skip: !open }
+  );
+  const people = data?.items || [];
+  const count = Number(session.attendeeCount || 0);
+  if (!count) return null;
+  return (
+    <div style={{ marginTop: 10 }}>
+      <button type="button" onClick={() => setOpen((v) => !v)} style={{ all: "unset", cursor: "pointer", color: C.body2, fontSize: 12.5, fontWeight: 650, display: "inline-flex", alignItems: "center", gap: 5 }}>
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Người tham gia ({fmtInt(count)})
+      </button>
+      {open && (
+        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {isFetching ? (
+            <span style={{ color: C.muted, fontSize: 12 }}>Đang tải…</span>
+          ) : (
+            people.map((u) => (
+              <A key={u._id} href={`/user/${u._id}`} style={{ ...chip, textDecoration: "none", paddingLeft: 4 }}>
+                <Avatar size="small" src={u.avatar || undefined} name={u.fullName || "?"} />
+                <span style={{ color: C.body2 }}>{u.nickname || u.fullName || "Người dùng"}</span>
+              </A>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const emptySessionForm = { title: "Buổi tập", startAt: toLocalInput(new Date()), location: "", note: "", repeatWeeks: "1" };
+
+function SessionsTab({ club, my }) {
+  const id = club._id;
+  const canManage = !!my?.canManage;
+  const [view, setView] = useState("list");
+
+  const { data, isLoading } = useListSessionsQuery({ id, limit: 60 });
+  const { data: stats } = useSessionStatsQuery({ id }, { skip: view !== "stats" });
+  const [createSession, { isLoading: creating }] = useCreateSessionMutation();
+  const [updateSession, { isLoading: updating }] = useUpdateSessionMutation();
+  const [deleteSession] = useDeleteSessionMutation();
+  const [checkin] = useCheckinSessionMutation();
+
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState(emptySessionForm);
+  const setF = (k, v) => setForm((s) => ({ ...s, [k]: v }));
+  const items = data?.items || [];
+
+  const resetForm = () => { setForm(emptySessionForm); setEditId(null); setShowForm(false); };
+  const startEdit = (s) => {
+    setEditId(s._id);
+    setForm({ title: s.title || "Buổi tập", startAt: toLocalInput(s.startAt), location: s.location || "", note: s.note || "", repeatWeeks: "1" });
+    setShowForm(true);
+  };
+  const submit = async () => {
+    if (!form.startAt) return toast.info("Chọn thời gian.");
+    const body = {
+      title: form.title.trim() || "Buổi tập",
+      startAt: new Date(form.startAt).toISOString(),
+      location: form.location.trim(),
+      note: form.note.trim(),
+    };
+    try {
+      if (editId) {
+        await updateSession({ id, sessionId: editId, ...body }).unwrap();
+        toast.success("Đã cập nhật.");
+      } else {
+        const n = Math.max(1, parseInt(form.repeatWeeks, 10) || 1);
+        await createSession({ id, ...body, repeatWeeks: n }).unwrap();
+        toast.success(n > 1 ? `Đã tạo ${n} buổi.` : "Đã tạo buổi tập.");
+      }
+      resetForm();
+    } catch (err) { toast.error(getApiErrMsg(err)); }
+  };
+  const remove = async (s) => {
+    if (!window.confirm("Xoá buổi tập này?")) return;
+    try { await deleteSession({ id, sessionId: s._id }).unwrap(); } catch (err) { toast.error(getApiErrMsg(err)); }
+  };
+  const doCheckin = async (s) => {
+    try { await checkin({ id, sessionId: s._id }).unwrap(); } catch (err) {
+      if (err?.status === 401) toast.warn("Bạn cần đăng nhập.");
+      else toast.error(getApiErrMsg(err));
+    }
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        {[{ k: "list", l: "Buổi tập" }, { k: "stats", l: "Chuyên cần" }].map((v) => (
+          <button key={v.k} type="button" onClick={() => setView(v.k)} style={{ all: "unset", cursor: "pointer", flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 10, fontWeight: 700, fontSize: 13.5, color: view === v.k ? "#fff" : C.body2, background: view === v.k ? C.brand : "rgba(255,255,255,.06)", border: `1px solid ${view === v.k ? "transparent" : "rgba(255,255,255,.12)"}` }}>
+            {v.l}
+          </button>
+        ))}
+      </div>
+
+      {view === "stats" ? (
+        <>
+          <div style={{ color: C.muted, fontSize: 12.5 }}>Tổng số buổi: {fmtInt(stats?.totalSessions || 0)}</div>
+          {(stats?.items || []).length === 0 ? (
+            <SectionEmpty icon={<CalendarCheck size={40} />} title="Chưa có dữ liệu chuyên cần" />
+          ) : (
+            <Card style={{ padding: 0, overflow: "hidden" }}>
+              {(stats?.items || []).map((it, i) => (
+                <div key={it.user._id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+                  <span style={{ width: 22, textAlign: "center", color: i < 3 ? "#F0C24B" : C.muted, fontWeight: 800 }}>{i + 1}</span>
+                  <Avatar size="small" src={it.user.avatar || undefined} name={it.user.fullName || "?"} />
+                  <span style={{ flex: 1, color: C.head, fontSize: 13.5, fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.user.nickname || it.user.fullName || "Người dùng"}</span>
+                  <span style={{ color: C.body2, fontWeight: 700, fontSize: 13.5 }}>{it.count} buổi</span>
+                </div>
+              ))}
+            </Card>
+          )}
+        </>
+      ) : (
+        <>
+          {canManage && (
+            <Card style={{ padding: 16 }}>
+              {!showForm ? (
+                <Btn variant="ghost" onClick={() => { setForm(emptySessionForm); setEditId(null); setShowForm(true); }}>
+                  <PlusIcon size={16} /> Tạo buổi tập
+                </Btn>
+              ) : (
+                <div style={{ display: "grid", gap: 12 }}>
+                  <div>
+                    <label style={labelStyle}>Tên buổi</label>
+                    <input style={fieldStyle} value={form.title} onChange={(e) => setF("title", e.target.value)} placeholder="VD: Tập luyện tối thứ 3" />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    <div>
+                      <label style={labelStyle}>Thời gian</label>
+                      <input type="datetime-local" style={fieldStyle} value={form.startAt} onChange={(e) => setF("startAt", e.target.value)} />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Địa điểm</label>
+                      <input style={fieldStyle} value={form.location} onChange={(e) => setF("location", e.target.value)} placeholder="Sân…" />
+                    </div>
+                  </div>
+                  {!editId && (
+                    <div>
+                      <label style={labelStyle}>Lặp lại hàng tuần (số tuần)</label>
+                      <input type="number" min={1} max={52} style={fieldStyle} value={form.repeatWeeks} onChange={(e) => setF("repeatWeeks", e.target.value)} />
+                    </div>
+                  )}
+                  <div>
+                    <label style={labelStyle}>Ghi chú</label>
+                    <textarea style={{ ...fieldStyle, minHeight: 50, resize: "vertical" }} value={form.note} onChange={(e) => setF("note", e.target.value)} />
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <Btn variant="primary" size="sm" onClick={submit} disabled={creating || updating}>{editId ? "Lưu" : "Tạo"}</Btn>
+                    <Btn variant="ghost" size="sm" onClick={resetForm}>Huỷ</Btn>
+                  </div>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {isLoading ? (
+            <Card style={{ padding: 16 }}><Skeleton width="50%" height="16px" /></Card>
+          ) : items.length === 0 ? (
+            <SectionEmpty icon={<CalendarCheck size={40} />} title="Chưa có buổi tập nào" hint={canManage ? "Tạo lịch sinh hoạt đầu tiên." : undefined} />
+          ) : (
+            items.map((s) => {
+              const past = new Date(s.startAt) < new Date(Date.now() - 6 * 3600 * 1000);
+              return (
+                <Card key={s._id} style={{ padding: 16, opacity: past ? 0.75 : 1 }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ color: C.head, fontWeight: 720, fontSize: 15.5 }}>{s.title}</div>
+                      <div style={{ color: C.body2, fontSize: 13, marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <CalendarDays size={13} /> {fmtDateTime(s.startAt)}
+                        {s.location ? <span style={{ color: C.muted }}>· {s.location}</span> : null}
+                      </div>
+                      {s.note ? <div style={{ color: C.body, fontSize: 13, marginTop: 6, whiteSpace: "pre-wrap" }}>{s.note}</div> : null}
+                    </div>
+                    {canManage && (
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        <Btn variant="ghost" size="sm" onClick={() => startEdit(s)} title="Sửa"><Pencil size={15} /></Btn>
+                        <Btn variant="danger" size="sm" onClick={() => remove(s)} title="Xoá"><Trash2 size={15} /></Btn>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
+                    <Btn variant={s.myCheckedIn ? "success" : "ghost"} size="sm" onClick={() => doCheckin(s)}>
+                      <Check size={14} /> {s.myCheckedIn ? "Đã điểm danh ✓" : "Điểm danh"}
+                    </Btn>
+                    <span style={{ color: C.muted, fontSize: 12.5 }}>{fmtInt(s.attendeeCount || 0)} người tham gia</span>
+                  </div>
+                  <SessionAttendees clubId={id} session={s} />
+                </Card>
+              );
+            })
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 /* =============================== MEMBERS =============================== */
 const roleBadge = (role) => {
   if (role === "owner") return { label: "Chủ CLB", color: "#F0C24B", bg: "rgba(240,194,75,.10)", bd: "rgba(240,194,75,.3)", icon: <Star size={11} /> };
@@ -2539,6 +2750,7 @@ const TABS = [
   { key: "events", label: "Sự kiện", icon: CalendarDays },
   { key: "polls", label: "Bình chọn", icon: BarChart3 },
   { key: "gallery", label: "Ảnh", icon: Images },
+  { key: "sessions", label: "Buổi tập", icon: CalendarCheck },
   { key: "finance", label: "Quỹ", icon: Wallet },
   { key: "members", label: "Thành viên", icon: Users },
 ];
@@ -2708,6 +2920,7 @@ export default function ClubDetailPageAstryx() {
                   {tab === "events" && <EventsTab club={club} canManage={canManage} />}
                   {tab === "polls" && <PollsTab club={club} canManage={canManage} />}
                   {tab === "gallery" && <GalleryTab club={club} my={my} />}
+                  {tab === "sessions" && <SessionsTab club={club} my={my} />}
                   {tab === "finance" && <FinanceTab club={club} my={my} />}
                   {tab === "members" && (
                     <MembersTab club={club} canSeeMembers={canSeeMembers} guardMsg={memberGuardMessage(club)} />
