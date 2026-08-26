@@ -227,8 +227,17 @@ function CompactCard({ children, badgeText, badgeColor = GOLD }) {
 
 /* ═══════════════════════════════ Sub-match ═══════════════════════════════ */
 
+// Tên VĐV theo cấu hình giải: "fullName" → ưu tiên họ tên, ngược lại biệt danh.
+const mlpNameMode = (tournament) =>
+  tournament?.nameDisplayMode === "fullName" ? "fullName" : "nickname";
+const mlpPlayerLabel = (p, mode) =>
+  mode === "fullName"
+    ? p?.name || p?.fullName || p?.nickname || ""
+    : p?.nickname || p?.name || p?.fullName || "";
+
 function CompactSubMatch({ data, compact }) {
   const { teamA, teamB, score, slot, tournament, serve } = data;
+  const nameMode = mlpNameMode(tournament);
   const slotKey = String(slot?.key || "MD").toUpperCase();
   const slotLabel = slot?.label || tournament?.name || "";
   const scoreA = Number(score?.currentGameA || 0);
@@ -304,6 +313,7 @@ function CompactSubMatch({ data, compact }) {
             accent={TEAM_A_ACCENT}
             highlight={winner === "A"}
             compact={compact}
+            nameMode={nameMode}
             isServing={!isFinished && serveSide === "A"}
             serveServerId={serveSide === "A" ? serveServerId : ""}
           />
@@ -319,6 +329,7 @@ function CompactSubMatch({ data, compact }) {
             accent={TEAM_B_ACCENT}
             highlight={winner === "B"}
             compact={compact}
+            nameMode={nameMode}
             isServing={!isFinished && serveSide === "B"}
             serveServerId={serveSide === "B" ? serveServerId : ""}
           />
@@ -363,10 +374,11 @@ function TeamRowCompact({
   compact,
   isServing,
   serveServerId,
+  nameMode = "nickname",
 }) {
   const players = Array.isArray(team?.players) ? team.players : [];
   const playersText = players.length
-    ? players.map((p) => p.nickname || p.name).filter(Boolean).join(" / ")
+    ? players.map((p) => mlpPlayerLabel(p, nameMode)).filter(Boolean).join(" / ")
     : "—";
   const initial = String(team?.shortName || team?.name || "?")
     .charAt(0)
@@ -455,7 +467,7 @@ function TeamRowCompact({
         >
           {players.length ? (
             players.map((p, i) => {
-              const label = p.nickname || p.name || "?";
+              const label = mlpPlayerLabel(p, nameMode) || "?";
               const isServerP = serverIdx === i;
               return (
                 <span key={p?._id || i}>
@@ -572,7 +584,8 @@ function SlotBadge({ slotKey }) {
 /* ═══════════════════════════════ Dream Breaker ═══════════════════════════════ */
 
 function CompactDreamBreaker({ data, compact }) {
-  const { teamA, teamB, dreamBreaker, serve } = data;
+  const { teamA, teamB, dreamBreaker, serve, tournament } = data;
+  const nameMode = mlpNameMode(tournament);
   const winner = dreamBreaker?.winner;
   const scoreA = Number(dreamBreaker?.scoreA || 0);
   const scoreB = Number(dreamBreaker?.scoreB || 0);
@@ -654,6 +667,7 @@ function CompactDreamBreaker({ data, compact }) {
             rotate={dreamBreaker?.rotate}
             pointsInBlock={dreamBreaker?.pointsInBlockA}
             compact={compact}
+            nameMode={nameMode}
             isServing={!winner && serveSide === "A"}
           />
           <div
@@ -670,6 +684,7 @@ function CompactDreamBreaker({ data, compact }) {
             rotate={dreamBreaker?.rotate}
             pointsInBlock={dreamBreaker?.pointsInBlockB}
             compact={compact}
+            nameMode={nameMode}
             isServing={!winner && serveSide === "B"}
           />
         </div>
@@ -709,6 +724,7 @@ function PlayerRowCompact({
   pointsInBlock,
   compact,
   isServing,
+  nameMode = "nickname",
 }) {
   const player = team?.currentPlayer;
   const lineupCount = Array.isArray(team?.lineup) ? team.lineup.length : 0;
@@ -717,7 +733,7 @@ function PlayerRowCompact({
     0,
     Number(rotate || 4) - Number(pointsInBlock || 0),
   );
-  const playerName = player?.nickname || player?.name || "—";
+  const playerName = mlpPlayerLabel(player, nameMode) || "—";
   const initial = String(playerName).charAt(0).toUpperCase();
 
   return (

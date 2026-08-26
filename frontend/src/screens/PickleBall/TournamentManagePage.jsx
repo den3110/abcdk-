@@ -1516,6 +1516,31 @@ export default function TournamentManagePage() {
     },
     [id, overlayNameStyleValue, refetchTour, updateOverlay],
   );
+  const nameDisplayModeValue = useMemo(
+    () => (String(tour?.nameDisplayMode || "nickname") === "fullName"
+      ? "fullName"
+      : "nickname"),
+    [tour?.nameDisplayMode],
+  );
+  const handleNameDisplayModeChange = useCallback(
+    async (event) => {
+      const next =
+        String(event.target.value || "nickname") === "fullName"
+          ? "fullName"
+          : "nickname";
+      if (next === nameDisplayModeValue) return;
+      try {
+        await updateOverlay({ id, body: { nameDisplayMode: next } }).unwrap();
+        toast.success("Đã lưu kiểu tên VĐV trên overlay");
+        refetchTour?.();
+      } catch (error) {
+        toast.error(
+          error?.data?.message || "Không lưu được kiểu tên VĐV",
+        );
+      }
+    },
+    [id, nameDisplayModeValue, refetchTour, updateOverlay],
+  );
   const posterTemplateUrl = tour?.registrationPosterConfig?.templateUrl || "";
   const posterAiJob = tour?.registrationPosterConfig?.aiJob || null;
   const posterAiStatus = String(posterAiJob?.status || "");
@@ -3510,6 +3535,23 @@ export default function TournamentManagePage() {
 
           <Typography variant="body2" color="text.secondary">
             {selectedOverlayNameStyle.helper}
+          </Typography>
+
+          <TextField
+            select
+            size="small"
+            label="Tên VĐV hiển thị"
+            value={nameDisplayModeValue}
+            onChange={handleNameDisplayModeChange}
+            disabled={!canManage || savingOverlaySettings}
+            fullWidth
+          >
+            <MenuItem value="nickname">Biệt danh</MenuItem>
+            <MenuItem value="fullName">Họ và tên</MenuItem>
+          </TextField>
+
+          <Typography variant="body2" color="text.secondary">
+            Chọn overlay hiển thị biệt danh hay họ và tên của VĐV.
           </Typography>
 
           {savingOverlaySettings ? (

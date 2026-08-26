@@ -3252,6 +3252,14 @@ export const updateTournamentOverlay = expressAsyncHandler(async (req, res) => {
   for (const k of allow) {
     if (k in req.body) t.overlay[k] = req.body[k];
   }
+  // nameDisplayMode là field top-level (biệt danh / họ và tên) nhưng được cấu
+  // hình chung với overlay ở trang quản lý giải → cho phép cập nhật tại đây.
+  if ("nameDisplayMode" in req.body) {
+    const raw = String(req.body.nameDisplayMode || "").trim();
+    if (raw === "nickname" || raw === "fullName") {
+      t.nameDisplayMode = raw;
+    }
+  }
   // Widgets overlay cho app native live — sanitize: mảng object có type string, tối đa 12
   if ("widgets" in req.body) {
     const rawWidgets = Array.isArray(req.body.widgets) ? req.body.widgets : [];
@@ -3272,7 +3280,7 @@ export const updateTournamentOverlay = expressAsyncHandler(async (req, res) => {
     clearTournamentPresentationCaches(),
     clearMatchPresentationCaches(),
   ]);
-  res.json({ ok: true, overlay: t.overlay });
+  res.json({ ok: true, overlay: t.overlay, nameDisplayMode: t.nameDisplayMode });
 
   const io = req.app.get("io");
   if (io) {
