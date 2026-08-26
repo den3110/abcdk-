@@ -46,6 +46,10 @@ import {
   UserCheck,
   ChevronDown,
   ChevronUp,
+  Heart,
+  MessageCircle,
+  Send,
+  MessagesSquare,
 } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
@@ -84,6 +88,13 @@ import {
   useVotePollMutation,
   useClosePollMutation,
   useDeletePollMutation,
+  useListPostsQuery,
+  useCreatePostMutation,
+  useDeletePostMutation,
+  useReactPostMutation,
+  useListPostCommentsQuery,
+  useCreatePostCommentMutation,
+  useDeletePostCommentMutation,
 } from "../../slices/clubsApiSlice.js";
 
 /* ------------------------------ tokens ------------------------------ */
@@ -1233,6 +1244,244 @@ function PollsTab({ club, canManage }) {
   );
 }
 
+/* ============================= DISCUSSION ============================= */
+function PostComments({ club, postId, isMember, canManage, authUserId }) {
+  const id = club._id;
+  const { data, isFetching } = useListPostCommentsQuery({ id, postId });
+  const [createComment, { isLoading }] = useCreatePostCommentMutation();
+  const [delComment] = useDeletePostCommentMutation();
+  const [text, setText] = useState("");
+  const comments = data?.items || [];
+
+  const submit = async () => {
+    const t = text.trim();
+    if (!t) return;
+    try {
+      await createComment({ id, postId, content: t }).unwrap();
+      setText("");
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+  const remove = async (c) => {
+    try {
+      await delComment({ id, postId, commentId: c._id }).unwrap();
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+
+  return (
+    <div style={{ marginTop: 12, borderTop: `1px solid ${C.border}`, paddingTop: 12, display: "grid", gap: 10 }}>
+      {isFetching && comments.length === 0 ? (
+        <span style={{ color: C.muted, fontSize: 12.5 }}>Đang tải bình luận…</span>
+      ) : (
+        comments.map((c) => {
+          const canDel = String(c.author?._id) === String(authUserId) || canManage;
+          return (
+            <div key={c._id} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+              <A href={`/user/${c.author?._id}`} style={{ flexShrink: 0 }}>
+                <Avatar size="small" src={c.author?.avatar || undefined} name={c.author?.fullName || "?"} />
+              </A>
+              <div style={{ flex: 1, minWidth: 0, background: "rgba(255,255,255,.04)", borderRadius: 12, padding: "8px 11px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ color: C.head, fontWeight: 700, fontSize: 13 }}>
+                    {c.author?.nickname || c.author?.fullName || "Người dùng"}
+                  </span>
+                  <span style={{ color: C.muted, fontSize: 11 }}>{fmtDateTime(c.createdAt)}</span>
+                  {canDel && (
+                    <button type="button" onClick={() => remove(c)} style={{ all: "unset", cursor: "pointer", color: C.muted, marginLeft: "auto" }} title="Xoá">
+                      <Trash2 size={13} />
+                    </button>
+                  )}
+                </div>
+                <div style={{ color: C.body, fontSize: 13.5, marginTop: 3, whiteSpace: "pre-wrap" }}>{c.content}</div>
+              </div>
+            </div>
+          );
+        })
+      )}
+      {isMember && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            style={{ ...fieldStyle, flex: 1 }}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Viết bình luận…"
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+          />
+          <Btn variant="primary" size="sm" onClick={submit} disabled={isLoading}>
+            <Send size={14} />
+          </Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PostCard({ club, post, isMember, canManage, authUserId }) {
+  const id = club._id;
+  const [react] = useReactPostMutation();
+  const [delPost] = useDeletePostMutation();
+  const [showComments, setShowComments] = useState(false);
+  const isAuthor = String(post.author?._id) === String(authUserId);
+  const canDelete = isAuthor || canManage;
+
+  const doReact = async () => {
+    try {
+      await react({ id, postId: post._id }).unwrap();
+    } catch (err) {
+      if (err?.status === 401) toast.warn("Bạn cần đăng nhập.");
+      else toast.error(getApiErrMsg(err));
+    }
+  };
+  const doDelete = async () => {
+    if (!window.confirm("Xoá bài viết này?")) return;
+    try {
+      await delPost({ id, postId: post._id }).unwrap();
+      toast.success("Đã xoá bài viết.");
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+
+  return (
+    <Card style={{ padding: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <A href={`/user/${post.author?._id}`} style={{ flexShrink: 0 }}>
+          <Avatar size="medium" src={post.author?.avatar || undefined} name={post.author?.fullName || "?"} />
+        </A>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ color: C.head, fontWeight: 700, fontSize: 14.5 }}>
+            {post.author?.nickname || post.author?.fullName || "Người dùng"}
+          </div>
+          <div style={{ color: C.muted, fontSize: 12 }}>
+            {fmtDateTime(post.createdAt)}
+            {post.visibility === "members" ? " · Chỉ thành viên" : ""}
+          </div>
+        </div>
+        {canDelete && (
+          <Btn variant="ghost" size="sm" onClick={doDelete} title="Xoá">
+            <Trash2 size={15} />
+          </Btn>
+        )}
+      </div>
+
+      {post.content && (
+        <div style={{ color: C.body, fontSize: 14.5, lineHeight: 1.6, marginTop: 10, whiteSpace: "pre-wrap" }}>
+          {post.content}
+        </div>
+      )}
+      {post.imageUrl && (
+        <img src={post.imageUrl} alt="" style={{ maxWidth: "100%", borderRadius: 12, marginTop: 10, display: "block" }} />
+      )}
+
+      <div style={{ display: "flex", gap: 16, marginTop: 12, alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={doReact}
+          disabled={!isMember}
+          style={{ all: "unset", cursor: isMember ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 6, color: post.myReaction ? "#F26D6D" : C.body2, fontWeight: 650, fontSize: 13.5 }}
+          title={isMember ? "Thích" : "Tham gia CLB để thích"}
+        >
+          <Heart size={16} fill={post.myReaction ? "#F26D6D" : "none"} /> {fmtInt(post.reactionCount || 0)}
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowComments((v) => !v)}
+          style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, color: C.body2, fontWeight: 650, fontSize: 13.5 }}
+        >
+          <MessageCircle size={16} /> {fmtInt(post.commentCount || 0)}
+        </button>
+      </div>
+
+      {showComments && (
+        <PostComments club={club} postId={post._id} isMember={isMember} canManage={canManage} authUserId={authUserId} />
+      )}
+    </Card>
+  );
+}
+
+function DiscussionTab({ club, my }) {
+  const id = club._id;
+  const isMember = !!my?.isMember;
+  const canManage = !!my?.canManage;
+  const authIdA = useSelector((s) => s.auth?.userInfo?._id);
+  const authIdB = useSelector((s) => s.user?.userInfo?._id);
+  const authUserId = authIdA || authIdB || null;
+
+  const { data, isLoading } = useListPostsQuery({ id, page: 1, limit: 30 });
+  const [createPost, { isLoading: posting }] = useCreatePostMutation();
+  const [content, setContent] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [showImg, setShowImg] = useState(false);
+  const items = data?.items || [];
+
+  const submit = async () => {
+    if (!content.trim() && !imageUrl.trim()) return toast.info("Nhập nội dung hoặc thêm ảnh.");
+    try {
+      await createPost({ id, content, imageUrl: imageUrl.trim() || undefined }).unwrap();
+      setContent("");
+      setImageUrl("");
+      setShowImg(false);
+      toast.success("Đã đăng bài.");
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      {isMember ? (
+        <Card style={{ padding: 16 }}>
+          <textarea
+            style={{ ...fieldStyle, minHeight: 70, resize: "vertical" }}
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder="Chia sẻ điều gì đó với câu lạc bộ…"
+          />
+          {showImg && (
+            <input
+              style={{ ...fieldStyle, marginTop: 8 }}
+              value={imageUrl}
+              onChange={(e) => setImageUrl(e.target.value)}
+              placeholder="Dán URL ảnh…"
+            />
+          )}
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <Btn variant="primary" size="sm" onClick={submit} disabled={posting}>
+              <Send size={14} /> Đăng bài
+            </Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setShowImg((v) => !v)}>
+              {showImg ? "Bỏ ảnh" : "Thêm ảnh"}
+            </Btn>
+          </div>
+        </Card>
+      ) : (
+        <Card style={{ padding: 14 }}>
+          <div style={{ color: C.muted, fontSize: 13.5 }}>
+            Tham gia câu lạc bộ để đăng bài và bình luận.
+          </div>
+        </Card>
+      )}
+
+      {isLoading ? (
+        <Card style={{ padding: 16 }}>
+          <Skeleton width="40%" height="16px" />
+          <div style={{ height: 10 }} />
+          <Skeleton width="80%" height="13px" />
+        </Card>
+      ) : items.length === 0 ? (
+        <SectionEmpty icon={<MessagesSquare size={40} />} title="Chưa có bài viết nào" hint={isMember ? "Hãy là người đăng bài đầu tiên." : undefined} />
+      ) : (
+        items.map((p) => (
+          <PostCard key={p._id} club={club} post={p} isMember={isMember} canManage={canManage} authUserId={authUserId} />
+        ))
+      )}
+    </div>
+  );
+}
+
 /* =============================== MEMBERS =============================== */
 const roleBadge = (role) => {
   if (role === "owner") return { label: "Chủ CLB", color: "#F0C24B", bg: "rgba(240,194,75,.10)", bd: "rgba(240,194,75,.3)", icon: <Star size={11} /> };
@@ -1505,6 +1754,7 @@ function memberGuardMessage(club) {
 /* ================================ TABS bar ================================ */
 const TABS = [
   { key: "news", label: "Bảng tin", icon: Megaphone },
+  { key: "discussion", label: "Thảo luận", icon: MessagesSquare },
   { key: "events", label: "Sự kiện", icon: CalendarDays },
   { key: "polls", label: "Bình chọn", icon: BarChart3 },
   { key: "members", label: "Thành viên", icon: Users },
@@ -1671,6 +1921,7 @@ export default function ClubDetailPageAstryx() {
 
                 <Container style={{ padding: "26px 24px 80px" }}>
                   {tab === "news" && <AnnouncementsTab club={club} canManage={canManage} />}
+                  {tab === "discussion" && <DiscussionTab club={club} my={my} />}
                   {tab === "events" && <EventsTab club={club} canManage={canManage} />}
                   {tab === "polls" && <PollsTab club={club} canManage={canManage} />}
                   {tab === "members" && (

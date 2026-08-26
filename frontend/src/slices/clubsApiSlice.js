@@ -269,6 +269,73 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (res, err, { id }) => [{ type: "ClubPoll", id }],
     }),
+
+    // DISCUSSION (tường thảo luận)
+    listPosts: builder.query({
+      query: ({ id, page = 1, limit = 20 }) => ({
+        url: `/api/clubs/${id}/posts?page=${page}&limit=${limit}`,
+      }),
+      providesTags: (res, err, { id }) => [{ type: "ClubPost", id }],
+    }),
+    createPost: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/posts`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubPost", id }],
+    }),
+    updatePost: builder.mutation({
+      query: ({ id, postId, ...body }) => ({
+        url: `/api/clubs/${id}/posts/${postId}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubPost", id }],
+    }),
+    deletePost: builder.mutation({
+      query: ({ id, postId }) => ({
+        url: `/api/clubs/${id}/posts/${postId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubPost", id }],
+    }),
+    reactPost: builder.mutation({
+      query: ({ id, postId }) => ({
+        url: `/api/clubs/${id}/posts/${postId}/react`,
+        method: "POST",
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubPost", id }],
+    }),
+    listPostComments: builder.query({
+      query: ({ id, postId, page = 1, limit = 50 }) => ({
+        url: `/api/clubs/${id}/posts/${postId}/comments?page=${page}&limit=${limit}`,
+      }),
+      providesTags: (res, err, { postId }) => [
+        { type: "ClubPostComment", id: postId },
+      ],
+    }),
+    createPostComment: builder.mutation({
+      query: ({ id, postId, content }) => ({
+        url: `/api/clubs/${id}/posts/${postId}/comments`,
+        method: "POST",
+        body: { content },
+      }),
+      invalidatesTags: (res, err, { id, postId }) => [
+        { type: "ClubPostComment", id: postId },
+        { type: "ClubPost", id },
+      ],
+    }),
+    deletePostComment: builder.mutation({
+      query: ({ id, postId, commentId }) => ({
+        url: `/api/clubs/${id}/posts/${postId}/comments/${commentId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (res, err, { id, postId }) => [
+        { type: "ClubPostComment", id: postId },
+        { type: "ClubPost", id },
+      ],
+    }),
   }),
   overrideExisting: false,
 });
@@ -311,4 +378,14 @@ export const {
   useVotePollMutation,
   useClosePollMutation,
   useDeletePollMutation,
+
+  // discussion
+  useListPostsQuery,
+  useCreatePostMutation,
+  useUpdatePostMutation,
+  useDeletePostMutation,
+  useReactPostMutation,
+  useListPostCommentsQuery,
+  useCreatePostCommentMutation,
+  useDeletePostCommentMutation,
 } = clubsApiSlice;

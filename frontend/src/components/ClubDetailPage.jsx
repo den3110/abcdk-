@@ -23,6 +23,7 @@ import ClubMembersCards from "./ClubMembersCards";
 import ClubEventsSection from "./events/ClubEventsSection";
 import ClubAnnouncements from "./news/ClubAnnouncements";
 import ClubPolls from "./polls/ClubPolls";
+import ClubDiscussion from "./discussion/ClubDiscussion";
 import SEOHead from "./SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { useRegisterChatBotPageSnapshot } from "../context/ChatBotPageContext.jsx";
@@ -47,7 +48,7 @@ function memberGuardMessage(club, t) {
   return t("clubs.detail.memberGuardUnavailable");
 }
 
-const ALLOWED_TABS = ["news", "events", "polls"];
+const ALLOWED_TABS = ["news", "discussion", "events", "polls"];
 
 export default function ClubDetailPage() {
   const { t } = useLanguage();
@@ -251,6 +252,7 @@ export default function ClubDetailPage() {
           allowScrollButtonsMobile
         >
           <Tab label={t("clubs.detail.tabs.news")} value="news" />
+          <Tab label="Thảo luận" value="discussion" />
           <Tab label={t("clubs.detail.tabs.events")} value="events" />
           <Tab label={t("clubs.detail.tabs.polls")} value="polls" />
         </Tabs>
@@ -281,6 +283,15 @@ export default function ClubDetailPage() {
                     {memberGuardMessage(club, t)}
                   </Typography>
                 )}
+              </>
+            )}
+
+            {tab === "discussion" && (
+              <>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  Thảo luận
+                </Typography>
+                <ClubDiscussion club={club} canManage={canManage} />
               </>
             )}
 

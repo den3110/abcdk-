@@ -33,6 +33,16 @@ import { passProtect, protect } from "../middleware/authMiddleware.js";
 import { createAnnouncement, deleteAnnouncement, listAnnouncements, updateAnnouncement } from "../controllers/announcementController.js";
 import { createPoll, deletePoll, listPolls, votePoll, closePoll } from "../controllers/pollController.js";
 import { createEvent, deleteEvent, getEventIcs, listEvents, rsvpEvent, updateEvent, listEventAttendees } from "../controllers/eventController.js";
+import {
+  listPosts,
+  createPost,
+  updatePost,
+  deletePost,
+  reactPost,
+  listComments,
+  createComment,
+  deleteComment,
+} from "../controllers/discussionController.js";
 
 const router = express.Router();
 
@@ -211,6 +221,16 @@ router.delete("/:id/events/:eventId", protect, loadClub, loadMembership, require
 router.post("/:id/events/:eventId/rsvp", protect, loadClub, loadMembership, rsvpEvent);
 router.get("/:id/events/:eventId/attendees", passProtect, loadClub, loadMembership, listEventAttendees);
 router.get("/:id/events/:eventId/ics", passProtect, loadClub, loadMembership, getEventIcs);
+
+// ========== DISCUSSION (tường thảo luận) ==========
+router.get("/:id/posts", passProtect, loadClub, loadMembership, listPosts);
+router.post("/:id/posts", protect, loadClub, loadMembership, createPost);
+router.patch("/:id/posts/:postId", protect, loadClub, loadMembership, updatePost);
+router.delete("/:id/posts/:postId", protect, loadClub, loadMembership, deletePost);
+router.post("/:id/posts/:postId/react", protect, loadClub, loadMembership, reactPost);
+router.get("/:id/posts/:postId/comments", passProtect, loadClub, loadMembership, listComments);
+router.post("/:id/posts/:postId/comments", protect, loadClub, loadMembership, createComment);
+router.delete("/:id/posts/:postId/comments/:commentId", protect, loadClub, loadMembership, deleteComment);
 
 
 export default router;
