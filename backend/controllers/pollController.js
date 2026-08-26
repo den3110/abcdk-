@@ -3,6 +3,7 @@ import ClubPoll from "../models/clubPollModel.js";
 import ClubPollVote from "../models/clubPollVoteModel.js";
 import { canReadClubContent } from "../utils/clubVisibility.js";
 import ClubMember from "../models/clubMemberModel.js"
+import { notifyClubActivity } from "../services/clubNotifier.js";
 
 export const listPolls = async (req, res) => {
   try {
@@ -180,6 +181,15 @@ export const createPoll = async (req, res) => {
       multiple: !!multiple,
       closesAt: closes,
       visibility: vis,
+    });
+
+    notifyClubActivity({
+      club: req.club,
+      actorId: req.user._id,
+      title: `📊 ${req.club.name || "CLB"}: Bình chọn mới`,
+      body: doc.question,
+      url: `/clubs/${req.club._id}?tab=polls`,
+      data: { pollId: String(doc._id) },
     });
 
     return res.status(201).json(doc);

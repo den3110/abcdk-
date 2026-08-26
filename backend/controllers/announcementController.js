@@ -5,6 +5,7 @@ import {
   canReadClubContent,
   itemVisibleToUser,
 } from "../utils/clubVisibility.js";
+import { notifyClubActivity } from "../services/clubNotifier.js";
 
 export const listAnnouncements = async (req, res) => {
   const { page = 1, limit = 20 } = req.query;
@@ -47,6 +48,16 @@ export const createAnnouncement = async (req, res) => {
     visibility,
   });
   res.status(201).json(doc);
+
+  // Thông báo cho thành viên (best-effort, không chặn response)
+  notifyClubActivity({
+    club: req.club,
+    actorId: req.user._id,
+    title: `📢 ${req.club.name || "CLB"}: Thông báo mới`,
+    body: doc.title,
+    url: `/clubs/${req.club._id}?tab=news`,
+    data: { announcementId: String(doc._id) },
+  });
 };
 
 export const updateAnnouncement = async (req, res) => {

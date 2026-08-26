@@ -2,6 +2,7 @@
 import ClubEvent from "../models/clubEventModel.js";
 import ClubEventRsvp from "../models/clubEventRsvpModel.js";
 import { canReadClubContent } from "../utils/clubVisibility.js";
+import { notifyClubActivity } from "../services/clubNotifier.js";
 
 export const listEvents = async (req, res) => {
   const { from, to, page = 1, limit = 20 } = req.query;
@@ -72,6 +73,15 @@ export const createEvent = async (req, res) => {
     capacity: Number(capacity || 0),
   });
   res.status(201).json(doc);
+
+  notifyClubActivity({
+    club: req.club,
+    actorId: req.user._id,
+    title: `📅 ${req.club.name || "CLB"}: Sự kiện mới`,
+    body: doc.title,
+    url: `/clubs/${req.club._id}?tab=events`,
+    data: { eventId: String(doc._id) },
+  });
 };
 
 export const updateEvent = async (req, res) => {
