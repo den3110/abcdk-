@@ -53,6 +53,7 @@ import {
   ImagePlus,
   Share2,
   X as XIcon,
+  Images,
 } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
@@ -60,7 +61,7 @@ import ShadowFrame from "./ShadowFrame.jsx";
 import SiteNav from "./SiteNav.jsx";
 import SiteFooter from "./SiteFooter.jsx";
 import PickleMark from "./PickleMark.jsx";
-import { A } from "./ui.jsx";
+import { A, Lightbox } from "./ui.jsx";
 import ClubCreateDialog from "../../components/ClubCreateDialog.jsx";
 import JoinRequestsDialog from "../../components/JoinRequestsDialog.jsx";
 import { useUploadAvatarMutation } from "../../slices/uploadApiSlice.js";
@@ -100,6 +101,9 @@ import {
   useListPostCommentsQuery,
   useCreatePostCommentMutation,
   useDeletePostCommentMutation,
+  useListPhotosQuery,
+  useAddPhotosMutation,
+  useDeletePhotoMutation,
 } from "../../slices/clubsApiSlice.js";
 
 /* ------------------------------ tokens ------------------------------ */
@@ -1594,6 +1598,114 @@ function DiscussionTab({ club, my }) {
   );
 }
 
+/* =============================== GALLERY =============================== */
+function GalleryTab({ club, my }) {
+  const id = club._id;
+  const isMember = !!my?.isMember;
+  const canManage = !!my?.canManage;
+  const authIdA = useSelector((s) => s.auth?.userInfo?._id);
+  const authIdB = useSelector((s) => s.user?.userInfo?._id);
+  const authUserId = authIdA || authIdB || null;
+
+  const { data, isLoading } = useListPhotosQuery({ id, page: 1, limit: 60 });
+  const [uploadAvatar, { isLoading: uploading }] = useUploadAvatarMutation();
+  const [addPhotos] = useAddPhotosMutation();
+  const [deletePhoto] = useDeletePhotoMutation();
+  const [lightbox, setLightbox] = useState(null);
+  const items = data?.items || [];
+
+  const onPick = async (e) => {
+    const files = [...(e.target.files || [])].slice(0, 10);
+    e.target.value = "";
+    if (!files.length) return;
+    try {
+      const urls = [];
+      for (const f of files) {
+        const res = await uploadAvatar(f).unwrap();
+        const url = res?.url || res?.secure_url || res?.data?.url || res?.Location || "";
+        if (url) urls.push(url);
+      }
+      if (urls.length) {
+        await addPhotos({ id, photos: urls.map((u) => ({ url: u })) }).unwrap();
+        toast.success(`Đã thêm ${urls.length} ảnh.`);
+      } else toast.error("Tải ảnh thất bại.");
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+  const remove = async (p) => {
+    if (!window.confirm("Xoá ảnh này?")) return;
+    try {
+      await deletePhoto({ id, photoId: p._id }).unwrap();
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      {isMember && (
+        <Card style={{ padding: 16 }}>
+          <label
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              height: 40,
+              padding: "0 18px",
+              borderRadius: 999,
+              cursor: uploading ? "wait" : "pointer",
+              background: C.brand,
+              color: "#fff",
+              fontWeight: 700,
+              fontSize: 14,
+            }}
+          >
+            <input type="file" accept="image/*" multiple onChange={onPick} style={{ display: "none" }} disabled={uploading} />
+            <ImagePlus size={16} /> {uploading ? "Đang tải…" : "Thêm ảnh"}
+          </label>
+        </Card>
+      )}
+
+      {isLoading ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8 }}>
+          {[...Array(6)].map((_, i) => (
+            <Skeleton key={i} width="100%" height="110px" />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <SectionEmpty icon={<Images size={40} />} title="Chưa có ảnh nào" hint={isMember ? "Thêm ảnh đầu tiên cho CLB." : undefined} />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8 }}>
+          {items.map((p) => {
+            const canDel = String(p.uploadedBy?._id) === String(authUserId) || canManage;
+            return (
+              <div key={p._id} style={{ position: "relative", paddingTop: "100%", borderRadius: 12, overflow: "hidden", background: "#191A1D" }}>
+                <div
+                  onClick={() => setLightbox(p.url)}
+                  style={{ position: "absolute", inset: 0, backgroundImage: `url("${p.url}")`, backgroundSize: "cover", backgroundPosition: "center", cursor: "zoom-in" }}
+                />
+                {canDel && (
+                  <button
+                    type="button"
+                    onClick={() => remove(p)}
+                    title="Xoá"
+                    style={{ position: "absolute", top: 6, right: 6, width: 26, height: 26, borderRadius: 999, border: "none", cursor: "pointer", background: "rgba(0,0,0,.55)", color: "#fff", display: "grid", placeItems: "center" }}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {lightbox && <Lightbox src={lightbox} onClose={() => setLightbox(null)} />}
+    </div>
+  );
+}
+
 /* =============================== MEMBERS =============================== */
 const roleBadge = (role) => {
   if (role === "owner") return { label: "Chủ CLB", color: "#F0C24B", bg: "rgba(240,194,75,.10)", bd: "rgba(240,194,75,.3)", icon: <Star size={11} /> };
@@ -1869,6 +1981,7 @@ const TABS = [
   { key: "discussion", label: "Thảo luận", icon: MessagesSquare },
   { key: "events", label: "Sự kiện", icon: CalendarDays },
   { key: "polls", label: "Bình chọn", icon: BarChart3 },
+  { key: "gallery", label: "Ảnh", icon: Images },
   { key: "members", label: "Thành viên", icon: Users },
 ];
 
@@ -2036,6 +2149,7 @@ export default function ClubDetailPageAstryx() {
                   {tab === "discussion" && <DiscussionTab club={club} my={my} />}
                   {tab === "events" && <EventsTab club={club} canManage={canManage} />}
                   {tab === "polls" && <PollsTab club={club} canManage={canManage} />}
+                  {tab === "gallery" && <GalleryTab club={club} my={my} />}
                   {tab === "members" && (
                     <MembersTab club={club} canSeeMembers={canSeeMembers} guardMsg={memberGuardMessage(club)} />
                   )}

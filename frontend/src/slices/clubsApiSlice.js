@@ -336,6 +336,29 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         { type: "ClubPost", id },
       ],
     }),
+
+    // GALLERY (thư viện ảnh)
+    listPhotos: builder.query({
+      query: ({ id, page = 1, limit = 40 }) => ({
+        url: `/api/clubs/${id}/photos?page=${page}&limit=${limit}`,
+      }),
+      providesTags: (res, err, { id }) => [{ type: "ClubPhoto", id }],
+    }),
+    addPhotos: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/photos`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubPhoto", id }],
+    }),
+    deletePhoto: builder.mutation({
+      query: ({ id, photoId }) => ({
+        url: `/api/clubs/${id}/photos/${photoId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubPhoto", id }],
+    }),
   }),
   overrideExisting: false,
 });
@@ -388,4 +411,9 @@ export const {
   useListPostCommentsQuery,
   useCreatePostCommentMutation,
   useDeletePostCommentMutation,
+
+  // gallery
+  useListPhotosQuery,
+  useAddPhotosMutation,
+  useDeletePhotoMutation,
 } = clubsApiSlice;

@@ -43,6 +43,11 @@ import {
   createComment,
   deleteComment,
 } from "../controllers/discussionController.js";
+import {
+  listPhotos,
+  addPhotos,
+  deletePhoto,
+} from "../controllers/galleryController.js";
 
 const router = express.Router();
 
@@ -231,6 +236,11 @@ router.post("/:id/posts/:postId/react", protect, loadClub, loadMembership, react
 router.get("/:id/posts/:postId/comments", passProtect, loadClub, loadMembership, listComments);
 router.post("/:id/posts/:postId/comments", protect, loadClub, loadMembership, createComment);
 router.delete("/:id/posts/:postId/comments/:commentId", protect, loadClub, loadMembership, deleteComment);
+
+// ========== GALLERY (thư viện ảnh) ==========
+router.get("/:id/photos", passProtect, loadClub, loadMembership, listPhotos);
+router.post("/:id/photos", protect, loadClub, loadMembership, addPhotos);
+router.delete("/:id/photos/:photoId", protect, loadClub, loadMembership, deletePhoto);
 
 
 export default router;
