@@ -23,20 +23,25 @@ const getApiErrMsg = (e) =>
   e?.error ||
   (typeof e?.data === "string" ? e.data : "Có lỗi xảy ra.");
 
-export default function EventCard({ clubId, event, canManage, onChanged }) {
+export default function EventCard({ clubId, event, canManage, onChanged, onEdit }) {
   const [rsvp, { isLoading: rsvping }] = useRsvpEventMutation();
   const [del, { isLoading: deleting }] = useDeleteEventMutation();
 
-  const goingCount = event?.stats?.going || 0;
+  const goingCount = event?.attendeesCount ?? event?.stats?.going ?? 0;
   const capacity = event?.capacity || 0;
+  const myStatus = event?.myStatus || "none";
+  const startAt = event?.startAt || event?.startTime;
+  const endAt = event?.endAt || event?.endTime;
 
   const handleRsvp = async (status) => {
+    // bấm lại chính trạng thái hiện tại -> huỷ (none)
+    const next = myStatus === status ? "none" : status;
     try {
-      await rsvp({ id: clubId, eventId: event._id, status }).unwrap();
+      await rsvp({ id: clubId, eventId: event._id, status: next }).unwrap();
       toast.success(
-        status === "going"
+        next === "going"
           ? "Đã RSVP tham gia"
-          : status === "not_going"
+          : next === "not_going"
             ? "Đã chọn không tham gia"
             : "Đã huỷ RSVP",
       );
@@ -61,11 +66,12 @@ export default function EventCard({ clubId, event, canManage, onChanged }) {
     <Card variant="outlined" sx={{ borderRadius: 3 }}>
       <CardHeader
         title={event.title}
-        subheader={`${fmt(event.startTime)} – ${fmt(event.endTime)} • ${event.location || "—"}`}
+        subheader={`${fmt(startAt)} – ${fmt(endAt)} • ${event.location || "—"}`}
         action={
-          capacity ? (
-            <Chip size="small" label={`${goingCount}/${capacity}`} />
-          ) : null
+          <Chip
+            size="small"
+            label={capacity ? `${goingCount}/${capacity}` : `${goingCount} tham gia`}
+          />
         }
       />
       <CardContent>
@@ -73,29 +79,25 @@ export default function EventCard({ clubId, event, canManage, onChanged }) {
           {event.description || "—"}
         </Typography>
 
-        <Stack direction="row" spacing={1} flexWrap="wrap">
-          {/* RSVP */}
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+          {/* RSVP — highlight trạng thái hiện tại của tôi */}
           <Button
             size="small"
-            variant="contained"
+            variant={myStatus === "going" ? "contained" : "outlined"}
+            color="success"
             disabled={rsvping}
             onClick={() => handleRsvp("going")}
           >
-            Tham gia
+            {myStatus === "going" ? "Sẽ tham gia ✓" : "Tham gia"}
           </Button>
           <Button
             size="small"
+            variant={myStatus === "not_going" ? "contained" : "outlined"}
+            color="inherit"
             disabled={rsvping}
             onClick={() => handleRsvp("not_going")}
           >
             Không tham gia
-          </Button>
-          <Button
-            size="small"
-            disabled={rsvping}
-            onClick={() => handleRsvp("none")}
-          >
-            Huỷ RSVP
           </Button>
 
           {/* ICS */}
@@ -108,14 +110,19 @@ export default function EventCard({ clubId, event, canManage, onChanged }) {
           </Button>
 
           {canManage && (
-            <Button
-              size="small"
-              color="error"
-              disabled={deleting}
-              onClick={handleDelete}
-            >
-              Xoá
-            </Button>
+            <>
+              <Button size="small" onClick={() => onEdit?.(event)}>
+                Sửa
+              </Button>
+              <Button
+                size="small"
+                color="error"
+                disabled={deleting}
+                onClick={handleDelete}
+              >
+                Xoá
+              </Button>
+            </>
           )}
         </Stack>
       </CardContent>

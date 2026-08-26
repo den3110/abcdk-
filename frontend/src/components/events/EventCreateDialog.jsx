@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -15,14 +15,18 @@ import { DateTimePicker } from "@mui/x-date-pickers/DateTimePicker";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import dayjs from "dayjs";
 import { toast } from "react-toastify";
-import { useCreateEventMutation } from "../../slices/clubsApiSlice";
+import {
+  useCreateEventMutation,
+  useUpdateEventMutation,
+} from "../../slices/clubsApiSlice";
 
 const getApiErrMsg = (e) =>
   e?.data?.message ||
   e?.error ||
   (typeof e?.data === "string" ? e.data : "Có lỗi xảy ra.");
 
-export default function EventCreateDialog({ open, onClose, clubId }) {
+export default function EventCreateDialog({ open, onClose, clubId, initial }) {
+  const isEdit = !!initial?._id;
   // Lưu dayjs object để thao tác tiện
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -35,7 +39,30 @@ export default function EventCreateDialog({ open, onClose, clubId }) {
   const [start, setStart] = useState(defaultStart);
   const [end, setEnd] = useState(defaultEnd);
 
-  const [createEvent, { isLoading }] = useCreateEventMutation();
+  const [createEvent, { isLoading: creating }] = useCreateEventMutation();
+  const [updateEvent, { isLoading: updating }] = useUpdateEventMutation();
+  const isLoading = creating || updating;
+
+  // Nạp dữ liệu khi mở dialog ở chế độ sửa
+  useEffect(() => {
+    if (!open) return;
+    if (initial?._id) {
+      setTitle(initial.title || "");
+      setDescription(initial.description || "");
+      setLocation(initial.location || "");
+      setCapacity(initial.capacity || 0);
+      setStart(dayjs(initial.startAt || initial.startTime));
+      setEnd(dayjs(initial.endAt || initial.endTime));
+    } else {
+      setTitle("");
+      setDescription("");
+      setLocation("");
+      setCapacity(0);
+      setStart(defaultStart);
+      setEnd(defaultEnd);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initial?._id]);
 
   // validate
   const errors = useMemo(() => {
@@ -66,30 +93,26 @@ export default function EventCreateDialog({ open, onClose, clubId }) {
 
     const startIso = start.toDate().toISOString();
     const endIso = end.toDate().toISOString();
+    const cap = Number.isFinite(+capacity) ? +capacity : 0;
+    const body = {
+      title: title.trim(),
+      description: description.trim(),
+      location: location.trim(),
+      capacity: cap,
+      rsvp: cap > 0 ? "limit" : "open",
+      startAt: startIso,
+      endAt: endIso,
+    };
 
     try {
-      // Gửi cả startTime/endTime và startAt/endAt để tương thích backend
-      await createEvent({
-        id: clubId,
-        title: title.trim(),
-        description: description.trim(),
-        location: location.trim(),
-        capacity: Number.isFinite(+capacity) ? +capacity : 0,
-        startTime: startIso,
-        endTime: endIso,
-        startAt: startIso,
-        endAt: endIso,
-      }).unwrap();
-
-      toast.success("Đã tạo sự kiện");
+      if (isEdit) {
+        await updateEvent({ id: clubId, eventId: initial._id, ...body }).unwrap();
+        toast.success("Đã cập nhật sự kiện");
+      } else {
+        await createEvent({ id: clubId, ...body }).unwrap();
+        toast.success("Đã tạo sự kiện");
+      }
       onClose?.(true);
-      // reset nếu muốn
-      setTitle("");
-      setDescription("");
-      setLocation("");
-      setCapacity(0);
-      setStart(defaultStart);
-      setEnd(defaultEnd);
     } catch (e) {
       toast.error(getApiErrMsg(e));
     }
@@ -111,7 +134,7 @@ export default function EventCreateDialog({ open, onClose, clubId }) {
       maxWidth="sm"
       fullWidth
     >
-      <DialogTitle>Tạo sự kiện</DialogTitle>
+      <DialogTitle>{isEdit ? "Sửa sự kiện" : "Tạo sự kiện"}</DialogTitle>
       <DialogContent dividers>
         <LocalizationProvider dateAdapter={AdapterDayjs}>
           <Stack spacing={2} sx={{ mt: 1 }}>
@@ -191,7 +214,7 @@ export default function EventCreateDialog({ open, onClose, clubId }) {
           disabled={isLoading || hasErrors}
           onClick={submit}
         >
-          Tạo
+          {isEdit ? "Lưu" : "Tạo"}
         </Button>
       </DialogActions>
     </Dialog>

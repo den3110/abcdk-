@@ -52,6 +52,7 @@ export default function ClubEventsSection({ club, canManage }) {
   const loading = isLoading || isFetching;
   const items = useMemo(() => data?.items || [], [data]);
   const [openCreate, setOpenCreate] = useState(false);
+  const [editEvent, setEditEvent] = useState(null);
 
   return (
     <Stack spacing={2}>
@@ -84,6 +85,7 @@ export default function ClubEventsSection({ club, canManage }) {
                   event={ev}
                   canManage={canManage}
                   onChanged={refetch}
+                  onEdit={setEditEvent}
                 />
               </Grid>
             ))}
@@ -99,6 +101,16 @@ export default function ClubEventsSection({ club, canManage }) {
         open={openCreate}
         onClose={(ok) => {
           setOpenCreate(false);
+          if (ok) refetch();
+        }}
+        clubId={clubId}
+      />
+
+      <EventCreateDialog
+        open={!!editEvent}
+        initial={editEvent}
+        onClose={(ok) => {
+          setEditEvent(null);
           if (ok) refetch();
         }}
         clubId={clubId}

@@ -37,6 +37,7 @@ export default function ClubAnnouncements({ club, canManage }) {
   // ✨ NEW: tiêu đề + nội dung
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [editId, setEditId] = useState(null);
 
   const items = (data?.items || [])
     .slice()
@@ -56,19 +57,41 @@ export default function ClubAnnouncements({ club, canManage }) {
       title.trim() || content.trim().split("\n")[0].slice(0, 80) || "Thông báo";
 
     try {
-      await createA({
-        id: clubId,
-        title: autoTitle,
-        content: content.trim(),
-      }).unwrap();
+      if (editId) {
+        await updateA({
+          id: clubId,
+          postId: editId,
+          title: autoTitle,
+          content: content.trim(),
+        }).unwrap();
+        toast.success("Đã cập nhật thông báo");
+      } else {
+        await createA({
+          id: clubId,
+          title: autoTitle,
+          content: content.trim(),
+        }).unwrap();
+        toast.success("Đã đăng thông báo");
+      }
 
       setTitle("");
       setContent("");
-      toast.success("Đã đăng thông báo");
+      setEditId(null);
       refetch();
     } catch (e) {
       toast.error(getApiErrMsg(e));
     }
+  };
+
+  const startEdit = (post) => {
+    setEditId(post._id);
+    setTitle(post.title || "");
+    setContent(post.content || "");
+  };
+  const cancelEdit = () => {
+    setEditId(null);
+    setTitle("");
+    setContent("");
   };
 
   const togglePin = async (post) => {
@@ -123,8 +146,11 @@ export default function ClubAnnouncements({ club, canManage }) {
                   disabled={creating}
                   onClick={submit}
                 >
-                  Đăng
+                  {editId ? "Lưu thay đổi" : "Đăng"}
                 </Button>
+                {editId && (
+                  <Button onClick={cancelEdit}>Huỷ</Button>
+                )}
               </Stack>
             </Stack>
           </CardContent>
@@ -154,6 +180,9 @@ export default function ClubAnnouncements({ club, canManage }) {
               <Stack direction="row" spacing={1}>
                 <Button size="small" onClick={() => togglePin(p)}>
                   {p.pinned ? "Bỏ ghim" : "Ghim bài"}
+                </Button>
+                <Button size="small" onClick={() => startEdit(p)}>
+                  Sửa
                 </Button>
                 <Button size="small" color="error" onClick={() => remove(p)}>
                   Xoá
