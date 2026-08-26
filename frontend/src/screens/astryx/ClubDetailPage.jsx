@@ -115,6 +115,12 @@ import {
   useUpdateTransactionMutation,
   useDeleteTransactionMutation,
   useLazyExportFinanceCsvQuery,
+  useGetDuesConfigQuery,
+  useSetDuesConfigMutation,
+  useGetDuesPeriodQuery,
+  useGetMyDuesQuery,
+  usePayDuesMutation,
+  useUnpayDuesMutation,
 } from "../../slices/clubsApiSlice.js";
 
 /* ------------------------------ tokens ------------------------------ */
@@ -1742,7 +1748,7 @@ function StatCard({ label, value, color, icon }) {
   );
 }
 
-function FinanceTab({ club, my }) {
+function BookView({ club, my }) {
   const id = club._id;
   const isMember = !!my?.isMember;
   const canManage = !!my?.canManage;
@@ -2021,6 +2027,238 @@ function FinanceTab({ club, my }) {
           </div>
         </Card>
       )}
+    </div>
+  );
+}
+
+/* -------------------------------- DUES -------------------------------- */
+function duesPeriodKey(date, period) {
+  const y = date.getFullYear();
+  if (period === "yearly") return `${y}`;
+  if (period === "quarterly") return `${y}-Q${Math.floor(date.getMonth() / 3) + 1}`;
+  return `${y}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+function duesPeriodLabel(date, period) {
+  const y = date.getFullYear();
+  if (period === "yearly") return `Năm ${y}`;
+  if (period === "quarterly") return `Quý ${Math.floor(date.getMonth() / 3) + 1}/${y}`;
+  return `Tháng ${String(date.getMonth() + 1).padStart(2, "0")}/${y}`;
+}
+function duesStep(date, period, dir) {
+  const d = new Date(date);
+  if (period === "yearly") d.setFullYear(d.getFullYear() + dir);
+  else if (period === "quarterly") d.setMonth(d.getMonth() + dir * 3);
+  else d.setMonth(d.getMonth() + dir);
+  return d;
+}
+const PERIOD_OPTS = [
+  { k: "monthly", l: "Theo tháng" },
+  { k: "quarterly", l: "Theo quý" },
+  { k: "yearly", l: "Theo năm" },
+];
+
+function DuesConfigCard({ club, cfg }) {
+  const id = club._id;
+  const [setCfg, { isLoading }] = useSetDuesConfigMutation();
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState(String(cfg?.amount || ""));
+  const [period, setPeriod] = useState(cfg?.period || "monthly");
+  const [active, setActive] = useState(!!cfg?.active);
+
+  useEffect(() => {
+    setAmount(String(cfg?.amount || ""));
+    setPeriod(cfg?.period || "monthly");
+    setActive(!!cfg?.active);
+  }, [cfg?.amount, cfg?.period, cfg?.active]);
+
+  const save = async () => {
+    try {
+      await setCfg({ id, amount: Number(String(amount).replace(/[^\d]/g, "")) || 0, period, active }).unwrap();
+      toast.success("Đã lưu cấu hình phí.");
+      setOpen(false);
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+
+  return (
+    <Card style={{ padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ color: C.body2, fontSize: 13.5 }}>
+          {cfg?.active
+            ? <>Phí: <b style={{ color: C.head }}>{fmtVnd(cfg.amount)}</b> / {PERIOD_OPTS.find((p) => p.k === cfg.period)?.l.replace("Theo ", "")}</>
+            : "Chưa bật thu phí hội viên"}
+        </div>
+        <Btn variant="ghost" size="sm" onClick={() => setOpen((v) => !v)}>{open ? "Đóng" : "Cấu hình"}</Btn>
+      </div>
+      {open && (
+        <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Mức phí (₫)</label>
+              <input style={fieldStyle} inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} />
+            </div>
+            <div>
+              <label style={labelStyle}>Chu kỳ</label>
+              <select style={fieldStyle} value={period} onChange={(e) => setPeriod(e.target.value)}>
+                {PERIOD_OPTS.map((p) => <option key={p.k} value={p.k}>{p.l}</option>)}
+              </select>
+            </div>
+          </div>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8, color: C.body2, fontSize: 13.5, cursor: "pointer" }}>
+            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Bật thu phí hội viên
+          </label>
+          <div><Btn variant="primary" size="sm" onClick={save} disabled={isLoading}>Lưu</Btn></div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function DuesView({ club, my }) {
+  const id = club._id;
+  const canManage = !!my?.canManage;
+  const { data: cfg } = useGetDuesConfigQuery({ id });
+  const period = cfg?.period || "monthly";
+  const [cursor, setCursor] = useState(new Date());
+  const key = duesPeriodKey(cursor, period);
+
+  const { data: periodData, isLoading } = useGetDuesPeriodQuery({ id, key }, { skip: !canManage });
+  const { data: mine } = useGetMyDuesQuery({ id }, { skip: canManage });
+  const [payDues] = usePayDuesMutation();
+  const [unpayDues] = useUnpayDuesMutation();
+
+  const items = periodData?.items || [];
+  const s = periodData?.summary;
+
+  const doPay = async (u) => {
+    try {
+      await payDues({ id, member: u._id, periodKey: key, amount: cfg?.amount || 0, method: "cash" }).unwrap();
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+  const doUnpay = async (u) => {
+    try {
+      await unpayDues({ id, member: u._id, periodKey: key }).unwrap();
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+
+  const nav = (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14 }}>
+      <Btn variant="ghost" size="sm" onClick={() => setCursor((c) => duesStep(c, period, -1))}>‹</Btn>
+      <span style={{ color: C.head, fontWeight: 700, fontSize: 14.5, minWidth: 130, textAlign: "center" }}>{duesPeriodLabel(cursor, period)}</span>
+      <Btn variant="ghost" size="sm" onClick={() => setCursor((c) => duesStep(c, period, 1))}>›</Btn>
+    </div>
+  );
+
+  if (!canManage) {
+    // Member tự xem
+    const paidKeys = new Set((mine?.payments || []).map((p) => p.periodKey));
+    const myPaid = paidKeys.has(key);
+    return (
+      <div style={{ display: "grid", gap: 14 }}>
+        <Card style={{ padding: 16 }}>
+          <div style={{ color: C.body2, fontSize: 13.5 }}>
+            {cfg?.active ? <>Phí hội viên: <b style={{ color: C.head }}>{fmtVnd(cfg.amount)}</b> / {PERIOD_OPTS.find((p) => p.k === cfg.period)?.l.replace("Theo ", "")}</> : "CLB chưa thu phí hội viên."}
+          </div>
+        </Card>
+        {cfg?.active && (
+          <>
+            {nav}
+            <Card style={{ padding: 18, textAlign: "center" }}>
+              {myPaid ? (
+                <div style={{ color: "#7CC7A2", fontWeight: 700 }}>✓ Bạn đã đóng phí {duesPeriodLabel(cursor, period)}</div>
+              ) : (
+                <div style={{ color: "#F1948A", fontWeight: 700 }}>Bạn chưa đóng phí {duesPeriodLabel(cursor, period)}</div>
+              )}
+            </Card>
+            <div style={{ color: C.head, fontWeight: 700, fontSize: 14, marginTop: 4 }}>Lịch sử đóng phí</div>
+            {(mine?.payments || []).length === 0 ? (
+              <div style={{ color: C.muted, fontSize: 13 }}>Chưa có.</div>
+            ) : (
+              <Card style={{ padding: 0, overflow: "hidden" }}>
+                {(mine?.payments || []).map((p, i) => (
+                  <div key={p._id} style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+                    <span style={{ color: C.body2, fontSize: 13.5 }}>{p.periodKey}</span>
+                    <span style={{ color: "#7CC7A2", fontWeight: 700, fontSize: 13.5 }}>{fmtVnd(p.amount)}</span>
+                  </div>
+                ))}
+              </Card>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <DuesConfigCard club={club} cfg={cfg} />
+      {!cfg?.active ? (
+        <SectionEmpty icon={<Wallet size={40} />} title="Chưa bật thu phí hội viên" hint="Bấm Cấu hình để đặt mức phí và bật thu." />
+      ) : (
+        <>
+          {nav}
+          {s && (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <StatCard label="Đã đóng" value={`${s.paidCount}/${s.memberCount}`} color="#7CC7A2" icon={<Check size={13} />} />
+              <StatCard label="Còn nợ" value={`${s.unpaidCount}`} color="#F1948A" icon={<XIcon size={13} />} />
+              <StatCard label="Thu được" value={fmtVnd(s.total)} color={C.head2} icon={<Wallet size={13} />} />
+            </div>
+          )}
+          {isLoading ? (
+            <Card style={{ padding: 16 }}><Skeleton width="60%" height="16px" /></Card>
+          ) : (
+            <Card style={{ padding: 0, overflow: "hidden" }}>
+              {items.map((it, i) => (
+                <div key={it.user._id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+                  <Avatar size="small" src={it.user.avatar || undefined} name={it.user.fullName || "?"} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: C.head, fontWeight: 650, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {it.user.nickname || it.user.fullName || "Người dùng"}
+                    </div>
+                    {it.paid && it.payment && (
+                      <div style={{ color: C.muted, fontSize: 11.5 }}>{fmtVnd(it.payment.amount)} · {fmtDate(it.payment.paidAt)}</div>
+                    )}
+                  </div>
+                  {it.paid ? (
+                    <Btn variant="success" size="sm" onClick={() => doUnpay(it.user)}>✓ Đã đóng</Btn>
+                  ) : (
+                    <Btn variant="ghost" size="sm" onClick={() => doPay(it.user)}>Đánh dấu đóng</Btn>
+                  )}
+                </div>
+              ))}
+              {items.length === 0 && (
+                <div style={{ padding: 16, color: C.muted, fontSize: 13 }}>Chưa có thành viên.</div>
+              )}
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function FinanceTab({ club, my }) {
+  const [view, setView] = useState("book");
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        {[{ k: "book", l: "Sổ quỹ" }, { k: "dues", l: "Phí hội viên" }].map((v) => (
+          <button
+            key={v.k}
+            type="button"
+            onClick={() => setView(v.k)}
+            style={{ all: "unset", cursor: "pointer", flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 10, fontWeight: 700, fontSize: 13.5, color: view === v.k ? "#fff" : C.body2, background: view === v.k ? C.brand : "rgba(255,255,255,.06)", border: `1px solid ${view === v.k ? "transparent" : "rgba(255,255,255,.12)"}` }}
+          >
+            {v.l}
+          </button>
+        ))}
+      </div>
+      {view === "book" ? <BookView club={club} my={my} /> : <DuesView club={club} my={my} />}
     </div>
   );
 }

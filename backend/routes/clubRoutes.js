@@ -56,6 +56,14 @@ import {
   deleteTransaction,
   exportTransactionsCsv,
 } from "../controllers/financeController.js";
+import {
+  getDuesConfig,
+  setDuesConfig,
+  getPeriodStatus,
+  payDues,
+  unpayDues,
+  getMyDues,
+} from "../controllers/duesController.js";
 
 const router = express.Router();
 
@@ -258,6 +266,14 @@ router.get("/:id/finance/transactions", protect, loadClub, loadMembership, listT
 router.post("/:id/finance/transactions", protect, loadClub, loadMembership, requireAdmin, createTransaction);
 router.patch("/:id/finance/transactions/:txId", protect, loadClub, loadMembership, requireAdmin, updateTransaction);
 router.delete("/:id/finance/transactions/:txId", protect, loadClub, loadMembership, requireAdmin, deleteTransaction);
+
+// ========== DUES (phí hội viên định kỳ) ==========
+router.get("/:id/dues/config", protect, loadClub, loadMembership, getDuesConfig);
+router.put("/:id/dues/config", protect, loadClub, loadMembership, requireAdmin, setDuesConfig);
+router.get("/:id/dues/my", protect, loadClub, loadMembership, getMyDues);
+router.get("/:id/dues/period", protect, loadClub, loadMembership, requireAdmin, getPeriodStatus);
+router.post("/:id/dues/pay", protect, loadClub, loadMembership, requireAdmin, payDues);
+router.delete("/:id/dues/pay", protect, loadClub, loadMembership, requireAdmin, unpayDues);
 
 
 export default router;

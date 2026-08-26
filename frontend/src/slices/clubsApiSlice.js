@@ -419,6 +419,50 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         };
       },
     }),
+
+    // DUES (phí hội viên)
+    getDuesConfig: builder.query({
+      query: ({ id }) => ({ url: `/api/clubs/${id}/dues/config` }),
+      providesTags: (res, err, { id }) => [{ type: "ClubDues", id }],
+    }),
+    setDuesConfig: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/dues/config`,
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubDues", id }],
+    }),
+    getDuesPeriod: builder.query({
+      query: ({ id, key }) => ({ url: `/api/clubs/${id}/dues/period?key=${encodeURIComponent(key)}` }),
+      providesTags: (res, err, { id }) => [{ type: "ClubDues", id }],
+    }),
+    getMyDues: builder.query({
+      query: ({ id }) => ({ url: `/api/clubs/${id}/dues/my` }),
+      providesTags: (res, err, { id }) => [{ type: "ClubDues", id }],
+    }),
+    payDues: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/dues/pay`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [
+        { type: "ClubDues", id },
+        { type: "ClubFinance", id },
+      ],
+    }),
+    unpayDues: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/dues/pay`,
+        method: "DELETE",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [
+        { type: "ClubDues", id },
+        { type: "ClubFinance", id },
+      ],
+    }),
   }),
   overrideExisting: false,
 });
@@ -484,4 +528,12 @@ export const {
   useUpdateTransactionMutation,
   useDeleteTransactionMutation,
   useLazyExportFinanceCsvQuery,
+
+  // dues
+  useGetDuesConfigQuery,
+  useSetDuesConfigMutation,
+  useGetDuesPeriodQuery,
+  useGetMyDuesQuery,
+  usePayDuesMutation,
+  useUnpayDuesMutation,
 } = clubsApiSlice;
