@@ -48,6 +48,14 @@ import {
   addPhotos,
   deletePhoto,
 } from "../controllers/galleryController.js";
+import {
+  listTransactions,
+  financeSummary,
+  createTransaction,
+  updateTransaction,
+  deleteTransaction,
+  exportTransactionsCsv,
+} from "../controllers/financeController.js";
 
 const router = express.Router();
 
@@ -241,6 +249,15 @@ router.delete("/:id/posts/:postId/comments/:commentId", protect, loadClub, loadM
 router.get("/:id/photos", passProtect, loadClub, loadMembership, listPhotos);
 router.post("/:id/photos", protect, loadClub, loadMembership, addPhotos);
 router.delete("/:id/photos/:photoId", protect, loadClub, loadMembership, deletePhoto);
+
+// ========== FINANCE (quỹ thu/chi) ==========
+// Xem: thành viên (check trong controller). Quản lý: admin/owner (requireAdmin).
+router.get("/:id/finance/summary", protect, loadClub, loadMembership, financeSummary);
+router.get("/:id/finance/export.csv", protect, loadClub, loadMembership, exportTransactionsCsv);
+router.get("/:id/finance/transactions", protect, loadClub, loadMembership, listTransactions);
+router.post("/:id/finance/transactions", protect, loadClub, loadMembership, requireAdmin, createTransaction);
+router.patch("/:id/finance/transactions/:txId", protect, loadClub, loadMembership, requireAdmin, updateTransaction);
+router.delete("/:id/finance/transactions/:txId", protect, loadClub, loadMembership, requireAdmin, deleteTransaction);
 
 
 export default router;

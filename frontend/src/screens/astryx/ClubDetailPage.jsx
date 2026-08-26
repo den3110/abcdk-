@@ -54,6 +54,11 @@ import {
   Share2,
   X as XIcon,
   Images,
+  Wallet,
+  ArrowUpRight,
+  ArrowDownRight,
+  Download,
+  Plus as PlusIcon,
 } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
@@ -104,6 +109,12 @@ import {
   useListPhotosQuery,
   useAddPhotosMutation,
   useDeletePhotoMutation,
+  useListTransactionsQuery,
+  useFinanceSummaryQuery,
+  useCreateTransactionMutation,
+  useUpdateTransactionMutation,
+  useDeleteTransactionMutation,
+  useLazyExportFinanceCsvQuery,
 } from "../../slices/clubsApiSlice.js";
 
 /* ------------------------------ tokens ------------------------------ */
@@ -126,6 +137,19 @@ const Container = ({ children, style }) => (
 );
 
 const fmtInt = (n) => Number(n || 0).toLocaleString("vi-VN");
+const fmtVnd = (n) => `${Number(n || 0).toLocaleString("vi-VN")} ₫`;
+const INCOME_CATS = ["Phí thành viên", "Tài trợ", "Bán đồ", "Ủng hộ", "Khác"];
+const EXPENSE_CATS = ["Thuê sân", "Mua bóng", "Mua dụng cụ", "Giải thưởng", "Ăn uống", "Di chuyển", "Sự kiện", "Khác"];
+const METHOD_LABELS = { cash: "Tiền mặt", bank: "Ngân hàng", transfer: "Chuyển khoản", momo: "MoMo", other: "Khác" };
+const toDateInput = (d) => {
+  try {
+    const dt = new Date(d);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+  } catch {
+    return "";
+  }
+};
 const placeOf = (c) =>
   String(c?.locationText || [c?.city, c?.province].filter(Boolean).join(", ") || "").trim();
 const getApiErrMsg = (err) =>
@@ -1706,6 +1730,301 @@ function GalleryTab({ club, my }) {
   );
 }
 
+/* =============================== FINANCE =============================== */
+function StatCard({ label, value, color, icon }) {
+  return (
+    <div style={{ flex: 1, minWidth: 150, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, color: C.muted, fontSize: 12.5, fontWeight: 600 }}>
+        {icon} {label}
+      </div>
+      <div style={{ color: color || C.head, fontSize: 22, fontWeight: 800, marginTop: 6, letterSpacing: "-0.02em" }}>{value}</div>
+    </div>
+  );
+}
+
+function FinanceTab({ club, my }) {
+  const id = club._id;
+  const isMember = !!my?.isMember;
+  const canManage = !!my?.canManage;
+  const [filterType, setFilterType] = useState("");
+
+  const { data: sum } = useFinanceSummaryQuery({ id }, { skip: !isMember });
+  const { data: txData, isLoading } = useListTransactionsQuery(
+    { id, limit: 100, type: filterType || undefined },
+    { skip: !isMember }
+  );
+  const [createTx, { isLoading: creating }] = useCreateTransactionMutation();
+  const [updateTx, { isLoading: updating }] = useUpdateTransactionMutation();
+  const [deleteTx] = useDeleteTransactionMutation();
+  const [triggerExport, { isFetching: exporting }] = useLazyExportFinanceCsvQuery();
+
+  const emptyForm = { type: "income", amount: "", category: "", description: "", occurredAt: toDateInput(new Date()), method: "cash" };
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+  const setF = (k, v) => setForm((s) => ({ ...s, [k]: v }));
+  const cats = form.type === "income" ? INCOME_CATS : EXPENSE_CATS;
+
+  const items = txData?.items || [];
+
+  const resetForm = () => {
+    setForm(emptyForm);
+    setEditId(null);
+    setShowForm(false);
+  };
+  const startEdit = (t) => {
+    setEditId(t._id);
+    setForm({
+      type: t.type,
+      amount: String(t.amount || ""),
+      category: t.category || "",
+      description: t.description || "",
+      occurredAt: toDateInput(t.occurredAt),
+      method: t.method || "cash",
+    });
+    setShowForm(true);
+  };
+
+  const submit = async () => {
+    const amt = Number(String(form.amount).replace(/[^\d]/g, ""));
+    if (!amt || amt <= 0) return toast.info("Nhập số tiền hợp lệ.");
+    const body = {
+      type: form.type,
+      amount: amt,
+      category: form.category.trim(),
+      description: form.description.trim(),
+      occurredAt: form.occurredAt ? new Date(form.occurredAt).toISOString() : new Date().toISOString(),
+      method: form.method,
+    };
+    try {
+      if (editId) {
+        await updateTx({ id, txId: editId, ...body }).unwrap();
+        toast.success("Đã cập nhật giao dịch.");
+      } else {
+        await createTx({ id, ...body }).unwrap();
+        toast.success("Đã ghi giao dịch.");
+      }
+      resetForm();
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+  const remove = async (t) => {
+    if (!window.confirm("Xoá giao dịch này?")) return;
+    try {
+      await deleteTx({ id, txId: t._id }).unwrap();
+      toast.success("Đã xoá.");
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+  const doExport = async () => {
+    try {
+      const blob = await triggerExport({ id, type: filterType || undefined }).unwrap();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `quy-clb-${id}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+
+  if (!isMember) {
+    return <SectionEmpty icon={<Wallet size={40} />} title="Quỹ CLB dành cho thành viên" hint="Tham gia câu lạc bộ để xem thu chi quỹ." />;
+  }
+
+  const byCat = sum?.byCategory || [];
+  const maxCat = Math.max(1, ...byCat.map((c) => c.sum));
+  const byMonth = sum?.byMonth || [];
+  const maxMonth = Math.max(1, ...byMonth.map((m) => Math.max(m.income, m.expense)));
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      {/* Tổng quan */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <StatCard label="Số dư quỹ" value={fmtVnd(sum?.balance)} color={Number(sum?.balance) < 0 ? "#F1948A" : C.head2} icon={<Wallet size={13} />} />
+        <StatCard label="Tổng thu" value={fmtVnd(sum?.totalIncome)} color="#7CC7A2" icon={<ArrowUpRight size={13} />} />
+        <StatCard label="Tổng chi" value={fmtVnd(sum?.totalExpense)} color="#F1948A" icon={<ArrowDownRight size={13} />} />
+      </div>
+
+      {/* Toolbar */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {[{ k: "", l: "Tất cả" }, { k: "income", l: "Thu" }, { k: "expense", l: "Chi" }].map((f) => (
+          <button
+            key={f.k}
+            type="button"
+            onClick={() => setFilterType(f.k)}
+            style={{ all: "unset", cursor: "pointer", padding: "6px 13px", borderRadius: 999, fontSize: 13, fontWeight: 700, color: filterType === f.k ? "#fff" : C.body2, background: filterType === f.k ? C.brand : "rgba(255,255,255,.06)", border: `1px solid ${filterType === f.k ? "transparent" : "rgba(255,255,255,.12)"}` }}
+          >
+            {f.l}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <Btn variant="ghost" size="sm" onClick={doExport} disabled={exporting}>
+          <Download size={14} /> {exporting ? "…" : "Xuất CSV"}
+        </Btn>
+        {canManage && !showForm && (
+          <Btn variant="primary" size="sm" onClick={() => { setForm(emptyForm); setEditId(null); setShowForm(true); }}>
+            <PlusIcon size={15} /> Ghi thu/chi
+          </Btn>
+        )}
+      </div>
+
+      {/* Form thêm/sửa (admin) */}
+      {canManage && showForm && (
+        <Card style={{ padding: 16 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <button type="button" onClick={() => setF("type", "income")} style={{ all: "unset", flex: 1, textAlign: "center", cursor: "pointer", padding: "9px 0", borderRadius: 10, fontWeight: 700, color: form.type === "income" ? "#fff" : C.body2, background: form.type === "income" ? "#3BA55D" : "rgba(255,255,255,.06)", border: `1px solid ${form.type === "income" ? "transparent" : "rgba(255,255,255,.12)"}` }}>
+              + Khoản thu
+            </button>
+            <button type="button" onClick={() => setF("type", "expense")} style={{ all: "unset", flex: 1, textAlign: "center", cursor: "pointer", padding: "9px 0", borderRadius: 10, fontWeight: 700, color: form.type === "expense" ? "#fff" : C.body2, background: form.type === "expense" ? "#E05353" : "rgba(255,255,255,.06)", border: `1px solid ${form.type === "expense" ? "transparent" : "rgba(255,255,255,.12)"}` }}>
+              − Khoản chi
+            </button>
+          </div>
+          <div style={{ display: "grid", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={labelStyle}>Số tiền (₫)</label>
+                <input style={fieldStyle} inputMode="numeric" value={form.amount} onChange={(e) => setF("amount", e.target.value.replace(/[^\d]/g, ""))} placeholder="VD: 200000" />
+              </div>
+              <div>
+                <label style={labelStyle}>Ngày</label>
+                <input type="date" style={fieldStyle} value={form.occurredAt} onChange={(e) => setF("occurredAt", e.target.value)} />
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                <label style={labelStyle}>Danh mục</label>
+                <input style={fieldStyle} value={form.category} onChange={(e) => setF("category", e.target.value)} placeholder="Chọn hoặc nhập…" list="fin-cats" />
+                <datalist id="fin-cats">
+                  {cats.map((c) => (
+                    <option key={c} value={c} />
+                  ))}
+                </datalist>
+              </div>
+              <div>
+                <label style={labelStyle}>Phương thức</label>
+                <select style={fieldStyle} value={form.method} onChange={(e) => setF("method", e.target.value)}>
+                  {Object.entries(METHOD_LABELS).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {cats.map((c) => (
+                <button key={c} type="button" onClick={() => setF("category", c)} style={{ ...chip, cursor: "pointer", background: form.category === c ? "rgba(61,135,255,.18)" : "rgba(255,255,255,.06)", borderColor: form.category === c ? C.brand : "rgba(255,255,255,.08)" }}>
+                  {c}
+                </button>
+              ))}
+            </div>
+            <div>
+              <label style={labelStyle}>Mô tả</label>
+              <textarea style={{ ...fieldStyle, minHeight: 54, resize: "vertical" }} value={form.description} onChange={(e) => setF("description", e.target.value)} placeholder="Ghi chú…" />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="primary" size="sm" onClick={submit} disabled={creating || updating}>{editId ? "Lưu" : "Ghi"}</Btn>
+              <Btn variant="ghost" size="sm" onClick={resetForm}>Huỷ</Btn>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Danh sách giao dịch */}
+      {isLoading ? (
+        <Card style={{ padding: 16 }}>
+          <Skeleton width="60%" height="16px" />
+        </Card>
+      ) : items.length === 0 ? (
+        <SectionEmpty icon={<Wallet size={40} />} title="Chưa có giao dịch nào" hint={canManage ? "Ghi khoản thu/chi đầu tiên." : undefined} />
+      ) : (
+        <Card style={{ padding: 0, overflow: "hidden" }}>
+          {items.map((t, i) => {
+            const inc = t.type === "income";
+            return (
+              <div key={t._id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+                <div style={{ width: 34, height: 34, borderRadius: 999, flexShrink: 0, display: "grid", placeItems: "center", background: inc ? "rgba(59,165,93,.14)" : "rgba(224,83,83,.14)", color: inc ? "#7CC7A2" : "#F1948A" }}>
+                  {inc ? <ArrowUpRight size={17} /> : <ArrowDownRight size={17} />}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span style={{ color: C.head, fontWeight: 700, fontSize: 14 }}>{t.category || "Khác"}</span>
+                    <span style={{ ...chip, fontSize: 10.5, padding: "1px 7px" }}>{METHOD_LABELS[t.method] || t.method}</span>
+                  </div>
+                  <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
+                    {fmtDate(t.occurredAt)}
+                    {t.description ? ` · ${t.description}` : ""}
+                  </div>
+                </div>
+                <div style={{ color: inc ? "#7CC7A2" : "#F1948A", fontWeight: 800, fontSize: 14.5, whiteSpace: "nowrap" }}>
+                  {inc ? "+" : "−"}{fmtVnd(t.amount)}
+                </div>
+                {canManage && (
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    <Btn variant="ghost" size="sm" onClick={() => startEdit(t)} title="Sửa"><Pencil size={14} /></Btn>
+                    <Btn variant="danger" size="sm" onClick={() => remove(t)} title="Xoá"><Trash2 size={14} /></Btn>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </Card>
+      )}
+
+      {/* Báo cáo */}
+      {byCat.length > 0 && (
+        <Card style={{ padding: 16 }}>
+          <div style={{ color: C.head, fontWeight: 720, fontSize: 15, marginBottom: 12 }}>Theo danh mục</div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {byCat.slice(0, 10).map((c, i) => {
+              const inc = c.type === "income";
+              return (
+                <div key={i}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 3 }}>
+                    <span style={{ color: C.body2 }}>
+                      <span style={{ color: inc ? "#7CC7A2" : "#F1948A" }}>{inc ? "Thu" : "Chi"}</span> · {c.category}
+                    </span>
+                    <span style={{ color: C.body2, fontWeight: 700 }}>{fmtVnd(c.sum)}</span>
+                  </div>
+                  <div style={{ height: 7, borderRadius: 999, background: "rgba(255,255,255,.06)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${(c.sum / maxCat) * 100}%`, background: inc ? "#3BA55D" : "#E05353" }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {byMonth.length > 0 && (
+        <Card style={{ padding: 16 }}>
+          <div style={{ color: C.head, fontWeight: 720, fontSize: 15, marginBottom: 12 }}>Theo tháng</div>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", overflowX: "auto", paddingBottom: 4 }}>
+            {byMonth.map((m) => (
+              <div key={m.month} style={{ textAlign: "center", minWidth: 44 }}>
+                <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 80, justifyContent: "center" }}>
+                  <div title={`Thu ${fmtVnd(m.income)}`} style={{ width: 10, borderRadius: 4, background: "#3BA55D", height: `${Math.max(2, (m.income / maxMonth) * 80)}px` }} />
+                  <div title={`Chi ${fmtVnd(m.expense)}`} style={{ width: 10, borderRadius: 4, background: "#E05353", height: `${Math.max(2, (m.expense / maxMonth) * 80)}px` }} />
+                </div>
+                <div style={{ color: C.muted, fontSize: 10.5, marginTop: 5 }}>{m.month.slice(5)}/{m.month.slice(2, 4)}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 12, color: C.muted }}>
+            <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: "#3BA55D", marginRight: 5 }} />Thu</span>
+            <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: "#E05353", marginRight: 5 }} />Chi</span>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 /* =============================== MEMBERS =============================== */
 const roleBadge = (role) => {
   if (role === "owner") return { label: "Chủ CLB", color: "#F0C24B", bg: "rgba(240,194,75,.10)", bd: "rgba(240,194,75,.3)", icon: <Star size={11} /> };
@@ -1982,6 +2301,7 @@ const TABS = [
   { key: "events", label: "Sự kiện", icon: CalendarDays },
   { key: "polls", label: "Bình chọn", icon: BarChart3 },
   { key: "gallery", label: "Ảnh", icon: Images },
+  { key: "finance", label: "Quỹ", icon: Wallet },
   { key: "members", label: "Thành viên", icon: Users },
 ];
 
@@ -2150,6 +2470,7 @@ export default function ClubDetailPageAstryx() {
                   {tab === "events" && <EventsTab club={club} canManage={canManage} />}
                   {tab === "polls" && <PollsTab club={club} canManage={canManage} />}
                   {tab === "gallery" && <GalleryTab club={club} my={my} />}
+                  {tab === "finance" && <FinanceTab club={club} my={my} />}
                   {tab === "members" && (
                     <MembersTab club={club} canSeeMembers={canSeeMembers} guardMsg={memberGuardMessage(club)} />
                   )}

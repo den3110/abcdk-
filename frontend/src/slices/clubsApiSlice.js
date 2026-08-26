@@ -359,6 +359,66 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (res, err, { id }) => [{ type: "ClubPhoto", id }],
     }),
+
+    // FINANCE (quỹ thu/chi)
+    listTransactions: builder.query({
+      query: ({ id, page = 1, limit = 30, type, category, from, to, member }) => {
+        const p = new URLSearchParams({ page, limit });
+        if (type) p.set("type", type);
+        if (category) p.set("category", category);
+        if (from) p.set("from", from);
+        if (to) p.set("to", to);
+        if (member) p.set("member", member);
+        return { url: `/api/clubs/${id}/finance/transactions?${p.toString()}` };
+      },
+      providesTags: (res, err, { id }) => [{ type: "ClubFinance", id }],
+    }),
+    financeSummary: builder.query({
+      query: ({ id, from, to }) => {
+        const p = new URLSearchParams();
+        if (from) p.set("from", from);
+        if (to) p.set("to", to);
+        const qs = p.toString();
+        return { url: `/api/clubs/${id}/finance/summary${qs ? `?${qs}` : ""}` };
+      },
+      providesTags: (res, err, { id }) => [{ type: "ClubFinance", id }],
+    }),
+    createTransaction: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/finance/transactions`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubFinance", id }],
+    }),
+    updateTransaction: builder.mutation({
+      query: ({ id, txId, ...body }) => ({
+        url: `/api/clubs/${id}/finance/transactions/${txId}`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubFinance", id }],
+    }),
+    deleteTransaction: builder.mutation({
+      query: ({ id, txId }) => ({
+        url: `/api/clubs/${id}/finance/transactions/${txId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubFinance", id }],
+    }),
+    exportFinanceCsv: builder.query({
+      query: ({ id, type, from, to }) => {
+        const p = new URLSearchParams();
+        if (type) p.set("type", type);
+        if (from) p.set("from", from);
+        if (to) p.set("to", to);
+        const qs = p.toString();
+        return {
+          url: `/api/clubs/${id}/finance/export.csv${qs ? `?${qs}` : ""}`,
+          responseHandler: (r) => r.blob(),
+        };
+      },
+    }),
   }),
   overrideExisting: false,
 });
@@ -416,4 +476,12 @@ export const {
   useListPhotosQuery,
   useAddPhotosMutation,
   useDeletePhotoMutation,
+
+  // finance
+  useListTransactionsQuery,
+  useFinanceSummaryQuery,
+  useCreateTransactionMutation,
+  useUpdateTransactionMutation,
+  useDeleteTransactionMutation,
+  useLazyExportFinanceCsvQuery,
 } = clubsApiSlice;

@@ -25,6 +25,7 @@ import ClubAnnouncements from "./news/ClubAnnouncements";
 import ClubPolls from "./polls/ClubPolls";
 import ClubDiscussion from "./discussion/ClubDiscussion";
 import ClubGallery from "./gallery/ClubGallery";
+import ClubFinance from "./finance/ClubFinance";
 import SEOHead from "./SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { useRegisterChatBotPageSnapshot } from "../context/ChatBotPageContext.jsx";
@@ -49,7 +50,7 @@ function memberGuardMessage(club, t) {
   return t("clubs.detail.memberGuardUnavailable");
 }
 
-const ALLOWED_TABS = ["news", "discussion", "events", "polls", "gallery"];
+const ALLOWED_TABS = ["news", "discussion", "events", "polls", "gallery", "finance"];
 
 export default function ClubDetailPage() {
   const { t } = useLanguage();
@@ -257,6 +258,7 @@ export default function ClubDetailPage() {
           <Tab label={t("clubs.detail.tabs.events")} value="events" />
           <Tab label={t("clubs.detail.tabs.polls")} value="polls" />
           <Tab label="Ảnh" value="gallery" />
+          <Tab label="Quỹ" value="finance" />
         </Tabs>
       </Paper>
 
@@ -321,6 +323,15 @@ export default function ClubDetailPage() {
                   Thư viện ảnh
                 </Typography>
                 <ClubGallery club={club} canManage={canManage} />
+              </>
+            )}
+
+            {tab === "finance" && (
+              <>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  Quỹ CLB
+                </Typography>
+                <ClubFinance club={club} canManage={canManage} />
               </>
             )}
           </Paper>
