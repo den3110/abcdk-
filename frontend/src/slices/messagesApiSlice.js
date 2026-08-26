@@ -31,6 +31,13 @@ export const messagesApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: [{ type: "Chat", id: "LIST" }],
     }),
+    openClubChat: builder.mutation({
+      query: (clubId) => ({
+        url: `/api/chat/conversations/club/${clubId}`,
+        method: "POST",
+      }),
+      invalidatesTags: [{ type: "Chat", id: "LIST" }],
+    }),
     getConversation: builder.query({
       query: (cid) => ({ url: `/api/chat/conversations/${cid}`, method: "GET" }),
       providesTags: (r, e, cid) => [{ type: "Chat", id: cid }],
@@ -136,6 +143,7 @@ export const {
   useListConversationsQuery,
   useOpenDmMutation,
   useOpenTournamentChatMutation,
+  useOpenClubChatMutation,
   useGetConversationQuery,
   useListMessagesQuery,
   useSendMessageMutation,

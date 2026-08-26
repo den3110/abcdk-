@@ -9,6 +9,7 @@ import ClubJoinRequest from "../models/clubJoinRequestModel.js";
 import User from "../models/userModel.js";
 import Ranking from "../models/rankingModel.js";
 import { geocodeTournamentLocation } from "../services/openaiGeocode.js";
+import { pullClubChatParticipant } from "./chatController.js";
 
 // ✅ import thẳng
 
@@ -987,6 +988,7 @@ export const kickMember = async (req, res) => {
         { _id: req.club._id },
         { $inc: { "stats.memberCount": -1 } }
       );
+      pullClubChatParticipant(req.club._id, userId);
     }
     return res.json({
       ok: true,
@@ -1043,6 +1045,7 @@ export const banMember = async (req, res) => {
       { club: req.club._id, user: userId, status: "pending" },
       { $set: { status: "rejected", decidedBy: req.user._id, decidedAt: new Date() } }
     );
+    pullClubChatParticipant(req.club._id, userId);
     return res.json({ ok: true, bannedUserId: userId });
   } catch (err) {
     console.error("banMember error:", err);
@@ -1097,6 +1100,7 @@ export const leaveClub = async (req, res) => {
     { _id: req.club._id },
     { $inc: { "stats.memberCount": -1 } }
   );
+  pullClubChatParticipant(req.club._id, req.user._id);
   res.json({ ok: true });
 };
 

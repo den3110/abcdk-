@@ -10,7 +10,7 @@
 import "@fontsource-variable/figtree";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 
@@ -71,6 +71,7 @@ import { A, Lightbox } from "./ui.jsx";
 import ClubCreateDialog from "../../components/ClubCreateDialog.jsx";
 import JoinRequestsDialog from "../../components/JoinRequestsDialog.jsx";
 import { useUploadAvatarMutation } from "../../slices/uploadApiSlice.js";
+import { useOpenClubChatMutation } from "../../slices/messagesApiSlice.js";
 import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import {
   useGetClubQuery,
@@ -361,6 +362,16 @@ const visLabel = (v) =>
 
 /* ================================ HERO ================================ */
 function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
+  const navigate = useNavigate();
+  const [openClubChat, { isLoading: openingChat }] = useOpenClubChatMutation();
+  const openChat = async () => {
+    try {
+      const conv = await openClubChat(club._id).unwrap();
+      navigate(`/messages?c=${conv._id}`);
+    } catch (e) {
+      toast.error(e?.data?.message || "Không mở được chat nhóm");
+    }
+  };
   const place = placeOf(club);
   const members = Number(club?.stats?.memberCount || 0);
   const wins = Number(club?.stats?.tournamentWins || 0);
@@ -478,6 +489,11 @@ function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
         {/* actions */}
         <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
           {joinCtl}
+          {my?.isMember && (
+            <Btn variant="primary" onClick={openChat} disabled={openingChat}>
+              <MessageCircle size={15} /> Chat nhóm
+            </Btn>
+          )}
           <Btn variant="ghost" onClick={() => shareClub(club)}>
             <Share2 size={15} /> Chia sẻ
           </Btn>

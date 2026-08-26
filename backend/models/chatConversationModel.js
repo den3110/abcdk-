@@ -1,7 +1,8 @@
 // models/chatConversationModel.js
-// Cuộc trò chuyện — hỗ trợ 2 loại:
+// Cuộc trò chuyện — hỗ trợ 3 loại:
 //   - "dm"          : 1-1 giữa 2 user thường
 //   - "tournament"  : user ↔ nhóm quản lý giải (organizer + managers)
+//   - "club"        : chat nhóm của 1 CLB (participants = thành viên active)
 import mongoose from "mongoose";
 
 const { Schema } = mongoose;
@@ -20,7 +21,7 @@ const chatConversationSchema = new Schema(
   {
     type: {
       type: String,
-      enum: ["dm", "tournament"],
+      enum: ["dm", "tournament", "club"],
       required: true,
       index: true,
     },
@@ -35,6 +36,13 @@ const chatConversationSchema = new Schema(
     tournament: {
       type: Schema.Types.ObjectId,
       ref: "Tournament",
+      default: null,
+      index: true,
+    },
+    // Với type=club: gắn CLB; participants = thành viên active của CLB.
+    club: {
+      type: Schema.Types.ObjectId,
+      ref: "Club",
       default: null,
       index: true,
     },
@@ -73,6 +81,14 @@ chatConversationSchema.index(
   {
     unique: true,
     partialFilterExpression: { type: "tournament" },
+  }
+);
+// Club chat: mỗi CLB chỉ có duy nhất 1 hội thoại nhóm.
+chatConversationSchema.index(
+  { type: 1, club: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { type: "club" },
   }
 );
 

@@ -6,6 +6,8 @@ import ChatConversation from "../models/chatConversationModel.js";
 import ChatMessage from "../models/chatMessageModel.js";
 import Tournament from "../models/tournamentModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
+import Club from "../models/clubModel.js";
+import ClubMember from "../models/clubMemberModel.js";
 import User from "../models/userModel.js";
 import { encodeCursor, decodeCursor } from "../utils/cursor.js";
 import { getIO } from "../socket/index.js";
@@ -40,7 +42,9 @@ function toConvDTO(conv, viewerId) {
     _id: c._id,
     type: c.type,
     tournament: c.tournament,
+    club: c.club,
     participants: c.participants,
+    memberCount: (c.participants || []).length,
     otherParticipants: others,
     lastMessage: c.lastMessage,
     lastMessageAt: c.lastMessageAt,
@@ -147,6 +151,25 @@ function emitToConv(convId, event, payload) {
   }
 }
 
+/* ─────────────────────── CLUB CHAT SYNC ─────────────────────── */
+
+// Gỡ 1 user khỏi participants của chat nhóm CLB (khi rời / bị kick / bị ban).
+// Fire-and-forget: lỗi ở đây không được làm hỏng luồng chính.
+export async function pullClubChatParticipant(clubId, userId) {
+  try {
+    if (!clubId || !userId) return;
+    await ChatConversation.updateOne(
+      { type: "club", club: clubId },
+      { $pull: { participants: userId } }
+    );
+  } catch (err) {
+    console.error(
+      "[chat] pullClubChatParticipant error:",
+      err?.message || err
+    );
+  }
+}
+
 /* ─────────────────────── CONVERSATIONS ─────────────────────── */
 
 // GET /api/chat/conversations
@@ -182,7 +205,8 @@ export const listConversations = asyncHandler(async (req, res) => {
     .sort({ lastMessageAt: -1, _id: -1 })
     .limit(limit + 1)
     .populate("participants", USER_FIELDS)
-    .populate("tournament", "_id name image");
+    .populate("tournament", "_id name image")
+    .populate("club", "_id name slug logoUrl");
 
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map((d) => toConvDTO(d, viewer._id));
@@ -319,12 +343,100 @@ export const openTournamentConversation = asyncHandler(async (req, res) => {
   res.json(toConvDTO(conv, viewer._id));
 });
 
+// POST /api/chat/conversations/club/:clubId
+// Mở (tạo nếu chưa có) hội thoại nhóm của 1 CLB. Chỉ thành viên active / chủ CLB.
+export const openClubConversation = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const clubId = req.params.clubId;
+  if (!mongoose.isValidObjectId(clubId)) {
+    res.status(400);
+    throw new Error("clubId không hợp lệ");
+  }
+  const club = await Club.findById(clubId).select("_id name slug logoUrl owner");
+  if (!club) {
+    res.status(404);
+    throw new Error("Không tìm thấy CLB");
+  }
+  const isOwner = String(club.owner) === String(viewer._id);
+  const myMem = await ClubMember.findOne({
+    club: clubId,
+    user: viewer._id,
+    status: "active",
+  })
+    .select("_id")
+    .lean();
+  if (!isOwner && !myMem) {
+    res.status(403);
+    throw new Error("Chỉ thành viên CLB mới vào được chat nhóm.");
+  }
+
+  let conv = await ChatConversation.findOne({ type: "club", club: clubId });
+
+  if (!conv) {
+    // participants = tất cả thành viên active + owner + viewer
+    const members = await ClubMember.find({ club: clubId, status: "active" })
+      .select("user")
+      .lean();
+    const set = new Set(members.map((m) => String(m.user)));
+    if (club.owner) set.add(String(club.owner));
+    set.add(String(viewer._id));
+    const participants = Array.from(set);
+    try {
+      conv = await ChatConversation.create({
+        type: "club",
+        club: clubId,
+        initiator: viewer._id,
+        participants,
+      });
+    } catch (e) {
+      // Đụng unique index (2 request tạo song song) → lấy bản đã có
+      if (e?.code === 11000) {
+        conv = await ChatConversation.findOne({ type: "club", club: clubId });
+      } else throw e;
+    }
+    // system message chào mừng + set preview để hiện trong hộp thư
+    const welcome = `Chào mừng đến nhóm chat CLB "${club.name}".`;
+    await ChatMessage.create({
+      conversation: conv._id,
+      sender: viewer._id,
+      content: welcome,
+      systemKind: "conversation_created",
+    });
+    conv.lastMessage = {
+      text: welcome,
+      sender: viewer._id,
+      at: new Date(),
+      hasAttachment: false,
+    };
+    conv.lastMessageAt = new Date();
+    await conv.save();
+  } else {
+    // Self-heal: đảm bảo viewer nằm trong participants (thành viên tham gia sau)
+    const inParts = (conv.participants || []).some(
+      (p) => String(p?._id || p) === String(viewer._id)
+    );
+    const updates = {};
+    if (!inParts) updates.$addToSet = { participants: viewer._id };
+    if (conv.hiddenFor?.length) updates.$pull = { hiddenFor: viewer._id };
+    if (Object.keys(updates).length) {
+      await ChatConversation.updateOne({ _id: conv._id }, updates);
+    }
+  }
+
+  conv = await ChatConversation.findById(conv._id)
+    .populate("participants", USER_FIELDS)
+    .populate("club", "_id name slug logoUrl");
+
+  res.json(toConvDTO(conv, viewer._id));
+});
+
 // GET /api/chat/conversations/:cid
 export const getConversation = asyncHandler(async (req, res) => {
   const viewer = req.user;
   const conv = await ChatConversation.findById(req.params.cid)
     .populate("participants", USER_FIELDS)
     .populate("tournament", "_id name image")
+    .populate("club", "_id name slug logoUrl")
     .populate({
       path: "pinnedMessages",
       select: "_id content attachments sender deletedAt createdAt",

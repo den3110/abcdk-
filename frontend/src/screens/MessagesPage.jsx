@@ -68,7 +68,9 @@ function ConversationRow({ conv, me, active, onSelect }) {
   const title =
     conv.type === "tournament"
       ? `BTC · ${conv.tournament?.name || "Giải đấu"}`
-      : authorName(other);
+      : conv.type === "club"
+        ? `CLB · ${conv.club?.name || "Câu lạc bộ"}`
+        : authorName(other);
   const preview =
     conv.lastMessage?.text ||
     (conv.lastMessage?.hasAttachment ? "📎 Đính kèm" : "Chưa có tin nhắn");
@@ -93,9 +95,18 @@ function ConversationRow({ conv, me, active, onSelect }) {
         invisible={!conv.unread}
       >
         <Avatar
-          src={other?.avatar || ""}
+          src={
+            conv.type === "club"
+              ? conv.club?.logoUrl || ""
+              : other?.avatar || ""
+          }
           sx={{
-            bgcolor: conv.type === "tournament" ? "warning.main" : "primary.main",
+            bgcolor:
+              conv.type === "tournament"
+                ? "warning.main"
+                : conv.type === "club"
+                  ? "success.main"
+                  : "primary.main",
           }}
         >
           {title[0]?.toUpperCase()}
@@ -141,7 +152,7 @@ function replySnippet(rt) {
   return "…";
 }
 
-function MessageBubble({ msg, isMine, onDelete, canDelete, onReply, onReact, myId, onPin, isPinned }) {
+function MessageBubble({ msg, isMine, showSender, onDelete, canDelete, onReply, onReact, myId, onPin, isPinned }) {
   const [showReact, setShowReact] = useState(false);
   const reactions = msg.reactions || [];
   // Gom reactions theo emoji để hiển thị chip đếm
@@ -197,6 +208,21 @@ function MessageBubble({ msg, isMine, onDelete, canDelete, onReply, onReact, myI
           minWidth: 0,
         }}
       >
+        {/* Tên người gửi (chat nhóm) */}
+        {showSender && !isMine && (
+          <Typography
+            variant="caption"
+            sx={{
+              fontWeight: 700,
+              display: "block",
+              color: "primary.main",
+              mb: 0.25,
+            }}
+            noWrap
+          >
+            {msg.sender?.nickname || msg.sender?.name || "Thành viên"}
+          </Typography>
+        )}
         {/* Quote reply */}
         {msg.replyTo && (
           <Box
@@ -650,10 +676,15 @@ function ChatPanel({ conversationId, me, onBack }) {
   }
 
   const other = conv?.otherParticipants?.[0];
+  const isClub = conv?.type === "club";
+  const isGroup = conv?.type === "club" || conv?.type === "tournament";
   const title =
     conv?.type === "tournament"
       ? `BTC · ${conv.tournament?.name || "Giải đấu"}`
-      : authorName(other);
+      : isClub
+        ? `CLB · ${conv.club?.name || "Câu lạc bộ"}`
+        : authorName(other);
+  const memberCount = conv?.memberCount || conv?.participants?.length || 0;
 
   // Auto-scroll xuống cuối khi có tin nhắn mới hoặc mở conversation
   useEffect(() => {
@@ -679,14 +710,30 @@ function ChatPanel({ conversationId, me, onBack }) {
             <ChevronLeft size={20} />
           </IconButton>
         )}
-        {other && (
-          <Avatar src={other.avatar || ""} sx={{ width: 36, height: 36 }}>
-            {authorName(other)[0]?.toUpperCase()}
+        {isClub ? (
+          <Avatar
+            src={conv.club?.logoUrl || ""}
+            sx={{ width: 36, height: 36, bgcolor: "success.main" }}
+          >
+            {title[0]?.toUpperCase()}
           </Avatar>
+        ) : (
+          other && (
+            <Avatar src={other.avatar || ""} sx={{ width: 36, height: 36 }}>
+              {authorName(other)[0]?.toUpperCase()}
+            </Avatar>
+          )
         )}
-        <Typography variant="h6" fontWeight={700} sx={{ flex: 1 }} noWrap>
-          {title}
-        </Typography>
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="h6" fontWeight={700} noWrap>
+            {title}
+          </Typography>
+          {isClub && (
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {memberCount} thành viên
+            </Typography>
+          )}
+        </Box>
       </Stack>
       {pinnedMessages.length > 0 && (
         <Box
@@ -756,6 +803,7 @@ function ChatPanel({ conversationId, me, onBack }) {
               <MessageBubble
                 msg={m}
                 isMine={isMine}
+                showSender={isGroup}
                 onDelete={() => handleDelete(m._id)}
                 canDelete={canDelete}
                 onReply={setReplyTarget}

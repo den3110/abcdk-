@@ -10,6 +10,7 @@ import {
   listConversations,
   openDmConversation,
   openTournamentConversation,
+  openClubConversation,
   getConversation,
   patchConversation,
   listMessages,
@@ -147,6 +148,7 @@ router.post(
   protect,
   openTournamentConversation
 );
+router.post("/conversations/club/:clubId", protect, openClubConversation);
 router.get("/conversations/:cid", protect, getConversation);
 router.patch("/conversations/:cid", protect, patchConversation);
 
