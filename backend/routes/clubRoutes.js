@@ -73,6 +73,12 @@ import {
   listAttendance,
   attendanceStats,
 } from "../controllers/sessionController.js";
+import {
+  listMatches,
+  createMatch,
+  deleteMatch,
+  leaderboard,
+} from "../controllers/clubMatchController.js";
 
 const router = express.Router();
 
@@ -292,6 +298,12 @@ router.patch("/:id/sessions/:sessionId", protect, loadClub, loadMembership, requ
 router.delete("/:id/sessions/:sessionId", protect, loadClub, loadMembership, requireAdmin, deleteSession);
 router.post("/:id/sessions/:sessionId/checkin", protect, loadClub, loadMembership, checkinSession);
 router.get("/:id/sessions/:sessionId/attendance", passProtect, loadClub, loadMembership, listAttendance);
+
+// ========== MATCHES (BXH noi bo) ==========
+router.get("/:id/matches/leaderboard", passProtect, loadClub, loadMembership, leaderboard);
+router.get("/:id/matches", passProtect, loadClub, loadMembership, listMatches);
+router.post("/:id/matches", protect, loadClub, loadMembership, createMatch);
+router.delete("/:id/matches/:matchId", protect, loadClub, loadMembership, deleteMatch);
 
 
 export default router;

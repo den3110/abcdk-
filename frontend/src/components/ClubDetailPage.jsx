@@ -27,6 +27,7 @@ import ClubDiscussion from "./discussion/ClubDiscussion";
 import ClubGallery from "./gallery/ClubGallery";
 import ClubFinance from "./finance/ClubFinance";
 import ClubSessions from "./sessions/ClubSessions";
+import ClubMatches from "./matches/ClubMatches";
 import SEOHead from "./SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { useRegisterChatBotPageSnapshot } from "../context/ChatBotPageContext.jsx";
@@ -51,7 +52,7 @@ function memberGuardMessage(club, t) {
   return t("clubs.detail.memberGuardUnavailable");
 }
 
-const ALLOWED_TABS = ["news", "discussion", "events", "polls", "gallery", "sessions", "finance"];
+const ALLOWED_TABS = ["news", "discussion", "events", "polls", "gallery", "sessions", "matches", "finance"];
 
 export default function ClubDetailPage() {
   const { t } = useLanguage();
@@ -260,6 +261,7 @@ export default function ClubDetailPage() {
           <Tab label={t("clubs.detail.tabs.polls")} value="polls" />
           <Tab label="Ảnh" value="gallery" />
           <Tab label="Buổi tập" value="sessions" />
+          <Tab label="BXH" value="matches" />
           <Tab label="Quỹ" value="finance" />
         </Tabs>
       </Paper>
@@ -334,6 +336,15 @@ export default function ClubDetailPage() {
                   Buổi tập
                 </Typography>
                 <ClubSessions club={club} canManage={canManage} />
+              </>
+            )}
+
+            {tab === "matches" && (
+              <>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  Bảng xếp hạng nội bộ
+                </Typography>
+                <ClubMatches club={club} canManage={canManage} />
               </>
             )}
 

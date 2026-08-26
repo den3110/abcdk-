@@ -512,6 +512,33 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
       query: ({ id }) => ({ url: `/api/clubs/${id}/sessions/stats` }),
       providesTags: (res, err, { id }) => [{ type: "ClubSession", id }],
     }),
+
+    // MATCHES (BXH nội bộ)
+    listMatches: builder.query({
+      query: ({ id, page = 1, limit = 30 }) => ({
+        url: `/api/clubs/${id}/matches?page=${page}&limit=${limit}`,
+      }),
+      providesTags: (res, err, { id }) => [{ type: "ClubMatch", id }],
+    }),
+    createMatch: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/matches`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubMatch", id }],
+    }),
+    deleteMatch: builder.mutation({
+      query: ({ id, matchId }) => ({
+        url: `/api/clubs/${id}/matches/${matchId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubMatch", id }],
+    }),
+    clubLeaderboard: builder.query({
+      query: ({ id }) => ({ url: `/api/clubs/${id}/matches/leaderboard` }),
+      providesTags: (res, err, { id }) => [{ type: "ClubMatch", id }],
+    }),
   }),
   overrideExisting: false,
 });
@@ -594,4 +621,10 @@ export const {
   useCheckinSessionMutation,
   useListSessionAttendanceQuery,
   useSessionStatsQuery,
+
+  // matches
+  useListMatchesQuery,
+  useCreateMatchMutation,
+  useDeleteMatchMutation,
+  useClubLeaderboardQuery,
 } = clubsApiSlice;

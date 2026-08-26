@@ -129,6 +129,10 @@ import {
   useCheckinSessionMutation,
   useListSessionAttendanceQuery,
   useSessionStatsQuery,
+  useListMatchesQuery,
+  useCreateMatchMutation,
+  useDeleteMatchMutation,
+  useClubLeaderboardQuery,
 } from "../../slices/clubsApiSlice.js";
 
 /* ------------------------------ tokens ------------------------------ */
@@ -2474,6 +2478,173 @@ function SessionsTab({ club, my }) {
   );
 }
 
+/* =============================== MATCHES =============================== */
+const teamNames = (team) =>
+  (team || []).map((u) => u?.nickname || u?.fullName || "?").join(" & ") || "?";
+
+function MatchRecordForm({ club, onDone }) {
+  const id = club._id;
+  const { data: mem } = useListMembersQuery({ id });
+  const members = mem?.items || [];
+  const [createMatch, { isLoading }] = useCreateMatchMutation();
+  const [a1, setA1] = useState("");
+  const [a2, setA2] = useState("");
+  const [b1, setB1] = useState("");
+  const [b2, setB2] = useState("");
+  const [sa, setSa] = useState("");
+  const [sb, setSb] = useState("");
+  const [note, setNote] = useState("");
+
+  const opt = (val, setVal, exclude) => (
+    <select style={fieldStyle} value={val} onChange={(e) => setVal(e.target.value)}>
+      <option value="">— chọn —</option>
+      {members
+        .filter((m) => m.user && (!exclude.includes(String(m.user._id)) || String(m.user._id) === val))
+        .map((m) => (
+          <option key={m.user._id} value={m.user._id}>{m.user.nickname || m.user.fullName || "Người dùng"}</option>
+        ))}
+    </select>
+  );
+
+  const submit = async () => {
+    const teamA = [a1, a2].filter(Boolean);
+    const teamB = [b1, b2].filter(Boolean);
+    if (!teamA.length || !teamB.length) return toast.info("Chọn người cho cả 2 bên.");
+    if (sa === "" || sb === "" || Number(sa) === Number(sb)) return toast.info("Nhập tỉ số hợp lệ (không hoà).");
+    try {
+      await createMatch({ id, teamA, teamB, scoreA: Number(sa), scoreB: Number(sb), note }).unwrap();
+      toast.success("Đã ghi kết quả.");
+      onDone();
+    } catch (err) { toast.error(getApiErrMsg(err)); }
+  };
+
+  const chosen = [a1, a2, b1, b2].filter(Boolean).map(String);
+  return (
+    <Card style={{ padding: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center" }}>
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ color: "#7CC7A2", fontWeight: 700, fontSize: 12.5 }}>Bên A</div>
+          {opt(a1, setA1, chosen.filter((x) => x !== a1))}
+          {opt(a2, setA2, chosen.filter((x) => x !== a2))}
+        </div>
+        <div style={{ color: C.muted, fontWeight: 800 }}>VS</div>
+        <div style={{ display: "grid", gap: 8 }}>
+          <div style={{ color: "#F1948A", fontWeight: 700, fontSize: 12.5 }}>Bên B</div>
+          {opt(b1, setB1, chosen.filter((x) => x !== b1))}
+          {opt(b2, setB2, chosen.filter((x) => x !== b2))}
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center", marginTop: 12 }}>
+        <input style={{ ...fieldStyle, textAlign: "center" }} inputMode="numeric" value={sa} onChange={(e) => setSa(e.target.value.replace(/[^\d]/g, ""))} placeholder="0" />
+        <span style={{ color: C.muted }}>-</span>
+        <input style={{ ...fieldStyle, textAlign: "center" }} inputMode="numeric" value={sb} onChange={(e) => setSb(e.target.value.replace(/[^\d]/g, ""))} placeholder="0" />
+      </div>
+      <input style={{ ...fieldStyle, marginTop: 10 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ghi chú (tuỳ chọn)" />
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <Btn variant="primary" size="sm" onClick={submit} disabled={isLoading}>Ghi kết quả</Btn>
+        <Btn variant="ghost" size="sm" onClick={onDone}>Huỷ</Btn>
+      </div>
+    </Card>
+  );
+}
+
+function MatchesTab({ club, my }) {
+  const id = club._id;
+  const isMember = !!my?.isMember;
+  const canManage = !!my?.canManage;
+  const authIdA = useSelector((s) => s.auth?.userInfo?._id);
+  const authIdB = useSelector((s) => s.user?.userInfo?._id);
+  const authUserId = authIdA || authIdB || null;
+  const [view, setView] = useState("board");
+  const [showForm, setShowForm] = useState(false);
+
+  const { data: lb } = useClubLeaderboardQuery({ id }, { skip: view !== "board" });
+  const { data: matchData, isLoading } = useListMatchesQuery({ id, limit: 50 }, { skip: view !== "matches" });
+  const [deleteMatch] = useDeleteMatchMutation();
+
+  const board = lb?.items || [];
+  const matches = matchData?.items || [];
+
+  const removeMatch = async (m) => {
+    if (!window.confirm("Xoá trận này?")) return;
+    try { await deleteMatch({ id, matchId: m._id }).unwrap(); } catch (err) { toast.error(getApiErrMsg(err)); }
+  };
+
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ display: "flex", gap: 8 }}>
+        {[{ k: "board", l: "Bảng xếp hạng" }, { k: "matches", l: "Trận đấu" }].map((v) => (
+          <button key={v.k} type="button" onClick={() => setView(v.k)} style={{ all: "unset", cursor: "pointer", flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 10, fontWeight: 700, fontSize: 13.5, color: view === v.k ? "#fff" : C.body2, background: view === v.k ? C.brand : "rgba(255,255,255,.06)", border: `1px solid ${view === v.k ? "transparent" : "rgba(255,255,255,.12)"}` }}>
+            {v.l}
+          </button>
+        ))}
+      </div>
+
+      {view === "board" ? (
+        <>
+          <div style={{ color: C.muted, fontSize: 12.5 }}>Tổng số trận: {fmtInt(lb?.totalMatches || 0)} · 3 điểm/trận thắng</div>
+          {board.length === 0 ? (
+            <SectionEmpty icon={<Trophy size={40} />} title="Chưa có dữ liệu xếp hạng" hint="Ghi kết quả trận giao hữu ở tab Trận đấu." />
+          ) : (
+            <Card style={{ padding: 0, overflow: "hidden" }}>
+              {board.map((it, i) => (
+                <div key={it.user._id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+                  <span style={{ width: 22, textAlign: "center", color: i < 3 ? "#F0C24B" : C.muted, fontWeight: 800 }}>{i + 1}</span>
+                  <Avatar size="small" src={it.user.avatar || undefined} name={it.user.fullName || "?"} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ color: C.head, fontWeight: 650, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.user.nickname || it.user.fullName || "Người dùng"}</div>
+                    <div style={{ color: C.muted, fontSize: 11.5 }}>{it.won}T-{it.lost}B · {it.winRate}%</div>
+                  </div>
+                  <span style={{ color: "#9CC1FF", fontWeight: 800, fontSize: 14 }}>{it.points} đ</span>
+                </div>
+              ))}
+            </Card>
+          )}
+        </>
+      ) : (
+        <>
+          {isMember && (
+            showForm ? (
+              <MatchRecordForm club={club} onDone={() => setShowForm(false)} />
+            ) : (
+              <Card style={{ padding: 16 }}>
+                <Btn variant="ghost" onClick={() => setShowForm(true)}><PlusIcon size={16} /> Ghi kết quả trận</Btn>
+              </Card>
+            )
+          )}
+          {isLoading ? (
+            <Card style={{ padding: 16 }}><Skeleton width="50%" height="16px" /></Card>
+          ) : matches.length === 0 ? (
+            <SectionEmpty icon={<Trophy size={40} />} title="Chưa có trận nào" />
+          ) : (
+            matches.map((m) => {
+              const aWin = (m.scoreA || 0) > (m.scoreB || 0);
+              const canDel = String(m.createdBy) === String(authUserId) || canManage;
+              return (
+                <Card key={m._id} style={{ padding: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ flex: 1, textAlign: "right", color: aWin ? C.head : C.body2, fontWeight: aWin ? 750 : 550, fontSize: 13.5 }}>{teamNames(m.teamA)}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                      <span style={{ color: aWin ? "#7CC7A2" : C.body2, fontWeight: 800, fontSize: 16 }}>{m.scoreA}</span>
+                      <span style={{ color: C.muted }}>-</span>
+                      <span style={{ color: !aWin ? "#F1948A" : C.body2, fontWeight: 800, fontSize: 16 }}>{m.scoreB}</span>
+                    </div>
+                    <div style={{ flex: 1, color: !aWin ? C.head : C.body2, fontWeight: !aWin ? 750 : 550, fontSize: 13.5 }}>{teamNames(m.teamB)}</div>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                    <span style={{ color: C.muted, fontSize: 11.5 }}>{fmtDate(m.playedAt)}{m.note ? ` · ${m.note}` : ""}</span>
+                    {canDel && <Btn variant="ghost" size="sm" onClick={() => removeMatch(m)} title="Xoá"><Trash2 size={13} /></Btn>}
+                  </div>
+                </Card>
+              );
+            })
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 /* =============================== MEMBERS =============================== */
 const roleBadge = (role) => {
   if (role === "owner") return { label: "Chủ CLB", color: "#F0C24B", bg: "rgba(240,194,75,.10)", bd: "rgba(240,194,75,.3)", icon: <Star size={11} /> };
@@ -2751,6 +2922,7 @@ const TABS = [
   { key: "polls", label: "Bình chọn", icon: BarChart3 },
   { key: "gallery", label: "Ảnh", icon: Images },
   { key: "sessions", label: "Buổi tập", icon: CalendarCheck },
+  { key: "matches", label: "BXH", icon: Trophy },
   { key: "finance", label: "Quỹ", icon: Wallet },
   { key: "members", label: "Thành viên", icon: Users },
 ];
@@ -2921,6 +3093,7 @@ export default function ClubDetailPageAstryx() {
                   {tab === "polls" && <PollsTab club={club} canManage={canManage} />}
                   {tab === "gallery" && <GalleryTab club={club} my={my} />}
                   {tab === "sessions" && <SessionsTab club={club} my={my} />}
+                  {tab === "matches" && <MatchesTab club={club} my={my} />}
                   {tab === "finance" && <FinanceTab club={club} my={my} />}
                   {tab === "members" && (
                     <MembersTab club={club} canSeeMembers={canSeeMembers} guardMsg={memberGuardMessage(club)} />
