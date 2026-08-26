@@ -50,6 +50,9 @@ import {
   MessageCircle,
   Send,
   MessagesSquare,
+  ImagePlus,
+  Share2,
+  X as XIcon,
 } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
@@ -60,6 +63,7 @@ import PickleMark from "./PickleMark.jsx";
 import { A } from "./ui.jsx";
 import ClubCreateDialog from "../../components/ClubCreateDialog.jsx";
 import JoinRequestsDialog from "../../components/JoinRequestsDialog.jsx";
+import { useUploadAvatarMutation } from "../../slices/uploadApiSlice.js";
 import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import {
   useGetClubQuery,
@@ -123,6 +127,27 @@ const getApiErrMsg = (err) =>
   err?.data?.message ||
   err?.error ||
   (typeof err?.data === "string" ? err.data : "Có lỗi xảy ra, vui lòng thử lại.");
+
+// Chia sẻ CLB: navigator.share (mobile) → clipboard → prompt
+async function shareClub(club) {
+  const url = `https://pickletour.vn/clubs/${club?._id}`;
+  const title = club?.name || "Câu lạc bộ";
+  try {
+    if (navigator.share) {
+      await navigator.share({ title, text: `Tham gia CLB ${title} trên PickleTour`, url });
+      return;
+    }
+  } catch {
+    /* user huỷ share — bỏ qua */
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    toast.success("Đã sao chép liên kết CLB.");
+  } catch {
+    window.prompt("Sao chép liên kết:", url);
+  }
+}
 
 const fmtDateTime = (d) => {
   if (!d) return "";
@@ -406,6 +431,9 @@ function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
         {/* actions */}
         <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
           {joinCtl}
+          <Btn variant="ghost" onClick={() => shareClub(club)}>
+            <Share2 size={15} /> Chia sẻ
+          </Btn>
           {club?.website && (
             <Btn as="a" href={club.website} variant="ghost">
               <Globe size={15} /> Website
@@ -1412,10 +1440,24 @@ function DiscussionTab({ club, my }) {
 
   const { data, isLoading } = useListPostsQuery({ id, page: 1, limit: 30 });
   const [createPost, { isLoading: posting }] = useCreatePostMutation();
+  const [uploadAvatar, { isLoading: uploadingImg }] = useUploadAvatarMutation();
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState("");
-  const [showImg, setShowImg] = useState(false);
   const items = data?.items || [];
+
+  const onPickImage = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const res = await uploadAvatar(file).unwrap();
+      const url = res?.url || res?.secure_url || res?.data?.url || res?.Location || "";
+      if (url) setImageUrl(url);
+      else toast.error("Tải ảnh thất bại.");
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
 
   const submit = async () => {
     if (!content.trim() && !imageUrl.trim()) return toast.info("Nhập nội dung hoặc thêm ảnh.");
@@ -1423,7 +1465,6 @@ function DiscussionTab({ club, my }) {
       await createPost({ id, content, imageUrl: imageUrl.trim() || undefined }).unwrap();
       setContent("");
       setImageUrl("");
-      setShowImg(false);
       toast.success("Đã đăng bài.");
     } catch (err) {
       toast.error(getApiErrMsg(err));
@@ -1440,21 +1481,42 @@ function DiscussionTab({ club, my }) {
             onChange={(e) => setContent(e.target.value)}
             placeholder="Chia sẻ điều gì đó với câu lạc bộ…"
           />
-          {showImg && (
-            <input
-              style={{ ...fieldStyle, marginTop: 8 }}
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              placeholder="Dán URL ảnh…"
-            />
+          {imageUrl && (
+            <div style={{ position: "relative", marginTop: 10, display: "inline-block" }}>
+              <img src={imageUrl} alt="" style={{ maxWidth: "100%", maxHeight: 260, borderRadius: 12, display: "block" }} />
+              <button
+                type="button"
+                onClick={() => setImageUrl("")}
+                title="Bỏ ảnh"
+                style={{ position: "absolute", top: 8, right: 8, width: 28, height: 28, borderRadius: 999, border: "none", cursor: "pointer", background: "rgba(0,0,0,.6)", color: "#fff", display: "grid", placeItems: "center" }}
+              >
+                <XIcon size={15} />
+              </button>
+            </div>
           )}
-          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-            <Btn variant="primary" size="sm" onClick={submit} disabled={posting}>
+          <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
+            <Btn variant="primary" size="sm" onClick={submit} disabled={posting || uploadingImg}>
               <Send size={14} /> Đăng bài
             </Btn>
-            <Btn variant="ghost" size="sm" onClick={() => setShowImg((v) => !v)}>
-              {showImg ? "Bỏ ảnh" : "Thêm ảnh"}
-            </Btn>
+            <label
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 7,
+                height: 34,
+                padding: "0 13px",
+                borderRadius: 999,
+                cursor: uploadingImg ? "wait" : "pointer",
+                background: "rgba(255,255,255,.06)",
+                color: C.body2,
+                border: "1px solid rgba(255,255,255,.12)",
+                fontWeight: 700,
+                fontSize: 13,
+              }}
+            >
+              <input type="file" accept="image/*" onChange={onPickImage} style={{ display: "none" }} disabled={uploadingImg} />
+              <ImagePlus size={15} /> {uploadingImg ? "Đang tải…" : "Ảnh"}
+            </label>
           </div>
         </Card>
       ) : (

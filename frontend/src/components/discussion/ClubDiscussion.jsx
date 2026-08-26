@@ -21,6 +21,8 @@ import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
 import SendIcon from "@mui/icons-material/Send";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
 import ForumIcon from "@mui/icons-material/Forum";
+import ImageOutlined from "@mui/icons-material/ImageOutlined";
+import CloseIcon from "@mui/icons-material/Close";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import dayjs from "dayjs";
@@ -33,6 +35,7 @@ import {
   useCreatePostCommentMutation,
   useDeletePostCommentMutation,
 } from "../../slices/clubsApiSlice";
+import { useUploadAvatarMutation } from "../../slices/uploadApiSlice";
 
 const getApiErrMsg = (e) =>
   e?.data?.message ||
@@ -245,11 +248,26 @@ export default function ClubDiscussion({ club, canManage }) {
     { skip: !clubId },
   );
   const [createPost, { isLoading: posting }] = useCreatePostMutation();
+  const [uploadAvatar, { isLoading: uploadingImg }] = useUploadAvatarMutation();
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState("");
-  const [showImg, setShowImg] = useState(false);
 
   const items = data?.items || [];
+
+  const onPickImage = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const res = await uploadAvatar(file).unwrap();
+      const url =
+        res?.url || res?.secure_url || res?.data?.url || res?.Location || "";
+      if (url) setImageUrl(url);
+      else toast.error("Tải ảnh thất bại.");
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
 
   const submit = async () => {
     if (!content.trim() && !imageUrl.trim())
@@ -262,7 +280,6 @@ export default function ClubDiscussion({ club, canManage }) {
       }).unwrap();
       setContent("");
       setImageUrl("");
-      setShowImg(false);
       toast.success("Đã đăng bài");
     } catch (e) {
       toast.error(getApiErrMsg(e));
@@ -282,22 +299,41 @@ export default function ClubDiscussion({ club, canManage }) {
               value={content}
               onChange={(e) => setContent(e.target.value)}
             />
-            {showImg && (
-              <TextField
-                fullWidth
-                size="small"
-                sx={{ mt: 1 }}
-                placeholder="Dán URL ảnh…"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-              />
+            {imageUrl && (
+              <Box sx={{ position: "relative", mt: 1.5, display: "inline-block" }}>
+                <Box
+                  component="img"
+                  src={imageUrl}
+                  alt=""
+                  sx={{ maxWidth: "100%", maxHeight: 260, borderRadius: 2, display: "block" }}
+                />
+                <IconButton
+                  size="small"
+                  onClick={() => setImageUrl("")}
+                  sx={{
+                    position: "absolute",
+                    top: 6,
+                    right: 6,
+                    bgcolor: "rgba(0,0,0,.6)",
+                    color: "#fff",
+                    "&:hover": { bgcolor: "rgba(0,0,0,.75)" },
+                  }}
+                >
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Box>
             )}
             <Stack direction="row" spacing={1} sx={{ mt: 1.5 }}>
-              <Button variant="contained" disabled={posting} onClick={submit}>
+              <Button variant="contained" disabled={posting || uploadingImg} onClick={submit}>
                 Đăng bài
               </Button>
-              <Button onClick={() => setShowImg((v) => !v)}>
-                {showImg ? "Bỏ ảnh" : "Thêm ảnh"}
+              <Button
+                component="label"
+                startIcon={<ImageOutlined />}
+                disabled={uploadingImg}
+              >
+                {uploadingImg ? "Đang tải…" : "Ảnh"}
+                <input hidden type="file" accept="image/*" onChange={onPickImage} />
               </Button>
             </Stack>
           </CardContent>
