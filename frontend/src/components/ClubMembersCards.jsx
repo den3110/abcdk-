@@ -27,6 +27,7 @@ import DeleteOutline from "@mui/icons-material/DeleteOutline";
 import PersonAddAlt from "@mui/icons-material/PersonAddAlt1";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
+import BlockIcon from "@mui/icons-material/Block";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import {
@@ -34,6 +35,8 @@ import {
   useKickMemberMutation,
   useSetRoleMutation,
   useAddMemberMutation,
+  useBanMemberMutation,
+  useUnbanMemberMutation,
 } from "../slices/clubsApiSlice";
 import { ZoomableWrapper } from "./Zoom";
 
@@ -83,10 +86,19 @@ export default function ClubMembersCards({ club }) {
   const [kickMember, { isLoading: kicking }] = useKickMemberMutation();
   const [setRole, { isLoading: settingRole }] = useSetRoleMutation();
   const [addMember, { isLoading: adding }] = useAddMemberMutation();
+  const [banMember] = useBanMemberMutation();
+  const [unbanMember] = useUnbanMemberMutation();
 
   const [addKey, setAddKey] = useState("");
   const [anchorEl, setAnchorEl] = useState(null);
   const [activeMember, setActiveMember] = useState(null);
+  const [showBanned, setShowBanned] = useState(false);
+
+  const { data: bannedData, refetch: refetchBanned } = useListMembersQuery(
+    { id: clubId, params: { status: "banned" } },
+    { skip: !clubId || !canManage || !showBanned },
+  );
+  const bannedMembers = useMemo(() => bannedData?.items || [], [bannedData]);
 
   const members = useMemo(() => data?.items || [], [data]);
 
@@ -165,6 +177,38 @@ export default function ClubMembersCards({ club }) {
     }
   };
 
+  const handleBan = async () => {
+    const m = activeMember;
+    handleCloseMenu();
+    if (!m) return;
+    if (
+      !window.confirm(
+        `Cấm "${
+          m.user?.fullName || m.user?.nickname || m.user?.email
+        }" khỏi CLB? Người này sẽ không thể tự tham gia lại.`,
+      )
+    )
+      return;
+    try {
+      await banMember({ id: clubId, userId: m.user?._id }).unwrap();
+      toast.success("Đã cấm thành viên");
+      refetch();
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+
+  const handleUnban = async (m) => {
+    try {
+      await unbanMember({ id: clubId, userId: m.user?._id }).unwrap();
+      toast.success("Đã bỏ cấm");
+      refetch();
+      refetchBanned();
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+
   const handleAdd = async () => {
     const key = addKey.trim();
     if (!key) {
@@ -231,14 +275,73 @@ export default function ClubMembersCards({ club }) {
                 </IconButton>
               </Tooltip>
             </Stack>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ mt: 1, display: "block" }}
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="center"
+              sx={{ mt: 1 }}
+              spacing={1}
+              flexWrap="wrap"
             >
-              * Owner có quyền thao tác với tất cả. Admin chỉ thao tác được với
-              thành viên thường (member).
+              <Typography variant="caption" color="text.secondary">
+                * Owner có quyền thao tác với tất cả. Admin chỉ thao tác được với
+                thành viên thường (member).
+              </Typography>
+              <Button
+                size="small"
+                startIcon={<BlockIcon />}
+                onClick={() => setShowBanned((v) => !v)}
+              >
+                {showBanned ? "Ẩn bị cấm" : "Danh sách bị cấm"}
+              </Button>
+            </Stack>
+          </Box>
+        </Card>
+      )}
+
+      {/* -------------------- DANH SÁCH BỊ CẤM -------------------- */}
+      {canManage && showBanned && (
+        <Card
+          variant="outlined"
+          sx={{
+            borderRadius: 3,
+            borderColor: alpha(theme.palette.error.main, 0.4),
+          }}
+        >
+          <Box sx={{ p: 2 }}>
+            <Typography variant="subtitle2" color="error" sx={{ mb: 1.5 }}>
+              Thành viên bị cấm ({bannedMembers.length})
             </Typography>
+            {bannedMembers.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                Không có thành viên nào bị cấm.
+              </Typography>
+            ) : (
+              <Stack spacing={1}>
+                {bannedMembers.map((m) => (
+                  <Stack
+                    key={m._id}
+                    direction="row"
+                    spacing={1.5}
+                    alignItems="center"
+                  >
+                    <Avatar
+                      src={m.user?.avatar}
+                      sx={{ width: 32, height: 32 }}
+                    />
+                    <Typography variant="body2" sx={{ flex: 1 }} noWrap>
+                      {m.user?.nickname ||
+                        m.user?.fullName ||
+                        m.user?.email ||
+                        "Người dùng"}
+                    </Typography>
+                    <Button size="small" onClick={() => handleUnban(m)}>
+                      Bỏ cấm
+                    </Button>
+                  </Stack>
+                ))}
+              </Stack>
+            )}
           </Box>
         </Card>
       )}
@@ -342,6 +445,41 @@ export default function ClubMembersCards({ club }) {
                             </Typography>
                           )}
                         </Stack>
+
+                        {/* Điểm trình đôi/đơn */}
+                        {(Number(m.user?.score?.double) > 0 ||
+                          Number(m.user?.score?.single) > 0) && (
+                          <Stack
+                            direction="row"
+                            spacing={0.5}
+                            sx={{ mt: 0.5 }}
+                            flexWrap="wrap"
+                            useFlexGap
+                          >
+                            {Number(m.user?.score?.double) > 0 && (
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                color="primary"
+                                label={`Đôi ${Number(
+                                  m.user.score.double,
+                                ).toFixed(3)}`}
+                                sx={{ height: 20, fontSize: 11 }}
+                              />
+                            )}
+                            {Number(m.user?.score?.single) > 0 && (
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                color="success"
+                                label={`Đơn ${Number(
+                                  m.user.score.single,
+                                ).toFixed(3)}`}
+                                sx={{ height: 20, fontSize: 11 }}
+                              />
+                            )}
+                          </Stack>
+                        )}
                       </Box>
 
                       {/* 3. VAI TRÒ & QUẢN TRỊ */}
@@ -439,7 +577,27 @@ export default function ClubMembersCards({ club }) {
 
             <Divider />
 
-            {/* 2. Kick */}
+            {/* 2. Ban */}
+            <Tooltip
+              title={
+                canKickActive
+                  ? "Cấm thành viên này (không cho tự tham gia lại)."
+                  : "Bạn không có quyền cấm Owner/Admin khác."
+              }
+              placement="left"
+              arrow
+            >
+              <MenuItem
+                onClick={handleBan}
+                disabled={!canKickActive}
+                sx={{ color: theme.palette.warning.main }}
+              >
+                <BlockIcon fontSize="small" sx={{ mr: 1 }} />
+                Cấm thành viên
+              </MenuItem>
+            </Tooltip>
+
+            {/* 3. Kick */}
             <Tooltip
               title={
                 canKickActive

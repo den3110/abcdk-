@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import React from "react";
+import React, { useState } from "react";
 import {
   Card,
   CardHeader,
@@ -8,12 +8,16 @@ import {
   Typography,
   Button,
   Chip,
+  Avatar,
+  Collapse,
 } from "@mui/material";
+import { Link as RouterLink } from "react-router-dom";
 import { toast } from "react-toastify";
 import dayjs from "dayjs";
 import {
   useDeleteEventMutation,
   useRsvpEventMutation,
+  useListEventAttendeesQuery,
 } from "../../slices/clubsApiSlice";
 
 const fmt = (s) => dayjs(s).format("HH:mm, DD/MM/YYYY");
@@ -32,6 +36,13 @@ export default function EventCard({ clubId, event, canManage, onChanged, onEdit 
   const myStatus = event?.myStatus || "none";
   const startAt = event?.startAt || event?.startTime;
   const endAt = event?.endAt || event?.endTime;
+
+  const [showAttendees, setShowAttendees] = useState(false);
+  const { data: attData, isFetching: loadingAtt } = useListEventAttendeesQuery(
+    { id: clubId, eventId: event._id },
+    { skip: !showAttendees },
+  );
+  const attendees = attData?.items || [];
 
   const handleRsvp = async (status) => {
     // bấm lại chính trạng thái hiện tại -> huỷ (none)
@@ -125,6 +136,50 @@ export default function EventCard({ clubId, event, canManage, onChanged, onEdit 
             </>
           )}
         </Stack>
+
+        {/* Danh sách người tham gia */}
+        {goingCount > 0 && (
+          <>
+            <Button
+              size="small"
+              sx={{ mt: 1, textTransform: "none" }}
+              onClick={() => setShowAttendees((v) => !v)}
+            >
+              {showAttendees ? "Ẩn" : "Xem"} người tham gia ({goingCount})
+            </Button>
+            <Collapse in={showAttendees}>
+              <Stack
+                direction="row"
+                spacing={1}
+                flexWrap="wrap"
+                useFlexGap
+                sx={{ mt: 1 }}
+              >
+                {loadingAtt ? (
+                  <Typography variant="caption" color="text.secondary">
+                    Đang tải…
+                  </Typography>
+                ) : attendees.length === 0 ? (
+                  <Typography variant="caption" color="text.secondary">
+                    Chưa có ai.
+                  </Typography>
+                ) : (
+                  attendees.map((u) => (
+                    <Chip
+                      key={u._id}
+                      size="small"
+                      component={RouterLink}
+                      to={`/user/${u._id}`}
+                      clickable
+                      avatar={<Avatar src={u.avatar} />}
+                      label={u.nickname || u.fullName || "Người dùng"}
+                    />
+                  ))
+                )}
+              </Stack>
+            </Collapse>
+          </>
+        )}
       </CardContent>
     </Card>
   );

@@ -170,6 +170,30 @@ export const rsvpEvent = async (req, res) => {
   res.json({ ok: true });
 };
 
+/** Danh sách người tham gia (RSVP "going") của 1 sự kiện */
+export const listEventAttendees = async (req, res) => {
+  const isMember =
+    !!req.clubMembership || String(req.club.owner) === String(req.user?._id);
+  if (!canReadClubContent(req.club, req.user?._id, isMember)) {
+    return res.status(403).json({ message: "Không có quyền xem sự kiện." });
+  }
+  const event = await ClubEvent.findOne({
+    _id: req.params.eventId,
+    club: req.club._id,
+  }).lean();
+  if (!event) return res.status(404).json({ message: "Sự kiện không tồn tại" });
+
+  const { limit = 100 } = req.query;
+  const rows = await ClubEventRsvp.find({ event: event._id, status: "going" })
+    .sort({ createdAt: 1 })
+    .limit(Math.min(500, +limit || 100))
+    .populate("user", "fullName nickname avatar")
+    .lean();
+
+  const items = rows.map((r) => r.user).filter(Boolean);
+  res.json({ items, total: event.attendeesCount || items.length });
+};
+
 export const getEventIcs = async (req, res) => {
   const event = await ClubEvent.findOne({
     _id: req.params.eventId,

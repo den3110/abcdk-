@@ -42,6 +42,10 @@ import {
   Star,
   ShieldCheck,
   Clock,
+  Ban,
+  UserCheck,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
@@ -60,6 +64,9 @@ import {
   useAddMemberMutation,
   useSetRoleMutation,
   useKickMemberMutation,
+  useBanMemberMutation,
+  useUnbanMemberMutation,
+  useListEventAttendeesQuery,
   useRequestJoinMutation,
   useCancelJoinMutation,
   useLeaveClubMutation,
@@ -660,6 +667,49 @@ const emptyEventForm = {
   capacity: 0,
 };
 
+// Danh sách người tham gia sự kiện (mở/đóng, fetch khi mở)
+function EventAttendees({ clubId, event }) {
+  const [open, setOpen] = useState(false);
+  const { data, isFetching } = useListEventAttendeesQuery(
+    { id: clubId, eventId: event._id },
+    { skip: !open }
+  );
+  const attendees = data?.items || [];
+  const count = Number(event.attendeesCount || 0);
+  if (!count) return null;
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{ all: "unset", cursor: "pointer", color: C.body2, fontSize: 12.5, fontWeight: 650, display: "inline-flex", alignItems: "center", gap: 5 }}
+      >
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Người tham gia ({fmtInt(count)})
+      </button>
+      {open && (
+        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {isFetching ? (
+            <span style={{ color: C.muted, fontSize: 12 }}>Đang tải…</span>
+          ) : attendees.length === 0 ? (
+            <span style={{ color: C.muted, fontSize: 12 }}>Chưa có ai.</span>
+          ) : (
+            attendees.map((u) => (
+              <A
+                key={u._id}
+                href={`/user/${u._id}`}
+                style={{ ...chip, textDecoration: "none", paddingLeft: 4 }}
+              >
+                <Avatar size="small" src={u.avatar || undefined} name={u.fullName || "?"} />
+                <span style={{ color: C.body2 }}>{u.nickname || u.fullName || "Người dùng"}</span>
+              </A>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EventsTab({ club, canManage }) {
   const id = club._id;
   const { data, isLoading } = useListEventsQuery({ id, page: 1, limit: 50 });
@@ -896,6 +946,8 @@ function EventsTab({ club, canManage }) {
                   </Btn>
                 </div>
               )}
+
+              <EventAttendees clubId={id} event={e} />
             </Card>
           );
         })
@@ -1188,6 +1240,28 @@ const roleBadge = (role) => {
   return { label: "Thành viên", color: C.body2, bg: "rgba(255,255,255,.06)", bd: "rgba(255,255,255,.08)", icon: null };
 };
 
+// chip điểm trình (đôi/đơn) từ user.score
+function ScoreChips({ user }) {
+  const s = user?.score;
+  const dbl = Number(s?.double || 0);
+  const sgl = Number(s?.single || 0);
+  if (!dbl && !sgl) return null;
+  return (
+    <div style={{ display: "flex", gap: 5, marginTop: 8, flexWrap: "wrap" }}>
+      {dbl > 0 && (
+        <span style={{ ...chip, fontSize: 11, padding: "2px 8px", color: "#9CC1FF", background: "rgba(61,135,255,.12)", borderColor: "rgba(61,135,255,.3)" }}>
+          Đôi {dbl.toFixed(3)}
+        </span>
+      )}
+      {sgl > 0 && (
+        <span style={{ ...chip, fontSize: 11, padding: "2px 8px", color: "#7CC7A2", background: "rgba(59,165,93,.10)", borderColor: "rgba(59,165,93,.32)" }}>
+          Đơn {sgl.toFixed(3)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function MembersTab({ club, canSeeMembers, guardMsg }) {
   const id = club._id;
   const my = club?._my || {};
@@ -1198,12 +1272,20 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
   const authUserId = authIdA || authIdB || null;
 
   const { data, isLoading } = useListMembersQuery({ id }, { skip: !id || !canSeeMembers });
+  const [showBanned, setShowBanned] = useState(false);
+  const { data: bannedData } = useListMembersQuery(
+    { id, params: { status: "banned" } },
+    { skip: !id || !canManage || !showBanned }
+  );
   const [addMember, { isLoading: adding }] = useAddMemberMutation();
   const [setRole] = useSetRoleMutation();
   const [kickMember] = useKickMemberMutation();
+  const [banMember] = useBanMemberMutation();
+  const [unbanMember] = useUnbanMemberMutation();
   const [addKey, setAddKey] = useState("");
 
   const members = data?.items || [];
+  const banned = bannedData?.items || [];
 
   const canToggleRole = (targetRole) => {
     if (!canManage) return false;
@@ -1211,7 +1293,7 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
     if (isOwner) return true;
     return targetRole === "member";
   };
-  const canKick = (targetRole, targetUserId) => {
+  const canModerate = (targetRole, targetUserId) => {
     if (!canManage) return false;
     if (String(targetUserId) === String(authUserId)) return false;
     if (targetRole === "owner") return false;
@@ -1248,6 +1330,84 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
       toast.error(getApiErrMsg(err));
     }
   };
+  const doBan = async (m) => {
+    if (!window.confirm(`Cấm "${m.user?.fullName || m.user?.nickname || m.user?.email}" khỏi CLB? Người này sẽ không thể tự tham gia lại.`)) return;
+    try {
+      await banMember({ id, userId: m.user?._id }).unwrap();
+      toast.success("Đã cấm thành viên.");
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+  const doUnban = async (m) => {
+    try {
+      await unbanMember({ id, userId: m.user?._id }).unwrap();
+      toast.success("Đã bỏ cấm.");
+    } catch (err) {
+      toast.error(getApiErrMsg(err));
+    }
+  };
+
+  const memberCard = (m) => {
+    const rb = roleBadge(m.role);
+    const primary = m.user?.nickname || m.user?.fullName || m.user?.email || "Người dùng";
+    const secondary = m.user?.nickname && m.user?.fullName ? m.user.fullName : null;
+    const showToggle = canToggleRole(m.role);
+    const showMod = canModerate(m.role, m.user?._id);
+    return (
+      <Card key={m._id} style={{ padding: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <A href={`/user/${m.user?._id}`} style={{ flexShrink: 0 }}>
+            <Avatar size="medium" src={m.user?.avatar || undefined} name={m.user?.fullName || primary} />
+          </A>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <A
+              href={`/user/${m.user?._id}`}
+              style={{
+                display: "block",
+                color: C.head,
+                fontWeight: 700,
+                fontSize: 14.5,
+                textDecoration: "none",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {primary}
+            </A>
+            <div style={{ color: C.muted, fontSize: 12, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {secondary || `Tham gia ${fmtDate(m.joinedAt)}`}
+            </div>
+          </div>
+          <span style={{ ...chip, color: rb.color, background: rb.bg, borderColor: rb.bd, flexShrink: 0 }}>
+            {rb.icon}
+            {rb.label}
+          </span>
+        </div>
+        <ScoreChips user={m.user} />
+        {(showToggle || showMod) && (
+          <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
+            {showToggle && (
+              <Btn variant="ghost" size="sm" onClick={() => doToggle(m)}>
+                {m.role === "admin" ? "Bỏ quản trị" : "Phong quản trị"}
+              </Btn>
+            )}
+            {showMod && (
+              <>
+                <Btn variant="ghost" size="sm" onClick={() => doBan(m)}>
+                  <Ban size={14} /> Cấm
+                </Btn>
+                <Btn variant="danger" size="sm" onClick={() => doKick(m)}>
+                  <Trash2 size={14} /> Xoá
+                </Btn>
+              </>
+            )}
+          </div>
+        )}
+      </Card>
+    );
+  };
 
   if (!canSeeMembers) {
     return <SectionEmpty icon={<Users size={40} />} title="Danh sách thành viên bị ẩn" hint={guardMsg} />;
@@ -1270,9 +1430,39 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
               <UserPlus size={15} /> Thêm
             </Btn>
           </div>
-          <div style={{ marginTop: 8, color: C.muted, fontSize: 12 }}>
-            Chủ CLB thao tác được với tất cả; quản trị chỉ thao tác với thành viên thường.
+          <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ color: C.muted, fontSize: 12 }}>
+              Chủ CLB thao tác được với tất cả; quản trị chỉ thao tác với thành viên thường.
+            </span>
+            <Btn variant="ghost" size="sm" onClick={() => setShowBanned((v) => !v)}>
+              {showBanned ? "Ẩn danh sách bị cấm" : "Danh sách bị cấm"}
+            </Btn>
           </div>
+        </Card>
+      )}
+
+      {canManage && showBanned && (
+        <Card style={{ padding: 16, borderColor: "rgba(233,84,84,.28)" }}>
+          <div style={{ color: "#F1948A", fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
+            Thành viên bị cấm ({banned.length})
+          </div>
+          {banned.length === 0 ? (
+            <div style={{ color: C.muted, fontSize: 13 }}>Không có thành viên nào bị cấm.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {banned.map((m) => (
+                <div key={m._id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <Avatar size="small" src={m.user?.avatar || undefined} name={m.user?.fullName || "?"} />
+                  <span style={{ flex: 1, color: C.body, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {m.user?.nickname || m.user?.fullName || m.user?.email || "Người dùng"}
+                  </span>
+                  <Btn variant="success" size="sm" onClick={() => doUnban(m)}>
+                    <UserCheck size={14} /> Bỏ cấm
+                  </Btn>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
       )}
 
@@ -1288,60 +1478,7 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
         <SectionEmpty icon={<Users size={40} />} title="Chưa có thành viên nào" />
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
-          {members.map((m) => {
-            const rb = roleBadge(m.role);
-            const primary = m.user?.nickname || m.user?.fullName || m.user?.email || "Người dùng";
-            const secondary = m.user?.nickname && m.user?.fullName ? m.user.fullName : null;
-            const showToggle = canToggleRole(m.role);
-            const showKick = canKick(m.role, m.user?._id);
-            return (
-              <Card key={m._id} style={{ padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <A href={`/user/${m.user?._id}`} style={{ flexShrink: 0 }}>
-                    <Avatar size="medium" src={m.user?.avatar || undefined} name={m.user?.fullName || primary} />
-                  </A>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <A
-                      href={`/user/${m.user?._id}`}
-                      style={{
-                        display: "block",
-                        color: C.head,
-                        fontWeight: 700,
-                        fontSize: 14.5,
-                        textDecoration: "none",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {primary}
-                    </A>
-                    <div style={{ color: C.muted, fontSize: 12, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {secondary || `Tham gia ${fmtDate(m.joinedAt)}`}
-                    </div>
-                  </div>
-                  <span style={{ ...chip, color: rb.color, background: rb.bg, borderColor: rb.bd, flexShrink: 0 }}>
-                    {rb.icon}
-                    {rb.label}
-                  </span>
-                </div>
-                {(showToggle || showKick) && (
-                  <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-                    {showToggle && (
-                      <Btn variant="ghost" size="sm" onClick={() => doToggle(m)}>
-                        {m.role === "admin" ? "Bỏ quản trị" : "Phong quản trị"}
-                      </Btn>
-                    )}
-                    {showKick && (
-                      <Btn variant="danger" size="sm" onClick={() => doKick(m)}>
-                        <Trash2 size={14} /> Xoá
-                      </Btn>
-                    )}
-                  </div>
-                )}
-              </Card>
-            );
-          })}
+          {members.map((m) => memberCard(m))}
         </div>
       )}
     </div>

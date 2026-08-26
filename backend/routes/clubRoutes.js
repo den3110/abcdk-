@@ -16,6 +16,8 @@ import {
   acceptJoin,
   rejectJoin,
   transferOwnership,
+  banMember,
+  unbanMember,
 } from "../controllers/clubController.js";
 
 import {
@@ -30,7 +32,7 @@ import {
 import { passProtect, protect } from "../middleware/authMiddleware.js";
 import { createAnnouncement, deleteAnnouncement, listAnnouncements, updateAnnouncement } from "../controllers/announcementController.js";
 import { createPoll, deletePoll, listPolls, votePoll, closePoll } from "../controllers/pollController.js";
-import { createEvent, deleteEvent, getEventIcs, listEvents, rsvpEvent, updateEvent } from "../controllers/eventController.js";
+import { createEvent, deleteEvent, getEventIcs, listEvents, rsvpEvent, updateEvent, listEventAttendees } from "../controllers/eventController.js";
 
 const router = express.Router();
 
@@ -107,6 +109,24 @@ router.delete(
   loadMembership,
   requireAdmin,
   kickMember
+);
+
+/** Cấm / bỏ cấm thành viên (admin/owner) */
+router.post(
+  "/:id/members/:userId([0-9a-fA-F]{24})/ban",
+  protect,
+  loadClub,
+  loadMembership,
+  requireAdmin,
+  banMember
+);
+router.post(
+  "/:id/members/:userId([0-9a-fA-F]{24})/unban",
+  protect,
+  loadClub,
+  loadMembership,
+  requireAdmin,
+  unbanMember
 );
 
 /** Join flow */
@@ -189,6 +209,7 @@ router.post("/:id/events", protect, loadClub, loadMembership, requireAdmin, crea
 router.patch("/:id/events/:eventId", protect, loadClub, loadMembership, requireAdmin, updateEvent);
 router.delete("/:id/events/:eventId", protect, loadClub, loadMembership, requireAdmin, deleteEvent);
 router.post("/:id/events/:eventId/rsvp", protect, loadClub, loadMembership, rsvpEvent);
+router.get("/:id/events/:eventId/attendees", passProtect, loadClub, loadMembership, listEventAttendees);
 router.get("/:id/events/:eventId/ics", passProtect, loadClub, loadMembership, getEventIcs);
 
 

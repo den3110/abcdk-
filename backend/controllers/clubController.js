@@ -7,9 +7,48 @@ import Club, {
 import ClubMember from "../models/clubMemberModel.js";
 import ClubJoinRequest from "../models/clubJoinRequestModel.js";
 import User from "../models/userModel.js";
+import Ranking from "../models/rankingModel.js";
 import { geocodeTournamentLocation } from "../services/openaiGeocode.js";
 
 // ✅ import thẳng
+
+/**
+ * Gắn điểm trình (đơn/đôi) từ Ranking vào từng member.user.score.
+ * items: mảng ClubMember lean có populate user._id. Trả về chính items (mutate).
+ */
+export const attachMemberScores = async (items) => {
+  const list = Array.isArray(items) ? items : [];
+  const idSet = new Set();
+  for (const m of list) {
+    const uid = m?.user?._id || m?.user;
+    if (uid) idSet.add(String(uid));
+  }
+  if (idSet.size === 0) return items;
+  const idList = [...idSet].map((s) => new mongoose.Types.ObjectId(s));
+  const scoreMap = new Map();
+  try {
+    const rows = await Ranking.find({ user: { $in: idList } })
+      .select("user single double singleScore doubleScore updatedAt")
+      .sort({ updatedAt: -1 })
+      .lean();
+    for (const r of rows) {
+      const uid = String(r.user);
+      if (scoreMap.has(uid)) continue;
+      scoreMap.set(uid, {
+        single: Number(r.single ?? r.singleScore ?? 0),
+        double: Number(r.double ?? r.doubleScore ?? 0),
+      });
+    }
+  } catch (err) {
+    console.error("[club] attachMemberScores error:", err?.message || err);
+  }
+  for (const m of list) {
+    const uid = String(m?.user?._id || m?.user || "");
+    const s = scoreMap.get(uid);
+    if (s && m.user && typeof m.user === "object") m.user.score = s;
+  }
+  return items;
+};
 
 const ensureSlugUnique = async (name) => {
   const base = Club.slugify(name);
@@ -579,7 +618,18 @@ export const listMembers = async (req, res) => {
   }
 
   const { page = 1, limit = 50 } = req.query;
+  const statusParam = String(req.query.status || "active").toLowerCase();
   const filter = { club: club._id };
+  if (statusParam === "banned") {
+    if (!isAdmin) {
+      return res
+        .status(403)
+        .json({ message: "Chỉ quản trị xem được danh sách bị cấm." });
+    }
+    filter.status = "banned";
+  } else {
+    filter.status = "active";
+  }
 
   // role có được hiển thị không?
   const canSeeRoles = isAdmin || (club.showRolesToMembers && isMember);
@@ -593,6 +643,9 @@ export const listMembers = async (req, res) => {
     .skip((+page - 1) * +limit)
     .limit(+limit)
     .lean();
+
+  // gắn điểm trình (đơn/đôi) cho mỗi thành viên
+  await attachMemberScores(rows);
 
   const items = rows.map((m) => {
     if (canSeeRoles) return m; // giữ nguyên role
@@ -644,6 +697,10 @@ export const requestJoin = async (req, res) => {
     club: club._id,
     user: req.user._id,
   });
+  if (exists?.status === "banned")
+    return res
+      .status(403)
+      .json({ message: "Bạn đã bị cấm khỏi CLB này." });
   if (exists)
     return res
       .status(409)
@@ -938,6 +995,87 @@ export const kickMember = async (req, res) => {
     });
   } catch (err) {
     console.error("kickMember error:", err);
+    return res.status(500).json({ message: err.message || "Lỗi máy chủ." });
+  }
+};
+
+/** Cấm thành viên (soft): status="banned", hạ role, không cho tự vào lại. */
+export const banMember = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!mongoose.isValidObjectId(userId)) {
+      return res.status(400).json({ message: "userId không hợp lệ" });
+    }
+    const target = await ClubMember.findOne({
+      club: req.club._id,
+      user: userId,
+    });
+    if (!target)
+      return res.status(404).json({ message: "Không tìm thấy thành viên." });
+    if (target.role === "owner")
+      return res.status(403).json({ message: "Không thể cấm chủ sở hữu." });
+
+    const isOwner = String(req.club.owner) === String(req.user._id);
+    const actorRole = req.clubMembership?.role || (isOwner ? "owner" : null);
+    if (!isOwner) {
+      if (actorRole !== "admin")
+        return res.status(403).json({ message: "Cần quyền quản trị viên." });
+      if (target.role !== "member")
+        return res
+          .status(403)
+          .json({ message: "Chỉ chủ sở hữu mới có thể cấm quản trị viên." });
+    }
+    if (String(target.user) === String(req.user._id))
+      return res.status(409).json({ message: "Không thể tự cấm chính mình." });
+
+    const wasActive = target.status === "active";
+    target.status = "banned";
+    target.role = "member";
+    await target.save();
+    if (wasActive) {
+      await Club.updateOne(
+        { _id: req.club._id },
+        { $inc: { "stats.memberCount": -1 } }
+      );
+    }
+    // huỷ mọi yêu cầu gia nhập đang chờ (nếu có)
+    await ClubJoinRequest.updateMany(
+      { club: req.club._id, user: userId, status: "pending" },
+      { $set: { status: "rejected", decidedBy: req.user._id, decidedAt: new Date() } }
+    );
+    return res.json({ ok: true, bannedUserId: userId });
+  } catch (err) {
+    console.error("banMember error:", err);
+    return res.status(500).json({ message: err.message || "Lỗi máy chủ." });
+  }
+};
+
+/** Bỏ cấm: status="active" trở lại. */
+export const unbanMember = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    if (!mongoose.isValidObjectId(userId)) {
+      return res.status(400).json({ message: "userId không hợp lệ" });
+    }
+    const target = await ClubMember.findOne({
+      club: req.club._id,
+      user: userId,
+      status: "banned",
+    });
+    if (!target)
+      return res
+        .status(404)
+        .json({ message: "Thành viên này không bị cấm." });
+
+    target.status = "active";
+    await target.save();
+    await Club.updateOne(
+      { _id: req.club._id },
+      { $inc: { "stats.memberCount": 1 } }
+    );
+    return res.json({ ok: true, unbannedUserId: userId });
+  } catch (err) {
+    console.error("unbanMember error:", err);
     return res.status(500).json({ message: err.message || "Lỗi máy chủ." });
   }
 };

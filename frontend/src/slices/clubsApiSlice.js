@@ -83,6 +83,27 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
+    banMember: builder.mutation({
+      query: ({ id, userId }) => ({
+        url: `/api/clubs/${id}/members/${userId}/ban`,
+        method: "POST",
+      }),
+      invalidatesTags: (res, err, { id }) => [
+        { type: "ClubMember", id },
+        { type: "Club", id },
+      ],
+    }),
+    unbanMember: builder.mutation({
+      query: ({ id, userId }) => ({
+        url: `/api/clubs/${id}/members/${userId}/unban`,
+        method: "POST",
+      }),
+      invalidatesTags: (res, err, { id }) => [
+        { type: "ClubMember", id },
+        { type: "Club", id },
+      ],
+    }),
+
     // Join flow
     requestJoin: builder.mutation({
       query: ({ id, message }) => ({
@@ -165,6 +186,12 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         body: { status }, // "going" | "not_going" | "none"
       }),
       invalidatesTags: (res, err, { id }) => [{ type: "ClubEvent", id }],
+    }),
+    listEventAttendees: builder.query({
+      query: ({ id, eventId }) => ({
+        url: `/api/clubs/${id}/events/${eventId}/attendees`,
+      }),
+      providesTags: (res, err, { id }) => [{ type: "ClubEvent", id }],
     }),
     // .ics chỉ cần dùng <a href>, không cần mutation. Nhưng nếu muốn tải blob:
     downloadEventIcs: builder.query({
@@ -255,6 +282,8 @@ export const {
   useAddMemberMutation,
   useSetRoleMutation,
   useKickMemberMutation,
+  useBanMemberMutation,
+  useUnbanMemberMutation,
   useLeaveClubMutation,
   useRequestJoinMutation,
   useCancelJoinMutation,
@@ -267,6 +296,7 @@ export const {
   useUpdateEventMutation,
   useDeleteEventMutation,
   useRsvpEventMutation,
+  useListEventAttendeesQuery,
   useDownloadEventIcsQuery,
 
   // announcements
