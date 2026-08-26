@@ -15,7 +15,7 @@ import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { Text } from "@astryxdesign/core/Text";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { BadgeCheck, MapPin, Search, Trophy, UserPlus, Users } from "lucide-react";
+import { BadgeCheck, MapPin, Plus, Search, Trophy, UserPlus, Users } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
 import ShadowFrame from "./ShadowFrame.jsx";
@@ -23,6 +23,7 @@ import SiteNav from "./SiteNav.jsx";
 import SiteFooter from "./SiteFooter.jsx";
 import PickleMark from "./PickleMark.jsx";
 import { A, GrayPill } from "./ui.jsx";
+import ClubCreateDialog from "../../components/ClubCreateDialog.jsx";
 import { useListClubsQuery } from "../../slices/clubsApiSlice.js";
 
 /* ------------------------------- helpers ------------------------------- */
@@ -204,6 +205,7 @@ export default function ClubsPage() {
   const [keyword, setKeyword] = useState("");
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState([]);
+  const [openCreate, setOpenCreate] = useState(false);
   const debounceRef = useRef(null);
 
   useEffect(() => {
@@ -280,6 +282,27 @@ export default function ClubsPage() {
                   {total > 0 && (
                     <Text type="supporting" color="secondary">{fmtInt(total)} câu lạc bộ</Text>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => setOpenCreate(true)}
+                    style={{
+                      all: "unset",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 7,
+                      height: 38,
+                      padding: "0 16px",
+                      borderRadius: 999,
+                      background: "var(--color-brand, #3D87FF)",
+                      color: "#fff",
+                      fontWeight: 700,
+                      fontSize: 14,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <Plus size={15} /> Tạo CLB
+                  </button>
                 </div>
               </Container>
             </div>
@@ -332,6 +355,14 @@ export default function ClubsPage() {
           </div>
         </Theme>
       </ShadowFrame>
+
+      <ClubCreateDialog
+        open={openCreate}
+        onClose={(ok) => {
+          setOpenCreate(false);
+          if (ok) setPage(1); // club mới nằm ở trang 1 (mới nhất); RTK tự refetch qua tag Club/LIST
+        }}
+      />
     </>
   );
 }

@@ -103,7 +103,7 @@ import Forbidden403 from "./screens/403.jsx";
 import ServiceUnavailable from "./screens/503.jsx";
 import PublicProfilePage from "./screens/PublicProfilePage.jsx";
 import ClubsListPage from "./screens/ClubsScreen.jsx";
-import ClubDetailPage from "./components/ClubDetailPage.jsx";
+import ClubDetailPage from "./screens/ClubDetailScreen.jsx";
 import CourtsBrowsePage from "./screens/courts/CourtsBrowsePage.jsx";
 import VenueDetailPage from "./screens/courts/VenueDetailPage.jsx";
 import MyBookingsPage from "./screens/courts/MyBookingsPage.jsx";

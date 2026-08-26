@@ -133,6 +133,7 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         if (to) p.set("to", to);
         return { url: `/api/clubs/${id}/events?${p.toString()}` };
       },
+      providesTags: (res, err, { id }) => [{ type: "ClubEvent", id }],
     }),
     createEvent: builder.mutation({
       query: ({ id, ...body }) => ({
@@ -140,6 +141,7 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body,
       }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubEvent", id }],
     }),
     updateEvent: builder.mutation({
       query: ({ id, eventId, ...body }) => ({
@@ -147,12 +149,14 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         method: "PATCH",
         body,
       }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubEvent", id }],
     }),
     deleteEvent: builder.mutation({
       query: ({ id, eventId }) => ({
         url: `/api/clubs/${id}/events/${eventId}`,
         method: "DELETE",
       }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubEvent", id }],
     }),
     rsvpEvent: builder.mutation({
       query: ({ id, eventId, status }) => ({
@@ -160,6 +164,7 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body: { status }, // "going" | "not_going" | "none"
       }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubEvent", id }],
     }),
     // .ics chỉ cần dùng <a href>, không cần mutation. Nhưng nếu muốn tải blob:
     downloadEventIcs: builder.query({
@@ -174,6 +179,7 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
       query: ({ id, page = 1, limit = 10 }) => ({
         url: `/api/clubs/${id}/announcements?page=${page}&limit=${limit}`,
       }),
+      providesTags: (res, err, { id }) => [{ type: "ClubAnnouncement", id }],
     }),
     createAnnouncement: builder.mutation({
       query: ({ id, ...body }) => ({
@@ -181,6 +187,7 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body,
       }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubAnnouncement", id }],
     }),
     updateAnnouncement: builder.mutation({
       query: ({ id, postId, ...body }) => ({
@@ -188,12 +195,14 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         method: "PATCH",
         body,
       }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubAnnouncement", id }],
     }),
     deleteAnnouncement: builder.mutation({
       query: ({ id, postId }) => ({
         url: `/api/clubs/${id}/announcements/${postId}`,
         method: "DELETE",
       }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubAnnouncement", id }],
     }),
 
     // POLLS
@@ -201,6 +210,7 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
       query: ({ id, page = 1, limit = 10 }) => ({
         url: `/api/clubs/${id}/polls?page=${page}&limit=${limit}`,
       }),
+      providesTags: (res, err, { id }) => [{ type: "ClubPoll", id }],
     }),
     createPoll: builder.mutation({
       query: ({ id, ...body }) => ({
@@ -208,6 +218,7 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body,
       }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubPoll", id }],
     }),
     votePoll: builder.mutation({
       query: ({ id, pollId, optionIds }) => ({
@@ -215,12 +226,21 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body: { optionIds },
       }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubPoll", id }],
     }),
     closePoll: builder.mutation({
       query: ({ id, pollId }) => ({
         url: `/api/clubs/${id}/polls/${pollId}/close`,
         method: "POST",
       }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubPoll", id }],
+    }),
+    deletePoll: builder.mutation({
+      query: ({ id, pollId }) => ({
+        url: `/api/clubs/${id}/polls/${pollId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (res, err, { id }) => [{ type: "ClubPoll", id }],
     }),
   }),
   overrideExisting: false,
@@ -260,4 +280,5 @@ export const {
   useCreatePollMutation,
   useVotePollMutation,
   useClosePollMutation,
+  useDeletePollMutation,
 } = clubsApiSlice;

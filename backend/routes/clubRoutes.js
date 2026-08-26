@@ -29,7 +29,7 @@ import {
 
 import { passProtect, protect } from "../middleware/authMiddleware.js";
 import { createAnnouncement, deleteAnnouncement, listAnnouncements, updateAnnouncement } from "../controllers/announcementController.js";
-import { createPoll, deletePoll, listPolls, votePoll } from "../controllers/pollController.js";
+import { createPoll, deletePoll, listPolls, votePoll, closePoll } from "../controllers/pollController.js";
 import { createEvent, deleteEvent, getEventIcs, listEvents, rsvpEvent, updateEvent } from "../controllers/eventController.js";
 
 const router = express.Router();
@@ -171,7 +171,7 @@ router.patch(
 );
 
 // ========== ANNOUNCEMENTS ==========
-router.get("/:id/announcements", passProtect, loadClub, listAnnouncements);
+router.get("/:id/announcements", passProtect, loadClub, loadMembership, listAnnouncements);
 router.post("/:id/announcements", protect, loadClub, loadMembership, requireAdmin, createAnnouncement);
 router.patch("/:id/announcements/:annId", protect, loadClub, loadMembership, requireAdmin, updateAnnouncement);
 router.delete("/:id/announcements/:annId", protect, loadClub, loadMembership, requireAdmin, deleteAnnouncement);
@@ -181,15 +181,15 @@ router.get("/:id/polls", passProtect, loadClub, loadMembership, listPolls);
 router.post("/:id/polls", protect, loadClub, loadMembership, requireAdmin, createPoll);
 router.post("/:id/polls/:pollId/vote", protect, loadClub, loadMembership, votePoll);
 router.delete("/:id/polls/:pollId", protect, loadClub, loadMembership, requireAdmin, deletePoll);
-router.post("/:id/polls/:pollId/close", protect, loadClub, loadMembership, requireAdmin, deletePoll);
+router.post("/:id/polls/:pollId/close", protect, loadClub, loadMembership, requireAdmin, closePoll);
 
 // ========== EVENTS ==========
-router.get("/:id/events", passProtect, loadClub, listEvents);
+router.get("/:id/events", passProtect, loadClub, loadMembership, listEvents);
 router.post("/:id/events", protect, loadClub, loadMembership, requireAdmin, createEvent);
 router.patch("/:id/events/:eventId", protect, loadClub, loadMembership, requireAdmin, updateEvent);
 router.delete("/:id/events/:eventId", protect, loadClub, loadMembership, requireAdmin, deleteEvent);
 router.post("/:id/events/:eventId/rsvp", protect, loadClub, loadMembership, rsvpEvent);
-router.get("/:id/events/:eventId/ics", passProtect, loadClub, getEventIcs);
+router.get("/:id/events/:eventId/ics", passProtect, loadClub, loadMembership, getEventIcs);
 
 
 export default router;

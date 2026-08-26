@@ -74,6 +74,33 @@ export const listPolls = async (req, res) => {
       }
     }
 
+    // Đính kèm phiếu của chính user hiện tại (để FE hiển thị "đã chọn") + tổng số phiếu
+    if (meId && items.length) {
+      const myVotes = await ClubPollVote.find({
+        poll: { $in: items.map((p) => p._id) },
+        user: meId,
+      })
+        .select("poll optionIds")
+        .lean();
+      const myMap = {};
+      for (const v of myVotes) myMap[String(v.poll)] = v.optionIds || [];
+      for (const p of items) {
+        p.myOptionIds = myMap[String(p._id)] || [];
+      }
+    } else {
+      for (const p of items) p.myOptionIds = [];
+    }
+    // Tổng số phiếu (số người đã bình chọn) cho mỗi poll
+    if (items.length) {
+      const counts = await ClubPollVote.aggregate([
+        { $match: { poll: { $in: items.map((p) => p._id) } } },
+        { $group: { _id: "$poll", n: { $sum: 1 } } },
+      ]);
+      const cMap = {};
+      for (const c of counts) cMap[String(c._id)] = c.n;
+      for (const p of items) p.voterCount = cMap[String(p._id)] || 0;
+    }
+
     return res.json({ items, total, page: pageNum, limit: limitNum });
   } catch (err) {
     console.error("listPolls error:", err);
@@ -224,4 +251,18 @@ export const deletePoll = async (req, res) => {
     return res.status(404).json({ message: "Không tìm thấy poll" });
   await ClubPollVote.deleteMany({ poll: req.params.pollId });
   res.json({ ok: true });
+};
+
+/**
+ * Đóng bình chọn (KHÔNG xoá phiếu/dữ liệu) — set closesAt = now.
+ * Sau khi đóng, votePoll sẽ trả 409 vì closesAt < now.
+ */
+export const closePoll = async (req, res) => {
+  const poll = await ClubPoll.findOneAndUpdate(
+    { _id: req.params.pollId, club: req.club._id },
+    { $set: { closesAt: new Date() } },
+    { new: true }
+  );
+  if (!poll) return res.status(404).json({ message: "Không tìm thấy poll" });
+  res.json({ ok: true, closesAt: poll.closesAt });
 };

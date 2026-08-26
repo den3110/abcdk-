@@ -22,7 +22,24 @@ export const listEvents = async (req, res) => {
   const items = await ClubEvent.find(filter)
     .sort({ startAt: 1 })
     .skip((+page - 1) * +limit)
-    .limit(+limit);
+    .limit(+limit)
+    .lean();
+
+  // Đính kèm trạng thái RSVP của chính user hiện tại cho mỗi sự kiện
+  const meId = req.user?._id ? String(req.user._id) : null;
+  if (meId && items.length) {
+    const rsvps = await ClubEventRsvp.find({
+      event: { $in: items.map((e) => e._id) },
+      user: meId,
+    })
+      .select("event status")
+      .lean();
+    const rMap = {};
+    for (const r of rsvps) rMap[String(r.event)] = r.status;
+    for (const e of items) e.myStatus = rMap[String(e._id)] || "none";
+  } else {
+    for (const e of items) e.myStatus = "none";
+  }
 
   res.json({ items, total, page: +page, limit: +limit });
 };

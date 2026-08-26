@@ -473,7 +473,7 @@ export const listClubs = async (req, res) => {
 export const getClub = async (req, res) => {
   const { id } = req.params;
   const club = await Club.findById(id).lean();
-  if (!club) return res.status(500).json({ message: "Không tìm thấy CLB." });
+  if (!club) return res.status(404).json({ message: "Không tìm thấy CLB." });
 
   let _my = {
     isMember: false,
