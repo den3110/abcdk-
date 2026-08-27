@@ -322,6 +322,9 @@ const tournamentSchema = new mongoose.Schema(
     bankAccountName: { type: String, trim: true, default: "", maxlength: 64 },
     registrationFee: { type: Number, default: 0, min: 0 },
     isFreeRegistration: { type: Boolean, default: false },
+    // Chỉ cho VĐV đã kích hoạt SĐT (qua Zalo) được đăng ký. Người BẤM đăng ký
+    // (người tạo bản đăng ký) phải có phoneVerified — VĐV 1/2 không cần.
+    requireVerifiedPhoneToRegister: { type: Boolean, default: false },
 
     tele: TeleSchema,
 

@@ -282,6 +282,24 @@ export const createRegistration = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Tournament not found");
   }
+
+  /* ─ Yêu cầu kích hoạt SĐT: chỉ người BẤM đăng ký (req.user) cần verified.
+        Miễn cho admin và chủ giải (họ đăng ký hộ). VĐV 1/2 không cần. ─ */
+  if (tour.requireVerifiedPhoneToRegister) {
+    const isOwner = String(tour.createdBy) === String(req.user._id);
+    if (!isAdminUser(req.user) && !isOwner) {
+      const me = await User.findById(req.user._id)
+        .select("phoneVerified")
+        .lean();
+      if (!me?.phoneVerified) {
+        res.status(403);
+        throw new Error(
+          "Giải này yêu cầu kích hoạt số điện thoại (qua Zalo) trước khi đăng ký. Vui lòng vào Hồ sơ để kích hoạt SĐT."
+        );
+      }
+    }
+  }
+
   const teamMode = isTeamTournament(tour);
   const activeFaction = teamMode ? findTeamFaction(tour, teamFactionId) : null;
   if (teamMode && !activeFaction) {

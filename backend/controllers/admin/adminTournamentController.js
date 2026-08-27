@@ -206,6 +206,7 @@ const FIELD_LABELS = {
   bankAccountName: "Tên chủ tài khoản",
   registrationFee: "Phí đăng ký (VND)",
   isFreeRegistration: "Không thu phí",
+  requireVerifiedPhoneToRegister: "Chỉ VĐV đã xác thực SĐT mới đăng ký được",
   allowedCourtClusterIds: "Cụm sân được phép dùng",
 
   requireKyc: "Yêu cầu KYC",
@@ -472,6 +473,9 @@ const createSchema = Joi.object({
   bankAccountName: bankAccountName.default(""),
   registrationFee: registrationFee.default(0),
   isFreeRegistration: boolLoose.default(false).label(FIELD_LABELS.isFreeRegistration),
+  requireVerifiedPhoneToRegister: boolLoose
+    .default(false)
+    .label(FIELD_LABELS.requireVerifiedPhoneToRegister),
   allowedCourtClusterIds,
   teamConfig: teamConfigSchema,
 
@@ -543,6 +547,9 @@ const updateSchema = Joi.object({
   bankAccountName,
   registrationFee,
   isFreeRegistration: boolLoose.label(FIELD_LABELS.isFreeRegistration),
+  requireVerifiedPhoneToRegister: boolLoose.label(
+    FIELD_LABELS.requireVerifiedPhoneToRegister
+  ),
   allowedCourtClusterIds,
   teamConfig: teamConfigSchema,
 
@@ -1007,6 +1014,16 @@ const toBooleanLoose = (value) =>
 const normalizeIncomingPaymentConfig = (incoming) => {
   if (Object.prototype.hasOwnProperty.call(incoming, "isFreeRegistration")) {
     incoming.isFreeRegistration = toBooleanLoose(incoming.isFreeRegistration);
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(
+      incoming,
+      "requireVerifiedPhoneToRegister"
+    )
+  ) {
+    incoming.requireVerifiedPhoneToRegister = toBooleanLoose(
+      incoming.requireVerifiedPhoneToRegister
+    );
   }
   if (Object.prototype.hasOwnProperty.call(incoming, "bankShortName")) {
     incoming.bankShortName = String(incoming.bankShortName || "").trim();
