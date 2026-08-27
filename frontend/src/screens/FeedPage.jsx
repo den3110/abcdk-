@@ -75,6 +75,7 @@ import FriendSuggestionsCard from "../components/feed/FriendSuggestionsCard.jsx"
 import TournamentBubbleCard from "../components/feed/TournamentBubbleCard.jsx";
 import { CONDITION_MAP, formatPrice } from "../constants/market";
 import { PLAY_STATUS, formatPlayTime, skillLabel } from "../constants/play";
+import PlayerName from "../components/PlayerName";
 
 /* ─────────── constants ─────────── */
 const REACTION_EMOJI = {
@@ -843,7 +844,7 @@ function CommentItem({
                   "&:hover": { textDecoration: "underline" },
                 }}
               >
-                {authorName(comment.author)}
+                <PlayerName user={comment.author} name={authorName(comment.author)} />
               </Typography>
               <MentionText
                 content={comment.content}
@@ -865,7 +866,7 @@ function CommentItem({
                 ml: 1,
               }}
             >
-              {authorName(comment.author)}
+              <PlayerName user={comment.author} name={authorName(comment.author)} />
             </Typography>
           )}
           {Array.isArray(comment.media) && comment.media.length > 0 && (
@@ -1460,7 +1461,7 @@ function PostCard({ post, me, defaultShowComments = false }) {
                   post.author?._id && nav(`/profile/${post.author._id}`)
                 }
               >
-                {authorName(post.author)}
+                <PlayerName user={post.author} name={authorName(post.author)} />
               </Typography>
               <ScoreBadges
                 single={post.author?.score?.single}
@@ -1759,7 +1760,7 @@ function PostCard({ post, me, defaultShowComments = false }) {
                 </Avatar>
                 <Box flex={1} minWidth={0}>
                   <Typography variant="subtitle2" fontWeight={700}>
-                    {authorName(post.author)}
+                    <PlayerName user={post.author} name={authorName(post.author)} />
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     {fmtTime(post.createdAt)}

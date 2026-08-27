@@ -61,6 +61,7 @@ import { getGenderLabel } from "../i18n/uiOptions";
 import FriendActions from "../components/FriendActions.jsx";
 import OpenMessageButton from "../components/OpenMessageButton.jsx";
 import CoachAchievementsSection from "../components/coaches/CoachAchievementsSection.jsx";
+import PlayerName from "../components/PlayerName";
 
 /* ---------- CONSTANTS & UTILS ---------- */
 const AVA_PLACE = "";
@@ -720,7 +721,10 @@ export default function PublicProfilePage() {
             }}
           >
             <Typography variant="h4" fontWeight={800} sx={{ mb: 0.5 }}>
-              {base?.name || base?.fullName || t("publicProfile.defaultName")}
+              <PlayerName
+                user={base}
+                name={base?.name || base?.fullName || t("publicProfile.defaultName")}
+              />
             </Typography>
             <Stack
               direction="row"
@@ -730,7 +734,11 @@ export default function PublicProfilePage() {
               sx={{ mb: 2, color: "text.secondary" }}
             >
               <Typography variant="body1" fontWeight={500}>
-                @{base?.nickname || t("publicProfile.nicknameFallback")}
+                @
+                <PlayerName
+                  user={base}
+                  name={base?.nickname || t("publicProfile.nicknameFallback")}
+                />
               </Typography>
               {hasData(base?.nickname) && (
                 <CopyBtn

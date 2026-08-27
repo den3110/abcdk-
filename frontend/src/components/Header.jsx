@@ -34,6 +34,7 @@ import { useCommandPalette } from "../context/CommandPaletteContext.jsx";
 import NotificationBellMui from "./NotificationBellMui.jsx";
 import LogoAnimationMorph from "./LogoAnimationMorph.jsx";
 import LanguageSwitcher from "./LanguageSwitcher.jsx";
+import PlayerName from "./PlayerName";
 
 const CLUB_BADGE_START = new Date(2025, 9, 5, 0, 0, 0, 0);
 const CLUB_BADGE_END = new Date(2025, 10, 5, 23, 59, 59, 999);
@@ -757,7 +758,10 @@ export default function Header() {
                       },
                     }}
                   >
-                    {userInfo.nickname || userInfo.name}
+                    <PlayerName
+                      user={userInfo}
+                      name={userInfo.nickname || userInfo.name}
+                    />
                   </Typography>
                 </Box>
 

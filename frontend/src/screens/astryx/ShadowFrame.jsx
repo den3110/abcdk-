@@ -110,6 +110,8 @@ const EXTRA_CSS = `
 /* watermark pinwheel xoay rất chậm ở đầu trang */
 @keyframes pkSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .pk-spin-slow { animation: pkSpin 90s linear infinite; }
+/* hiệu ứng tên VĐV (PlayerName) — gradient động, cần trong shadow DOM */
+@keyframes pkNameShine { from { background-position: 0% center; } to { background-position: 100% center; } }
 /* thẻ spotlight chiếm 2 cột khi đủ rộng */
 @media (min-width: 760px) { .pk-span2 { grid-column: span 2; } }
 /* ảnh lightbox phóng vào mượt */

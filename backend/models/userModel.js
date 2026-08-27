@@ -168,6 +168,25 @@ const PikoraFormDraftSchema = new mongoose.Schema(
   { _id: false },
 );
 
+/* ---------- Hiệu ứng tên hiển thị (cosmetic — admin cấu hình, hiện khắp app) ---------- */
+const NameStyleSchema = new mongoose.Schema(
+  {
+    // "none" = tên thường; "solid" = 1 màu; "gradient" = nhiều màu (>=2, gồm cầu vồng)
+    effect: {
+      type: String,
+      enum: ["none", "solid", "gradient"],
+      default: "none",
+    },
+    color: { type: String, default: "" }, // dùng cho solid (hex)
+    colors: { type: [String], default: [] }, // dùng cho gradient (2..7 hex)
+    angle: { type: Number, default: 90 }, // góc gradient (deg)
+    animated: { type: Boolean, default: false }, // shimmer / cầu vồng động
+    speed: { type: Number, default: 6 }, // thời lượng 1 vòng animation (giây)
+    bold: { type: Boolean, default: false }, // in đậm
+  },
+  { _id: false },
+);
+
 const userSchema = new mongoose.Schema(
   {
     /* ------- Thông tin cơ bản ------- */
@@ -234,6 +253,8 @@ const userSchema = new mongoose.Schema(
     },
     cover: { type: String, default: "" }, // 👈 ADD
     bio: { type: String, default: "" },
+    // Hiệu ứng màu/chuyển sắc cho tên hiển thị (admin cấu hình, hiện khắp web+app)
+    nameStyle: { type: NameStyleSchema, default: () => ({}) },
 
     /* ------- Thông tin phụ ------- */
     gender: {
@@ -626,6 +647,8 @@ userSchema.index(
   { name: "idx_province_vi", collation: { locale: "vi", strength: 1 } },
 );
 userSchema.index({ cccdStatus: 1, updatedAt: -1 });
+// Tra nhanh các VĐV có hiệu ứng tên (endpoint /api/name-styles)
+userSchema.index({ "nameStyle.effect": 1 }, { name: "idx_name_style_effect" });
 userSchema.index({ "evaluator.enabled": 1 }, { name: "idx_eval_enabled" });
 userSchema.index(
   { "evaluator.gradingScopes.provinces": 1 },

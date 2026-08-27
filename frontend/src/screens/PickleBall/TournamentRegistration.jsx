@@ -90,6 +90,7 @@ import { formatDate as formatLocaleDate } from "../../i18n/format";
 import { getFeeAmount } from "../../utils/fee";
 import { useBotContext } from "../../hook/useBotContext";
 import SEOHead from "../../components/SEOHead";
+import PlayerName from "../../components/PlayerName";
 import {
   getTournamentNameDisplayMode,
   getTournamentPlayerName,
@@ -1168,7 +1169,7 @@ const PlayerInfo = memo(
               alignItems: "center",
             }}
           >
-            {displayName(player, displayMode)}{" "}
+            <PlayerName player={player} name={displayName(player, displayMode)} />{" "}
             <VerifyBadge status={kycOf(player)} />
             {player?.phoneVerified && (
               <Tooltip title="Đã kích hoạt số điện thoại" arrow>
@@ -4067,7 +4068,7 @@ export default function TournamentRegistration() {
                   </Avatar>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography fontWeight={700} noWrap>
-                      {name}
+                      <PlayerName player={pl} name={name} />
                     </Typography>
                     {pl.fullName && pl.nickName && pl.fullName !== pl.nickName && (
                       <Typography variant="caption" color="text.secondary" noWrap display="block">

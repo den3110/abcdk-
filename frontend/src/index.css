@@ -127,3 +127,13 @@
     max-width: 65vw;
   }
 }
+
+/* ===== Hiệu ứng tên VĐV (PlayerName) — keyframes gradient động ===== */
+@keyframes pkNameShine {
+  from {
+    background-position: 0% center;
+  }
+  to {
+    background-position: 100% center;
+  }
+}

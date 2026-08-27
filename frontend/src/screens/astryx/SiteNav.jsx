@@ -17,6 +17,7 @@ import { setPkTheme, usePkTheme } from "./theme.js";
 import { logout as logoutAction } from "../../slices/authSlice.js";
 import { useLogoutMutation } from "../../slices/usersApiSlice.js";
 import NotificationBell from "./NotificationBell.jsx";
+import PlayerName from "../../components/PlayerName";
 
 const NAV_LINKS = [
   ["Giải đấu", "/pickle-ball/tournaments"],
@@ -166,7 +167,7 @@ function UserMenu({ userInfo }) {
             whiteSpace: "nowrap",
           }}
         >
-          {name}
+          <PlayerName user={userInfo} name={name} />
         </span>
         <ChevronDown
           size={15}

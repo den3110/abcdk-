@@ -24,6 +24,7 @@ import SiteFooter from "./SiteFooter.jsx";
 import PickleMark from "./PickleMark.jsx";
 import { A, GrayPill } from "./ui.jsx";
 import { useGetRankingsListQuery } from "../../slices/rankingsApiSlice.js";
+import PlayerName from "../../components/PlayerName";
 import { useOpenDmMutation } from "../../slices/messagesApiSlice.js";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
@@ -216,7 +217,7 @@ function PodiumCard({ r, place }) {
 
       <div style={{ position: "relative", marginTop: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
         <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: top1 ? 17.5 : 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "85%" }}>
-          {nameOf(r)}
+          <PlayerName user={r?.user} name={nameOf(r)} />
         </span>
         {isVerified(r) && <BadgeCheck size={16} color="#3E9EFB" style={{ flexShrink: 0 }} />}
       </div>
@@ -406,7 +407,7 @@ function RankRow({ r, fallbackRank, showGlobal }) {
         <Avatar size="small" src={imgUrl(r?.user?.avatar)} name={nameOf(r)} />
         <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           <span style={{ color: "var(--pk-text-strong)", fontWeight: 650, fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {nameOf(r)}
+            <PlayerName user={r?.user} name={nameOf(r)} />
           </span>
           {isVerified(r) && <BadgeCheck size={15} color="#3E9EFB" style={{ flexShrink: 0 }} />}
           {tierDot && <span title={r?.tierLabel || ""} style={{ width: 7, height: 7, borderRadius: 99, background: tierDot, flexShrink: 0 }} />}

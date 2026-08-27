@@ -8,6 +8,8 @@ import {
 } from "../../services/notifications/notificationHub.js";
 import mongoose from "mongoose";
 import { syncRegistrationProfileSnapshot } from "../../services/registrationProfileSync.service.js";
+import { sanitizeNameStyle } from "../../utils/nameStyle.js";
+import { invalidateNameStyleCache } from "../nameStyleController.js";
 
 const isSuperAdminActor = (req) =>
   Boolean(req.user?.isSuperUser || req.user?.isSuperAdmin);
@@ -231,6 +233,13 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
     }
   });
 
+  // Hiệu ứng tên (cosmetic) — làm sạch trước khi lưu
+  let nameStyleChanged = false;
+  if (req.body.nameStyle !== undefined) {
+    user.nameStyle = sanitizeNameStyle(req.body.nameStyle);
+    nameStyleChanged = true;
+  }
+
   /* --- kiểm tra trùng email / phone --- */
   if (req.body.email && req.body.email !== user.email) {
     const dupe = await User.findOne({ email: req.body.email });
@@ -257,6 +266,8 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
 
   const updatedUser = await user.save();
   await syncRegistrationProfileSnapshot(updatedUser);
+
+  if (nameStyleChanged) invalidateNameStyleCache();
 
   if (rankingUpdateNeeded) {
     try {

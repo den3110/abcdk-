@@ -94,6 +94,7 @@ import { useRegisterChatBotPageContext } from "../../context/ChatBotPageContext"
 import { formatDate } from "../../i18n/format";
 import FriendActionButton from "../../components/social/FriendActionButton";
 import MessageActionButton from "../../components/social/MessageActionButton";
+import PlayerName from "../../components/PlayerName";
 
 /* ================= LAZY LOADING AVATAR COMPONENT ================= */
 const ChampionCrown = memo(({ size = 26 }) => (
@@ -1761,7 +1762,7 @@ const DesktopCard = memo(
                 />
                 <Box sx={{ minWidth: 0, flex: 1 }}>
                   <Typography fontWeight={700} noWrap>
-                    {u?.nickname || "---"}
+                    <PlayerName user={u} name={u?.nickname || "---"} />
                   </Typography>
                   <Stack
                     direction="row"
@@ -3021,7 +3022,7 @@ export default function RankingList() {
                         />
                         <Box sx={{ minWidth: 0, flex: 1 }}>
                           <Typography fontWeight={600} noWrap>
-                            {u?.nickname || "---"}
+                            <PlayerName user={u} name={u?.nickname || "---"} />
                           </Typography>
                         </Box>
 
@@ -3272,7 +3273,7 @@ export default function RankingList() {
                             sx={{ fontWeight: 600 }}
                             noWrap
                           >
-                            {u?.nickname || "--"}
+                            <PlayerName user={u} name={u?.nickname || "--"} />
                           </Typography>
                           {topMedal && (
                             <Tooltip title={label || ""}>

@@ -2976,7 +2976,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
 
   // Non-admin: giữ API cũ, không đính SPC
   const user = await User.findById(req.params.id).select(
-    "nickname gender name province createdAt bio avatar cccdStatus levelPoint"
+    "nickname gender name province createdAt bio avatar cccdStatus levelPoint nameStyle"
   );
 
   if (!user) {
@@ -2994,6 +2994,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     bio: user.bio || "",
     avatar: user.avatar || "",
     cccdStatus: user.cccdStatus || "unverified",
+    nameStyle: user.nameStyle || { effect: "none" },
     isCoach: !!user.isCoach,
     coachProfile: user.coachProfile || null,
     summary: await sanitizeRatingsObj(
@@ -3926,7 +3927,7 @@ export const getMe = asyncHandler(async (req, res) => {
   const [me, participated, staffScored] = await Promise.all([
     User.findById(meId)
       .select(
-        "_id name email role nickname phone gender province avatar verified cccdStatus createdAt updatedAt evaluator"
+        "_id name email role nickname phone gender province avatar verified cccdStatus createdAt updatedAt evaluator nameStyle"
       )
       .lean(),
     (async () => {
@@ -3975,6 +3976,7 @@ export const getMe = asyncHandler(async (req, res) => {
     createdAt: me.createdAt,
     updatedAt: me.updatedAt,
     isScoreVerified, // <-- NEW
+    nameStyle: me.nameStyle || { effect: "none" },
     evaluator: {
       enabled: !!me?.evaluator?.enabled,
       gradingScopes: {
