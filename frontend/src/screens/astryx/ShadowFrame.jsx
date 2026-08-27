@@ -227,6 +227,32 @@ input.pk-input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(
 .pk-brand svg { transition: transform .5s cubic-bezier(.3,.7,.3,1); }
 .pk-brand:hover svg { transform: rotate(90deg); }
 
+/* Thanh điều hướng V2 — pill nav: mục dạng viên thuốc, hover nhẹ, active tô nhãn thương hiệu */
+.pk-navgroup {
+  display: flex; align-items: center; gap: 2px;
+  padding: 5px; border-radius: 999px;
+  background: light-dark(rgba(10,12,16,.035), rgba(255,255,255,.045));
+  border: 1px solid light-dark(rgba(10,12,16,.06), rgba(255,255,255,.06));
+}
+.pk-navitem {
+  display: inline-flex; align-items: center;
+  padding: 8px 15px; border-radius: 999px;
+  font-size: 14px; font-weight: 540; letter-spacing: -0.005em;
+  color: light-dark(#565D64, #B9BEC5);
+  white-space: nowrap; text-decoration: none;
+  transition: background .18s ease, color .18s ease, transform .18s ease;
+}
+.pk-navitem:hover {
+  background: light-dark(rgba(10,12,16,.05), rgba(255,255,255,.07));
+  color: light-dark(#14171A, #FFFFFF);
+}
+.pk-navitem:active { transform: scale(.97); }
+.pk-navitem[aria-current="page"] {
+  background: light-dark(rgba(61,135,255,.12), rgba(61,135,255,.20));
+  color: var(--color-brand, #3D87FF);
+  font-weight: 640;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pk-rise, .pk-drift, .pk-bob, .pk-live, .pk-fade { animation: none !important; opacity: 1 !important; }
   .pk-reveal { opacity: 1; transform: none; transition: none; }

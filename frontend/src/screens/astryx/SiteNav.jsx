@@ -7,7 +7,7 @@
  */
 import { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { ChevronDown, GraduationCap, LogOut, Mail, MessageCircle, Moon, Shield, Sun, Trophy, User } from "lucide-react";
 
@@ -42,6 +42,12 @@ const displayName = (u) =>
   [u?.nickname, u?.name, u?.fullName, u?.email]
     .map((x) => String(x || "").trim())
     .find(Boolean) || "Tài khoản";
+
+// Xác định link đang active theo pathname (prefix-aware, không "/" nuốt tất cả)
+const isActivePath = (pathname, href) => {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(href + "/");
+};
 
 /* Nút gạt sáng/tối — dùng được cả khi chưa đăng nhập. Icon = chế độ SẼ chuyển sang. */
 function ThemeToggle() {
@@ -210,6 +216,7 @@ function UserMenu({ userInfo }) {
 
 export default function SiteNav() {
   const userInfo = useSelector((s) => s.auth?.userInfo || null);
+  const { pathname } = useLocation();
 
   return (
     <div
@@ -237,11 +244,16 @@ export default function SiteNav() {
           <PickleMark size={34} />
         </A>
         <nav
-          className="pk-navlinks"
-          style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", gap: 28 }}
+          className="pk-navlinks pk-navgroup"
+          style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}
         >
           {NAV_LINKS.map(([label, href]) => (
-            <A key={href} href={href} style={{ color: "light-dark(#3D4247, #D8DBDF)", textDecoration: "none", fontSize: 14.5, fontWeight: 550 }}>
+            <A
+              key={href}
+              href={href}
+              className="pk-navitem"
+              aria-current={isActivePath(pathname, href) ? "page" : undefined}
+            >
               {label}
             </A>
           ))}
