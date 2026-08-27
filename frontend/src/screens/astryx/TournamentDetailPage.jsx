@@ -87,7 +87,7 @@ const statusOf = (t) => {
   return "ongoing";
 };
 
-const metaRow = { display: "flex", alignItems: "center", gap: 9, color: "#C9CDD2", fontSize: 14.5 };
+const metaRow = { display: "flex", alignItems: "center", gap: 9, color: "var(--pk-text)", fontSize: 14.5 };
 
 function StatCard({ label, value, accent }) {
   return (
@@ -115,7 +115,7 @@ function TeamCard({ r, single }) {
         )}
       </div>
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ color: "#F0F1F3", fontWeight: 700, fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div style={{ color: "var(--pk-text-strong)", fontWeight: 700, fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {nameOf(p1)}
           {!single && <span style={{ color: "#8F959C", fontWeight: 600 }}> &amp; {nameOf(p2)}</span>}
         </div>
@@ -270,7 +270,7 @@ export default function TournamentDetailPage() {
                         )}
                       </div>
 
-                      <h1 className="pk-rise" style={{ margin: "16px 0 0", fontWeight: 750, fontSize: "clamp(26px, 3.4vw, 44px)", lineHeight: 1.12, letterSpacing: "-0.02em", color: "#F5F6F7", animationDelay: ".07s" }}>
+                      <h1 className="pk-rise" style={{ margin: "16px 0 0", fontWeight: 750, fontSize: "clamp(26px, 3.4vw, 44px)", lineHeight: 1.12, letterSpacing: "-0.02em", color: "var(--pk-text-strong)", animationDelay: ".07s" }}>
                         {t?.name}
                       </h1>
 
@@ -375,7 +375,7 @@ export default function TournamentDetailPage() {
               <div className="pk-2col" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(280px, 1fr)", gap: 20, marginTop: 20, alignItems: "start" }}>
                 {/* điều lệ */}
                 <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: "22px 24px" }}>
-                  <div style={{ color: "#F0F1F3", fontWeight: 750, fontSize: 18 }}>Điều lệ giải đấu</div>
+                  <div style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 18 }}>Điều lệ giải đấu</div>
                   {t?.contentHtml ? (
                     <>
                       <div
@@ -406,7 +406,7 @@ export default function TournamentDetailPage() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                   {(t?.bankAccountNumber || fee) && (
                     <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: "20px 22px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 9, color: "#F0F1F3", fontWeight: 750, fontSize: 16 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16 }}>
                         <Landmark size={17} style={{ opacity: 0.8 }} />
                         Lệ phí & chuyển khoản
                       </div>
@@ -415,9 +415,9 @@ export default function TournamentDetailPage() {
                       )}
                       {t?.bankAccountNumber && (
                         <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 7 }}>
-                          <div style={{ color: "#C9CDD2", fontSize: 13.5 }}>{t?.bankShortName || t?.qrBank}</div>
+                          <div style={{ color: "var(--pk-text)", fontSize: 13.5 }}>{t?.bankShortName || t?.qrBank}</div>
                           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                            <span style={{ color: "#F0F1F3", fontWeight: 750, fontSize: 16.5, letterSpacing: ".02em" }}>{t.bankAccountNumber}</span>
+                            <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16.5, letterSpacing: ".02em" }}>{t.bankAccountNumber}</span>
                             <button
                               type="button"
                               onClick={copyAccount}
@@ -434,7 +434,7 @@ export default function TournamentDetailPage() {
                   )}
 
                   <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: "20px 22px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 9, color: "#F0F1F3", fontWeight: 750, fontSize: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16 }}>
                       <ClipboardCheck size={17} style={{ opacity: 0.8 }} />
                       Liên hệ ban tổ chức
                     </div>
@@ -453,11 +453,11 @@ export default function TournamentDetailPage() {
               <div style={{ margin: "44px 0 84px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <Users size={18} color="#9AA0A6" />
-                  <span style={{ color: "#F0F1F3", fontWeight: 750, fontSize: 20 }}>
+                  <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 20 }}>
                     {single ? "Vận động viên đăng ký" : "Đội đăng ký"}
                   </span>
                   {regCount > 0 && (
-                    <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: "rgba(255,255,255,.07)", color: "#C9CDD2" }}>{regCount}</span>
+                    <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: "rgba(255,255,255,.07)", color: "var(--pk-text)" }}>{regCount}</span>
                   )}
                 </div>
                 {regs.length ? (

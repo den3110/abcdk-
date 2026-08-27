@@ -314,7 +314,7 @@ function PointsFloatCard({ accent = "#E9EAEC" }) {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Avatar size="xsmall" name="Trần Bảo" />
-        <span style={{ ...floatSub, color: "#C6CACF" }}>Trần Bảo</span>
+        <span style={{ ...floatSub, color: "var(--pk-text)" }}>Trần Bảo</span>
       </div>
     </div>
   );
@@ -340,7 +340,7 @@ function RefereeFloatCard({ accent = "#3D87FF" }) {
       <Row name="Hùng / Nam" score="9" />
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <span style={{ flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 999, background: accent, color: "#101114", fontWeight: 700, fontSize: 13.5, transition: "background .6s" }}>+1 điểm</span>
-        <span style={{ flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 999, background: "#2A2B2F", color: "#C9CDD2", fontWeight: 650, fontSize: 13.5 }}>Đổi giao</span>
+        <span style={{ flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 999, background: "#2A2B2F", color: "var(--pk-text)", fontWeight: 650, fontSize: 13.5 }}>Đổi giao</span>
       </div>
     </div>
   );
@@ -563,7 +563,7 @@ function Hero({ pulse }) {
 
       {/* ===== cụm thẻ nổi PHẢI ===== */}
       <div className="pk-float" style={{ top: 292, right: 44, borderRadius: 999, boxShadow: "none", background: "#1C1D20" }}>
-        <HeroPill style={{ color: "#C9CDD2" }}>
+        <HeroPill style={{ color: "var(--pk-text)" }}>
           <Target size={13} />
           Miễn phí tạo giải
         </HeroPill>
@@ -600,7 +600,7 @@ function Hero({ pulse }) {
               <PickleWordmark id="hero" />
             </h1>
             <div className="pk-rise" style={{ maxWidth: 820, margin: "26px auto 0", animationDelay: ".18s" }}>
-              <div style={{ color: "#DFE2E5", fontWeight: 650, fontSize: "clamp(25px, 3.3vw, 42px)", lineHeight: 1.22, letterSpacing: "-0.015em" }}>
+              <div style={{ color: "var(--pk-text)", fontWeight: 650, fontSize: "clamp(25px, 3.3vw, 42px)", lineHeight: 1.22, letterSpacing: "-0.015em" }}>
                 Nền tảng giải đấu pickleball tuỳ biến trọn vẹn và sẵn sàng lên sóng
               </div>
             </div>

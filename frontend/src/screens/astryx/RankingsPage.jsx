@@ -111,7 +111,7 @@ function PageHead() {
               fontSize: "clamp(42px, 6.4vw, 84px)",
               lineHeight: 1.02,
               letterSpacing: "-0.028em",
-              color: "#F5F6F7",
+              color: "var(--pk-text-strong)",
               animationDelay: ".07s",
             }}
           >
@@ -215,7 +215,7 @@ function PodiumCard({ r, place }) {
       </div>
 
       <div style={{ position: "relative", marginTop: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-        <span style={{ color: "#F0F1F3", fontWeight: 750, fontSize: top1 ? 17.5 : 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "85%" }}>
+        <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: top1 ? 17.5 : 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "85%" }}>
           {nameOf(r)}
         </span>
         {isVerified(r) && <BadgeCheck size={16} color="#3E9EFB" style={{ flexShrink: 0 }} />}
@@ -241,7 +241,7 @@ function PodiumCard({ r, place }) {
             fontSize: 12,
             fontWeight: 650,
             background: "rgba(255,255,255,.06)",
-            color: "#C9CDD2",
+            color: "var(--pk-text)",
             border: "1px solid rgba(255,255,255,.08)",
           }}
         >
@@ -332,7 +332,7 @@ function Toolbar({ qInput, setQInput, filter, setFilter }) {
               value={qInput}
               onChange={(e) => setQInput(e.target.value)}
               placeholder="Tìm vận động viên…"
-              style={{ all: "unset", width: "100%", color: "#E6E8EA", fontSize: 14, fontFamily: "inherit" }}
+              style={{ all: "unset", width: "100%", color: "var(--pk-text-strong)", fontSize: 14, fontFamily: "inherit" }}
             />
             {qInput && (
               <button type="button" onClick={() => setQInput("")} style={{ all: "unset", cursor: "pointer", color: "#9AA0A6", fontSize: 12.5, fontWeight: 700 }}>
@@ -405,7 +405,7 @@ function RankRow({ r, fallbackRank, showGlobal }) {
       <div style={{ padding: "0 16px", display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
         <Avatar size="small" src={imgUrl(r?.user?.avatar)} name={nameOf(r)} />
         <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-          <span style={{ color: "#F0F1F3", fontWeight: 650, fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ color: "var(--pk-text-strong)", fontWeight: 650, fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {nameOf(r)}
           </span>
           {isVerified(r) && <BadgeCheck size={15} color="#3E9EFB" style={{ flexShrink: 0 }} />}
@@ -415,8 +415,8 @@ function RankRow({ r, fallbackRank, showGlobal }) {
       <div className="pk-col-hide" style={{ padding: "0 16px", color: "#9AA0A6", fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {r?.user?.province || "—"}
       </div>
-      <div style={{ padding: "0 16px", textAlign: "right", color: "#F0F1F3", fontWeight: 750, fontSize: 15 }}>{fmtScore(r?.double)}</div>
-      <div style={{ padding: "0 16px", textAlign: "right", color: "#C9CDD2", fontWeight: 650, fontSize: 14.5 }}>{fmtScore(r?.single)}</div>
+      <div style={{ padding: "0 16px", textAlign: "right", color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 15 }}>{fmtScore(r?.double)}</div>
+      <div style={{ padding: "0 16px", textAlign: "right", color: "var(--pk-text)", fontWeight: 650, fontSize: 14.5 }}>{fmtScore(r?.single)}</div>
       <div className="pk-col-hide" style={{ padding: "0 16px", textAlign: "right", color: "#8F959C", fontSize: 13.5 }}>
         {Number(r?.totalTours || 0)}
       </div>
@@ -566,7 +566,7 @@ export default function RankingsPage() {
                           <Lock size={19} />
                         </span>
                       </div>
-                      <div style={{ marginTop: 14, color: "#DFE2E5", fontSize: 16.5, fontWeight: 700 }}>Hết lượt tra cứu hôm nay</div>
+                      <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 16.5, fontWeight: 700 }}>Hết lượt tra cứu hôm nay</div>
                       <div style={{ marginTop: 8, maxWidth: 460, marginLeft: "auto", marginRight: "auto" }}>
                         <Text type="supporting" color="secondary">{limitMsg}</Text>
                       </div>
@@ -580,7 +580,7 @@ export default function RankingsPage() {
                       <div style={{ display: "flex", justifyContent: "center", opacity: 0.55 }}>
                         <PickleMark size={40} />
                       </div>
-                      <div style={{ marginTop: 14, color: "#DFE2E5", fontSize: 17, fontWeight: 700 }}>Không tìm thấy vận động viên nào</div>
+                      <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 17, fontWeight: 700 }}>Không tìm thấy vận động viên nào</div>
                       <div style={{ marginTop: 6 }}>
                         <Text type="supporting" color="secondary">Thử từ khoá khác hoặc bỏ bộ lọc.</Text>
                       </div>

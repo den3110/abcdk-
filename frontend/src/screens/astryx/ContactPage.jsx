@@ -65,7 +65,7 @@ function ContactLine({ icon: Ico, href, label }) {
   return (
     <a
       href={href}
-      style={{ display: "flex", alignItems: "center", gap: 9, textDecoration: "none", color: "#C9CDD2", fontSize: 14, fontWeight: 550, padding: "5px 0" }}
+      style={{ display: "flex", alignItems: "center", gap: 9, textDecoration: "none", color: "var(--pk-text)", fontSize: 14, fontWeight: 550, padding: "5px 0" }}
     >
       <Ico size={14.5} style={{ opacity: 0.75, flexShrink: 0 }} />
       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
@@ -88,7 +88,7 @@ function SupportCard({ icon: Ico, title, desc, children, index }) {
       <span style={{ width: 42, height: 42, borderRadius: 12, display: "grid", placeItems: "center", background: "rgba(61,135,255,.12)", color: "#7FB3FF", border: "1px solid rgba(61,135,255,.25)" }}>
         <Ico size={19} />
       </span>
-      <div style={{ marginTop: 14, color: "#F0F1F3", fontWeight: 750, fontSize: 16.5 }}>{title}</div>
+      <div style={{ marginTop: 14, color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16.5 }}>{title}</div>
       <div style={{ marginTop: 6, color: "#9AA0A6", fontSize: 13.5, lineHeight: 1.5, minHeight: 40 }}>{desc}</div>
       <div style={{ marginTop: 10, borderTop: "1px solid rgba(255,255,255,.07)", paddingTop: 8 }}>{children}</div>
     </div>
@@ -109,7 +109,7 @@ function AppBtn({ icon: Ico, label, sub, href }) {
       <Ico size={22} color="#E6E8EA" style={{ flexShrink: 0 }} />
       <span>
         <span style={{ display: "block", fontSize: 11, color: "#8F959C", fontWeight: 650, letterSpacing: ".03em" }}>{sub}</span>
-        <span style={{ display: "block", fontSize: 14.5, color: "#F0F1F3", fontWeight: 700, marginTop: 1 }}>{label}</span>
+        <span style={{ display: "block", fontSize: 14.5, color: "var(--pk-text-strong)", fontWeight: 700, marginTop: 1 }}>{label}</span>
       </span>
     </a>
   );
@@ -151,7 +151,7 @@ export default function ContactPage() {
                 <div style={{ padding: "76px 0 46px" }}>
                   <h1
                     className="pk-rise"
-                    style={{ margin: 0, fontWeight: 750, fontSize: "clamp(42px, 6.4vw, 84px)", lineHeight: 1.02, letterSpacing: "-0.028em", color: "#F5F6F7" }}
+                    style={{ margin: 0, fontWeight: 750, fontSize: "clamp(42px, 6.4vw, 84px)", lineHeight: 1.02, letterSpacing: "-0.028em", color: "var(--pk-text-strong)" }}
                   >
                     Liên hệ
                     <br />
@@ -194,7 +194,7 @@ export default function ContactPage() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="pk-pill"
-                      style={{ display: "inline-flex", alignItems: "center", gap: 7, height: 36, padding: "0 15px", borderRadius: 999, textDecoration: "none", background: "rgba(255,255,255,.06)", color: "#DFE2E5", fontSize: 13.5, fontWeight: 650, border: "1px solid rgba(255,255,255,.09)" }}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 7, height: 36, padding: "0 15px", borderRadius: 999, textDecoration: "none", background: "rgba(255,255,255,.06)", color: "var(--pk-text)", fontSize: 13.5, fontWeight: 650, border: "1px solid rgba(255,255,255,.09)" }}
                     >
                       <Ico size={15} />
                       {label}
@@ -208,7 +208,7 @@ export default function ContactPage() {
                 <div style={{ margin: "56px 0 84px", borderRadius: 20, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: "30px 26px", position: "relative", overflow: "hidden" }}>
                   <div aria-hidden style={{ position: "absolute", inset: 0, background: "radial-gradient(50% 80% at 90% 0%, rgba(61,135,255,.10), transparent 70%)", pointerEvents: "none" }} />
                   <div style={{ position: "relative" }}>
-                    <div style={{ color: "#F0F1F3", fontWeight: 750, fontSize: "clamp(22px, 2.6vw, 30px)", letterSpacing: "-0.015em" }}>
+                    <div style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: "clamp(22px, 2.6vw, 30px)", letterSpacing: "-0.015em" }}>
                       Mang PickleTour ra sân
                     </div>
                     <div style={{ marginTop: 8, maxWidth: 560 }}>

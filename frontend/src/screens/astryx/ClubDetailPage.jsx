@@ -138,11 +138,11 @@ import {
 
 /* ------------------------------ tokens ------------------------------ */
 const C = {
-  head: "#F0F1F3",
-  head2: "#F5F6F7",
-  body: "#B9BEC5",
-  body2: "#C9CDD2",
-  muted: "#9AA0A6",
+  head: "var(--pk-text-strong, #F0F1F3)",
+  head2: "var(--pk-text-strong, #F5F6F7)",
+  body: "var(--pk-text)",
+  body2: "var(--pk-text)",
+  muted: "var(--pk-text-mute)",
   brand: "var(--color-brand, #3D87FF)",
   surface: "var(--color-background-surface)",
   border: "var(--color-border)",
@@ -334,7 +334,7 @@ function SectionEmpty({ icon, title, hint }) {
       <div style={{ display: "flex", justifyContent: "center", color: C.muted, opacity: 0.7 }}>
         {icon}
       </div>
-      <div style={{ marginTop: 14, color: "#DFE2E5", fontSize: 16.5, fontWeight: 700 }}>{title}</div>
+      <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 16.5, fontWeight: 700 }}>{title}</div>
       {hint && <div style={{ marginTop: 6, color: C.muted, fontSize: 13.5 }}>{hint}</div>}
     </div>
   );

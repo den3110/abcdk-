@@ -129,7 +129,7 @@ export function Lightbox({ src, onClose }) {
           cursor: "pointer",
           background: "rgba(255,255,255,.10)",
           border: "1px solid rgba(255,255,255,.16)",
-          color: "#E6E8EA",
+          color: "var(--pk-text-strong)",
         }}
       >
         <X size={20} />

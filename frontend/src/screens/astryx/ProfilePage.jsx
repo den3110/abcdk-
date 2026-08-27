@@ -119,7 +119,7 @@ function Panel({ icon, title, children, style }) {
         <span style={{ width: 32, height: 32, borderRadius: 10, display: "grid", placeItems: "center", background: "rgba(61,135,255,.12)", color: "#7FB3FF" }}>
           {icon}
         </span>
-        <span style={{ color: "#F0F1F3", fontWeight: 750, fontSize: 16.5 }}>{title}</span>
+        <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16.5 }}>{title}</span>
       </div>
       {children}
     </section>
@@ -132,7 +132,7 @@ function RatingCard({ label, value, reliability, delay }) {
   return (
     <div className="pk-rise" style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.12)", background: "rgba(20,21,24,.66)", backdropFilter: "blur(10px)", padding: "16px 20px", minWidth: 148, animationDelay: delay }}>
       <div style={{ fontSize: 11.5, fontWeight: 750, letterSpacing: ".08em", textTransform: "uppercase", color: "#9AA0A6" }}>{label}</div>
-      <div style={{ marginTop: 6, fontSize: 32, fontWeight: 800, letterSpacing: "-.02em", color: "#F5F6F7", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+      <div style={{ marginTop: 6, fontSize: 32, fontWeight: 800, letterSpacing: "-.02em", color: "var(--pk-text-strong)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
         {Number(value ?? 0).toFixed(2)}
       </div>
       <div style={{ marginTop: 10 }}>
@@ -166,12 +166,12 @@ function CompletionRing({ pct, done, total }) {
             style={{ transition: "stroke-dashoffset .8s cubic-bezier(.2,.7,.2,1)" }}
           />
         </svg>
-        <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", fontSize: 14.5, fontWeight: 800, color: "#F0F1F3", pointerEvents: "none" }}>
+        <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", fontSize: 14.5, fontWeight: 800, color: "var(--pk-text-strong)", pointerEvents: "none" }}>
           {pct}%
         </div>
       </div>
       <div>
-        <div style={{ color: "#F0F1F3", fontWeight: 700, fontSize: 13.5 }}>Hoàn thiện hồ sơ</div>
+        <div style={{ color: "var(--pk-text-strong)", fontWeight: 700, fontSize: 13.5 }}>Hoàn thiện hồ sơ</div>
         <div style={{ color: "#8F959C", fontSize: 12.5, marginTop: 2 }}>{done}/{total} mục</div>
       </div>
     </div>
@@ -377,7 +377,7 @@ export default function ProfilePage() {
                       </div>
 
                       <div style={{ minWidth: 0 }}>
-                        <h1 className="pk-rise" style={{ margin: 0, fontWeight: 750, fontSize: "clamp(26px,3.2vw,38px)", letterSpacing: "-.02em", color: "#F5F6F7", lineHeight: 1.1, animationDelay: ".06s" }}>
+                        <h1 className="pk-rise" style={{ margin: 0, fontWeight: 750, fontSize: "clamp(26px,3.2vw,38px)", letterSpacing: "-.02em", color: "var(--pk-text-strong)", lineHeight: 1.1, animationDelay: ".06s" }}>
                           {user?.name || "—"}
                         </h1>
                         {user?.nickname && (
@@ -389,13 +389,13 @@ export default function ProfilePage() {
                           {roleLabel && <Badge variant="info" label={roleLabel} />}
                           <Badge variant={kyc.variant} label={kyc.label} />
                           {user?.province && (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 650, background: "rgba(255,255,255,.06)", color: "#C9CDD2", border: "1px solid rgba(255,255,255,.09)" }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 650, background: "rgba(255,255,255,.06)", color: "var(--pk-text)", border: "1px solid rgba(255,255,255,.09)" }}>
                               <MapPin size={11} />
                               {user.province}
                             </span>
                           )}
                           {user?.createdAt && (
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 650, background: "rgba(255,255,255,.06)", color: "#C9CDD2", border: "1px solid rgba(255,255,255,.09)" }}>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 650, background: "rgba(255,255,255,.06)", color: "var(--pk-text)", border: "1px solid rgba(255,255,255,.09)" }}>
                               <CalendarDays size={11} />
                               Tham gia {fmtJoined(user.createdAt)}
                             </span>
@@ -476,7 +476,7 @@ export default function ProfilePage() {
                     <button
                       type="button"
                       onClick={() => setPasswordOpen((v) => !v)}
-                      style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", color: "#C9CDD2", fontSize: 14 }}
+                      style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", color: "var(--pk-text)", fontSize: 14 }}
                     >
                       <span>Đổi mật khẩu đăng nhập</span>
                       <ChevronDown size={16} style={{ transform: passwordOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
@@ -507,7 +507,7 @@ export default function ProfilePage() {
                   <Panel icon={<ShieldCheck size={16} />} title="Xác minh danh tính">
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <Badge variant={kyc.variant} label={kyc.label} />
-                      {user?.cccd && <span style={{ color: "#C9CDD2", fontSize: 14, fontWeight: 650, letterSpacing: ".04em" }}>{maskCccd(user.cccd)}</span>}
+                      {user?.cccd && <span style={{ color: "var(--pk-text)", fontSize: 14, fontWeight: 650, letterSpacing: ".04em" }}>{maskCccd(user.cccd)}</span>}
                     </div>
 
                     {(user?.cccdImages?.front || user?.cccdImages?.back) && (
@@ -516,7 +516,7 @@ export default function ProfilePage() {
                           user?.cccdImages?.[side] ? (
                             <div key={side} onClick={() => setZoomSrc(imgSrc(user.cccdImages[side]))} style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,.1)", cursor: "zoom-in", position: "relative" }}>
                               <img src={imgSrc(user.cccdImages[side])} alt={side === "front" ? "CCCD mặt trước" : "CCCD mặt sau"} style={{ display: "block", width: "100%", height: 86, objectFit: "cover" }} />
-                              <span style={{ position: "absolute", bottom: 6, left: 6, padding: "2px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 700, background: "rgba(8,9,11,.72)", color: "#DFE2E5" }}>
+                              <span style={{ position: "absolute", bottom: 6, left: 6, padding: "2px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 700, background: "rgba(8,9,11,.72)", color: "var(--pk-text)" }}>
                                 {side === "front" ? "Mặt trước" : "Mặt sau"}
                               </span>
                             </div>
@@ -574,7 +574,7 @@ export default function ProfilePage() {
                   {/* tài khoản */}
                   <Panel icon={<LogOut size={16} />} title="Tài khoản">
                     <div style={{ color: "#8F959C", fontSize: 13, marginBottom: 13 }}>
-                      Đăng nhập với email <span style={{ color: "#C9CDD2" }}>{user?.email}</span>
+                      Đăng nhập với email <span style={{ color: "var(--pk-text)" }}>{user?.email}</span>
                     </div>
                     <button
                       type="button"
@@ -594,7 +594,7 @@ export default function ProfilePage() {
             {/* ============ thanh lưu nổi khi có thay đổi ============ */}
             {isDirty && (
               <div className="pk-savebar" style={{ position: "fixed", left: "50%", bottom: 22, zIndex: 50, display: "flex", alignItems: "center", gap: 14, padding: "12px 14px 12px 20px", borderRadius: 999, background: "rgba(18,19,22,.92)", border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(14px)", boxShadow: "0 24px 60px -18px rgba(0,0,0,.7)" }}>
-                <span style={{ color: "#C9CDD2", fontSize: 13.5, whiteSpace: "nowrap" }}>Bạn có thay đổi chưa lưu</span>
+                <span style={{ color: "var(--pk-text)", fontSize: 13.5, whiteSpace: "nowrap" }}>Bạn có thay đổi chưa lưu</span>
                 <GrayPill label="Hoàn tác" onClick={onReset} />
                 <WhitePill label={saving ? "Đang lưu…" : "Lưu thay đổi"} onClick={onSave} disabled={!canSave} />
               </div>

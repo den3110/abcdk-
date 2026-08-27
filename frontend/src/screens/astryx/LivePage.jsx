@@ -90,7 +90,7 @@ function StatusBadge({ m }) {
   }
   if (hasReplay(m)) {
     return (
-      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 11px", borderRadius: 999, fontSize: 12, fontWeight: 700, background: "rgba(255,255,255,.10)", color: "#DFE2E5", border: "1px solid rgba(255,255,255,.16)" }}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 11px", borderRadius: 999, fontSize: 12, fontWeight: 700, background: "rgba(255,255,255,.10)", color: "var(--pk-text)", border: "1px solid rgba(255,255,255,.16)" }}>
         <Film size={11} />
         XEM LẠI
       </span>
@@ -106,7 +106,7 @@ function RailBtn({ onClick, title, children }) {
       onClick={onClick}
       title={title}
       aria-label={title}
-      style={{ all: "unset", width: 46, height: 46, borderRadius: 999, display: "grid", placeItems: "center", cursor: "pointer", background: "rgba(24,25,28,.62)", color: "#F0F1F3", border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(8px)" }}
+      style={{ all: "unset", width: 46, height: 46, borderRadius: 999, display: "grid", placeItems: "center", cursor: "pointer", background: "rgba(24,25,28,.62)", color: "var(--pk-text-strong)", border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(8px)" }}
     >
       {children}
     </button>
@@ -287,7 +287,7 @@ function Slide({ m, index, active, muted, onToggleMute, onCopied, onOpenTourname
 
       {/* chip 2x khi đang giữ */}
       {boost && (
-        <div className="pk-fade" style={{ position: "absolute", top: "18%", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 999, background: "rgba(24,25,28,.78)", color: "#F5F6F7", fontSize: 14, fontWeight: 750, border: "1px solid rgba(255,255,255,.16)", backdropFilter: "blur(8px)", pointerEvents: "none" }}>
+        <div className="pk-fade" style={{ position: "absolute", top: "18%", left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: 999, background: "rgba(24,25,28,.78)", color: "var(--pk-text-strong)", fontSize: 14, fontWeight: 750, border: "1px solid rgba(255,255,255,.16)", backdropFilter: "blur(8px)", pointerEvents: "none" }}>
           <FastForward size={15} />
           2x
         </div>
@@ -316,19 +316,19 @@ function Slide({ m, index, active, muted, onToggleMute, onCopied, onOpenTourname
           <StatusBadge m={m} />
           {m?.displayCode && <span style={{ fontSize: 11.5, fontWeight: 700, color: "#B9BEC5", letterSpacing: ".03em" }}>{m.displayCode}</span>}
         </div>
-        <div style={{ marginTop: 9, color: "#C9CDD2", fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div style={{ marginTop: 9, color: "var(--pk-text)", fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {m?.tournament?.name || "PickleTour"}
           {m?.stageLabel ? ` · ${m.stageLabel}` : ""}
           {m?.courtLabel ? ` · Sân ${m.courtLabel}` : ""}
         </div>
         <div style={{ marginTop: 7, display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
-          <span style={{ color: "#F5F6F7", fontWeight: 750, fontSize: "clamp(17px, 2.2vw, 24px)", letterSpacing: "-0.01em", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>
+          <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: "clamp(17px, 2.2vw, 24px)", letterSpacing: "-0.01em", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>
             {m?.teamAName || "Đội A"}
             <span style={{ color: "#9AA0A6", fontWeight: 600, fontSize: "0.75em", margin: "0 9px" }}>vs</span>
             {m?.teamBName || "Đội B"}
           </span>
           {sc.show && (
-            <span style={{ color: "#F5F6F7", fontWeight: 800, fontSize: "clamp(20px, 2.6vw, 30px)", lineHeight: 1 }}>
+            <span style={{ color: "var(--pk-text-strong)", fontWeight: 800, fontSize: "clamp(20px, 2.6vw, 30px)", lineHeight: 1 }}>
               {sc.a}
               <span style={{ color: "#8F959C", margin: "0 7px" }}>–</span>
               {sc.b}
@@ -373,7 +373,7 @@ function Slide({ m, index, active, muted, onToggleMute, onCopied, onOpenTourname
       {fileUrl && (
         <>
           {scrub != null && (
-            <div style={{ position: "absolute", bottom: 34, left: "50%", transform: "translateX(-50%)", padding: "6px 13px", borderRadius: 999, background: "rgba(24,25,28,.85)", color: "#F0F1F3", fontSize: 13.5, fontWeight: 700, border: "1px solid rgba(255,255,255,.14)", pointerEvents: "none", zIndex: 5 }}>
+            <div style={{ position: "absolute", bottom: 34, left: "50%", transform: "translateX(-50%)", padding: "6px 13px", borderRadius: 999, background: "rgba(24,25,28,.85)", color: "var(--pk-text-strong)", fontSize: 13.5, fontWeight: 700, border: "1px solid rgba(255,255,255,.14)", pointerEvents: "none", zIndex: 5 }}>
               {fmtTime(shown * dur)} <span style={{ color: "#8F959C", fontWeight: 500 }}>/ {fmtTime(dur)}</span>
             </div>
           )}
@@ -417,12 +417,12 @@ function TournamentDrawer({ tournament, currentId, onPick, onClose }) {
         <div style={{ padding: "16px 18px 13px", borderBottom: "1px solid rgba(255,255,255,.08)", display: "flex", alignItems: "flex-start", gap: 12 }}>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ color: "#8F959C", fontSize: 11.5, fontWeight: 700, letterSpacing: ".05em" }}>CÁC TRẬN TRONG GIẢI</div>
-            <div style={{ marginTop: 5, color: "#F0F1F3", fontWeight: 700, fontSize: 15, lineHeight: 1.35 }}>{tournament.name}</div>
+            <div style={{ marginTop: 5, color: "var(--pk-text-strong)", fontWeight: 700, fontSize: 15, lineHeight: 1.35 }}>{tournament.name}</div>
             {Number(data?.count) > 0 && (
               <div style={{ marginTop: 3, color: "#8F959C", fontSize: 12.5 }}>{data.count} trận</div>
             )}
           </div>
-          <button type="button" onClick={onClose} aria-label="Đóng" style={{ all: "unset", width: 34, height: 34, borderRadius: 999, display: "grid", placeItems: "center", cursor: "pointer", background: "rgba(255,255,255,.08)", color: "#DFE2E5", flexShrink: 0 }}>
+          <button type="button" onClick={onClose} aria-label="Đóng" style={{ all: "unset", width: 34, height: 34, borderRadius: 999, display: "grid", placeItems: "center", cursor: "pointer", background: "rgba(255,255,255,.08)", color: "var(--pk-text)", flexShrink: 0 }}>
             <X size={17} />
           </button>
         </div>
@@ -453,11 +453,11 @@ function TournamentDrawer({ tournament, currentId, onPick, onClose }) {
                     {isLive(it) && <span style={{ position: "absolute", top: 4, left: 4, width: 7, height: 7, borderRadius: 99, background: "#F2555A" }} />}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ color: "#F0F1F3", fontWeight: 650, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <div style={{ color: "var(--pk-text-strong)", fontWeight: 650, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {it.teamAName} <span style={{ color: "#8F959C" }}>vs</span> {it.teamBName}
                     </div>
                     <div style={{ marginTop: 3, color: "#8F959C", fontSize: 12, display: "flex", gap: 8, alignItems: "center" }}>
-                      {s.show && <span style={{ color: "#C9CDD2", fontWeight: 700 }}>{s.a}–{s.b}</span>}
+                      {s.show && <span style={{ color: "var(--pk-text)", fontWeight: 700 }}>{s.a}–{s.b}</span>}
                       {it.stageLabel && <span>{it.stageLabel}</span>}
                       {it.displayCode && <span>{it.displayCode}</span>}
                       {cur && <span style={{ color: "#9CC1FF", fontWeight: 700 }}>ĐANG XEM</span>}
@@ -504,7 +504,7 @@ function SearchBar({ onPick, onClose }) {
             if (e.key === "Enter" && sugs[0]) onPick(sugs[0], debounced);
           }}
           placeholder="Tìm đội, giải đấu, mã trận…"
-          style={{ all: "unset", flex: 1, color: "#F0F1F3", fontSize: 14.5, fontFamily: "inherit" }}
+          style={{ all: "unset", flex: 1, color: "var(--pk-text-strong)", fontSize: 14.5, fontFamily: "inherit" }}
         />
         {isFetching && <Loader2 size={15} color="#8F959C" className="pk-spinning" />}
         <button type="button" onClick={onClose} aria-label="Đóng tìm kiếm" style={{ all: "unset", cursor: "pointer", color: "#9AA0A6", display: "grid", placeItems: "center" }}>
@@ -533,9 +533,9 @@ function SearchBar({ onPick, onClose }) {
                   {isLive(it) && <span style={{ position: "absolute", top: 3, left: 3, width: 6, height: 6, borderRadius: 99, background: "#F2555A" }} />}
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ color: "#F0F1F3", fontWeight: 650, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div style={{ color: "var(--pk-text-strong)", fontWeight: 650, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {it.teamAName} <span style={{ color: "#8F959C" }}>vs</span> {it.teamBName}
-                    {s.show && <span style={{ color: "#C9CDD2", fontWeight: 700, marginLeft: 8 }}>{s.a}–{s.b}</span>}
+                    {s.show && <span style={{ color: "var(--pk-text)", fontWeight: 700, marginLeft: 8 }}>{s.a}–{s.b}</span>}
                   </div>
                   <div style={{ marginTop: 3, color: "#8F959C", fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {(it.tournament?.name || "PickleTour")}
@@ -728,7 +728,7 @@ export default function LivePage() {
                     onClick={() => setSearchOpen(true)}
                     aria-label="Tìm kiếm trận"
                     className="pk-pill"
-                    style={{ all: "unset", width: 34, height: 34, borderRadius: 999, display: "grid", placeItems: "center", cursor: "pointer", background: "rgba(24,25,28,.6)", color: "#D8DBDF", border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(8px)" }}
+                    style={{ all: "unset", width: 34, height: 34, borderRadius: 999, display: "grid", placeItems: "center", cursor: "pointer", background: "rgba(24,25,28,.6)", color: "var(--pk-text)", border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(8px)" }}
                   >
                     <Search size={15} />
                   </button>
@@ -754,7 +754,7 @@ export default function LivePage() {
 
             {/* toast sao chép */}
             {copied && (
-              <div className="pk-fade" style={{ position: "absolute", top: NAV_H + 100, left: "50%", transform: "translateX(-50%)", zIndex: 40, display: "flex", alignItems: "center", gap: 7, padding: "8px 15px", borderRadius: 999, background: "rgba(24,25,28,.86)", color: "#E6E8EA", fontSize: 13, fontWeight: 650, border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(8px)" }}>
+              <div className="pk-fade" style={{ position: "absolute", top: NAV_H + 100, left: "50%", transform: "translateX(-50%)", zIndex: 40, display: "flex", alignItems: "center", gap: 7, padding: "8px 15px", borderRadius: 999, background: "rgba(24,25,28,.86)", color: "var(--pk-text-strong)", fontSize: 13, fontWeight: 650, border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(8px)" }}>
                 <Check size={14} color="#3BA55D" />
                 Đã sao chép liên kết
               </div>
@@ -792,7 +792,7 @@ export default function LivePage() {
                     <div style={{ display: "flex", justifyContent: "center", opacity: 0.55 }}>
                       <PickleMark size={44} />
                     </div>
-                    <div style={{ marginTop: 16, color: "#DFE2E5", fontSize: 18, fontWeight: 700 }}>
+                    <div style={{ marginTop: 16, color: "var(--pk-text)", fontSize: 18, fontWeight: 700 }}>
                       {ctx.type === "search" ? "Không có kết quả" : mode === "live" ? "Chưa có trận nào đang phát" : "Chưa có video nào"}
                     </div>
                     <div style={{ marginTop: 8, color: "#8F959C", fontSize: 14.5 }}>

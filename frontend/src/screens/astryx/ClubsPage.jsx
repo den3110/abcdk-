@@ -64,7 +64,7 @@ function PageHead({ total }) {
           </div>
           <h1
             className="pk-rise"
-            style={{ margin: "14px 0 0", fontWeight: 750, fontSize: "clamp(42px, 6.4vw, 84px)", lineHeight: 1.02, letterSpacing: "-0.028em", color: "#F5F6F7", animationDelay: ".07s" }}
+            style={{ margin: "14px 0 0", fontWeight: 750, fontSize: "clamp(42px, 6.4vw, 84px)", lineHeight: 1.02, letterSpacing: "-0.028em", color: "var(--pk-text-strong)", animationDelay: ".07s" }}
           >
             Câu lạc bộ
             <br />
@@ -118,7 +118,7 @@ function ClubCard({ c, index }) {
           </span>
           <div style={{ minWidth: 0, paddingBottom: 4, flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-              <span style={{ color: "#F0F1F3", fontWeight: 750, fontSize: 16.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {c?.name || "Câu lạc bộ"}
               </span>
               {c?.isVerified && <BadgeCheck size={16} color="#3E9EFB" style={{ flexShrink: 0 }} />}
@@ -180,7 +180,7 @@ const chip = {
   fontSize: 11.5,
   fontWeight: 650,
   background: "rgba(255,255,255,.06)",
-  color: "#C9CDD2",
+  color: "var(--pk-text)",
   border: "1px solid rgba(255,255,255,.08)",
 };
 
@@ -270,7 +270,7 @@ export default function ClubsPage() {
                       value={qInput}
                       onChange={(e) => setQInput(e.target.value)}
                       placeholder="Tìm câu lạc bộ, tỉnh thành…"
-                      style={{ all: "unset", width: "100%", color: "#E6E8EA", fontSize: 14, fontFamily: "inherit" }}
+                      style={{ all: "unset", width: "100%", color: "var(--pk-text-strong)", fontSize: 14, fontFamily: "inherit" }}
                     />
                     {qInput && (
                       <button type="button" onClick={() => setQInput("")} style={{ all: "unset", cursor: "pointer", color: "#9AA0A6", fontSize: 12.5, fontWeight: 700 }}>
@@ -326,7 +326,7 @@ export default function ClubsPage() {
                     <div style={{ display: "flex", justifyContent: "center", opacity: 0.6 }}>
                       <PickleMark size={44} />
                     </div>
-                    <div style={{ marginTop: 18, color: "#DFE2E5", fontSize: 19, fontWeight: 700 }}>
+                    <div style={{ marginTop: 18, color: "var(--pk-text)", fontSize: 19, fontWeight: 700 }}>
                       Không tìm thấy câu lạc bộ nào
                     </div>
                     <div style={{ marginTop: 8 }}>

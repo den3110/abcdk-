@@ -335,7 +335,7 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
             meta && <Badge variant={meta.variant} label={meta.label} />
           )}
         </div>
-        <span style={{ position: "absolute", top: 12, right: 12, display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 650, background: "rgba(20,21,24,.72)", color: "#DFE2E5", border: "1px solid rgba(255,255,255,.12)", backdropFilter: "blur(6px)" }}>
+        <span style={{ position: "absolute", top: 12, right: 12, display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 650, background: "rgba(20,21,24,.72)", color: "var(--pk-text)", border: "1px solid rgba(255,255,255,.12)", backdropFilter: "blur(6px)" }}>
           <CalendarDays size={11} />
           {fmtRange(t.startDate, t.endDate)}
         </span>
