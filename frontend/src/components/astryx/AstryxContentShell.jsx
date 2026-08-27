@@ -4,14 +4,27 @@
 // SiteNav + SiteFooter (thuần Astryx) vào ShadowFrame, còn nội dung MUI render ở
 // DOM thường (theo theme dark/light chung của app). Nhờ vậy chuyển sang V2 vẫn
 // có đầy đủ điều hướng + tính năng.
+import { useEffect } from "react";
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 
 import ShadowFrame from "../../screens/astryx/ShadowFrame.jsx";
 import SiteNav from "../../screens/astryx/SiteNav.jsx";
 import SiteFooter from "../../screens/astryx/SiteFooter.jsx";
+import { usePkTheme } from "../../screens/astryx/theme.js";
+import { useThemeMode } from "../../context/ThemeContext.jsx";
 
 export default function AstryxContentShell({ children }) {
+  // Đồng bộ theme MUI (theme-mode, mặc định light) theo theme Astryx (pk-theme,
+  // mặc định dark) để nội dung MUI hợp tông với SiteNav/Footer. Nút đổi theme ở
+  // SiteNav chỉ đổi pk-theme → effect này kéo theo theme-mode.
+  const pk = usePkTheme();
+  const { mode, toggleTheme } = useThemeMode();
+  useEffect(() => {
+    if (mode !== pk) toggleTheme();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pk, mode]);
+
   return (
     <div style={{ minHeight: "100vh" }}>
       {/* Nav: host ShadowFrame đặt sticky để ghim đầu trang khi cuộn */}

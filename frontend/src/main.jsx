@@ -193,18 +193,18 @@ const router = sentryCreateBrowserRouter(
         <Route path="/feed" element={<AstryxWrap><FeedPage /></AstryxWrap>} />
         <Route path="/feed/post/:postId" element={<AstryxWrap><FeedPage /></AstryxWrap>} />
         {/* Chợ PickleTour — thứ tự: route cụ thể trước /:id */}
-        <Route path="/marketplace" element={<MarketplacePage />} />
-        <Route path="/marketplace/new" element={<MarketListingFormPage />} />
-        <Route path="/marketplace/saved" element={<SavedMarketPage />} />
-        <Route path="/marketplace/mine" element={<MyMarketListingsPage />} />
-        <Route path="/marketplace/offers" element={<MyOffersPage />} />
-        <Route path="/marketplace/:id/edit" element={<MarketListingFormPage />} />
-        <Route path="/marketplace/:id" element={<MarketListingDetailPage />} />
+        <Route path="/marketplace" element={<AstryxWrap><MarketplacePage /></AstryxWrap>} />
+        <Route path="/marketplace/new" element={<AstryxWrap><MarketListingFormPage /></AstryxWrap>} />
+        <Route path="/marketplace/saved" element={<AstryxWrap><SavedMarketPage /></AstryxWrap>} />
+        <Route path="/marketplace/mine" element={<AstryxWrap><MyMarketListingsPage /></AstryxWrap>} />
+        <Route path="/marketplace/offers" element={<AstryxWrap><MyOffersPage /></AstryxWrap>} />
+        <Route path="/marketplace/:id/edit" element={<AstryxWrap><MarketListingFormPage /></AstryxWrap>} />
+        <Route path="/marketplace/:id" element={<AstryxWrap><MarketListingDetailPage /></AstryxWrap>} />
         {/* Chi tiết trận đấu (từ link chia sẻ trên bảng tin) — param tên matchId */}
         <Route path="/matches/:matchId" element={<MatchViewerPage />} />
         {/* Tìm bạn đánh (matchmaking) */}
-        <Route path="/play" element={<PlayPage />} />
-        <Route path="/play/:id" element={<PlayDetailPage />} />
+        <Route path="/play" element={<AstryxWrap><PlayPage /></AstryxWrap>} />
+        <Route path="/play/:id" element={<AstryxWrap><PlayDetailPage /></AstryxWrap>} />
         <Route path="/coaches" element={<AstryxWrap><CoachesPage /></AstryxWrap>} />
         <Route path="/tournament/:id/mlp/teams" element={<MlpTeamsPage />} />
         <Route path="/tournament/:id/mlp/duals" element={<MlpDualsPage />} />

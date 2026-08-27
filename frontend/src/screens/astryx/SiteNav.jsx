@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import { Avatar } from "@astryxdesign/core/Avatar";
-import { ChevronDown, LogOut, Moon, Shield, Sun, Trophy, User } from "lucide-react";
+import { ChevronDown, GraduationCap, LogOut, Mail, MessageCircle, Moon, Shield, Sun, Trophy, User } from "lucide-react";
 
 import PickleMark from "./PickleMark.jsx";
 import { A, WhitePill, imgSrc } from "./ui.jsx";
@@ -22,11 +22,11 @@ const NAV_LINKS = [
   ["Giải đấu", "/pickle-ball/tournaments"],
   ["Bảng xếp hạng", "/pickle-ball/rankings"],
   ["Bảng tin", "/feed"],
-  ["Nhắn tin", "/messages"],
+  ["Chợ", "/marketplace"],
+  ["Tìm bạn đánh", "/play"],
   ["Bạn bè", "/friends"],
   ["Trực tiếp", "/live"],
   ["Câu lạc bộ", "/clubs"],
-  ["Liên hệ", "/contact"],
 ];
 
 const normalizeRole = (r) => String(r || "").trim().toLowerCase();
@@ -193,6 +193,9 @@ function UserMenu({ userInfo }) {
           >
             <MenuItem icon={User} label="Hồ sơ" href="/profile" onClick={() => setOpen(false)} />
             <MenuItem icon={Trophy} label="Giải của tôi" href="/my-tournaments" onClick={() => setOpen(false)} />
+            <MenuItem icon={MessageCircle} label="Nhắn tin" href="/messages" onClick={() => setOpen(false)} />
+            <MenuItem icon={GraduationCap} label="Huấn luyện viên" href="/coaches" onClick={() => setOpen(false)} />
+            <MenuItem icon={Mail} label="Liên hệ" href="/contact" onClick={() => setOpen(false)} />
             {isAdminUser(userInfo) && (
               <MenuItem icon={Shield} label="Quản trị" href="/admin" onClick={() => setOpen(false)} />
             )}

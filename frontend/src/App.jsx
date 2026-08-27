@@ -319,7 +319,10 @@ const App = () => {
   const isAstryxHomeRoute =
     (ASTRYX_ROUTES.includes(astryxPath) ||
       /^\/tournament\/[^/]+$/.test(astryxPath) ||
-      /^\/support\/[^/]+$/.test(astryxPath)) &&
+      /^\/support\/[^/]+$/.test(astryxPath) ||
+      /^\/marketplace(\/|$)/.test(astryxPath) ||
+      /^\/play(\/|$)/.test(astryxPath) ||
+      /^\/feed(\/|$)/.test(astryxPath)) &&
     astryxUiOn;
   const isFullScreenLayout =
     isAuthPage ||
