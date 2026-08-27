@@ -1887,10 +1887,14 @@ export default function TournamentRegistration() {
     const EPS = 0.001;
     const players = [r?.player1, r?.player2].filter(Boolean);
     if (key === "over") {
+      // Chỉ tính "vượt điểm trình" khi ĐỎ = vượt QUÁ mức tối đa cho phép
+      // (cap + delta), khớp với chip tổng màu đỏ. Bằng cap+delta là "maxed" (cam),
+      // KHÔNG tính là vượt.
       const total = totalScoreOf(r, isSingles);
-      const overTotal = cap > 0 && total != null && total > cap + EPS;
+      const overTotal =
+        cap > 0 && total != null && total > cap + delta + EPS;
       const overSingle =
-        eachCap > 0 && players.some((p) => Number(p.score) > eachCap + EPS);
+        eachCap > 0 && players.some((p) => Number(p.score) > eachCap + delta + EPS);
       return overTotal || overSingle;
     }
     if (key === "unpaid") {
@@ -1910,7 +1914,7 @@ export default function TournamentRegistration() {
       [...regFilters].every((key) => matchRegFilter(r, key)),
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayedItems, regFilters, canManage, cap, eachCap, isSingles]);
+  }, [displayedItems, regFilters, canManage, cap, eachCap, delta, isSingles]);
   const paidCount = activeList.filter(
     (r) => r.payment?.status === "Paid",
   ).length;
