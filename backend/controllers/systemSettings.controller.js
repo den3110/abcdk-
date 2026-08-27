@@ -12,6 +12,7 @@ import {
   ensureSystemSettingsDocument,
   getSystemSettingsRuntime,
   normalizeSystemSettings,
+  invalidateSystemSettingsRuntimeCache,
 } from "../services/systemSettingsRuntime.service.js";
 import {
   sendZaloZnsOtp,
@@ -610,6 +611,7 @@ export const updateSystemSettings = async (req, res, next) => {
 
     invalidateSettingsCache();
     invalidateMaintenanceCache();
+    invalidateSystemSettingsRuntimeCache();
     invalidateLiveRecordingAiCommentaryGatewayHealthCache();
 
     const previousLockEnabled =
