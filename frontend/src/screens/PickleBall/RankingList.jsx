@@ -1776,6 +1776,16 @@ const DesktopCard = memo(
                       />
                     )}
                     <Chip label={badge.text} size="small" color={badge.color} />
+                    {u?.phoneVerified && (
+                      <Tooltip title="Đã kích hoạt số điện thoại" arrow>
+                        <Chip
+                          label="SĐT ✓"
+                          size="small"
+                          color="success"
+                          variant="outlined"
+                        />
+                      </Tooltip>
+                    )}
                   </Stack>
                 </Box>
               </Box>
@@ -3032,6 +3042,11 @@ export default function RankingList() {
                             size="small"
                             color={badge.color}
                           />
+                          {u?.phoneVerified && (
+                            <Tooltip title="Đã kích hoạt số điện thoại" arrow>
+                              <Chip label="SĐT ✓" size="small" color="success" variant="outlined" />
+                            </Tooltip>
+                          )}
                         </Stack>
                       </Box>
 
@@ -3302,11 +3317,18 @@ export default function RankingList() {
                         {u?.createdAt ? formatDate(u.createdAt, locale) : "--"}
                       </TableCell>
                       <TableCell>
-                        <Chip
-                          label={badge.text}
-                          size="small"
-                          color={badge.color}
-                        />
+                        <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center" flexWrap="wrap">
+                          <Chip
+                            label={badge.text}
+                            size="small"
+                            color={badge.color}
+                          />
+                          {u?.phoneVerified && (
+                            <Tooltip title="Đã kích hoạt số điện thoại" arrow>
+                              <Chip label="SĐT ✓" size="small" color="success" variant="outlined" />
+                            </Tooltip>
+                          )}
+                        </Stack>
                       </TableCell>
                       <TableCell>
                         <Stack direction="row" spacing={1}>
