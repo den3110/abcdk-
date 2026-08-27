@@ -191,6 +191,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
     joinPolicy: initial?.joinPolicy || "approval",
     memberVisibility: initial?.memberVisibility || "admins",
     showRolesToMembers: !!initial?.showRolesToMembers,
+    requireVerifiedPhoneToJoin: !!initial?.requireVerifiedPhoneToJoin,
     province: initial?.province || "",
     city: initial?.city || "",
     shortCode: initial?.shortCode || "",
@@ -208,6 +209,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
       joinPolicy: initial?.joinPolicy || "approval",
       memberVisibility: initial?.memberVisibility || "admins",
       showRolesToMembers: !!initial?.showRolesToMembers,
+      requireVerifiedPhoneToJoin: !!initial?.requireVerifiedPhoneToJoin,
       province: initial?.province || "",
       city: initial?.city || "",
       shortCode: initial?.shortCode || "",
@@ -607,6 +609,22 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
                   />
                 }
                 label="Hiện nhãn Admin/Owner cho thành viên"
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={!!form.requireVerifiedPhoneToJoin}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        requireVerifiedPhoneToJoin: e.target.checked,
+                      }))
+                    }
+                  />
+                }
+                label="Chỉ nhận thành viên đã kích hoạt SĐT (Zalo)"
               />
             </Grid>
           </Grid>
