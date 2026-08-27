@@ -31,8 +31,7 @@ import AppInitGate from "./components/AppInitGate.jsx";
 import LocalizedDateProvider from "./components/LocalizedDateProvider.jsx";
 import SentryRootFallback from "./components/SentryRootFallback.jsx";
 import { initSentry } from "./utils/sentry.js";
-// OTP tạm tắt
-// import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
+import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
 // import VerifyOtpScreen from "./screens/VerifyOtpScreen.jsx";
 
 import HomeScreen from "./screens/HomeScreen";
@@ -170,7 +169,7 @@ const router = sentryCreateBrowserRouter(
         {/* OTP tạm tắt */}
         {/* <Route path="/verify-otp" element={<VerifyOtpScreen />} /> */}
         <Route path="/register" element={<RegisterScreen />} />
-        {/* <Route path="/register/otp" element={<RegisterOtpScreen />} /> */}
+        <Route path="/register/verify-otp" element={<RegisterOtpScreen />} />
         <Route
           path="/pickle-ball/tournaments"
           element={<TournamentDashboard />}

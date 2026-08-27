@@ -65,13 +65,11 @@ import {
 
 const router = express.Router();
 
-// router.post("/", registerUser); // OTP tạm tắt
-// OTP tạm tắt — luôn dùng registerUserNotOTP
-router.post("/", authLog({ action: "register" }), registerUserNotOTP);
-
-// OTP tạm tắt
-// router.post("/register/verify-otp", verifyRegisterOtp);
-// router.post("/register/resend-otp", resendRegisterOtp);
+// Đăng ký: registerUser tự gate theo SystemSettings.zaloZns.enabled —
+// bật ZNS thì chạy luồng OTP, tắt thì delegate registerUserNotOTP (không OTP).
+router.post("/", authLog({ action: "register" }), registerUser);
+router.post("/register/verify-otp", verifyRegisterOtp);
+router.post("/register/resend-otp", resendRegisterOtp);
 // router.post("/login-otp/resend", resendLoginOtp);
 // router.post("/login-otp/verify", verifyLoginOtp);
 

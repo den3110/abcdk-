@@ -187,6 +187,8 @@ import {
 import {
   getSystemSettings,
   updateSystemSettings,
+  testZaloZns,
+  refreshZaloZnsToken,
 } from "../controllers/systemSettings.controller.js";
 import {
   getAiGatewayConfig,
@@ -1231,6 +1233,8 @@ router.get("/versions/by-user", protect, authorize("admin"), getUsersVersion);
 
 router.get("/settings", protect, authorize("admin"), getSystemSettings);
 router.put("/settings", protect, authorize("admin"), updateSystemSettings);
+router.post("/zalo-zns/test", protect, authorize("admin"), testZaloZns);
+router.post("/zalo-zns/refresh-token", protect, authorize("admin"), refreshZaloZnsToken);
 router.get("/ai-gateway", protect, authorize("admin"), getAiGatewayConfig);
 router.put("/ai-gateway", protect, authorize("admin"), updateAiGatewayConfig);
 router.get("/ai-gateway/logs", protect, authorize("admin"), getAiGatewayLogs);

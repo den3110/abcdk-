@@ -340,6 +340,28 @@ export default function RegisterScreen() {
       }
       const payload = { name: form.name.trim(), nickname: form.nickname.trim(), phone: form.phone.trim(), dob: form.dob, email: form.email.trim(), password: form.password, cccd: form.cccd.trim(), province: form.province, gender: form.gender, avatar: avatarUrl, capToken };
       const res = await register(payload).unwrap();
+      // Nếu backend yêu cầu xác thực OTP SĐT (Zalo ZNS) → sang màn nhập OTP.
+      if (res?.otpRequired && res?.registerToken) {
+        try {
+          sessionStorage.setItem(
+            "register_otp",
+            JSON.stringify({
+              registerToken: res.registerToken,
+              phoneMasked: res.phoneMasked || "",
+            }),
+          );
+        } catch (e) {
+          // sessionStorage có thể bị chặn — vẫn truyền qua state điều hướng
+        }
+        toast.success(t("auth.register.otpSent", "Mã OTP đã được gửi tới Zalo của bạn."));
+        navigate("/register/verify-otp", {
+          state: {
+            registerToken: res.registerToken,
+            phoneMasked: res.phoneMasked || "",
+          },
+        });
+        return;
+      }
       dispatch(setCredentials(res));
       toast.success(t("auth.register.success"));
       navigate("/");

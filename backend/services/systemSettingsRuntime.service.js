@@ -121,6 +121,15 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     enabled: false,
     accounts: [],
   },
+  zaloZns: {
+    enabled: false,
+    accessToken: "",
+    templateId: "",
+    refreshToken: "",
+    appId: "",
+    secretKey: "",
+    tokenRefreshedAt: null,
+  },
   aiGateway: {
     enabled: true,
     strategy: "failover",
@@ -243,9 +252,13 @@ export function normalizeSystemSettings(doc = {}) {
     azure: {
       ...DEFAULT_SYSTEM_SETTINGS.azure,
       ...(source.azure || {}),
-      accounts: Array.isArray(source.azure?.accounts) 
-        ? source.azure.accounts 
+      accounts: Array.isArray(source.azure?.accounts)
+        ? source.azure.accounts
         : DEFAULT_SYSTEM_SETTINGS.azure.accounts,
+    },
+    zaloZns: {
+      ...DEFAULT_SYSTEM_SETTINGS.zaloZns,
+      ...(source.zaloZns || {}),
     },
     aiGateway: {
       ...DEFAULT_SYSTEM_SETTINGS.aiGateway,

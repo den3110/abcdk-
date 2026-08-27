@@ -299,6 +299,19 @@ const SystemSettingsSchema = new mongoose.Schema(
       },
     },
 
+    // Zalo ZNS — gửi OTP xác thực SĐT qua Zalo Notification Service (API trực tiếp).
+    zaloZns: {
+      enabled: { type: Boolean, default: false },
+      accessToken: { type: String, default: "", trim: true },
+      templateId: { type: String, default: "", trim: true },
+      // Auto-refresh access_token (Zalo OAuth v4). Điền đủ 3 field dưới để bật
+      // tự làm mới token khi hết hạn (mỗi lần refresh Zalo xoay cả refresh_token).
+      refreshToken: { type: String, default: "", trim: true },
+      appId: { type: String, default: "", trim: true },
+      secretKey: { type: String, default: "", trim: true },
+      tokenRefreshedAt: { type: Date, default: null },
+    },
+
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     updatedAt: { type: Date, default: Date.now },
   },

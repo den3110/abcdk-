@@ -166,22 +166,21 @@ export const userApiSlice = apiSlice.injectEndpoints({
         ];
       },
     }),
-    // OTP tạm tắt
-    // verifyRegisterOtp: builder.mutation({
-    //   query: (body) => ({
-    //     url: "/api/users/register/verify-otp",
-    //     method: "POST",
-    //     body,
-    //   }),
-    // }),
+    verifyRegisterOtp: builder.mutation({
+      query: (body) => ({
+        url: "/api/users/register/verify-otp",
+        method: "POST",
+        body,
+      }),
+    }),
 
-    // resendRegisterOtp: builder.mutation({
-    //   query: (body) => ({
-    //     url: "/api/users/register/resend-otp",
-    //     method: "POST",
-    //     body,
-    //   }),
-    // }),
+    resendRegisterOtp: builder.mutation({
+      query: (body) => ({
+        url: "/api/users/register/resend-otp",
+        method: "POST",
+        body,
+      }),
+    }),
 
     // resendLoginOtp: builder.mutation({
     //   query: ({ loginToken }) => ({
@@ -220,9 +219,8 @@ export const {
   useAdjustMatchRatingTargetMutation,
   useRestoreMatchRatingTargetMutation,
   useGetUserAchievementsQuery,
-  // OTP tạm tắt
-  // useVerifyRegisterOtpMutation,
-  // useResendRegisterOtpMutation,
+  useVerifyRegisterOtpMutation,
+  useResendRegisterOtpMutation,
   // useResendLoginOtpMutation,
   // useVerifyLoginOtpMutation
 } = userApiSlice;

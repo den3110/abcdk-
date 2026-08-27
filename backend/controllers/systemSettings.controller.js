@@ -13,6 +13,10 @@ import {
   getSystemSettingsRuntime,
   normalizeSystemSettings,
 } from "../services/systemSettingsRuntime.service.js";
+import {
+  sendZaloZnsOtp,
+  refreshZaloAccessToken,
+} from "../services/zaloZns.service.js";
 
 function buildSystemSettingsSocketPayload(settings) {
   return {
@@ -68,9 +72,26 @@ function clampNumber(value, fallback, min, max) {
   return Math.min(max, Math.max(min, numeric));
 }
 
+function maskZaloZns(zaloZns) {
+  if (!zaloZns || typeof zaloZns !== "object") return zaloZns;
+  const accessTokenSet = Boolean(String(zaloZns.accessToken || "").trim());
+  const refreshTokenSet = Boolean(String(zaloZns.refreshToken || "").trim());
+  const secretKeySet = Boolean(String(zaloZns.secretKey || "").trim());
+  return {
+    ...zaloZns,
+    accessToken: "",
+    refreshToken: "",
+    secretKey: "",
+    accessTokenSet,
+    refreshTokenSet,
+    secretKeySet,
+  };
+}
+
 function attachSystemSettingsUiFlags(settings) {
   return {
     ...settings,
+    zaloZns: maskZaloZns(settings?.zaloZns),
     aiGateway: settings?.aiGateway
       ? {
           ...settings.aiGateway,
@@ -392,6 +413,33 @@ function sanitizeSettingsPatch(patch = {}) {
     }
   }
 
+  if (next.zaloZns && typeof next.zaloZns === "object") {
+    const z = { ...next.zaloZns };
+    if (Object.prototype.hasOwnProperty.call(z, "enabled")) {
+      z.enabled = z.enabled === true;
+    }
+    // Non-secret: cho phép sửa/xoá tự do
+    if (Object.prototype.hasOwnProperty.call(z, "templateId")) {
+      z.templateId = String(z.templateId || "").trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(z, "appId")) {
+      z.appId = String(z.appId || "").trim();
+    }
+    // Secret: nếu gửi lên rỗng => KHÔNG ghi đè (giữ giá trị cũ). Muốn xoá thì
+    // gửi chuỗi "-" (khoảng trắng) sẽ không xảy ra ở UI mask; đủ cho nhu cầu.
+    for (const key of ["accessToken", "refreshToken", "secretKey"]) {
+      if (Object.prototype.hasOwnProperty.call(z, key)) {
+        const val = String(z[key] || "").trim();
+        if (val) z[key] = val;
+        else delete z[key];
+      }
+    }
+    // tokenRefreshedAt do hệ thống quản lý — không nhận từ client
+    delete z.tokenRefreshedAt;
+    next.zaloZns = z;
+    if (!Object.keys(next.zaloZns).length) delete next.zaloZns;
+  }
+
   if (next.observerLogging && typeof next.observerLogging === "object") {
     const logging = { ...next.observerLogging };
     logging.enabled = logging.enabled !== false;
@@ -531,6 +579,15 @@ export const updateSystemSettings = async (req, res, next) => {
       pick(req.body || {}, DEFAULT_SYSTEM_SETTINGS)
     );
 
+    // zaloZns: merge từng field (dot-notation) để KHÔNG xoá secret (accessToken/
+    // refreshToken/secretKey) khi UI mask và bỏ trống — chỉ set field được gửi lên.
+    if (patch.zaloZns && typeof patch.zaloZns === "object") {
+      for (const [k, v] of Object.entries(patch.zaloZns)) {
+        patch[`zaloZns.${k}`] = v;
+      }
+      delete patch.zaloZns;
+    }
+
     patch.updatedAt = new Date();
     if (req.user?._id) patch.updatedBy = req.user._id;
 
@@ -579,6 +636,37 @@ export const updateSystemSettings = async (req, res, next) => {
     return res.json(attachSystemSettingsUiFlags(normalizedUpdated));
   } catch (err) {
     next(err);
+  }
+};
+
+// POST /api/admin/zalo-zns/test  { phone }
+// Gửi 1 OTP thử tới số điện thoại admin nhập để kiểm tra cấu hình ZNS.
+export const testZaloZns = async (req, res, next) => {
+  try {
+    const phone = String(req.body?.phone || "").trim();
+    if (!phone) return res.status(400).json({ message: "Vui lòng nhập SĐT." });
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    const result = await sendZaloZnsOtp({ phone, otp });
+    return res.json({
+      ok: true,
+      message: "Đã gửi OTP thử. Vui lòng kiểm tra Zalo.",
+      otp, // admin-only: hiển thị để đối chiếu
+      tranId: result?.tranId || "",
+      msgId: result?.msgId || "",
+    });
+  } catch (err) {
+    return res.status(400).json({ ok: false, message: err?.message || "Gửi thất bại." });
+  }
+};
+
+// POST /api/admin/zalo-zns/refresh-token
+// Buộc làm mới access_token qua OAuth (cần app_id/secret_key/refresh_token).
+export const refreshZaloZnsToken = async (req, res, next) => {
+  try {
+    await refreshZaloAccessToken();
+    return res.json({ ok: true, message: "Đã làm mới access_token.", refreshedAt: new Date().toISOString() });
+  } catch (err) {
+    return res.status(400).json({ ok: false, message: err?.message || "Làm mới thất bại." });
   }
 };
 

@@ -33,6 +33,7 @@ import {
 import { writeAuditLog } from "../services/audit.service.js";
 import * as crypto from "crypto";
 import { sendTingTingOtp } from "../services/tingtingZns.service.js";
+import { sendZaloZnsOtp } from "../services/zaloZns.service.js";
 import bcrypt from "bcryptjs";
 import { normalize_for_search } from "../utils/vnSearchNormalizer.js";
 import { makeLoginOtpToken } from "./userLoginController.js";
@@ -1458,8 +1459,21 @@ function buildAuthPayload(user) {
  * - nếu có phone và phone chưa verified ở hệ thống => trả otpRequired + registerToken
  * - nếu không có phone => đăng ký luôn và trả token
  */
-const registerUser = async (req, res) => {
+const registerUser = async (req, res, next) => {
   try {
+    // Gate: chỉ bật luồng OTP khi Admin đã bật Zalo ZNS. Nếu tắt → giữ nguyên
+    // hành vi hiện tại (đăng ký không OTP).
+    let znsEnabled = false;
+    try {
+      const settings = await getSystemSettingsRuntime({ ensureDocument: true });
+      znsEnabled = settings?.zaloZns?.enabled === true;
+    } catch (e) {
+      znsEnabled = false;
+    }
+    if (!znsEnabled) {
+      return registerUserNotOTP(req, res, next);
+    }
+
     const name = String(req.body?.name || "").trim();
     const nickname = String(req.body?.nickname || "").trim();
     const email = normalizeEmail(req.body?.email || "");
@@ -1571,7 +1585,7 @@ const registerUser = async (req, res) => {
       // 1) Gửi OTP thật qua TingTing
       let zns;
       try {
-        zns = await sendTingTingOtp({ phone: phoneStore, otp });
+        zns = await sendZaloZnsOtp({ phone: phoneStore, otp });
       } catch (e) {
         return res.status(400).json({
           message: "Gửi OTP thất bại. Vui lòng thử lại.",
@@ -2159,7 +2173,7 @@ export const resendRegisterOtp = async (req, res) => {
     let zns;
     try {
       // ✅ đúng signature: phoneStore
-      zns = await sendTingTingOtp({ phone: phoneStore, otp });
+      zns = await sendZaloZnsOtp({ phone: phoneStore, otp });
     } catch (e) {
       return res.status(400).json({
         message: "Gửi lại OTP thất bại.",
