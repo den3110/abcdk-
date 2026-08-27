@@ -32,6 +32,7 @@ import LocalizedDateProvider from "./components/LocalizedDateProvider.jsx";
 import SentryRootFallback from "./components/SentryRootFallback.jsx";
 import { initSentry } from "./utils/sentry.js";
 import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
+import { AstryxWrap } from "./components/astryx/AstryxContentShell.jsx";
 // import VerifyOtpScreen from "./screens/VerifyOtpScreen.jsx";
 
 import HomeScreen from "./screens/HomeScreen";
@@ -189,8 +190,8 @@ const router = sentryCreateBrowserRouter(
           element={<TournamentCourtQueue />}
         />
         <Route path="/pickle-ball/rankings" element={<RankingList />} />
-        <Route path="/feed" element={<FeedPage />} />
-        <Route path="/feed/post/:postId" element={<FeedPage />} />
+        <Route path="/feed" element={<AstryxWrap><FeedPage /></AstryxWrap>} />
+        <Route path="/feed/post/:postId" element={<AstryxWrap><FeedPage /></AstryxWrap>} />
         {/* Chợ PickleTour — thứ tự: route cụ thể trước /:id */}
         <Route path="/marketplace" element={<MarketplacePage />} />
         <Route path="/marketplace/new" element={<MarketListingFormPage />} />
@@ -204,7 +205,7 @@ const router = sentryCreateBrowserRouter(
         {/* Tìm bạn đánh (matchmaking) */}
         <Route path="/play" element={<PlayPage />} />
         <Route path="/play/:id" element={<PlayDetailPage />} />
-        <Route path="/coaches" element={<CoachesPage />} />
+        <Route path="/coaches" element={<AstryxWrap><CoachesPage /></AstryxWrap>} />
         <Route path="/tournament/:id/mlp/teams" element={<MlpTeamsPage />} />
         <Route path="/tournament/:id/mlp/duals" element={<MlpDualsPage />} />
         <Route
@@ -220,8 +221,8 @@ const router = sentryCreateBrowserRouter(
           element={<MlpDualDetailPage />}
         />
         <Route path="/messages" element={<MessagesPage />} />
-        <Route path="/friends" element={<FriendsPage />} />
-        <Route path="/notifications" element={<NotificationsPage />} />
+        <Route path="/friends" element={<AstryxWrap><FriendsPage /></AstryxWrap>} />
+        <Route path="/notifications" element={<AstryxWrap><NotificationsPage /></AstryxWrap>} />
         <Route path="/contact" element={<ContactPage />} />
         <Route path="/status" element={<StatusPage />} />
         <Route path="/cookies" element={<CookiesPage />} />
