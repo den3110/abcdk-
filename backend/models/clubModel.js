@@ -49,6 +49,8 @@ const ClubSchema = new mongoose.Schema(
       index: true,
     },
     joinPolicy: { type: String, enum: CLUB_JOIN_POLICY, default: "approval" },
+    // Chỉ nhận thành viên đã kích hoạt SĐT (qua Zalo)
+    requireVerifiedPhoneToJoin: { type: Boolean, default: false },
 
     owner: {
       type: mongoose.Schema.Types.ObjectId,

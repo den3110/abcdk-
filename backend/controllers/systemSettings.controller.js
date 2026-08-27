@@ -423,6 +423,9 @@ function sanitizeSettingsPatch(patch = {}) {
     if (Object.prototype.hasOwnProperty.call(z, "forcePhoneVerification")) {
       z.forcePhoneVerification = z.forcePhoneVerification === true;
     }
+    if (Object.prototype.hasOwnProperty.call(z, "requireVerifiedForActions")) {
+      z.requireVerifiedForActions = z.requireVerifiedForActions === true;
+    }
     // Non-secret: cho phép sửa/xoá tự do
     if (Object.prototype.hasOwnProperty.call(z, "templateId")) {
       z.templateId = String(z.templateId || "").trim();
@@ -688,7 +691,7 @@ export const getZaloZnsLogs = async (req, res, next) => {
       q.phone = { $regex: core };
     }
     if (["success", "failed"].includes(req.query.status)) q.status = req.query.status;
-    if (["register", "activate", "login", "test"].includes(req.query.purpose)) {
+    if (["register", "activate", "login", "test", "reset"].includes(req.query.purpose)) {
       q.purpose = req.query.purpose;
     }
 
@@ -753,6 +756,8 @@ export const getRegistrationSettings = async (req, res, next) => {
       emailOptional: phoneOtpEnabled,
       forcePhoneVerification:
         phoneOtpEnabled && settings?.zaloZns?.forcePhoneVerification === true,
+      requireVerifiedForActions:
+        phoneOtpEnabled && settings?.zaloZns?.requireVerifiedForActions === true,
     });
   } catch (err) {
     next(err);

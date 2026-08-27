@@ -269,10 +269,16 @@ export const updateClub = async (req, res) => {
       "isVerified",
       "memberVisibility",
       "showRolesToMembers", // ⬅️ thêm
+      "requireVerifiedPhoneToJoin",
     ];
 
     const patch = {};
     for (const k of allowed) if (k in req.body) patch[k] = req.body[k];
+    if ("requireVerifiedPhoneToJoin" in patch) {
+      patch.requireVerifiedPhoneToJoin =
+        patch.requireVerifiedPhoneToJoin === true ||
+        patch.requireVerifiedPhoneToJoin === "true";
+    }
 
     // validate visibility/joinPolicy nếu có thay đổi
     const nextVisibility = patch.visibility ?? req.club.visibility;
@@ -692,6 +698,17 @@ export const requestJoin = async (req, res) => {
     return res.status(403).json({
       message: "CLB này ở chế độ ẩn và chỉ nhận thành viên qua lời mời.",
     });
+  }
+
+  // CLB yêu cầu đã kích hoạt SĐT
+  if (club.requireVerifiedPhoneToJoin) {
+    const me = await User.findById(req.user._id).select("phoneVerified").lean();
+    if (!me?.phoneVerified) {
+      return res.status(403).json({
+        message:
+          "CLB này chỉ nhận thành viên đã kích hoạt số điện thoại. Vui lòng vào Hồ sơ để kích hoạt SĐT.",
+      });
+    }
   }
 
   const exists = await ClubMember.findOne({

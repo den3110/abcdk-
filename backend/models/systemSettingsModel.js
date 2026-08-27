@@ -304,6 +304,8 @@ const SystemSettingsSchema = new mongoose.Schema(
       enabled: { type: Boolean, default: false },
       // Bắt buộc user (kể cả tài khoản cũ) kích hoạt SĐT khi vào app
       forcePhoneVerification: { type: Boolean, default: false },
+      // Yêu cầu đã kích hoạt SĐT mới được đăng tin Chợ / tạo-tham gia kèo giao lưu
+      requireVerifiedForActions: { type: Boolean, default: false },
       accessToken: { type: String, default: "", trim: true },
       templateId: { type: String, default: "", trim: true },
       // Auto-refresh access_token (Zalo OAuth v4). Điền đủ 3 field dưới để bật

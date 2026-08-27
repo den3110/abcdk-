@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import PlayInvite, { PLAY_STATUSES } from "../models/playInviteModel.js";
 import { postDirectMessage } from "./chatController.js";
 import { createInAppNotifications } from "../services/inAppNotify.js";
+import { checkActionPhoneGate, PHONE_GATE_MESSAGE } from "../utils/phoneGate.js";
 
 const HOST_FIELDS = "_id name nickname avatar province";
 
@@ -150,6 +151,11 @@ export const getInvite = asyncHandler(async (req, res) => {
 
 /* ─────────── CREATE ─────────── */
 export const createInvite = asyncHandler(async (req, res) => {
+  const gate = await checkActionPhoneGate(req.user._id);
+  if (gate.required && !gate.verified) {
+    res.status(403);
+    throw new Error(PHONE_GATE_MESSAGE);
+  }
   const b = req.body || {};
   if (!b.playAt) return res.status(400).json({ message: "Vui lòng chọn thời gian chơi" });
   const playAt = new Date(b.playAt);
@@ -226,6 +232,11 @@ export const deleteInvite = asyncHandler(async (req, res) => {
 /* ─────────── REQUEST JOIN ─────────── */
 // POST /api/play/:id/join   { note }
 export const requestJoin = asyncHandler(async (req, res) => {
+  const gate = await checkActionPhoneGate(req.user._id);
+  if (gate.required && !gate.verified) {
+    res.status(403);
+    throw new Error(PHONE_GATE_MESSAGE);
+  }
   const id = oid(req.params.id);
   if (!id) return res.status(400).json({ message: "ID không hợp lệ" });
   const doc = await PlayInvite.findById(id);

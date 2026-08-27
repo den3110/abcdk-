@@ -10,6 +10,7 @@ import MarketListing, {
 } from "../models/marketListingModel.js";
 import MarketOffer from "../models/marketOfferModel.js";
 import SellerReview from "../models/sellerReviewModel.js";
+import { checkActionPhoneGate, PHONE_GATE_MESSAGE } from "../utils/phoneGate.js";
 import User from "../models/userModel.js";
 import { postDirectMessage } from "./chatController.js";
 import { createInAppNotifications } from "../services/inAppNotify.js";
@@ -251,6 +252,11 @@ export const getListing = asyncHandler(async (req, res) => {
 /* ─────────────────── CREATE (KYC) ─────────────────── */
 // POST /api/market
 export const createListing = asyncHandler(async (req, res) => {
+  const gate = await checkActionPhoneGate(req.user._id);
+  if (gate.required && !gate.verified) {
+    res.status(403);
+    throw new Error(PHONE_GATE_MESSAGE);
+  }
   const {
     title,
     description,

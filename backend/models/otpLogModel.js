@@ -10,7 +10,7 @@ const otpLogSchema = new Schema(
     phone: { type: String, default: "", index: true }, // dạng lưu 84xxxxxxxxx
     purpose: {
       type: String,
-      enum: ["register", "activate", "login", "test"],
+      enum: ["register", "activate", "login", "test", "reset"],
       default: "register",
       index: true,
     },

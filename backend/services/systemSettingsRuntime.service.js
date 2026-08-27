@@ -124,6 +124,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   zaloZns: {
     enabled: false,
     forcePhoneVerification: false,
+    requireVerifiedForActions: false,
     accessToken: "",
     templateId: "",
     refreshToken: "",
