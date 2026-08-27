@@ -23,6 +23,8 @@ import {
   verifyRegisterOtp,
   resendRegisterOtp,
   registerUserNotOTP,
+  requestPhoneOtp,
+  verifyPhoneOtp,
 } from "../controllers/userController.js";
 import {
   authorize,
@@ -70,6 +72,10 @@ const router = express.Router();
 router.post("/", authLog({ action: "register" }), registerUser);
 router.post("/register/verify-otp", verifyRegisterOtp);
 router.post("/register/resend-otp", resendRegisterOtp);
+
+// Kích hoạt / đổi SĐT cho tài khoản đã đăng nhập
+router.post("/phone/request-otp", protect, requestPhoneOtp);
+router.post("/phone/verify-otp", protect, verifyPhoneOtp);
 // router.post("/login-otp/resend", resendLoginOtp);
 // router.post("/login-otp/verify", verifyLoginOtp);
 

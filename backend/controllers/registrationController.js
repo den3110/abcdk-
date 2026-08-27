@@ -631,7 +631,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
   // 3) query User: lấy thêm verified & cccdStatus
   const users = await User.find({ _id: { $in: [...uids] } })
     .select(
-      "_id avatar fullName name nickName nickname phone gender verified cccdStatus",
+      "_id avatar fullName name nickName nickname phone gender verified cccdStatus phoneVerified",
     )
     .lean();
   const userById = new Map(users.map((u) => [String(u._id), u]));
@@ -808,6 +808,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
       cccdStatus: u?.cccdStatus || "unverified",
       verifiedLegacy: u?.verified || "pending",
       kycStatus, // 'verified' | 'pending' | 'rejected' | 'unverified'
+      phoneVerified: !!u?.phoneVerified, // đã kích hoạt SĐT chưa
       ...scoreMeta,
       isVerified, // boolean nhanh gọn
     };

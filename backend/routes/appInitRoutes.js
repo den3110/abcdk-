@@ -16,12 +16,16 @@ async function buildPublicUiPayload() {
       .trim()
       .toLowerCase();
 
+    const znsEnabled = settings?.zaloZns?.enabled === true;
     return {
       frontendVersion: ["v1", "v2", "v3"].includes(frontendVersion)
         ? frontendVersion
         : "v1",
       captchaEnabled: settings?.captcha?.enabled !== false,
       pikoraEnabled: settings?.pikora?.enabled !== false,
+      phoneOtpEnabled: znsEnabled,
+      forcePhoneVerification:
+        znsEnabled && settings?.zaloZns?.forcePhoneVerification === true,
     };
   } catch (error) {
     console.error("[appInit] Cannot load frontend UI settings:", error);
@@ -29,6 +33,8 @@ async function buildPublicUiPayload() {
       frontendVersion: "v1",
       captchaEnabled: true,
       pikoraEnabled: true,
+      phoneOtpEnabled: false,
+      forcePhoneVerification: false,
     };
   }
 }

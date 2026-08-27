@@ -34,6 +34,7 @@ import { writeAuditLog } from "../services/audit.service.js";
 import * as crypto from "crypto";
 import { sendTingTingOtp } from "../services/tingtingZns.service.js";
 import { sendZaloZnsOtp } from "../services/zaloZns.service.js";
+import { sendOtpWithLimit } from "../services/otpSender.service.js";
 import bcrypt from "bcryptjs";
 import { normalize_for_search } from "../utils/vnSearchNormalizer.js";
 import { makeLoginOtpToken } from "./userLoginController.js";
@@ -1584,26 +1585,31 @@ const registerUser = async (req, res, next) => {
         });
       }
 
-      const otp = genOtp6();
-
-      // 1) Gửi OTP thật qua TingTing
-      let zns;
+      // 1) Gửi OTP qua Zalo ZNS (có rate-limit 3 lần/ngày, cách nhau 60s + ghi log)
+      let sent;
       try {
-        zns = await sendZaloZnsOtp({ phone: phoneStore, otp });
+        sent = await sendOtpWithLimit({
+          user: u._id,
+          phone: phoneStore,
+          purpose: "register",
+          ip: req.ip,
+        });
       } catch (e) {
-        return res.status(400).json({
-          message: "Gửi OTP thất bại. Vui lòng thử lại.",
+        return res.status(e?.rateLimited ? 429 : 400).json({
+          message: e?.rateLimited
+            ? e.message
+            : "Gửi OTP thất bại. Vui lòng thử lại.",
           detail: e?.message,
         });
       }
 
       // 2) Lưu hash OTP sau khi gửi thành công
-      u.registerOtp.hash = await bcrypt.hash(otp, 10);
+      u.registerOtp.hash = await bcrypt.hash(sent.otp, 10);
       u.registerOtp.expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 phút
       u.registerOtp.attempts = 0;
       u.registerOtp.lastSentAt = new Date();
-      u.registerOtp.tranId = zns?.tranId || "";
-      u.registerOtp.cost = zns?.cost || 0;
+      u.registerOtp.tranId = sent?.tranId || "";
+      u.registerOtp.cost = 0;
 
       await u.save();
 
@@ -2171,27 +2177,29 @@ export const resendRegisterOtp = async (req, res) => {
         .json({ message: "Vui lòng đợi 30 giây rồi thử lại." });
     }
 
-    const otp = genOtp6();
-
-    // 1) gửi OTP qua TingTing
-    let zns;
+    // 1) gửi OTP qua Zalo ZNS (rate-limit + log)
+    let sent;
     try {
-      // ✅ đúng signature: phoneStore
-      zns = await sendZaloZnsOtp({ phone: phoneStore, otp });
+      sent = await sendOtpWithLimit({
+        user: user._id,
+        phone: phoneStore,
+        purpose: "register",
+        ip: req.ip,
+      });
     } catch (e) {
-      return res.status(400).json({
-        message: "Gửi lại OTP thất bại.",
+      return res.status(e?.rateLimited ? 429 : 400).json({
+        message: e?.rateLimited ? e.message : "Gửi lại OTP thất bại.",
         detail: e?.message,
       });
     }
 
     // 2) lưu hash OTP
-    user.registerOtp.hash = await bcrypt.hash(String(otp), 10);
+    user.registerOtp.hash = await bcrypt.hash(String(sent.otp), 10);
     user.registerOtp.expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 phút
     user.registerOtp.attempts = 0;
     user.registerOtp.lastSentAt = new Date();
-    user.registerOtp.tranId = zns?.tranId || "";
-    user.registerOtp.cost = Number(zns?.cost || 0);
+    user.registerOtp.tranId = sent?.tranId || "";
+    user.registerOtp.cost = 0;
 
     await user.save();
 
@@ -2207,6 +2215,129 @@ export const resendRegisterOtp = async (req, res) => {
       .json({ message: err?.message || "Resend OTP failed" });
   }
 };
+
+/* ─────────── KÍCH HOẠT / ĐỔI SĐT cho tài khoản đã đăng nhập ─────────── */
+
+// POST /api/users/phone/request-otp  { phone? }  (protect)
+// Gửi OTP để kích hoạt SĐT hiện tại, hoặc đổi sang SĐT mới (nếu body.phone khác).
+export const requestPhoneOtp = asyncHandler(async (req, res) => {
+  const me = await User.findById(req.user._id);
+  if (!me) return res.status(404).json({ message: "Không tìm thấy tài khoản." });
+
+  const raw = req.body?.phone != null ? String(req.body.phone) : "";
+  const targetPhone = raw.trim()
+    ? normalizePhoneForStore(raw)
+    : normalizePhoneForStore(me.phone || "");
+  if (!targetPhone || !isValidVNPhoneStore(targetPhone)) {
+    return res
+      .status(400)
+      .json({ message: "SĐT phải bắt đầu bằng 0 và đủ 10 số." });
+  }
+  if (me.phoneVerified && normalizePhoneForStore(me.phone) === targetPhone) {
+    return res.status(400).json({ message: "SĐT của bạn đã được kích hoạt." });
+  }
+  const owner = await User.findOne({
+    phone: targetPhone,
+    phoneVerified: true,
+    _id: { $ne: me._id },
+  }).select("_id");
+  if (owner) {
+    return res
+      .status(400)
+      .json({ message: "Số điện thoại đã được người khác sử dụng." });
+  }
+
+  let sent;
+  try {
+    sent = await sendOtpWithLimit({
+      user: me._id,
+      phone: targetPhone,
+      purpose: "activate",
+      ip: req.ip,
+    });
+  } catch (e) {
+    return res.status(e?.rateLimited ? 429 : 400).json({
+      message: e?.rateLimited ? e.message : "Gửi OTP thất bại.",
+      detail: e?.message,
+    });
+  }
+
+  me.activateOtp = {
+    hash: await bcrypt.hash(sent.otp, 10),
+    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    attempts: 0,
+    lastSentAt: new Date(),
+    tranId: sent?.tranId || "",
+    cost: 0,
+  };
+  me.activatePendingPhone = targetPhone;
+  await me.save();
+
+  return res.json({
+    ok: true,
+    phoneMasked: maskPhone(targetPhone),
+    expiresInSec: 10 * 60,
+  });
+});
+
+// POST /api/users/phone/verify-otp  { otp }  (protect)
+export const verifyPhoneOtp = asyncHandler(async (req, res) => {
+  const me = await User.findById(req.user._id);
+  if (!me) return res.status(404).json({ message: "Không tìm thấy tài khoản." });
+
+  const otp = String(req.body?.otp || "").trim();
+  if (!otp) return res.status(400).json({ message: "Vui lòng nhập mã OTP." });
+
+  const st = me.activateOtp || {};
+  if (!st.hash || !st.expiresAt) {
+    return res
+      .status(400)
+      .json({ message: "Chưa yêu cầu OTP hoặc mã đã hết hiệu lực." });
+  }
+  if (new Date(st.expiresAt).getTime() < Date.now()) {
+    return res.status(400).json({ message: "Mã OTP đã hết hạn." });
+  }
+  const attempts = Number(st.attempts || 0);
+  if (attempts >= 5) {
+    return res
+      .status(429)
+      .json({ message: "Bạn đã nhập sai quá nhiều lần. Vui lòng gửi lại mã." });
+  }
+
+  const ok = await bcrypt.compare(otp, st.hash);
+  me.activateOtp.attempts = attempts + 1;
+  if (!ok) {
+    await me.save();
+    return res.status(400).json({ message: "Mã OTP không đúng." });
+  }
+
+  const pending = normalizePhoneForStore(
+    me.activatePendingPhone || me.phone || ""
+  );
+  if (pending && isValidVNPhoneStore(pending)) me.phone = pending;
+  me.phoneVerified = true;
+  me.phoneVerifiedAt = new Date();
+  me.activateOtp = {};
+  me.activatePendingPhone = "";
+
+  try {
+    await me.save();
+  } catch (e) {
+    if (String(e?.code) === "11000") {
+      return res
+        .status(400)
+        .json({ message: "Số điện thoại đã được sử dụng." });
+    }
+    throw e;
+  }
+
+  return res.json({
+    ok: true,
+    phoneVerified: true,
+    phone: me.phone,
+    phoneVerifiedAt: me.phoneVerifiedAt,
+  });
+});
 
 // @desc    Logout user / clear cookie
 // @route   POST /api/users/logout
@@ -5600,6 +5731,7 @@ export const getAdminUsers = asyncHandler(async (req, res) => {
         `
         name nickname email phone avatar cover bio
         gender province verified cccdStatus
+        phoneVerified phoneVerifiedAt
         role evaluator referee signupMeta
         localRatings isDeleted createdAt updatedAt
       `

@@ -189,6 +189,10 @@ const userSchema = new mongoose.Schema(
 
     registerOtp: { type: otpStateSchema, default: () => ({}) },
     loginOtp: { type: otpStateSchema, default: () => ({}) }, // ✅ NEW: riêng cho đăng nhập
+    // Kích hoạt/đổi SĐT cho tài khoản đã đăng nhập (OTP qua Zalo ZNS)
+    activateOtp: { type: otpStateSchema, default: () => ({}) },
+    // SĐT mới đang chờ xác thực (khi user đổi số để kích hoạt)
+    activatePendingPhone: { type: String, default: "", trim: true },
     // trong userSchema fields
     loginOtpVerifiedAt: { type: Date, default: null }, // ✅ lần gần nhất login thành công qua OTP
     // ✅ ADD: thời hạn bypass OTP (lưu DB để xem log)

@@ -123,6 +123,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   },
   zaloZns: {
     enabled: false,
+    forcePhoneVerification: false,
     accessToken: "",
     templateId: "",
     refreshToken: "",

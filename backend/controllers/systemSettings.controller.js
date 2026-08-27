@@ -18,6 +18,7 @@ import {
   sendZaloZnsOtp,
   refreshZaloAccessToken,
 } from "../services/zaloZns.service.js";
+import OtpLog from "../models/otpLogModel.js";
 
 function buildSystemSettingsSocketPayload(settings) {
   return {
@@ -419,6 +420,9 @@ function sanitizeSettingsPatch(patch = {}) {
     if (Object.prototype.hasOwnProperty.call(z, "enabled")) {
       z.enabled = z.enabled === true;
     }
+    if (Object.prototype.hasOwnProperty.call(z, "forcePhoneVerification")) {
+      z.forcePhoneVerification = z.forcePhoneVerification === true;
+    }
     // Non-secret: cho phép sửa/xoá tự do
     if (Object.prototype.hasOwnProperty.call(z, "templateId")) {
       z.templateId = String(z.templateId || "").trim();
@@ -672,6 +676,50 @@ export const refreshZaloZnsToken = async (req, res, next) => {
   }
 };
 
+// GET /api/admin/zalo-zns/logs?page&limit&phone&status&purpose
+export const getZaloZnsLogs = async (req, res, next) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 100);
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const q = {};
+    const rawPhone = String(req.query.phone || "").replace(/\D/g, "");
+    if (rawPhone) {
+      const core = rawPhone.replace(/^(84|0)/, "");
+      q.phone = { $regex: core };
+    }
+    if (["success", "failed"].includes(req.query.status)) q.status = req.query.status;
+    if (["register", "activate", "login", "test"].includes(req.query.purpose)) {
+      q.purpose = req.query.purpose;
+    }
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const [total, items, sentToday, failedToday] = await Promise.all([
+      OtpLog.countDocuments(q),
+      OtpLog.find(q)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .populate("user", "_id name nickname phone")
+        .lean(),
+      OtpLog.countDocuments({ status: "success", createdAt: { $gte: startOfDay } }),
+      OtpLog.countDocuments({ status: "failed", createdAt: { $gte: startOfDay } }),
+    ]);
+
+    res.json({
+      items,
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit) || 1,
+      stats: { sentToday, failedToday },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const getGuideLink = async (req, res, next) => {
   try {
     const settings = await getSystemSettingsRuntime({ ensureDocument: true });
@@ -703,6 +751,8 @@ export const getRegistrationSettings = async (req, res, next) => {
           : DEFAULT_SYSTEM_SETTINGS.registration.requireOptionalProfileFields,
       phoneOtpEnabled,
       emailOptional: phoneOtpEnabled,
+      forcePhoneVerification:
+        phoneOtpEnabled && settings?.zaloZns?.forcePhoneVerification === true,
     });
   } catch (err) {
     next(err);

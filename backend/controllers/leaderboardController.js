@@ -321,6 +321,9 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
               null,
             ],
           },
+          phoneVerified: {
+            $ifNull: ["$userInfo.phoneVerified", false],
+          },
         },
       },
     ];
@@ -480,6 +483,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         name: r.name,
         nickname: r.nickname,
         avatar: r.avatar,
+        phoneVerified: !!r.phoneVerified,
         achievements,
       };
     });
