@@ -418,9 +418,13 @@ const App = () => {
       )}
       <ToastContainer theme={isDark ? "dark" : "light"} />
       <PhoneVerificationGate />
-      {/* Floating chat launcher (Messenger-style). Ẩn trên trang /messages
-          (đã có full page rồi) và các fullscreen layout auth/live. */}
-      {!isFullScreenLayout &&
+      {/* Floating chat launcher (Messenger-style) — hiện ở cả V1 lẫn V2 (Astryx)
+          để tin nhắn là popup góc phải như V1. Ẩn ở /messages (full page), các
+          layout fullscreen auth/live/overlay-studio. */}
+      {!isAuthPage &&
+        !isImmersiveLiveFeedPage &&
+        !isLiveWatchPage &&
+        !isOverlayStudioPage &&
         !location.pathname.startsWith("/messages") && <MessengerLauncher />}
 
       {isFullScreenLayout ? (
