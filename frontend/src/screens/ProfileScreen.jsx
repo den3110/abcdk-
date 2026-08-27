@@ -61,6 +61,7 @@ import {
 } from "../slices/uploadApiSlice";
 import { logout } from "../slices/authSlice";
 import CccdDropzone from "../components/CccdDropzone";
+import PhoneActivationCard from "../components/PhoneActivationCard.jsx";
 import { useThemeMode } from "../context/ThemeContext";
 import { useLanguage } from "../context/LanguageContext";
 import { useRegisterChatBotPageSnapshot } from "../context/ChatBotPageContext.jsx";
@@ -1219,6 +1220,7 @@ export default function ProfileScreen() {
             sx={{ pt: { xs: 1.5, md: 5 }, px: { xs: 1.5, sm: 3, md: 4 } }}
           >
             <Box component="form" onSubmit={submit} noValidate>
+              <PhoneActivationCard sx={{ mb: 2.5 }} />
               <Grid container spacing={3} alignItems="flex-start">
                 <Grid size={{ xs: 12, lg: 4 }}>
                   <Stack

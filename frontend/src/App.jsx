@@ -6,6 +6,7 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Header from "./components/Header";
 import MessengerLauncher from "./components/messenger/MessengerLauncher.jsx";
+import PhoneVerificationGate from "./components/PhoneVerificationGate.jsx";
 import MobileBottomNav from "./components/MenuMobile";
 import CheckpointRealtimeGate from "./components/CheckpointRealtimeGate.jsx";
 import { Suspense, useEffect, useRef } from "react";
@@ -413,6 +414,7 @@ const App = () => {
         </Box>
       )}
       <ToastContainer theme={isDark ? "dark" : "light"} />
+      <PhoneVerificationGate />
       {/* Floating chat launcher (Messenger-style). Ẩn trên trang /messages
           (đã có full page rồi) và các fullscreen layout auth/live. */}
       {!isFullScreenLayout &&

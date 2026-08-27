@@ -34,6 +34,20 @@ export const userApiSlice = apiSlice.injectEndpoints({
     getRegistrationSettings: builder.query({
       query: () => ({ url: "/api/auth/system/registration" }),
     }),
+    requestPhoneOtp: builder.mutation({
+      query: (body) => ({
+        url: `${USERS_URL}/phone/request-otp`,
+        method: "POST",
+        body: body || {},
+      }),
+    }),
+    verifyPhoneActivationOtp: builder.mutation({
+      query: (body) => ({
+        url: `${USERS_URL}/phone/verify-otp`,
+        method: "POST",
+        body,
+      }),
+    }),
     updateUser: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/profile`,
@@ -223,6 +237,8 @@ export const {
   useRestoreMatchRatingTargetMutation,
   useGetUserAchievementsQuery,
   useGetRegistrationSettingsQuery,
+  useRequestPhoneOtpMutation,
+  useVerifyPhoneActivationOtpMutation,
   useVerifyRegisterOtpMutation,
   useResendRegisterOtpMutation,
   // useResendLoginOtpMutation,

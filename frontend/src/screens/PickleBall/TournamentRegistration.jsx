@@ -41,6 +41,7 @@ import {
   Search,
   Clear,
   Verified as VerifiedIcon,
+  PhoneIphoneRounded as PhoneVerifiedIcon,
   HourglassBottom as PendingIcon,
   HourglassEmpty as WaitlistIcon,
   AccessTimeFilled,
@@ -1169,6 +1170,16 @@ const PlayerInfo = memo(
           >
             {displayName(player, displayMode)}{" "}
             <VerifyBadge status={kycOf(player)} />
+            {player?.phoneVerified && (
+              <Tooltip title="Đã kích hoạt số điện thoại" arrow>
+                <Box
+                  component="span"
+                  sx={{ display: "inline-flex", alignItems: "center", color: "success.main", ml: 0.3, fontSize: 17 }}
+                >
+                  <PhoneVerifiedIcon fontSize="inherit" />
+                </Box>
+              </Tooltip>
+            )}
           </Typography>
           <Stack
             direction={{ xs: "column", sm: "row" }}
