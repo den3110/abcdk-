@@ -17,6 +17,7 @@ import {
 } from "../utils/vnSearchNormalizer.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
 import { CACHE_GROUP_IDS } from "../services/cacheGroups.js";
+import { getSystemSettingsRuntime } from "../services/systemSettingsRuntime.service.js";
 import { createShortTtlCache } from "../utils/shortTtlCache.js";
 import {
   beginCachedJsonResponse,
@@ -1816,6 +1817,16 @@ const enforceRankingSearchLimit = async (
   req,
   { isLoggedIn, loginLimit, isUnlimited } = {},
 ) => {
+  // Admin tắt giới hạn tìm kiếm toàn hệ thống => bỏ qua quota
+  try {
+    const settings = await getSystemSettingsRuntime({ ensureDocument: true });
+    if (settings?.search?.limitEnabled === false) {
+      return { remainingTime: null };
+    }
+  } catch (e) {
+    // lỗi đọc cấu hình => giữ hành vi cũ (vẫn áp giới hạn)
+  }
+
   // User không giới hạn & đang đăng nhập => bỏ qua quota luôn
   if (isLoggedIn && isUnlimited) {
     return { remainingTime: null }; // null = không giới hạn

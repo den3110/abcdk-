@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Avatar } from "@astryxdesign/core/Avatar";
-import { ChevronDown, GraduationCap, LogOut, Mail, MessageCircle, Moon, Shield, Sun, Trophy, User } from "lucide-react";
+import { ChevronDown, GraduationCap, LogOut, Mail, MessageCircle, Moon, Shield, Sun, Trophy, User, Users } from "lucide-react";
 
 import PickleMark from "./PickleMark.jsx";
 import { A, WhitePill, imgSrc } from "./ui.jsx";
@@ -24,7 +24,6 @@ const NAV_LINKS = [
   ["Bảng tin", "/feed"],
   ["Chợ", "/marketplace"],
   ["Tìm bạn đánh", "/play"],
-  ["Bạn bè", "/friends"],
   ["Trực tiếp", "/live"],
   ["Câu lạc bộ", "/clubs"],
 ];
@@ -199,6 +198,7 @@ function UserMenu({ userInfo }) {
           >
             <MenuItem icon={User} label="Hồ sơ" href="/profile" onClick={() => setOpen(false)} />
             <MenuItem icon={Trophy} label="Giải của tôi" href="/my-tournaments" onClick={() => setOpen(false)} />
+            <MenuItem icon={Users} label="Bạn bè" href="/friends" onClick={() => setOpen(false)} />
             <MenuItem icon={MessageCircle} label="Nhắn tin" href="/messages" onClick={() => setOpen(false)} />
             <MenuItem icon={GraduationCap} label="Huấn luyện viên" href="/coaches" onClick={() => setOpen(false)} />
             <MenuItem icon={Mail} label="Liên hệ" href="/contact" onClick={() => setOpen(false)} />
@@ -237,28 +237,27 @@ export default function SiteNav() {
           position: "relative",
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
+          gap: 16,
         }}
       >
         <A href="/" aria-label="PickleTour" className="pk-brand" style={{ display: "flex", alignItems: "center" }}>
           <PickleMark size={34} />
         </A>
-        <nav
-          className="pk-navlinks pk-navgroup"
-          style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}
-        >
-          {NAV_LINKS.map(([label, href]) => (
-            <A
-              key={href}
-              href={href}
-              className="pk-navitem"
-              aria-current={isActivePath(pathname, href) ? "page" : undefined}
-            >
-              {label}
-            </A>
-          ))}
-        </nav>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", justifyContent: "center" }}>
+          <nav className="pk-navlinks pk-navgroup">
+            {NAV_LINKS.map(([label, href]) => (
+              <A
+                key={href}
+                href={href}
+                className="pk-navitem"
+                aria-current={isActivePath(pathname, href) ? "page" : undefined}
+              >
+                {label}
+              </A>
+            ))}
+          </nav>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           <ThemeToggle />
           {userInfo && <NotificationBell />}
           {userInfo ? (

@@ -13,6 +13,9 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   captcha: {
     enabled: true,
   },
+  search: {
+    limitEnabled: true,
+  },
   checkpoint: {
     enabled: true,
   },
@@ -182,6 +185,10 @@ export function normalizeSystemSettings(doc = {}) {
     captcha: {
       ...DEFAULT_SYSTEM_SETTINGS.captcha,
       ...(source.captcha || {}),
+    },
+    search: {
+      ...DEFAULT_SYSTEM_SETTINGS.search,
+      ...(source.search || {}),
     },
     checkpoint: {
       ...DEFAULT_SYSTEM_SETTINGS.checkpoint,

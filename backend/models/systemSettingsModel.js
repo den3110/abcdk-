@@ -88,6 +88,11 @@ const SystemSettingsSchema = new mongoose.Schema(
       enabled: { type: Boolean, default: true },
     },
 
+    // Giới hạn số lượt tìm kiếm (tra cứu bảng xếp hạng). Tắt = không giới hạn.
+    search: {
+      limitEnabled: { type: Boolean, default: true },
+    },
+
     checkpoint: {
       enabled: { type: Boolean, default: true },
     },
