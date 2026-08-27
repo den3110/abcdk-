@@ -1491,10 +1491,14 @@ const registerUser = async (req, res, next) => {
     if (!nickname) {
       return res.status(400).json({ message: "Vui lòng nhập nickname." });
     }
-    if (!email) {
-      return res.status(400).json({ message: "Vui lòng nhập email." });
+    // ZNS OTP đang bật (hàm này chỉ chạy khi bật) → SĐT bắt buộc, EMAIL tùy chọn
+    // (có thể bổ sung sau trong hồ sơ).
+    if (!phoneStore) {
+      return res
+        .status(400)
+        .json({ message: "Vui lòng nhập số điện thoại để nhận mã OTP." });
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ message: "Email không hợp lệ." });
     }
     if (!password || password.length < 6) {
@@ -1508,8 +1512,8 @@ const registerUser = async (req, res, next) => {
         .json({ message: "SĐT phải bắt đầu bằng 0 và đủ 10 số." });
     }
 
-    // Check email trùng (có thể cho phép trùng nếu đúng user pending cùng phone)
-    const emailOwner = await User.findOne({ email });
+    // Check email trùng (chỉ khi có nhập email)
+    const emailOwner = email ? await User.findOne({ email }) : null;
     // Case 1: không có phone => email trùng là fail ngay
     if (!phoneStore && emailOwner) {
       return res.status(400).json({ message: "Email đã được sử dụng." });
@@ -1540,7 +1544,7 @@ const registerUser = async (req, res, next) => {
         u = new User({
           name,
           nickname,
-          email,
+          email: email || undefined, // để trống => không set (sparse unique)
           phone: phoneStore,
           phoneVerified: false,
           gender,
@@ -1562,7 +1566,7 @@ const registerUser = async (req, res, next) => {
         // update info mới nhất
         u.name = name;
         u.nickname = nickname;
-        u.email = email;
+        if (email) u.email = email; // chỉ cập nhật khi có nhập (không xoá email cũ)
         u.gender = gender;
         u.dob = dob;
         u.province = province;

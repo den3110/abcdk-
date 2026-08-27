@@ -31,6 +31,9 @@ export const userApiSlice = apiSlice.injectEndpoints({
         body: data,
       }),
     }),
+    getRegistrationSettings: builder.query({
+      query: () => ({ url: "/api/auth/system/registration" }),
+    }),
     updateUser: builder.mutation({
       query: (data) => ({
         url: `${USERS_URL}/profile`,
@@ -219,6 +222,7 @@ export const {
   useAdjustMatchRatingTargetMutation,
   useRestoreMatchRatingTargetMutation,
   useGetUserAchievementsQuery,
+  useGetRegistrationSettingsQuery,
   useVerifyRegisterOtpMutation,
   useResendRegisterOtpMutation,
   // useResendLoginOtpMutation,

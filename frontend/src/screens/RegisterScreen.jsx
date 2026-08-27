@@ -26,7 +26,7 @@ import { alpha } from "@mui/material/styles";
 import Checkbox from "@mui/material/Checkbox";
 import FormControlLabel from "@mui/material/FormControlLabel";
 import { useDispatch } from "react-redux";
-import { useRegisterMutation } from "../slices/usersApiSlice";
+import { useRegisterMutation, useGetRegistrationSettingsQuery } from "../slices/usersApiSlice";
 import { useUploadRealAvatarMutation } from "../slices/uploadApiSlice";
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
@@ -207,6 +207,8 @@ export default function RegisterScreen() {
   const isCapEnabled = useCapEnabled();
 
   const [register, { isLoading }] = useRegisterMutation();
+  const { data: regSettings } = useGetRegistrationSettingsQuery();
+  const emailOptional = !!regSettings?.emailOptional;
   const [uploadAvatar, { isLoading: uploadingAvatar }] =
     useUploadRealAvatarMutation();
 
@@ -275,7 +277,13 @@ export default function RegisterScreen() {
       if (!d.nickname.trim()) e.nickname = t("auth.register.validation.empty");
       else if (d.nickname.trim().length < 2) e.nickname = t("auth.register.validation.minChars", { count: 2 });
       if (!/^0\d{9}$/.test(d.phone.trim())) e.phone = t("auth.register.validation.invalidPhone");
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email.trim())) e.email = t("auth.register.validation.invalidEmail");
+      // Email: bắt buộc khi ZNS OTP tắt; tùy chọn khi bật (chỉ check định dạng nếu có nhập)
+      const emailVal = d.email.trim();
+      if (emailVal) {
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailVal)) e.email = t("auth.register.validation.invalidEmail");
+      } else if (!emailOptional) {
+        e.email = t("auth.register.validation.invalidEmail");
+      }
       if (!d.password) e.password = t("auth.register.validation.required");
       else if (d.password.length < 6) e.password = t("auth.register.validation.minChars", { count: 6 });
       if (d.password !== d.confirmPassword) e.confirmPassword = t("auth.register.validation.passwordMismatch");
@@ -294,7 +302,7 @@ export default function RegisterScreen() {
       if (avatarFile && avatarFile.size > MAX_FILE_SIZE) e.avatar = t("auth.register.validation.avatarTooLarge");
       return e;
     },
-    [avatarFile, t],
+    [avatarFile, emailOptional, t],
   );
 
   useEffect(() => { setErrors(validate(form)); }, [form, validate]);
@@ -684,7 +692,7 @@ export default function RegisterScreen() {
                       <TextField label={t("auth.register.nameLabel")} name="name" value={form.name} onChange={onChange} onBlur={onBlur} required fullWidth error={showErr("name")} helperText={showErr("name") ? errors.name : " "} sx={fieldSx} />
                       <TextField label={t("auth.register.nicknameLabel")} name="nickname" value={form.nickname} onChange={onChange} onBlur={onBlur} required fullWidth error={showErr("nickname")} helperText={showErr("nickname") ? errors.nickname : " "} sx={fieldSx} />
                       <TextField label={t("auth.register.phoneLabel")} name="phone" value={form.phone} onChange={onChange} onBlur={onBlur} required fullWidth inputProps={{ inputMode: "numeric", pattern: "0\\d{9}", maxLength: 10 }} error={showErr("phone")} helperText={showErr("phone") ? errors.phone : " "} sx={fieldSx} />
-                      <TextField label={t("auth.register.emailLabel")} type="email" name="email" value={form.email} onChange={onChange} onBlur={onBlur} required fullWidth error={showErr("email")} helperText={showErr("email") ? errors.email : " "} sx={fieldSx} />
+                      <TextField label={emailOptional ? `${t("auth.register.emailLabel")} (không bắt buộc)` : t("auth.register.emailLabel")} type="email" name="email" value={form.email} onChange={onChange} onBlur={onBlur} required={!emailOptional} fullWidth error={showErr("email")} helperText={showErr("email") ? errors.email : (emailOptional ? "Có thể bổ sung email sau trong hồ sơ." : " ")} sx={fieldSx} />
 
                       {/* Gender */}
                       <FormControl fullWidth error={showErr("gender")} sx={fieldSx}>

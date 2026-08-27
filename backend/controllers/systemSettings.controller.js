@@ -689,6 +689,9 @@ export const getRegistrationSettings = async (req, res, next) => {
     const settings = await getSystemSettingsRuntime({ ensureDocument: true });
     const registration = settings.registration || DEFAULT_SYSTEM_SETTINGS.registration;
 
+    // Khi bật OTP Zalo ZNS: SĐT bắt buộc, email KHÔNG bắt buộc (bổ sung sau).
+    const phoneOtpEnabled = settings?.zaloZns?.enabled === true;
+
     res.json({
       open:
         typeof registration.open === "boolean"
@@ -698,6 +701,8 @@ export const getRegistrationSettings = async (req, res, next) => {
         typeof registration.requireOptionalProfileFields === "boolean"
           ? registration.requireOptionalProfileFields
           : DEFAULT_SYSTEM_SETTINGS.registration.requireOptionalProfileFields,
+      phoneOtpEnabled,
+      emailOptional: phoneOtpEnabled,
     });
   } catch (err) {
     next(err);
