@@ -1,5 +1,41 @@
-> ## 🆕 Session 2026-08-25 — Vận hành giải đấu: xếp giờ, hàng đợi sân, vòng bảng, Zalo, BTC
+> ## 🆕 Session 2026-08-27→28 — Zalo ZNS OTP toàn diện + CLB (chat/quỹ/buổi tập/BXH) + Parity giao diện V2 (Astryx)
 >
+> **HEAD:** `abcdk-` = `ab1285e6` · `abcde` (admin) = `0c84eb2` · `pickletour-app` (mobile) = `bf6d3b9`. **Đã deploy hết** (backend + web + admin + mobile OTA OK=4/4 nhiều lần).
+>
+> ### ⚙️ CÁCH DEPLOY THỰC TẾ DÙNG PHIÊN NÀY (khác ghi chú cũ — KHÔNG dùng clone /tmp, dùng SSH thẳng VPS)
+> - **VPS:** `root@103.90.225.130` / mật khẩu `Hoang@07082026`. Gọi: `SSHPASS='Hoang@07082026' sshpass -e ssh -o StrictHostKeyChecking=no root@103.90.225.130 "..."`. (SSH password auth chập chờn — retry 2-3 lần.)
+> - **Backend:** `cd /abcdk- && git fetch origin master -q && git reset --hard origin/master -q && pm2 restart server --update-env`. (pm2 app `server`, cluster id 6/7, cwd /abcdk-, script backend/server.js.) **`.env` ở `/abcdk-/.env`** (285 dòng).
+> - **Web frontend:** `cd /abcdk-/frontend && yarn build:deploy` (build ~2ph → deploy /var/www/pickletour.vn). Verify bundle qua `curl -s https://pickletour.vn/index.html | grep index-*.js`.
+> - **Admin (`abcde`)**: repo clone thật ở **`/abcde`** trên VPS (KHÔNG phải /abcdk-/admin-pickletour = gitlink rỗng). `cd /abcde && git pull && CI=false GENERATE_SOURCEMAP=false npm run build` rồi `rsync -a --delete /abcde/build/ /var/www/admin.pickletour.vn/`. (admin local KHÔNG có node_modules → build trên VPS.)
+> - **OTA mobile:** node 22.23.2 qua nvm (`. ~/.nvm/nvm.sh; nvm use 22.23.2`), cwd `pickletour-app-mobile`, `npx --yes hot-updater deploy -p ios|android -t 1.1.14|1.1.13 -m "..."` (4 target). ⚠️ **Đừng chạy 2 OTA song song** (đụng file bundle → FAIL, phải retry target lỗi).
+> - **Local**: `/Users/admin/Projects/Pickletour/abcdk` (3 repo: root `abcdk-`, `admin-pickletour`→abcde, `pickletour-app-mobile`→pickletour-app). Git chạy OK phiên này (không gặp iCloud mmap).
+>
+> ### 🔴 VIỆC CẦN NGƯỜI DÙNG XỬ LÝ (chưa xong — cần thao tác của họ)
+> - **Video clip Google Drive không xem được** (trang "không quét virus" cho file >100MB). GỐC: `LIVE_SECRET_KEY_BASE64` bị đổi mà mất khoá cũ → không giải mã được `GOOGLE_DRIVE_RECORDINGS_REFRESH_TOKEN` (+ YOUTUBE_REFRESH_TOKEN…) trong collection `configs` → auth Drive hỏng → fallback link công khai → interstitial. FIX: (A) đặt khoá cũ vào `LIVE_SECRET_KEY_BASE64_OLD` nếu tìm được, HOẶC (B) **Kết nối lại Google Drive** ở Admin→Recording Drive. Chi tiết: hàm `decryptToken` (`secret.service.js`), `streamRecordingDriveFile` (`driveRecordings.service.js`), `enforce... playLiveRecordingV2/streamLiveRecordingRawV2` (`liveRecordingV2Controller.js`).
+>
+> ### Tính năng đã ship phiên này
+> 1. **CLB (batch 2):** Phí hội viên (`clubDuesConfig/Payment`), Buổi tập+điểm danh (`clubSession/Attendance`), BXH nội bộ/kèo (`clubMatch`, points=won*3), **Chat nhóm CLB** — tái dùng hệ chat sẵn có: thêm conversation `type:"club"` (chatConversationModel) + `openClubConversation` (route `POST /api/chat/conversations/club/:clubId`, member-only, self-heal participants) + `pullClubChatParticipant` khi kick/ban/leave. 9 tab ở cả Astryx + legacy + mobile.
+> 2. **Zalo ZNS OTP (bỏ TingTing, gọi API trực tiếp `business.openapi.zalo.me/message/template`):** cấu hình `access_token`/`template_id` (+ auto-refresh app_id/secret_key/refresh_token) ở **Admin→Cài đặt→Zalo ZNS**. `SystemSettings.zaloZns`, secret mask + dot-notation khi PUT. Service `zaloZns.service.js` + `otpSender.service.js` (**rate-limit 3 lần/ngày/SĐT + 60s/lần**, ghi `OtpLog`). Trang **Logs OTP** admin (`/admin/zalo-zns-logs`).
+> 3. **OTP khi đăng ký** (bật lại luồng cũ, kênh Zalo): `registerUser` gate theo `zaloZns.enabled`; **email tùy chọn** khi bật (phone bắt buộc). Web `RegisterOtpScreen`, mobile đã sẵn.
+> 4. **Kích hoạt SĐT (tài khoản cũ):** `POST /users/phone/request-otp|verify-otp`; **toggle `forcePhoneVerification`** ép user chưa kích hoạt phải kích hoạt/đổi số khi vào app (gate web `PhoneVerificationGate`, mobile `PhoneActivationGate`). Trạng thái phoneVerified hiện ở admin user list + BXH + danh sách đăng ký giải.
+> 5. **Reset mật khẩu qua Zalo** (`passwordController` channel `"zalo"`) + **gate hành động** bằng `zaloZns.requireVerifiedForActions` (đăng tin Chợ / tạo-tham gia kèo) + per-club `requireVerifiedPhoneToJoin` + per-tournament `requireVerifiedPhoneToRegister`.
+> 6. **Overlay: chọn hiển thị biệt danh/họ tên** — `tournament.nameDisplayMode` cấu hình ở Quản lý giải (ScoreOverlay + MlpOverlay honor).
+> 7. **⭐ Parity giao diện V2 (Astryx):** trang MUI (Bảng tin/Bạn bè/HLV/Thông báo/Chợ/Tìm bạn đánh) trong ASTRYX_ROUTES nhưng render component V1 → trần khi V2. Fix: `components/astryx/AstryxContentShell.jsx` + `AstryxWrap` bọc **SiteNav+SiteFooter(shadow) quanh nội dung MUI ở DOM thường** + **đồng bộ theme** MUI theo pk-theme. Route wrap trong `main.jsx`; App.jsx regex `/^\/(marketplace|play|feed)/`. Nav V2 (`SiteNav.jsx`) thêm Chợ/Tìm bạn đánh; Bạn bè/Nhắn tin/HLV/Liên hệ trong dropdown.
+> 8. **Thiết kế lại nav V2** — pill nav (1 dòng, hết rớt 2 dòng), active brand pill (aria-current + `.pk-navitem` trong ShadowFrame buildCss), layout 3-cột flex (không đè nút theme).
+> 9. **⭐ Fix chữ light-mode V2** — thay màu near-white hardcode (`#F5F6F7/#F0F1F3/#E6E8EA`)→`var(--pk-text-strong)`, xám nhạt (`#C9CDD2/#D8DBDF…`)→`var(--pk-text)` trong mọi file astryx (token adaptive light-dark). ĐÃ verify BXH light+dark đều đọc rõ.
+> 10. **Tin nhắn dạng popup ở V2** — hiện `MessengerLauncher` (popup góc phải như V1) trên trang Astryx (App.jsx bỏ `isAstryxHomeRoute` khỏi điều kiện ẩn).
+> 11. **Toggle giới hạn tìm kiếm** — `SystemSettings.search.limitEnabled`; `enforceRankingSearchLimit` bỏ qua quota khi tắt. Admin→Cài đặt.
+>
+> ### Bug đã fix
+> - **Bộ lọc "Vượt điểm trình"** dùng `total > cap` (bỏ qua `delta`) → lọc nhầm cặp trong biên độ. Sửa `total > cap + delta` (khớp chip đỏ). Web + mobile.
+>
+> ### 📌 Lưu ý cho session sau
+> - **Prod mặc định V1** (`frontendUi.version=v1`). V2 = Astryx dark, bật ở admin hoặc `?ui=v2`. Nhiều fix phiên này chỉ hiện ở V2.
+> - **Astryx dùng shadow DOM** (`ShadowFrame`) — **MUI KHÔNG chạy trong shadow**. Text color trong astryx phải dùng token `--pk-text-strong/--pk-text/--pk-text-mute` (light-dark) để đọc được cả 2 mode; đừng hardcode near-white.
+> - **Còn thiếu (follow-up):** badge phoneVerified ở danh sách đăng ký giải phía **mobile** (web/BE đã xong).
+> - Xem memory `[[zalo-zns-otp-register]]`, `[[club-astryx-dual-ui]]`, `[[repo-layout-git-restore]]`.
+>
+
 > **Trạng thái:** tất cả đã push master 3 repo + OTA mobile (iOS/Android × 1.1.14 + 1.1.13, channel production). Backend/frontend `abcdk-` lên qua **CI khi push master** — ⚠️ **XÁC NHẬN CI đã deploy tới HEAD** (nhiều tính năng cần backend mới). `admin-pickletour` (repo `abcde`) cần **deploy lại** để hiện ô "Link nhóm Zalo".
 >
 > ### Tính năng đã ship phiên này
