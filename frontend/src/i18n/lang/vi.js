@@ -2589,6 +2589,14 @@ export default {
     searchLabel: "Tìm kiếm",
     searchPlaceholder: "Nick, tỉnh, số CCCD, ...",
     selfAssess: "Tự chấm trình",
+    scoreRange: {
+      title: "Lọc theo điểm trình",
+    },
+    scoreType: {
+      single: "Đơn",
+      double: "Đôi",
+      mix: "Đôi NN",
+    },
     viewModes: {
       desktop: "Chế độ hiển thị desktop",
       list: "Danh sách",

@@ -2601,6 +2601,14 @@ export default {
     searchLabel: "Search",
     searchPlaceholder: "Nickname, province, citizen ID, ...",
     selfAssess: "Self-assess rating",
+    scoreRange: {
+      title: "Filter by rating",
+    },
+    scoreType: {
+      single: "Singles",
+      double: "Doubles",
+      mix: "Mixed",
+    },
     viewModes: {
       desktop: "Desktop display mode",
       list: "List",

@@ -2951,6 +2951,19 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     req.query.scoreStatus ?? req.query.score_status ?? req.query.tier,
   );
 
+  // ===== Lọc theo range điểm trình (thanh kéo) =====
+  const scoreType = ["single", "double", "mix"].includes(
+    String(req.query.scoreType || "").trim(),
+  )
+    ? String(req.query.scoreType).trim()
+    : "double";
+  const minScoreRaw = parseFloat(req.query.minScore);
+  const maxScoreRaw = parseFloat(req.query.maxScore);
+  const scoreRange = {};
+  if (Number.isFinite(minScoreRaw)) scoreRange.$gte = minScoreRaw;
+  if (Number.isFinite(maxScoreRaw)) scoreRange.$lte = maxScoreRaw;
+  const scoreRangeActive = Object.keys(scoreRange).length > 0;
+
   // ===== Check user roles =====
   const role = String(req.user?.role || "").toLowerCase();
   const isAdmin = role === "admin" || !!req.user?.isAdmin;
@@ -3035,9 +3048,10 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
   }
 
   // ===== Admin projection =====
-  const rankingCacheKey = keywordRaw
-    ? ""
-    : buildRankingCacheKey(req, "rankings:only:v2", { page, limit });
+  const rankingCacheKey =
+    keywordRaw || scoreRangeActive
+      ? ""
+      : buildRankingCacheKey(req, "rankings:only:v2", { page, limit });
   let rankingCacheSlot = null;
   if (rankingCacheKey) {
     rankingCacheSlot = await beginCachedJsonResponse(
@@ -3124,6 +3138,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     isHiddenFromRankings: { $ne: true },
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
     ...(scoreStatusMatch || {}),
+    ...(scoreRangeActive ? { [scoreType]: scoreRange } : {}),
   };
 
   // ===== Optimized aggregation using denormalized fields =====
@@ -3222,7 +3237,8 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     userIdsFilter &&
     userIdsFilter.length &&
     page === 0 &&
-    !scoreStatusMatch
+    !scoreStatusMatch &&
+    !scoreRangeActive
   ) {
     try {
       const rankedIds = await Ranking.find(

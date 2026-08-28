@@ -48,6 +48,7 @@ import {
   Tooltip,
   ToggleButton,
   ToggleButtonGroup,
+  Slider,
   LinearProgress,
   Fade,
 } from "@mui/material";
@@ -1527,6 +1528,35 @@ const parsePageFromParams = (sp) => {
   return Number.isFinite(n) && n > 0 ? n - 1 : 0;
 };
 const parseKeywordFromParams = (sp) => sp.get("q") ?? "";
+/* ===== Lọc điểm trình theo range (thanh kéo) ===== */
+const SCORE_MIN = 2.0;
+const SCORE_MAX = 8.0;
+const SCORE_STEP = 0.1;
+const SCORE_TYPES = [
+  { value: "single", labelKey: "rankings.scoreType.single", fb: "Đơn" },
+  { value: "double", labelKey: "rankings.scoreType.double", fb: "Đôi" },
+  { value: "mix", labelKey: "rankings.scoreType.mix", fb: "Đôi NN" },
+];
+const parseScoreRangeFromParams = (sp) => {
+  const type = ["single", "double", "mix"].includes(sp.get("scoreType"))
+    ? sp.get("scoreType")
+    : "double";
+  const toNum = (v) => {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  let lo = toNum(sp.get("minScore"));
+  let hi = toNum(sp.get("maxScore"));
+  const active = lo != null || hi != null;
+  if (lo == null) lo = SCORE_MIN;
+  if (hi == null) hi = SCORE_MAX;
+  const clamp = (x) => Math.min(Math.max(x, SCORE_MIN), SCORE_MAX);
+  lo = clamp(lo);
+  hi = clamp(hi);
+  if (lo > hi) [lo, hi] = [hi, lo];
+  return { type, lo, hi, active };
+};
+
 const parseScoreStatusFromParams = (sp) => {
   const raw = String(sp.get("scoreStatus") || "").trim();
   return RANKING_SCORE_FILTER_VALUES.has(raw) ? raw : "";
@@ -1951,6 +1981,14 @@ export default function RankingList() {
     () => parseScoreStatusFromParams(searchParams),
     [searchParams],
   );
+  const scoreRange = useMemo(
+    () => parseScoreRangeFromParams(searchParams),
+    [searchParams],
+  );
+  const [sliderVal, setSliderVal] = useState([scoreRange.lo, scoreRange.hi]);
+  useEffect(() => {
+    setSliderVal([scoreRange.lo, scoreRange.hi]);
+  }, [scoreRange.lo, scoreRange.hi]);
 
   /**
    * ✅ 2 API mới:
@@ -1962,7 +2000,14 @@ export default function RankingList() {
     isLoading: isLoadingList,
     isFetching: isFetchingList,
     error: errorList,
-  } = useGetRankingsListQuery({ keyword, page, scoreStatus });
+  } = useGetRankingsListQuery({
+    keyword,
+    page,
+    scoreStatus,
+    scoreType: scoreRange.active ? scoreRange.type : undefined,
+    minScore: scoreRange.active ? scoreRange.lo : undefined,
+    maxScore: scoreRange.active ? scoreRange.hi : undefined,
+  });
 
   const { data: podiumData, isFetching: isFetchingPod } =
     useGetRankingsPodiums30dQuery();
@@ -2127,6 +2172,34 @@ export default function RankingList() {
       setSearchParams(nextParams);
     },
     [dispatch, scoreStatus, searchParams, setSearchParams],
+  );
+
+  const applyScoreRange = useCallback(
+    (type, [lo, hi]) => {
+      const nextParams = new URLSearchParams(searchParams);
+      const isFull = lo <= SCORE_MIN && hi >= SCORE_MAX;
+      if (isFull) {
+        nextParams.delete("minScore");
+        nextParams.delete("maxScore");
+        nextParams.delete("scoreType");
+      } else {
+        nextParams.set("minScore", String(Number(lo).toFixed(1)));
+        nextParams.set("maxScore", String(Number(hi).toFixed(1)));
+        nextParams.set("scoreType", type);
+      }
+      nextParams.delete("page");
+      dispatch(setPage(0));
+      setSearchParams(nextParams);
+    },
+    [dispatch, searchParams, setSearchParams],
+  );
+
+  const handleScoreTypeChange = useCallback(
+    (newType) => {
+      if (!newType) return;
+      applyScoreRange(newType, sliderVal);
+    },
+    [applyScoreRange, sliderVal],
   );
 
   const [openProfile, setOpenProfile] = useState(false);
@@ -2761,6 +2834,61 @@ export default function RankingList() {
           }}
           placeholder={t("rankings.searchPlaceholder")}
         />
+
+        {/* Lọc điểm trình theo range (thanh kéo) */}
+        <Box sx={{ mb: 2, maxWidth: 460 }}>
+          <Stack
+            direction="row"
+            alignItems="center"
+            flexWrap="wrap"
+            useFlexGap
+            sx={{ gap: 1, mb: 0.5 }}
+          >
+            <Typography variant="body2" fontWeight={700}>
+              {t("rankings.scoreRange.title", undefined, "Lọc theo điểm trình")}
+            </Typography>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={scoreRange.type}
+              onChange={(e, v) => handleScoreTypeChange(v)}
+            >
+              {SCORE_TYPES.map((st) => (
+                <ToggleButton key={st.value} value={st.value} sx={{ px: 1.2, py: 0.2 }}>
+                  {t(st.labelKey, undefined, st.fb)}
+                </ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+            {scoreRange.active && (
+              <Chip
+                size="small"
+                color="primary"
+                label={`${sliderVal[0].toFixed(1)} – ${sliderVal[1].toFixed(1)}`}
+                onDelete={() =>
+                  applyScoreRange(scoreRange.type, [SCORE_MIN, SCORE_MAX])
+                }
+              />
+            )}
+          </Stack>
+          <Box sx={{ px: 1.5 }}>
+            <Slider
+              value={sliderVal}
+              onChange={(e, v) => setSliderVal(v)}
+              onChangeCommitted={(e, v) => applyScoreRange(scoreRange.type, v)}
+              valueLabelDisplay="auto"
+              min={SCORE_MIN}
+              max={SCORE_MAX}
+              step={SCORE_STEP}
+              disableSwap
+              marks={[
+                { value: 2, label: "2.0" },
+                { value: 4, label: "4.0" },
+                { value: 6, label: "6.0" },
+                { value: 8, label: "8.0" },
+              ]}
+            />
+          </Box>
+        </Box>
 
         {error ? (
           <Alert severity="error">{error?.data?.message || error?.error}</Alert>

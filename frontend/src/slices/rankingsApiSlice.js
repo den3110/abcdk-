@@ -43,7 +43,16 @@ export const rankingsApiSlice = apiSlice.injectEndpoints({
     }),
     // ✅ List rankings (không kèm podiums30d)
     getRankingsList: builder.query({
-      query: ({ cursor, page, limit = 12, keyword, scoreStatus } = {}) => {
+      query: ({
+        cursor,
+        page,
+        limit = 12,
+        keyword,
+        scoreStatus,
+        scoreType,
+        minScore,
+        maxScore,
+      } = {}) => {
         const params = new URLSearchParams();
         if (cursor) params.set("cursor", String(cursor));
         if (page !== undefined && page !== null)
@@ -51,6 +60,11 @@ export const rankingsApiSlice = apiSlice.injectEndpoints({
         if (limit) params.set("limit", String(limit));
         if (keyword) params.set("keyword", String(keyword).trim());
         if (scoreStatus) params.set("scoreStatus", String(scoreStatus).trim());
+        if (scoreType) params.set("scoreType", String(scoreType));
+        if (minScore !== undefined && minScore !== null)
+          params.set("minScore", String(minScore));
+        if (maxScore !== undefined && maxScore !== null)
+          params.set("maxScore", String(maxScore));
         const qs = params.toString();
         return {
           url: `/api/rankings/rankings/v2${qs ? `?${qs}` : ""}`,
