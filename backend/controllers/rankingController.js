@@ -2436,6 +2436,52 @@ export const getRankings = asyncHandler(async (req, res) => {
 
   const first = agg[0] || { docs: [], totalPages: 0 };
 
+  /* ===== Khi CÓ từ khoá: hiện cả tài khoản khớp nhưng CHƯA có bản ghi BXH
+     (chưa chấm trình). Duyệt BXH không từ khoá GIỮ NGUYÊN (chỉ user đã có ranking). */
+  if (keywordRaw && userIdsFilter && userIdsFilter.length && page === 0) {
+    try {
+      const rankedIds = await Ranking.find(
+        { user: { $in: userIdsFilter }, isHiddenFromRankings: { $ne: true } },
+        { user: 1 },
+      ).distinct("user");
+      const rankedSet = new Set(rankedIds.map((id) => String(id)));
+      const missingIds = userIdsFilter.filter((id) => !rankedSet.has(String(id)));
+      if (missingIds.length) {
+        const missingUsers = await User.find(
+          { _id: { $in: missingIds } },
+          userProject,
+        ).lean();
+        const synth = missingUsers.map((u) => ({
+          _id: null,
+          user: u,
+          single: 0,
+          double: 0,
+          mix: 0,
+          points: 0,
+          updatedAt: null,
+          tierLabel: "0 điểm / Chưa đấu",
+          tierColor: "grey",
+          colorRank: 3,
+          totalTours: 0,
+          reputation: 0,
+          hasStaffAssessment: false,
+          lastFinishedTourAt: null,
+          lastAssessmentAt: null,
+          lastStaffAssessmentAt: null,
+          unranked: true,
+        }));
+        first.docs = [...(first.docs || []), ...synth];
+        first.total = (first.total || 0) + synth.length;
+        first.totalPages = Math.max(
+          first.totalPages || 0,
+          Math.ceil((first.total || 0) / limit),
+        );
+      }
+    } catch (e) {
+      console.warn("[getRankings] union unranked failed:", e?.message || e);
+    }
+  }
+
   /* ======= podium 30 ngày (theo user) ======= */
   const { podiumMapByUserId } = await buildRecentPodiumsByUser({ days: 30 });
 
@@ -2819,6 +2865,45 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
   ]);
 
   const first = agg[0] || { docs: [], total: 0 };
+
+  /* ===== Khi CÓ từ khoá: hiện cả tài khoản khớp nhưng CHƯA có bản ghi BXH. */
+  if (keywordRaw && userIdsFilter && userIdsFilter.length && page === 0) {
+    try {
+      const rankedIds = await Ranking.find(
+        { user: { $in: userIdsFilter }, isHiddenFromRankings: { $ne: true } },
+        { user: 1 },
+      ).distinct("user");
+      const rankedSet = new Set(rankedIds.map((id) => String(id)));
+      const missingIds = userIdsFilter.filter((id) => !rankedSet.has(String(id)));
+      if (missingIds.length) {
+        const missingUsers = await User.find(
+          { _id: { $in: missingIds } },
+          userProject,
+        ).lean();
+        const synth = missingUsers.map((u) => ({
+          _id: null,
+          user: u,
+          single: 0,
+          double: 0,
+          mix: 0,
+          points: 0,
+          updatedAt: null,
+          tierLabel: "0 điểm / Chưa đấu",
+          tierColor: "grey",
+          colorRank: 3,
+          totalTours: 0,
+          reputation: 0,
+          hasStaffAssessment: false,
+          unranked: true,
+        }));
+        first.docs = [...(first.docs || []), ...synth];
+        first.total = (first.total || 0) + synth.length;
+      }
+    } catch (e) {
+      console.warn("[getRankingsV2] union unranked failed:", e?.message || e);
+    }
+  }
+
   const totalPages = Math.ceil(first.total / limit);
   const docs = await hydratePageStaffAssessmentDocs(first.docs || []);
 
