@@ -95,6 +95,7 @@ import { useLanguage } from "../../context/LanguageContext";
 import { useRegisterChatBotPageSnapshot } from "../../context/ChatBotPageContext.jsx";
 import SEOHead from "../../components/SEOHead";
 import LottieEmptyState from "../../components/LottieEmptyState";
+import BracketCourtStatusPanel from "../../components/BracketCourtStatusPanel";
 import {
   getTournamentNameDisplayMode,
   getTournamentPairName,
@@ -5504,6 +5505,27 @@ export default function TournamentBracket() {
     refetch: refetchTour,
   } = useGetTournamentQuery(tourId);
   const displayMode = getTournamentNameDisplayMode(tour);
+  // Admin hoặc quản lý giải -> được xem panel tình trạng sân trên trang sơ đồ
+  const canManageTournament = useMemo(() => {
+    if (!me) return false;
+    if (
+      me.isAdmin ||
+      me.role === "admin" ||
+      me.isSuperAdmin ||
+      me.isSuperUser ||
+      (Array.isArray(me.roles) && me.roles.includes("admin"))
+    )
+      return true;
+    const my = String(me._id || "");
+    if (!my) return false;
+    const createdById = String(tour?.createdBy?._id ?? tour?.createdBy ?? "");
+    if (createdById && createdById === my) return true;
+    if (Array.isArray(tour?.managers))
+      return tour.managers.some(
+        (m) => String(m?.user?._id ?? m?.user ?? m?._id ?? m) === my,
+      );
+    return Boolean(tour?.isManager);
+  }, [me, tour]);
   const {
     data: bracketsData,
     isLoading: l2,
@@ -10600,6 +10622,11 @@ export default function TournamentBracket() {
           </Tabs>
           </Box>
 
+          <BracketCourtStatusPanel
+            tournamentId={tourId}
+            enabled={canManageTournament}
+          />
+
           {current.type === "group" ? (
             isBracketV3 ? (
               renderGroupSearchView()
@@ -10813,11 +10840,23 @@ export default function TournamentBracket() {
 
           {renderLiveSpotlight()}
           {isBracketV4 ? (
-            <ModernGroupStage
-              groups={groupEntries}
-              onOpenMatch={openMatchModal}
-              advancingColor={ADVANCING_STANDING_COLOR}
-            />
+            renderDiagramShell(
+              <Box sx={{ overflow: "auto", pb: 1, borderRadius: 1 }}>
+                <Box
+                  sx={{
+                    display: "inline-block",
+                    transform: `scale(${zoom})`,
+                    transformOrigin: "0 0",
+                  }}
+                >
+                  <ModernGroupStage
+                    groups={groupEntries}
+                    onOpenMatch={openMatchModal}
+                    advancingColor={ADVANCING_STANDING_COLOR}
+                  />
+                </Box>
+              </Box>,
+            )
           ) : groupViewMode === "board" ? (
             renderGroupBoardView()
           ) : (
