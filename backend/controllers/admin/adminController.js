@@ -283,6 +283,71 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
 
   res.json({ message: "User updated", user: updatedUser });
 });
+
+/* ✨ Kích hoạt / bỏ kích hoạt SĐT cho user (KHÔNG cần OTP) — admin thao tác tay */
+export const adminVerifyUserPhone = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const verified = req.body?.verified !== false; // mặc định = kích hoạt
+
+  const user = await User.findById(id);
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+
+  if (!verified) {
+    user.phoneVerified = false;
+    user.phoneVerifiedAt = null;
+    await user.save();
+    return res.json({
+      message: "Đã bỏ kích hoạt số điện thoại",
+      phoneVerified: false,
+      phone: user.phone || "",
+    });
+  }
+
+  // Nếu user đang có SĐT chờ kích hoạt -> lấy làm SĐT chính (đã chuẩn hoá lúc lưu)
+  const pending = String(user.activatePendingPhone || "").trim();
+  const targetPhone = pending || String(user.phone || "").trim();
+  if (!targetPhone) {
+    res.status(400);
+    throw new Error("User chưa có số điện thoại để kích hoạt.");
+  }
+
+  if (targetPhone !== user.phone) {
+    const dupe = await User.findOne({
+      phone: targetPhone,
+      _id: { $ne: user._id },
+    }).select("_id");
+    if (dupe) {
+      res.status(400);
+      throw new Error("Số điện thoại đã được người khác sử dụng.");
+    }
+    user.phone = targetPhone;
+  }
+
+  user.phoneVerified = true;
+  user.phoneVerifiedAt = new Date();
+  user.activateOtp = {};
+  user.activatePendingPhone = "";
+
+  try {
+    await user.save();
+  } catch (e) {
+    if (String(e?.code) === "11000") {
+      res.status(400);
+      throw new Error("Số điện thoại đã được sử dụng.");
+    }
+    throw e;
+  }
+
+  res.json({
+    message: "Đã kích hoạt số điện thoại (không cần OTP)",
+    phoneVerified: true,
+    phone: user.phone,
+  });
+});
+
 /* ✨ Duyệt / Từ chối KYC */
 export const reviewUserKyc = asyncHandler(async (req, res) => {
   const { action, reason = "" } = req.body || {};

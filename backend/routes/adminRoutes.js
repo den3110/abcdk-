@@ -8,6 +8,7 @@ import {
   reviewUserKyc,
   updateUserInfo,
   updateUserSuperAdmin,
+  adminVerifyUserPhone,
 } from "../controllers/admin/adminController.js";
 import {
   listNicknameRequests,
@@ -653,6 +654,7 @@ router.patch("/users/:id/super-admin", requireSuperAdmin, updateUserSuperAdmin);
 router.delete("/users/:id", deleteUser);
 router.put("/users/:id", updateUserInfo);
 router.put("/users/:id/kyc", reviewUserKyc); // approve / reject
+router.patch("/users/:id/phone-verify", adminVerifyUserPhone); // kích hoạt SĐT không cần OTP
 
 // ===== Duyệt đổi biệt danh + reset cooldown =====
 router.get("/nickname-requests", listNicknameRequests);
