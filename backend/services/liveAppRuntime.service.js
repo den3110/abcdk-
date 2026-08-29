@@ -290,7 +290,7 @@ function codeToRoundLabel(code) {
   if (size === 8) return "Tứ kết";
   if (size === 4) return "Bán kết";
   if (size === 2) return "Chung kết";
-  if (size >= 16) return `Vòng 1/${Math.max(2, size / 2)}`;
+  if (size >= 16) return `Vòng 1/${size}`;
   if (size > 2) return `Vòng ${size}`;
   return normalized;
 }
@@ -391,7 +391,7 @@ function buildRuntimePhaseText(match) {
     const matched = normalized.match(/^R(\d+)$/);
     if (!matched) return "";
     const size = Number(matched[1]);
-    if (size >= 16) return `Vòng 1/${Math.max(2, size / 2)}`;
+    if (size >= 16) return `Vòng 1/${size}`;
     if (size === 8) return "Tứ kết";
     if (size === 4) return "Bán kết";
     if (size === 2) return "Chung kết";

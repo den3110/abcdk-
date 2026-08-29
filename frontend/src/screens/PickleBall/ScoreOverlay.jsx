@@ -142,8 +142,8 @@ const codeToRoundLabel = (code) => {
   if (size === 8) return "Tứ kết";
   if (size === 4) return "Bán kết";
   if (size === 2) return "Chung kết";
-  const denom = Math.max(2, size / 2);
-  return `Vòng 1/${denom}`;
+  // Nhãn theo SỐ ĐỘI của vòng (khớp Sơ đồ): 64 đội -> 1/64, 32 -> 1/32...
+  return `Vòng 1/${size}`;
   }
   return rc;
 };
@@ -158,7 +158,7 @@ const parseRoundSize = (roundCode) => {
 
 const labelForRoundSize = (size) => {
   if (!size) return "";
-  if (size >= 16) return `Vòng 1/${Math.max(2, size / 2)}`;
+  if (size >= 16) return `Vòng 1/${size}`;
   if (size === 8) return "Tứ kết";
   if (size === 4) return "Bán kết";
   if (size === 2) return "Chung kết";

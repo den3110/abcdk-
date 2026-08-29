@@ -508,7 +508,7 @@ function roundSizeToStageLabel(size) {
   });
   if (!normalized) return "";
 
-  if (normalized >= 16) return `Vòng 1/${Math.max(2, normalized / 2)}`;
+  if (normalized >= 16) return `Vòng 1/${normalized}`;
   if (normalized === 8) return "Tứ kết";
   if (normalized === 4) return "Bán kết";
   if (normalized === 2) return "Chung kết";

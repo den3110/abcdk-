@@ -354,7 +354,7 @@ export function computeStageInfoForMatchDoc(m) {
       return "Playoff";
     }
 
-    if (roundSize >= 16) return `Vòng 1/${Math.max(2, roundSize / 2)}`;
+    if (roundSize >= 16) return `Vòng 1/${roundSize}`;
     if (roundSize === 8) return "Tứ kết";
     if (roundSize === 4) return "Bán kết";
     if (roundSize === 2) return "Chung kết";
