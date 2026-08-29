@@ -1595,12 +1595,55 @@ const registerUser = async (req, res, next) => {
           ip: req.ip,
         });
       } catch (e) {
-        return res.status(e?.rateLimited ? 429 : 400).json({
-          message: e?.rateLimited
-            ? e.message
-            : "Gửi OTP thất bại. Vui lòng thử lại.",
-          detail: e?.message,
-        });
+        // Rate-limit (chống spam) => bắt chờ, KHÔNG cho bỏ qua.
+        if (e?.rateLimited) {
+          return res.status(429).json({ message: e.message, detail: e?.message });
+        }
+        // Gửi OTP thất bại vì lý do khác (vd invalid refresh token / provider lỗi):
+        // vẫn LƯU tài khoản (pending, SĐT chưa kích hoạt) + cho phép BỎ QUA
+        // bước OTP để kích hoạt sau.
+        try {
+          u.registerOtp = {
+            hash: "",
+            expiresAt: null,
+            attempts: 0,
+            lastSentAt: new Date(),
+            tranId: "",
+            cost: 0,
+          };
+          await u.save();
+          const registerToken = signRegisterToken(u._id);
+          return res.status(200).json({
+            otpRequired: true,
+            otpSendFailed: true,
+            canSkip: true,
+            registerToken,
+            phoneMasked: maskPhone(phoneStore),
+            expiresInSec: 10 * 60,
+            message:
+              "Không gửi được mã OTP. Bạn có thể bỏ qua và kích hoạt số điện thoại sau.",
+            detail: e?.message,
+          });
+        } catch (saveErr) {
+          if (String(saveErr?.code) === "11000") {
+            const keys = Object.keys(
+              saveErr?.keyPattern || saveErr?.keyValue || {},
+            );
+            if (keys.includes("email"))
+              return res.status(400).json({ message: "Email đã được sử dụng." });
+            if (keys.includes("phone"))
+              return res
+                .status(400)
+                .json({ message: "Số điện thoại đã được sử dụng." });
+            if (keys.includes("nickname"))
+              return res.status(400).json({ message: "Nickname đã tồn tại." });
+            return res.status(400).json({ message: "Dữ liệu bị trùng." });
+          }
+          return res.status(400).json({
+            message: "Gửi OTP thất bại. Vui lòng thử lại.",
+            detail: e?.message,
+          });
+        }
       }
 
       // 2) Lưu hash OTP sau khi gửi thành công
@@ -2126,6 +2169,94 @@ export const verifyRegisterOtp = async (req, res) => {
     return res
       .status(500)
       .json({ message: err?.message || "Verify OTP failed" });
+  }
+};
+
+/**
+ * POST /api/users/register/skip-otp
+ * body: { registerToken }
+ * Cho phép user BỎ QUA bước xác thực OTP khi không gửi được mã (vd invalid
+ * refresh token). Tài khoản được đăng nhập luôn nhưng SĐT vẫn CHƯA kích hoạt
+ * (phoneVerified=false) — user kích hoạt sau.
+ */
+export const skipRegisterOtp = async (req, res) => {
+  try {
+    const registerToken = String(req.body?.registerToken || "");
+    if (!registerToken) {
+      return res.status(400).json({ message: "Thiếu registerToken." });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(registerToken, mustEnv("JWT_SECRET"));
+    } catch (e) {
+      return res.status(401).json({
+        message: "Token OTP hết hạn hoặc không hợp lệ, bạn vui lòng đăng ký lại.",
+      });
+    }
+    if (decoded?.purpose !== "register_otp") {
+      return res.status(401).json({ message: "Token không đúng mục đích." });
+    }
+
+    const user = await User.findById(decoded.uid);
+    if (!user) return res.status(404).json({ message: "Không tìm thấy user." });
+
+    // Bỏ qua OTP: KHÔNG set phoneVerified. Xoá OTP pending.
+    user.registerOtp = {
+      hash: "",
+      expiresAt: null,
+      attempts: 0,
+      lastSentAt: null,
+      tranId: "",
+      cost: 0,
+    };
+    await user.save();
+
+    generateToken(res, user._id);
+    const token = jwt.sign(
+      {
+        userId: user._id,
+        name: user.name,
+        nickname: user.nickname,
+        phone: user.phone,
+        email: user.email,
+        avatar: user.avatar,
+        province: user.province,
+        dob: user.dob,
+        verified: user.verified,
+        cccdStatus: user.cccdStatus,
+        createdAt: user.createdAt,
+        cccd: user.cccd,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" },
+    );
+
+    try {
+      notifyNewUser({ user });
+    } catch (error) {
+      console.log("[notifyNewUser] error:", error?.message || error);
+    }
+
+    return res.json({
+      _id: user._id,
+      name: user.name,
+      nickname: user.nickname,
+      email: user.email,
+      phone: user.phone || "",
+      avatar: user.avatar,
+      gender: user.gender,
+      dob: user.dob,
+      province: user.province,
+      token,
+      phoneVerified: false,
+      otpSkipped: true,
+    });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: err?.message || "Skip OTP failed" });
   }
 };
 

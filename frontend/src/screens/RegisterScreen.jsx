@@ -350,24 +350,30 @@ export default function RegisterScreen() {
       const res = await register(payload).unwrap();
       // Nếu backend yêu cầu xác thực OTP SĐT (Zalo ZNS) → sang màn nhập OTP.
       if (res?.otpRequired && res?.registerToken) {
+        const otpNav = {
+          registerToken: res.registerToken,
+          phoneMasked: res.phoneMasked || "",
+          canSkip: !!res.canSkip,
+          otpSendFailed: !!res.otpSendFailed,
+        };
         try {
-          sessionStorage.setItem(
-            "register_otp",
-            JSON.stringify({
-              registerToken: res.registerToken,
-              phoneMasked: res.phoneMasked || "",
-            }),
-          );
+          sessionStorage.setItem("register_otp", JSON.stringify(otpNav));
         } catch (e) {
           // sessionStorage có thể bị chặn — vẫn truyền qua state điều hướng
         }
-        toast.success(t("auth.register.otpSent", "Mã OTP đã được gửi tới Zalo của bạn."));
-        navigate("/register/verify-otp", {
-          state: {
-            registerToken: res.registerToken,
-            phoneMasked: res.phoneMasked || "",
-          },
-        });
+        if (res.otpSendFailed) {
+          toast.warning(
+            t(
+              "auth.register.otpSendFailed",
+              "Không gửi được mã OTP. Bạn có thể bỏ qua và kích hoạt số điện thoại sau.",
+            ),
+          );
+        } else {
+          toast.success(
+            t("auth.register.otpSent", "Mã OTP đã được gửi tới Zalo của bạn."),
+          );
+        }
+        navigate("/register/verify-otp", { state: otpNav });
         return;
       }
       dispatch(setCredentials(res));

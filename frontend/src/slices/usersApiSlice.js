@@ -199,6 +199,14 @@ export const userApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
+    skipRegisterOtp: builder.mutation({
+      query: (body) => ({
+        url: "/api/users/register/skip-otp",
+        method: "POST",
+        body,
+      }),
+    }),
+
     // resendLoginOtp: builder.mutation({
     //   query: ({ loginToken }) => ({
     //     url: `${USERS_URL}/login-otp/resend`,
@@ -241,6 +249,7 @@ export const {
   useVerifyPhoneActivationOtpMutation,
   useVerifyRegisterOtpMutation,
   useResendRegisterOtpMutation,
+  useSkipRegisterOtpMutation,
   // useResendLoginOtpMutation,
   // useVerifyLoginOtpMutation
 } = userApiSlice;

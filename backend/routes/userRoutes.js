@@ -22,6 +22,7 @@ import {
   getAdminUsers,
   verifyRegisterOtp,
   resendRegisterOtp,
+  skipRegisterOtp,
   registerUserNotOTP,
   requestPhoneOtp,
   verifyPhoneOtp,
@@ -72,6 +73,7 @@ const router = express.Router();
 router.post("/", authLog({ action: "register" }), registerUser);
 router.post("/register/verify-otp", verifyRegisterOtp);
 router.post("/register/resend-otp", resendRegisterOtp);
+router.post("/register/skip-otp", skipRegisterOtp);
 
 // Kích hoạt / đổi SĐT cho tài khoản đã đăng nhập
 router.post("/phone/request-otp", protect, requestPhoneOtp);

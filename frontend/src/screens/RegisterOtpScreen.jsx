@@ -9,6 +9,7 @@ import {
   TextField,
   Typography,
   CircularProgress,
+  Alert,
 } from "@mui/material";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -17,6 +18,7 @@ import { setCredentials } from "../slices/authSlice";
 import {
   useVerifyRegisterOtpMutation,
   useResendRegisterOtpMutation,
+  useSkipRegisterOtpMutation,
 } from "../slices/usersApiSlice";
 import SEOHead from "../components/SEOHead";
 
@@ -27,6 +29,7 @@ export default function RegisterOtpScreen() {
 
   const [verifyOtp, { isLoading: verifying }] = useVerifyRegisterOtpMutation();
   const [resendOtp, { isLoading: resending }] = useResendRegisterOtpMutation();
+  const [skipOtp, { isLoading: skipping }] = useSkipRegisterOtpMutation();
 
   const fromState = location.state || {};
   const fromSession = useMemo(() => {
@@ -41,6 +44,10 @@ export default function RegisterOtpScreen() {
     fromState?.registerToken || fromSession?.registerToken || "";
   const phoneMasked =
     fromState?.phoneMasked || fromSession?.phoneMasked || "số điện thoại";
+  const canSkip = Boolean(fromState?.canSkip || fromSession?.canSkip);
+  const otpSendFailed = Boolean(
+    fromState?.otpSendFailed || fromSession?.otpSendFailed,
+  );
 
   const [otp, setOtp] = useState("");
   const [cooldown, setCooldown] = useState(0);
@@ -97,6 +104,24 @@ export default function RegisterOtpScreen() {
     }
   };
 
+  const onSkip = async () => {
+    try {
+      const res = await skipOtp({ registerToken }).unwrap();
+      if (!res?.token) {
+        toast.error("Bỏ qua thất bại. Vui lòng thử lại.");
+        return;
+      }
+      dispatch(setCredentials(res));
+      sessionStorage.removeItem("register_otp");
+      toast.success(
+        "Đăng ký thành công! Bạn có thể kích hoạt số điện thoại sau trong phần hồ sơ.",
+      );
+      navigate("/");
+    } catch (err) {
+      toast.error(err?.data?.message || err?.message || "Bỏ qua thất bại");
+    }
+  };
+
   return (
     <Container maxWidth="xs" sx={{ py: 6 }}>
       <SEOHead title="Xác thực OTP - Đăng ký" noIndex={true} />
@@ -109,6 +134,13 @@ export default function RegisterOtpScreen() {
         </Typography>
 
         <Stack spacing={2}>
+          {otpSendFailed && (
+            <Alert severity="warning">
+              Không gửi được mã OTP tới số của bạn (dịch vụ đang gặp sự cố). Bạn
+              có thể <b>bỏ qua</b> bước này và kích hoạt số điện thoại sau trong
+              phần hồ sơ.
+            </Alert>
+          )}
           <TextField
             label="Nhập OTP (6 số)"
             value={otp}
@@ -129,6 +161,19 @@ export default function RegisterOtpScreen() {
           >
             {verifying ? "Đang xác thực..." : "Xác thực"}
           </Button>
+
+          {canSkip && (
+            <Button
+              variant="outlined"
+              color="warning"
+              fullWidth
+              onClick={onSkip}
+              disabled={skipping || verifying}
+              startIcon={skipping && <CircularProgress size={18} />}
+            >
+              {skipping ? "Đang xử lý..." : "Bỏ qua & kích hoạt sau"}
+            </Button>
+          )}
 
           <Box
             display="flex"
