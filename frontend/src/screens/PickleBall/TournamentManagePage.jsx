@@ -2343,43 +2343,6 @@ export default function TournamentManagePage() {
     },
     [dispatch, matchListQueryArgs],
   );
-
-  // Throttle patch cache theo TỪNG trận (~1.5 lần/giây): tỉ số vẫn cập nhật
-  // realtime nhưng KHÔNG rebuild + re-render cả bảng cho mỗi điểm -> giảm mạnh
-  // DOM churn/GC (đã đo ~4000 mutation/s -> treo khi nhiều trận live).
-  const cachePatchThrottleRef = useRef(new Map());
-  useEffect(() => {
-    const store = cachePatchThrottleRef.current;
-    return () => {
-      for (const e of store.values()) if (e.timer) clearTimeout(e.timer);
-      store.clear();
-    };
-  }, []);
-  const throttledPatchAdminMatchCache = useCallback(
-    (matchId, patch) => {
-      const mid = String(matchId || patch?._id || patch?.id || "").trim();
-      if (!mid || !patch || typeof patch !== "object") return;
-      const store = cachePatchThrottleRef.current;
-      const entry = store.get(mid) || { timer: null, latest: null };
-      if (entry.timer) {
-        // đang trong cửa sổ throttle -> chỉ giữ payload mới nhất
-        entry.latest = patch;
-        store.set(mid, entry);
-        return;
-      }
-      // leading edge: áp ngay để cảm giác realtime
-      patchAdminMatchCache(mid, patch);
-      entry.latest = null;
-      entry.timer = setTimeout(() => {
-        const e = store.get(mid);
-        if (e && e.latest) patchAdminMatchCache(mid, e.latest); // trailing: payload cuối
-        store.delete(mid);
-      }, 650);
-      store.set(mid, entry);
-    },
-    [patchAdminMatchCache],
-  );
-
   const statusLiveMatch = useLiveMatch(liveStore, statusDlg.matchId);
   useEffect(() => {
     if (!allMatchesBase.length) return;
@@ -2986,10 +2949,7 @@ export default function TournamentManagePage() {
       const partial = pickRealtimeFields(data);
       if (Object.keys(partial).length === 0) return false;
 
-      throttledPatchAdminMatchCache(
-        mid,
-        data && typeof data === "object" ? data : partial,
-      );
+      patchAdminMatchCache(mid, data && typeof data === "object" ? data : partial);
       const listChanged = liveStore.set(mid, partial);
       if (listChanged || options.forceListVersion) {
         startTransition(() => setOrderVersion((v) => v + 1));
@@ -3004,7 +2964,7 @@ export default function TournamentManagePage() {
     },
     [
       liveStore,
-      throttledPatchAdminMatchCache,
+      patchAdminMatchCache,
       scheduleMatchesRefetch,
       startTransition,
     ],

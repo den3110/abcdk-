@@ -67,6 +67,16 @@ function shouldEnableClarity() {
   return !isLocalhost && !import.meta.env.DEV;
 }
 
+// Trang DOM nặng + realtime nhiều (quản lý giải/chấm trọng tài/console/hàng đợi
+// sân/live studio/overlay/bốc thăm live): KHÔNG chạy Microsoft Clarity — nó ghi
+// lại quá nhiều DOM mutation realtime khiến main thread nghẽn ("Trang không phản
+// hồi"). Analytics ở các trang thường vẫn giữ nguyên.
+function isHeavyClarityRoute(pathname) {
+  return /\/(manage|referee|console|queue)(\/|$)|\/live\/studio|\/overlay\/|\/draw\/live/i.test(
+    String(pathname || ""),
+  );
+}
+
 const AUTH_SYNC_CHANNEL = "pickletour:auth";
 const AUTH_SYNC_TOPIC = "user-info";
 
@@ -364,7 +374,15 @@ const App = () => {
         import.meta.env.VITE_CLARITY_PROJECT_ID) ||
       "";
 
-    if (projectId && shouldEnableClarity()) {
+    // Không init Clarity nếu đang mở thẳng vào trang nặng (tránh treo ngay khi
+    // refresh trên trang quản lý/chấm trận).
+    const landingPath =
+      typeof window !== "undefined" ? window.location.pathname : "";
+    if (
+      projectId &&
+      shouldEnableClarity() &&
+      !isHeavyClarityRoute(landingPath)
+    ) {
       Clarity.init(projectId);
     }
   }, []);
@@ -390,12 +408,21 @@ const App = () => {
     logPageView(location.pathname + location.search, document.title);
 
     // ✅ Track/Tag cho Clarity mỗi lần đổi route (SPA)
-    if (shouldEnableClarity() && typeof window.clarity === "function") {
-      const url = location.pathname + location.search;
-
-      window.clarity("set", "route", location.pathname);
-      window.clarity("set", "url", url);
-      window.clarity("event", "pageview");
+    if (typeof window.clarity === "function") {
+      if (isHeavyClarityRoute(location.pathname)) {
+        // Vào trang nặng -> TẮT Clarity để tránh treo (nghẽn main thread do
+        // ghi lại quá nhiều DOM mutation realtime).
+        try {
+          window.clarity("stop");
+        } catch (e) {
+          /* noop */
+        }
+      } else if (shouldEnableClarity()) {
+        const url = location.pathname + location.search;
+        window.clarity("set", "route", location.pathname);
+        window.clarity("set", "url", url);
+        window.clarity("event", "pageview");
+      }
     }
   }, [location]);
 
