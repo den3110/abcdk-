@@ -2949,9 +2949,17 @@ export default function TournamentManagePage() {
       const partial = pickRealtimeFields(data);
       if (Object.keys(partial).length === 0) return false;
 
-      patchAdminMatchCache(mid, data && typeof data === "object" ? data : partial);
       const listChanged = liveStore.set(mid, partial);
       if (listChanged || options.forceListVersion) {
+        // Chỉ patch cache DANH SÁCH khi có field ảnh hưởng danh sách (status/sân/
+        // trọng tài/kết thúc...). Cập nhật CHỈ‑tỉ‑số hiển thị qua liveStore
+        // (useLiveMatch) nên KHÔNG patch cache mỗi điểm — tránh đổi reference
+        // matchPage -> resolve lại + re-render cả trang, gây treo khi nhiều
+        // trận live cùng lúc.
+        patchAdminMatchCache(
+          mid,
+          data && typeof data === "object" ? data : partial,
+        );
         startTransition(() => setOrderVersion((v) => v + 1));
         // Khi 1 trận KẾT THÚC, đội thắng mới quyết định đội ở các trận sau.
         // Realtime không kèm `winner`, nên refetch danh sách (debounced) để
