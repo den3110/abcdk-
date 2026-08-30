@@ -533,7 +533,16 @@ export default function TournamentDashboard() {
       fontSize: "0.9rem",
     };
 
-    const secSx = { ...btnSx, flex: 1, minWidth: 0 };
+    const secSx = {
+      ...btnSx,
+      // 2 nút/hàng (gap 8px -> mỗi nút bớt 4px); nút lẻ trên hàng tự giãn đủ chiều rộng.
+      flex: "1 1 calc(50% - 4px)",
+      minWidth: 0,
+      // cho nhãn dài (vd "Xem sơ đồ kết quả") tự xuống dòng thay vì tràn/đè.
+      whiteSpace: "normal",
+      lineHeight: 1.15,
+      textAlign: "center",
+    };
     const adminOrMgr = canManage(t);
     const isUpcoming = t.status === "upcoming";
     const isOngoing = t.status === "ongoing";
