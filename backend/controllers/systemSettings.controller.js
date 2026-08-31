@@ -2,6 +2,7 @@ import { invalidateSettingsCache } from "../middleware/settings.middleware.js";
 import { invalidateMaintenanceCache } from "../middleware/maintainance.js";
 import SystemSettings from "../models/systemSettingsModel.js";
 import { invalidateLiveRecordingAiCommentaryGatewayHealthCache } from "../services/liveRecordingAiCommentaryGateway.service.js";
+import { invalidateEventLiveCache } from "../services/eventLiveStreams.service.js";
 import { clearAllMatchLiveOwners } from "../services/matchLiveOwnership.service.js";
 import { setObserverRuntimeSettings } from "../services/observerConfig.service.js";
 import { restartObserverRuntimePublisher } from "../services/observerSink.service.js";
@@ -629,6 +630,7 @@ export const updateSystemSettings = async (req, res, next) => {
     invalidateMaintenanceCache();
     invalidateSystemSettingsRuntimeCache();
     invalidateLiveRecordingAiCommentaryGatewayHealthCache();
+    invalidateEventLiveCache();
 
     const previousLockEnabled =
       previous?.referee?.matchControlLockEnabled !== false;

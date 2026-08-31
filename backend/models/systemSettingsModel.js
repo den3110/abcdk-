@@ -321,6 +321,21 @@ const SystemSettingsSchema = new mongoose.Schema(
       tokenRefreshedAt: { type: Date, default: null },
     },
 
+    // Xem live giải đấu qua YouTube (vd Heineken Pickleball World Cup 2026):
+    // tổng hợp live + video xem lại từ 1 kênh YouTube, gom theo sân/góc cam.
+    eventLive: {
+      enabled: { type: Boolean, default: false },
+      eventName: { type: String, default: "", trim: true },
+      eventLogoUrl: { type: String, default: "", trim: true },
+      bannerImageUrl: { type: String, default: "", trim: true },
+      // Kênh nguồn: handle (@PickleballTour-y2b) hoặc channelId (UC...)
+      youtubeChannel: { type: String, default: "", trim: true },
+      // API key riêng (để trống -> dùng YOUTUBE_API_KEY chung nếu có)
+      youtubeApiKey: { type: String, default: "", trim: true },
+      // (tuỳ chọn) trỏ tới trang chi tiết giải trong app
+      tournamentId: { type: String, default: "", trim: true },
+    },
+
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     updatedAt: { type: Date, default: Date.now },
   },
