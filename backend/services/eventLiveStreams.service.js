@@ -51,6 +51,26 @@ export function parseCourtAngle(rawTitle) {
     }
   }
 
+  // Sân có TÊN (không số): Grandstand / Championship / Center / Show court...
+  // Các sân "show" này thường là sân chính nên xếp lên đầu.
+  if (!courtKey) {
+    const NAMED = [
+      { re: /grand\s*stand|grandstand/, key: "GRANDSTAND", label: "Grandstand", sort: -20 },
+      { re: /championship/, key: "CHAMPIONSHIP", label: "Championship", sort: -19 },
+      { re: /cent(?:er|re)\s*court|trung t[aâ]m/, key: "CENTER", label: "Trung tâm", sort: -18 },
+      { re: /show\s*court/, key: "SHOWCOURT", label: "Show Court", sort: -17 },
+      { re: /stadium/, key: "STADIUM", label: "Stadium", sort: -16 },
+    ];
+    for (const n of NAMED) {
+      if (n.re.test(low)) {
+        courtKey = n.key;
+        courtLabel = `Sân ${n.label}`;
+        courtSort = n.sort;
+        break;
+      }
+    }
+  }
+
   let angle = "main";
   let angleLabel = "Toàn cảnh";
   if (/kitchen|\bnvz\b|non[-\s]?volley|vùng c[aâ]́?m|b[eế]p/.test(low)) {
@@ -87,12 +107,17 @@ async function resolveChannel(channel, apiKey) {
   let result = null;
   // channelId trực tiếp (UC...)
   if (/^UC[\w-]{20,}$/.test(raw)) {
-    const j = await ytApi("channels", { part: "contentDetails", id: raw }, apiKey);
+    const j = await ytApi(
+      "channels",
+      { part: "snippet,contentDetails", id: raw },
+      apiKey,
+    );
     const it = (j.items || [])[0];
     if (it) {
       result = {
         channelId: raw,
         uploads: it.contentDetails?.relatedPlaylists?.uploads || "",
+        title: it.snippet?.title || "",
         at: Date.now(),
       };
     }
@@ -103,7 +128,7 @@ async function resolveChannel(channel, apiKey) {
       : "@" + raw.replace(/^https?:\/\/[^/]+\/@?/i, "").replace(/^@/, "");
     const j = await ytApi(
       "channels",
-      { part: "id,contentDetails", forHandle: handle },
+      { part: "snippet,id,contentDetails", forHandle: handle },
       apiKey,
     );
     const it = (j.items || [])[0];
@@ -111,6 +136,7 @@ async function resolveChannel(channel, apiKey) {
       result = {
         channelId: it.id,
         uploads: it.contentDetails?.relatedPlaylists?.uploads || "",
+        title: it.snippet?.title || "",
         at: Date.now(),
       };
     }
@@ -153,6 +179,118 @@ function groupByCourt(items, key) {
   }
   return groups;
 }
+
+/** Parse cấu hình kênh (đa kênh). Mỗi kênh 1 dòng (hoặc ngăn bằng ";").
+ *  Thêm "| tukhoa1, tukhoa2" để CHỈ lấy stream có tiêu đề chứa 1 trong các từ
+ *  khoá đó (dùng cho kênh hỗn hợp như FPT Bóng Đá — chỉ lấy pickleball).
+ *  Không có "|..." = lấy mọi live của kênh (kênh chuyên pickleball). */
+export function parseChannelList(raw) {
+  return String(raw || "")
+    .split(/[\n;]+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const idx = line.indexOf("|");
+      if (idx === -1) return { channel: line.trim(), keywords: [] };
+      return {
+        channel: line.slice(0, idx).trim(),
+        keywords: line
+          .slice(idx + 1)
+          .split(",")
+          .map((k) => k.trim().toLowerCase())
+          .filter(Boolean),
+      };
+    })
+    .filter((c) => c.channel);
+}
+
+function matchKeywords(title, keywords) {
+  if (!keywords || !keywords.length) return true;
+  const low = String(title || "").toLowerCase();
+  return keywords.some((k) => low.includes(k));
+}
+
+/** Lấy live + replay của 1 kênh (đã áp bộ lọc từ khoá), gắn nhãn kênh nguồn. */
+async function fetchOneChannel({ channel, keywords }, apiKey) {
+  const ch = await resolveChannel(channel, apiKey);
+  if (!ch?.channelId) return { live: [], replays: [] };
+
+  const tag = (feed) => ({
+    ...feed,
+    channelId: ch.channelId,
+    channelTitle: ch.title || "",
+  });
+
+  // 1) LIVE (search eventType=live)
+  let live = [];
+  try {
+    const j = await ytApi(
+      "search",
+      {
+        part: "snippet",
+        channelId: ch.channelId,
+        eventType: "live",
+        type: "video",
+        maxResults: "25",
+        order: "date",
+      },
+      apiKey,
+    );
+    live = (j.items || [])
+      .map((v) => ({ videoId: v.id?.videoId, sn: v.snippet }))
+      .filter((v) => v.videoId && matchKeywords(v.sn?.title, keywords))
+      .map((v) =>
+        tag({
+          videoId: v.videoId,
+          title: v.sn?.title || "",
+          thumbnail: bestThumb(v.sn),
+          publishedAt: v.sn?.publishedAt || null,
+          ...parseCourtAngle(v.sn?.title),
+        }),
+      );
+  } catch {
+    /* vẫn tiếp tục lấy replay */
+  }
+  const liveIds = new Set(live.map((v) => v.videoId));
+
+  // 2) XEM LẠI: playlistItems trên uploads
+  let replays = [];
+  if (ch.uploads) {
+    try {
+      const j = await ytApi(
+        "playlistItems",
+        { part: "snippet,contentDetails", playlistId: ch.uploads, maxResults: "40" },
+        apiKey,
+      );
+      replays = (j.items || [])
+        .map((it) => ({
+          vid: it.contentDetails?.videoId || it.snippet?.resourceId?.videoId,
+          sn: it.snippet,
+        }))
+        .filter(
+          (x) =>
+            x.vid && !liveIds.has(x.vid) && matchKeywords(x.sn?.title, keywords),
+        )
+        .map((x) =>
+          tag({
+            videoId: x.vid,
+            title: x.sn?.title || "",
+            thumbnail: bestThumb(x.sn),
+            publishedAt: x.sn?.publishedAt || null,
+            ...parseCourtAngle(x.sn?.title),
+          }),
+        );
+    } catch {
+      /* noop */
+    }
+  }
+  return { live, replays };
+}
+
+const dedupById = (arr) => {
+  const seen = new Set();
+  return arr.filter((f) => f.videoId && !seen.has(f.videoId) && seen.add(f.videoId));
+};
 
 export async function getEventLiveConfig() {
   let cfg = {};
@@ -206,80 +344,34 @@ export async function getEventLiveData({ force = false } = {}) {
   }
 
   try {
-    const ch = await resolveChannel(cfg.youtubeChannel, apiKey);
-    if (!ch?.channelId) {
+    const channels = parseChannelList(cfg.youtubeChannel);
+    if (!channels.length) {
       base.error = "channel_not_found";
       CACHE.data = base;
       CACHE.at = now;
       return base;
     }
 
-    // 1) LIVE (search eventType=live) — tốn 100 quota/call nên cache mạnh
-    let liveItems = [];
-    try {
-      const j = await ytApi(
-        "search",
-        {
-          part: "snippet",
-          channelId: ch.channelId,
-          eventType: "live",
-          type: "video",
-          maxResults: "25",
-          order: "date",
-        },
-        apiKey,
-      );
-      liveItems = (j.items || [])
-        .map((v) => ({ videoId: v.id?.videoId, snippet: v.snippet }))
-        .filter((v) => v.videoId);
-    } catch (e) {
-      // vẫn tiếp tục lấy replay
-    }
-    const liveIds = new Set(liveItems.map((v) => v.videoId));
+    // Lấy song song từng kênh; kênh lỗi thì bỏ qua (không làm hỏng cả trang).
+    const results = await Promise.all(
+      channels.map((c) =>
+        fetchOneChannel(c, apiKey).catch(() => ({ live: [], replays: [] })),
+      ),
+    );
 
-    const liveParsed = liveItems.map((v) => {
-      const p = parseCourtAngle(v.snippet?.title);
-      return {
-        videoId: v.videoId,
-        title: v.snippet?.title || "",
-        thumbnail: bestThumb(v.snippet),
-        publishedAt: v.snippet?.publishedAt || null,
-        ...p,
-      };
-    });
-
-    // 2) XEM LẠI: playlistItems trên uploads (1 quota/call)
-    let replayParsed = [];
-    if (ch.uploads) {
-      try {
-        const j = await ytApi(
-          "playlistItems",
-          { part: "snippet,contentDetails", playlistId: ch.uploads, maxResults: "40" },
-          apiKey,
-        );
-        replayParsed = (j.items || [])
-          .map((it) => {
-            const vid = it.contentDetails?.videoId || it.snippet?.resourceId?.videoId;
-            return { vid, sn: it.snippet };
-          })
-          .filter((x) => x.vid && !liveIds.has(x.vid))
-          .map((x) => {
-            const p = parseCourtAngle(x.sn?.title);
-            return {
-              videoId: x.vid,
-              title: x.sn?.title || "",
-              thumbnail: bestThumb(x.sn),
-              publishedAt: x.sn?.publishedAt || null,
-              ...p,
-            };
-          });
-      } catch (e) {
-        /* noop */
-      }
+    let allLive = [];
+    let allReplays = [];
+    for (const r of results) {
+      allLive.push(...(r.live || []));
+      allReplays.push(...(r.replays || []));
     }
 
-    base.live = groupByCourt(liveParsed, "angles");
-    base.replays = groupByCourt(replayParsed, "videos");
+    allLive = dedupById(allLive);
+    const liveSet = new Set(allLive.map((f) => f.videoId));
+    allReplays = dedupById(allReplays.filter((f) => !liveSet.has(f.videoId)));
+
+    base.live = groupByCourt(allLive, "angles");
+    base.replays = groupByCourt(allReplays, "videos");
     base.updatedAt = new Date().toISOString();
   } catch (e) {
     base.error = e?.message || "yt_error";
