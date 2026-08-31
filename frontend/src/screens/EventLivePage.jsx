@@ -135,6 +135,12 @@ function Player({ active }) {
     fs: "1",
     color: "white",
     controls: "1",
+    enablejsapi: "1",
+    // origin thật giúp YouTube cho phép nhúng ổn định (tránh lỗi 150/152).
+    origin:
+      typeof window !== "undefined" && window.location?.origin
+        ? window.location.origin
+        : "https://pickletour.vn",
   });
 
   return (
