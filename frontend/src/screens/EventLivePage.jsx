@@ -20,7 +20,11 @@ import SportsTennisIcon from "@mui/icons-material/SportsTennis";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import YouTubeIcon from "@mui/icons-material/YouTube";
-import { useGetEventLiveQuery } from "../slices/eventLiveApiSlice";
+import {
+  useGetEventLiveQuery,
+  useTrackEventLiveViewMutation,
+} from "../slices/eventLiveApiSlice";
+import { logCustomEvent } from "../utils/analytics";
 import SEOHead from "../components/SEOHead";
 
 const PULSE_CSS = `@keyframes elvPulse{0%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(1.35)}100%{opacity:1;transform:scale(1)}}`;
@@ -211,6 +215,28 @@ export default function EventLivePage() {
   });
   const [tab, setTab] = useState(0);
   const [active, setActive] = useState(null);
+  const [trackView] = useTrackEventLiveViewMutation();
+
+  // Ghi nhận lượt dùng (1 lần khi mở trang) — cho thống kê web/app.
+  useEffect(() => {
+    let did = "";
+    try {
+      did = localStorage.getItem("elv_did") || "";
+      if (!did) {
+        did = `w_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+        localStorage.setItem("elv_did", did);
+      }
+    } catch {
+      /* ignore */
+    }
+    trackView({ deviceId: did }).catch(() => {});
+    try {
+      logCustomEvent("event_live_open", { platform: "web" });
+    } catch {
+      /* ignore */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const eventName = data?.eventName || "Xem trực tiếp giải đấu";
   const live = useMemo(() => data?.live || [], [data]);
