@@ -32,6 +32,7 @@ import LocalizedDateProvider from "./components/LocalizedDateProvider.jsx";
 import SentryRootFallback from "./components/SentryRootFallback.jsx";
 import { initSentry } from "./utils/sentry.js";
 import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
+import EventLivePage from "./screens/EventLivePage.jsx";
 import { AstryxWrap } from "./components/astryx/AstryxContentShell.jsx";
 // import VerifyOtpScreen from "./screens/VerifyOtpScreen.jsx";
 
@@ -292,6 +293,7 @@ const router = sentryCreateBrowserRouter(
         <Route path="/courts/:id" element={<VenueDetailPage />} />
         <Route path="/live/watch/:matchId" element={<LiveWatchPage />} />
         <Route path="/live" element={<LiveFeedPage />} />
+        <Route path="/live/event" element={<EventLivePage />} />
         <Route path="/live/clusters" element={<LiveCourtClustersPage />} />
         <Route path="/settings/facebook" element={<FacebookLiveSettings />} />
       </Route>

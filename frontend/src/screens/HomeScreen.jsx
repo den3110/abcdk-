@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 
 import Hero from "../components/Hero";
+import EventLiveBanner from "../components/EventLiveBanner";
 import useAstryxUi from "../hook/useAstryxUi.js";
 
 // Trang chủ: Astryx chính là bản "v2" trong cài đặt hệ thống (frontendUi.version);
