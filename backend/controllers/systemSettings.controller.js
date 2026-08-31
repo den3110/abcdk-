@@ -91,10 +91,21 @@ function maskZaloZns(zaloZns) {
   };
 }
 
+function maskEventLive(eventLive) {
+  if (!eventLive || typeof eventLive !== "object") return eventLive;
+  const youtubeApiKeySet = Boolean(String(eventLive.youtubeApiKey || "").trim());
+  return {
+    ...eventLive,
+    youtubeApiKey: "",
+    youtubeApiKeySet,
+  };
+}
+
 function attachSystemSettingsUiFlags(settings) {
   return {
     ...settings,
     zaloZns: maskZaloZns(settings?.zaloZns),
+    eventLive: maskEventLive(settings?.eventLive),
     aiGateway: settings?.aiGateway
       ? {
           ...settings.aiGateway,
@@ -604,6 +615,16 @@ export const updateSystemSettings = async (req, res, next) => {
         patch[`zaloZns.${k}`] = v;
       }
       delete patch.zaloZns;
+    }
+
+    // eventLive: dot-notation từng field. Bỏ youtubeApiKey rỗng để KHÔNG xoá key
+    // đã lưu khi UI mask và gửi trống.
+    if (patch.eventLive && typeof patch.eventLive === "object") {
+      for (const [k, v] of Object.entries(patch.eventLive)) {
+        if (k === "youtubeApiKey" && !String(v || "").trim()) continue;
+        patch[`eventLive.${k}`] = v;
+      }
+      delete patch.eventLive;
     }
 
     patch.updatedAt = new Date();

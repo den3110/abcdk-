@@ -135,6 +135,15 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     secretKey: "",
     tokenRefreshedAt: null,
   },
+  eventLive: {
+    enabled: false,
+    eventName: "",
+    eventLogoUrl: "",
+    bannerImageUrl: "",
+    youtubeChannel: "",
+    youtubeApiKey: "",
+    tournamentId: "",
+  },
   aiGateway: {
     enabled: true,
     strategy: "failover",
@@ -268,6 +277,10 @@ export function normalizeSystemSettings(doc = {}) {
     zaloZns: {
       ...DEFAULT_SYSTEM_SETTINGS.zaloZns,
       ...(source.zaloZns || {}),
+    },
+    eventLive: {
+      ...DEFAULT_SYSTEM_SETTINGS.eventLive,
+      ...(source.eventLive || {}),
     },
     aiGateway: {
       ...DEFAULT_SYSTEM_SETTINGS.aiGateway,
