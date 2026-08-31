@@ -105,6 +105,9 @@ export default function EventLivePage() {
   const live = useMemo(() => data?.live || [], [data]);
   const replays = useMemo(() => data?.replays || [], [data]);
   const totalLive = live.reduce((n, c) => n + (c.angles?.length || 0), 0);
+  const courtCount = new Set(
+    [...live, ...replays].map((c) => c.courtKey ?? c.courtLabel),
+  ).size;
 
   useEffect(() => {
     if (!active && live.length && live[0].angles?.length) {
@@ -174,7 +177,7 @@ export default function EventLivePage() {
                 <Chip
                   size="small"
                   icon={<SportsTennisIcon sx={{ color: "#fbbf24 !important" }} />}
-                  label={`${live.length + replays.length} sân`}
+                  label={`${courtCount} sân`}
                   sx={{ bgcolor: "rgba(251,191,36,.12)", color: "#fbbf24", fontWeight: 700 }}
                 />
               </Stack>
