@@ -18,6 +18,7 @@ import LiveTvIcon from "@mui/icons-material/LiveTv";
 import ReplayIcon from "@mui/icons-material/Replay";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import { useGetEventLiveQuery } from "../slices/eventLiveApiSlice";
 import SEOHead from "../components/SEOHead";
 
@@ -51,6 +52,13 @@ function LiveDot() {
 }
 
 function Player({ active }) {
+  // Mặc định phát tắt tiếng để autoplay không bị chặn (chặn -> hiện nút to
+  // "Xem trên YouTube"). Người dùng bấm "Bật tiếng" để nghe.
+  const [muted, setMuted] = useState(true);
+  useEffect(() => {
+    setMuted(true);
+  }, [active?.videoId]);
+
   if (!active?.videoId) {
     return (
       <Box
@@ -69,6 +77,19 @@ function Player({ active }) {
       </Box>
     );
   }
+
+  const params = new URLSearchParams({
+    autoplay: "1",
+    mute: muted ? "1" : "0",
+    rel: "0",
+    modestbranding: "1",
+    playsinline: "1",
+    iv_load_policy: "3", // ẩn chú thích/annotation
+    fs: "1",
+    color: "white",
+    controls: "1",
+  });
+
   return (
     <Box
       sx={{
@@ -82,13 +103,50 @@ function Player({ active }) {
       }}
     >
       <iframe
-        key={active.videoId}
+        key={`${active.videoId}-${muted ? "m" : "s"}`}
         title={active.title || "live"}
-        src={`https://www.youtube.com/embed/${active.videoId}?autoplay=1&rel=0&modestbranding=1`}
+        src={`https://www.youtube-nocookie.com/embed/${active.videoId}?${params.toString()}`}
         style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}
         allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
         allowFullScreen
       />
+      {/* Overlay che thanh tiêu đề/kênh/nút chia sẻ (góc trên) — nơi lộ chữ + link YouTube.
+          Chỉ che dải trên cùng, vùng giữa/điều khiển dưới vẫn bấm được. */}
+      <Box
+        onClick={(e) => e.stopPropagation()}
+        sx={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: { xs: 44, sm: 64 },
+          zIndex: 2,
+          background:
+            "linear-gradient(to bottom, rgba(0,0,0,.35), rgba(0,0,0,0))",
+        }}
+      />
+      {muted && (
+        <Button
+          size="small"
+          startIcon={<VolumeUpIcon />}
+          onClick={() => setMuted(false)}
+          sx={{
+            position: "absolute",
+            left: 12,
+            bottom: { xs: 48, sm: 54 },
+            zIndex: 3,
+            bgcolor: "rgba(0,0,0,.7)",
+            color: "#fff",
+            textTransform: "none",
+            fontWeight: 700,
+            borderRadius: 2,
+            px: 1.5,
+            "&:hover": { bgcolor: "rgba(0,0,0,.85)" },
+          }}
+        >
+          Bật tiếng
+        </Button>
+      )}
     </Box>
   );
 }
