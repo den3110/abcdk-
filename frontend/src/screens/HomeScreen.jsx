@@ -12,7 +12,13 @@ import HomeScreenAstryx from "./HomeScreenAstryx.jsx";
 const HomeScreen = () => {
   const astryx = useAstryxUi();
 
-  if (!astryx) return <Hero />;
+  if (!astryx)
+    return (
+      <>
+        <EventLiveBanner />
+        <Hero />
+      </>
+    );
 
   return (
     <Suspense fallback={null}>
