@@ -19,6 +19,7 @@ import ReplayIcon from "@mui/icons-material/Replay";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
+import YouTubeIcon from "@mui/icons-material/YouTube";
 import { useGetEventLiveQuery } from "../slices/eventLiveApiSlice";
 import SEOHead from "../components/SEOHead";
 
@@ -74,6 +75,52 @@ function Player({ active }) {
         }}
       >
         <Typography>Chọn một sân/góc cam để xem</Typography>
+      </Box>
+    );
+  }
+
+  // Kênh tắt nhúng (vd FPT Bóng Đá) -> iframe lỗi 150/152; mở thẳng YouTube.
+  if (active.embeddable === false) {
+    return (
+      <Box
+        sx={{
+          aspectRatio: "16/9",
+          width: "100%",
+          borderRadius: 3,
+          bgcolor: "#000",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 1.5,
+          textAlign: "center",
+          px: 3,
+        }}
+      >
+        <YouTubeIcon sx={{ color: "#ff2d2d", fontSize: 44 }} />
+        <Typography sx={{ color: "#fff", fontWeight: 800 }}>
+          Luồng này chỉ xem được trên YouTube
+        </Typography>
+        <Typography sx={{ color: "#94a3b8", fontSize: 13 }}>
+          Kênh nguồn không cho phép nhúng video.
+        </Typography>
+        <Button
+          variant="contained"
+          startIcon={<PlayArrowIcon />}
+          href={`https://www.youtube.com/watch?v=${active.videoId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          sx={{
+            bgcolor: "#fff",
+            color: "#0a0e1a",
+            fontWeight: 800,
+            textTransform: "none",
+            borderRadius: 2,
+            "&:hover": { bgcolor: "#eaeaea" },
+          }}
+        >
+          Mở trên YouTube
+        </Button>
       </Box>
     );
   }
@@ -168,10 +215,22 @@ export default function EventLivePage() {
   ).size;
 
   useEffect(() => {
-    if (!active && live.length && live[0].angles?.length) {
-      const a = live[0].angles[0];
-      setActive({ ...a, courtLabel: live[0].courtLabel });
+    if (active) return;
+    // Ưu tiên chọn luồng NHÚNG được (bỏ qua kênh tắt nhúng như FPT).
+    let picked = null;
+    for (const c of live) {
+      for (const a of c.angles || []) {
+        if (a.embeddable !== false) {
+          picked = { ...a, courtLabel: c.courtLabel };
+          break;
+        }
+      }
+      if (picked) break;
     }
+    if (!picked && live[0]?.angles?.length) {
+      picked = { ...live[0].angles[0], courtLabel: live[0].courtLabel };
+    }
+    if (picked) setActive(picked);
   }, [live, active]);
 
   const pick = (v, courtLabel) => setActive({ ...v, courtLabel });
@@ -337,7 +396,13 @@ export default function EventLivePage() {
                                 key={a.videoId}
                                 size="small"
                                 variant={isActive(a) ? "contained" : "outlined"}
-                                startIcon={<PlayArrowIcon />}
+                                startIcon={
+                                  a.embeddable === false ? (
+                                    <YouTubeIcon />
+                                  ) : (
+                                    <PlayArrowIcon />
+                                  )
+                                }
                                 onClick={() => pick(a, court.courtLabel)}
                                 sx={{
                                   textTransform: "none",

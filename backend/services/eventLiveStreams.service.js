@@ -210,6 +210,31 @@ function matchKeywords(title, keywords) {
   return keywords.some((k) => low.includes(k));
 }
 
+/** Đánh dấu feed nào NHÚNG được (status.embeddable). Nhiều kênh (vd FPT Bóng Đá)
+ *  tắt nhúng -> nhúng iframe sẽ lỗi 150/152; client sẽ chuyển sang "Mở YouTube". */
+async function annotateEmbeddable(feeds, apiKey) {
+  if (!feeds.length) return feeds;
+  const byId = new Map(feeds.map((f) => [f.videoId, f]));
+  const ids = [...byId.keys()];
+  for (let i = 0; i < ids.length; i += 50) {
+    try {
+      const j = await ytApi(
+        "videos",
+        { part: "status", id: ids.slice(i, i + 50).join(",") },
+        apiKey,
+      );
+      for (const it of j.items || []) {
+        const f = byId.get(it.id);
+        if (f) f.embeddable = it.status?.embeddable !== false;
+      }
+    } catch {
+      /* lỗi -> để mặc định (coi như nhúng được) */
+    }
+  }
+  for (const f of feeds) if (f.embeddable === undefined) f.embeddable = true;
+  return feeds;
+}
+
 /** Lấy live + replay của 1 kênh (đã áp bộ lọc từ khoá), gắn nhãn kênh nguồn. */
 async function fetchOneChannel({ channel, keywords }, apiKey) {
   const ch = await resolveChannel(channel, apiKey);
@@ -284,6 +309,8 @@ async function fetchOneChannel({ channel, keywords }, apiKey) {
       /* noop */
     }
   }
+
+  await annotateEmbeddable([...live, ...replays], apiKey);
   return { live, replays };
 }
 
