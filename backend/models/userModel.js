@@ -205,6 +205,15 @@ const userSchema = new mongoose.Schema(
     phone: { type: String, unique: true, sparse: true, trim: true },
     phoneVerified: { type: Boolean, default: false },
     phoneVerifiedAt: { type: Date, default: null },
+    // Admin buộc RIÊNG tài khoản này phải xác minh SĐT (Zalo) mới dùng tiếp.
+    phoneVerificationRequired: { type: Boolean, default: false, index: true },
+    phoneVerificationRequiredAt: { type: Date, default: null },
+    phoneVerificationRequiredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    phoneVerificationRequiredReason: { type: String, default: "", trim: true },
 
     registerOtp: { type: otpStateSchema, default: () => ({}) },
     loginOtp: { type: otpStateSchema, default: () => ({}) }, // ✅ NEW: riêng cho đăng nhập

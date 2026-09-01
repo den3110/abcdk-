@@ -2450,6 +2450,12 @@ export const verifyPhoneOtp = asyncHandler(async (req, res) => {
   me.phoneVerifiedAt = new Date();
   me.activateOtp = {};
   me.activatePendingPhone = "";
+  // Đã xác minh -> gỡ yêu cầu bắt buộc (nếu admin từng đặt).
+  if (me.phoneVerificationRequired) {
+    me.phoneVerificationRequired = false;
+    me.phoneVerificationRequiredAt = null;
+    me.phoneVerificationRequiredReason = "";
+  }
 
   try {
     await me.save();
@@ -4058,7 +4064,7 @@ export const getMe = asyncHandler(async (req, res) => {
   const [me, participated, staffScored] = await Promise.all([
     User.findById(meId)
       .select(
-        "_id name email role nickname phone gender province avatar verified cccdStatus createdAt updatedAt evaluator nameStyle"
+        "_id name email role nickname phone gender province avatar verified cccdStatus createdAt updatedAt evaluator nameStyle phoneVerified phoneVerificationRequired phoneVerificationRequiredReason"
       )
       .lean(),
     (async () => {
@@ -4104,6 +4110,9 @@ export const getMe = asyncHandler(async (req, res) => {
     avatar: me.avatar || "",
     verified: me.verified || "pending",
     cccdStatus: me.cccdStatus || "unverified",
+    phoneVerified: !!me.phoneVerified,
+    phoneVerificationRequired: me.phoneVerificationRequired === true,
+    phoneVerificationRequiredReason: me.phoneVerificationRequiredReason || "",
     createdAt: me.createdAt,
     updatedAt: me.updatedAt,
     isScoreVerified, // <-- NEW

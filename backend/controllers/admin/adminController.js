@@ -348,6 +348,42 @@ export const adminVerifyUserPhone = asyncHandler(async (req, res) => {
   });
 });
 
+// PATCH /api/admin/users/:id/phone-required  body: { required: bool, reason? }
+// Admin buộc RIÊNG tài khoản này phải xác minh SĐT (Zalo) mới dùng tiếp.
+export const adminSetPhoneRequired = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const required = req.body?.required === true;
+  const reason = String(req.body?.reason || "").trim().slice(0, 300);
+
+  const user = await User.findById(id).select(
+    "_id phone phoneVerified phoneVerificationRequired",
+  );
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+
+  user.phoneVerificationRequired = required;
+  if (required) {
+    user.phoneVerificationRequiredAt = new Date();
+    user.phoneVerificationRequiredBy = req.user?._id || null;
+    user.phoneVerificationRequiredReason = reason;
+  } else {
+    user.phoneVerificationRequiredAt = null;
+    user.phoneVerificationRequiredBy = null;
+    user.phoneVerificationRequiredReason = "";
+  }
+  await user.save();
+
+  res.json({
+    message: required
+      ? "Đã yêu cầu tài khoản này xác minh SĐT"
+      : "Đã bỏ yêu cầu xác minh SĐT",
+    phoneVerificationRequired: required,
+    phoneVerified: !!user.phoneVerified,
+  });
+});
+
 /* ✨ Duyệt / Từ chối KYC */
 export const reviewUserKyc = asyncHandler(async (req, res) => {
   const { action, reason = "" } = req.body || {};

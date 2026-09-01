@@ -12,8 +12,10 @@ export default function PhoneVerificationGate() {
   const { data: me } = useGetMeQuery(undefined, { skip: !userInfo });
 
   const force = appInit?.publicUi?.forcePhoneVerification === true;
+  // Admin buộc RIÊNG tài khoản này (dù toàn hệ thống không bật force).
+  const userRequired = me?.phoneVerificationRequired === true;
   const verified = (me?.phoneVerified ?? userInfo?.phoneVerified) === true;
-  const needed = force && !!userInfo && !verified;
+  const needed = (force || userRequired) && !!userInfo && !verified;
 
   if (!needed) return null;
   return <PhoneActivationDialog open force />;

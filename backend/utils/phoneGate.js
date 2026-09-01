@@ -8,16 +8,25 @@ export const PHONE_GATE_MESSAGE =
 
 /**
  * @returns {Promise<{required:boolean, verified:boolean}>}
- * required=true khi ZNS bật + bật toggle requireVerifiedForActions.
+ * required=true khi ZNS bật VÀ (bật toggle requireVerifiedForActions toàn hệ
+ * thống HOẶC admin buộc riêng tài khoản này: phoneVerificationRequired).
  */
 export async function checkActionPhoneGate(userId) {
   try {
     const settings = await getSystemSettingsRuntime({ ensureDocument: true });
     const zns = settings?.zaloZns || {};
-    const required =
-      zns.enabled === true && zns.requireVerifiedForActions === true;
-    if (!required) return { required: false, verified: true };
-    const u = await User.findById(userId).select("phoneVerified").lean();
+    // Không bật ZNS -> không có cách xác minh -> không chặn (fail-open).
+    if (zns.enabled !== true) return { required: false, verified: true };
+
+    const globalRequire = zns.requireVerifiedForActions === true;
+    const u = await User.findById(userId)
+      .select("phoneVerified phoneVerificationRequired")
+      .lean();
+    const userRequire = u?.phoneVerificationRequired === true;
+
+    if (!globalRequire && !userRequire) {
+      return { required: false, verified: true };
+    }
     return { required: true, verified: !!u?.phoneVerified };
   } catch {
     // Lỗi cấu hình → không chặn (fail-open để không làm hỏng luồng chính)
