@@ -68,8 +68,8 @@ function Player({ active }) {
     return (
       <Box
         sx={{
-          aspectRatio: "16/9",
           width: "100%",
+          height: "100%",
           borderRadius: 3,
           bgcolor: "#000",
           display: "flex",
@@ -88,8 +88,8 @@ function Player({ active }) {
     return (
       <Box
         sx={{
-          aspectRatio: "16/9",
           width: "100%",
+          height: "100%",
           borderRadius: 3,
           bgcolor: "#000",
           display: "flex",
@@ -151,8 +151,8 @@ function Player({ active }) {
     <Box
       sx={{
         position: "relative",
-        aspectRatio: "16/9",
         width: "100%",
+        height: "100%",
         borderRadius: 3,
         overflow: "hidden",
         bgcolor: "#000",
@@ -269,65 +269,73 @@ export default function EventLivePage() {
   const isActive = (v) => active?.videoId === v.videoId;
 
   return (
-    <Box sx={{ bgcolor: "#0a0e1a", minHeight: "100vh", pb: 6 }}>
+    <Box
+      sx={{
+        bgcolor: "#0a0e1a",
+        minHeight: { xs: "100vh", md: "auto" },
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <SEOHead title={`${eventName} — Trực tiếp`} />
       <style>{PULSE_CSS}</style>
 
-      {/* HERO */}
+      {/* HERO (gọn) */}
       <Box
         sx={{
           background:
             "linear-gradient(135deg,#111827 0%,#1e293b 40%,#7f1d1d 120%)",
           color: "#fff",
-          py: { xs: 3, md: 4 },
+          py: 1.25,
           borderBottom: "1px solid rgba(255,255,255,.08)",
+          flexShrink: 0,
         }}
       >
-        <Container maxWidth="lg">
-          <Stack direction="row" alignItems="center" spacing={2}>
+        <Container maxWidth={false} sx={{ px: { xs: 2, md: 3 } }}>
+          <Stack direction="row" alignItems="center" spacing={1.5}>
             {data?.eventLogoUrl ? (
               <Avatar
                 src={data.eventLogoUrl}
                 variant="rounded"
-                sx={{ width: 56, height: 56, bgcolor: "transparent" }}
+                sx={{ width: 42, height: 42, bgcolor: "transparent" }}
               />
             ) : (
-              <Avatar sx={{ width: 56, height: 56, bgcolor: "#dc2626" }}>
-                <LiveTvIcon />
+              <Avatar sx={{ width: 42, height: 42, bgcolor: "#dc2626" }}>
+                <LiveTvIcon fontSize="small" />
               </Avatar>
             )}
-            <Box sx={{ minWidth: 0 }}>
+            <Box sx={{ minWidth: 0, flex: 1 }}>
               <Typography
-                variant="h5"
                 fontWeight={900}
-                sx={{ lineHeight: 1.15, textShadow: "0 2px 12px rgba(0,0,0,.5)" }}
+                sx={{ fontSize: { xs: 15, md: 18 }, lineHeight: 1.2 }}
+                noWrap
               >
                 {eventName}
               </Typography>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+              <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.25 }}>
                 {totalLive > 0 ? (
                   <Chip
                     size="small"
                     label={
                       <span>
                         <LiveDot />
-                        {totalLive} cam đang trực tiếp
+                        {totalLive} cam trực tiếp
                       </span>
                     }
-                    sx={{ bgcolor: "rgba(255,45,45,.15)", color: "#ff6b6b", fontWeight: 800 }}
+                    sx={{ bgcolor: "rgba(255,45,45,.15)", color: "#ff6b6b", fontWeight: 800, height: 22 }}
                   />
                 ) : (
                   <Chip
                     size="small"
                     label="Chưa có luồng trực tiếp"
-                    sx={{ bgcolor: "rgba(255,255,255,.1)", color: "#cbd5e1" }}
+                    sx={{ bgcolor: "rgba(255,255,255,.1)", color: "#cbd5e1", height: 22 }}
                   />
                 )}
                 <Chip
                   size="small"
                   icon={<SportsTennisIcon sx={{ color: "#fbbf24 !important" }} />}
                   label={`${courtCount} sân`}
-                  sx={{ bgcolor: "rgba(251,191,36,.12)", color: "#fbbf24", fontWeight: 700 }}
+                  sx={{ bgcolor: "rgba(251,191,36,.12)", color: "#fbbf24", fontWeight: 700, height: 22 }}
                 />
               </Stack>
             </Box>
@@ -335,22 +343,40 @@ export default function EventLivePage() {
         </Container>
       </Box>
 
-      <Container maxWidth="lg" sx={{ pt: 2.5 }}>
+      {/* MAIN: 2 cột — player trái + danh sách sân cuộn phải */}
+      <Box sx={{ flex: 1, minHeight: 0, px: { xs: 1.5, md: 3 }, py: { xs: 1.5, md: 2 } }}>
         {isLoading ? (
           <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
             <CircularProgress />
           </Box>
         ) : (
-          <>
-            {/* PLAYER */}
-            <Box sx={{ maxWidth: 960, mx: "auto" }}>
-              <Player active={active} />
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: { xs: "column", md: "row" },
+              gap: 2,
+              height: { md: "calc(100vh - 190px)" },
+              minHeight: { md: 440 },
+            }}
+          >
+            {/* LEFT: player */}
+            <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
+              <Box
+                sx={{
+                  flex: { md: 1 },
+                  minHeight: 0,
+                  width: "100%",
+                  aspectRatio: { xs: "16/9", md: "auto" },
+                }}
+              >
+                <Player active={active} />
+              </Box>
               {active && (
                 <Stack
                   direction="row"
                   spacing={1}
                   alignItems="center"
-                  sx={{ mt: 1.25, color: "#e5e7eb", flexWrap: "wrap" }}
+                  sx={{ color: "#e5e7eb", flexWrap: "wrap", flexShrink: 0 }}
                 >
                   <Chip
                     size="small"
@@ -366,60 +392,73 @@ export default function EventLivePage() {
                       fontWeight: 700,
                     }}
                   />
-                  <Typography variant="body2" sx={{ color: "#94a3b8", ml: 0.5 }} noWrap>
+                  <Typography variant="body2" sx={{ color: "#94a3b8", ml: 0.5, minWidth: 0 }} noWrap>
                     {active.title}
                   </Typography>
                 </Stack>
               )}
             </Box>
 
-            {/* TABS */}
-            <Tabs
-              value={tab}
-              onChange={(e, v) => setTab(v)}
+            {/* RIGHT: sidebar cuộn nội bộ */}
+            <Box
               sx={{
-                mt: 3,
-                "& .MuiTab-root": { color: "#94a3b8", fontWeight: 800 },
-                "& .Mui-selected": { color: "#fff !important" },
+                width: { xs: "100%", md: 400 },
+                flexShrink: 0,
+                display: "flex",
+                flexDirection: "column",
+                minHeight: 0,
+                bgcolor: "#0d1424",
+                border: "1px solid rgba(255,255,255,.06)",
+                borderRadius: 2,
+                overflow: "hidden",
+                maxHeight: { xs: "72vh", md: "none" },
               }}
-              TabIndicatorProps={{ sx: { bgcolor: "#dc2626", height: 3 } }}
             >
-              <Tab
-                icon={<LiveTvIcon fontSize="small" />}
-                iconPosition="start"
-                label={`Trực tiếp${totalLive ? ` (${totalLive})` : ""}`}
-              />
-              <Tab icon={<ReplayIcon fontSize="small" />} iconPosition="start" label="Xem lại" />
-            </Tabs>
+              <Tabs
+                value={tab}
+                onChange={(e, v) => setTab(v)}
+                variant="fullWidth"
+                sx={{
+                  flexShrink: 0,
+                  minHeight: 44,
+                  borderBottom: "1px solid rgba(255,255,255,.06)",
+                  "& .MuiTab-root": { color: "#94a3b8", fontWeight: 800, minHeight: 44, fontSize: 13 },
+                  "& .Mui-selected": { color: "#fff !important" },
+                }}
+                TabIndicatorProps={{ sx: { bgcolor: "#dc2626", height: 3 } }}
+              >
+                <Tab
+                  icon={<LiveTvIcon fontSize="small" />}
+                  iconPosition="start"
+                  label={`Trực tiếp${totalLive ? ` (${totalLive})` : ""}`}
+                />
+                <Tab icon={<ReplayIcon fontSize="small" />} iconPosition="start" label="Xem lại" />
+              </Tabs>
 
-            {/* LIVE TAB */}
-            {tab === 0 && (
-              <Box sx={{ mt: 2 }}>
-                {live.length === 0 ? (
-                  <Typography sx={{ color: "#94a3b8", py: 4, textAlign: "center" }}>
-                    Hiện chưa có sân nào trực tiếp. Kéo xuống tab “Xem lại”.
-                  </Typography>
-                ) : (
-                  <Grid container spacing={1.5}>
-                    {live.map((court) => (
-                      <Grid size={{ xs: 12, sm: 6, md: 4 }} key={court.courtKey || court.courtLabel}>
+              <Box sx={{ flex: 1, overflowY: "auto", minHeight: 0, p: 1 }}>
+
+                {/* LIVE */}
+                {tab === 0 &&
+                  (live.length === 0 ? (
+                    <Typography sx={{ color: "#94a3b8", py: 4, textAlign: "center" }}>
+                      Hiện chưa có sân nào trực tiếp.
+                    </Typography>
+                  ) : (
+                    <Stack spacing={1}>
+                      {live.map((court) => (
                         <Card
-                          sx={{
-                            bgcolor: "#111827",
-                            border: "1px solid rgba(255,255,255,.08)",
-                            borderRadius: 3,
-                            p: 1.5,
-                          }}
+                          key={court.courtKey || court.courtLabel}
+                          sx={{ bgcolor: "#111827", border: "1px solid rgba(255,255,255,.08)", borderRadius: 2, p: 1.25 }}
                         >
-                          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 0.75 }}>
                             <SportsTennisIcon sx={{ color: "#fbbf24" }} fontSize="small" />
-                            <Typography fontWeight={900} sx={{ color: "#fff" }}>
+                            <Typography fontWeight={800} sx={{ color: "#fff", fontSize: 14 }} noWrap>
                               {court.courtLabel}
                             </Typography>
                             <Chip
                               size="small"
                               label={<span><LiveDot />LIVE</span>}
-                              sx={{ ml: "auto", bgcolor: "rgba(255,45,45,.15)", color: "#ff6b6b", fontWeight: 800, height: 22 }}
+                              sx={{ ml: "auto", bgcolor: "rgba(255,45,45,.15)", color: "#ff6b6b", fontWeight: 800, height: 20 }}
                             />
                           </Stack>
                           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
@@ -428,25 +467,18 @@ export default function EventLivePage() {
                                 key={a.videoId}
                                 size="small"
                                 variant={isActive(a) ? "contained" : "outlined"}
-                                startIcon={
-                                  a.embeddable === false ? (
-                                    <YouTubeIcon />
-                                  ) : (
-                                    <PlayArrowIcon />
-                                  )
-                                }
+                                startIcon={a.embeddable === false ? <YouTubeIcon /> : <PlayArrowIcon />}
                                 onClick={() => pick(a, court.courtLabel)}
                                 sx={{
                                   textTransform: "none",
                                   fontWeight: 700,
                                   borderRadius: 2,
+                                  py: 0.25,
                                   color: isActive(a) ? "#fff" : angleColor(a.angle),
                                   borderColor: angleColor(a.angle),
                                   bgcolor: isActive(a) ? angleColor(a.angle) : "transparent",
                                   "&:hover": {
-                                    bgcolor: isActive(a)
-                                      ? angleColor(a.angle)
-                                      : angleColor(a.angle) + "22",
+                                    bgcolor: isActive(a) ? angleColor(a.angle) : angleColor(a.angle) + "22",
                                     borderColor: angleColor(a.angle),
                                   },
                                 }}
@@ -456,99 +488,82 @@ export default function EventLivePage() {
                             ))}
                           </Stack>
                         </Card>
-                      </Grid>
-                    ))}
-                  </Grid>
-                )}
-              </Box>
-            )}
+                      ))}
+                    </Stack>
+                  ))}
 
-            {/* REPLAY TAB */}
-            {tab === 1 && (
-              <Box sx={{ mt: 2 }}>
-                {replays.length === 0 ? (
-                  <Typography sx={{ color: "#94a3b8", py: 4, textAlign: "center" }}>
-                    Chưa có video xem lại.
-                  </Typography>
-                ) : (
-                  replays.map((court) => (
-                    <Box key={court.courtKey || court.courtLabel} sx={{ mb: 3 }}>
-                      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                        <SportsTennisIcon sx={{ color: "#fbbf24" }} fontSize="small" />
-                        <Typography fontWeight={900} sx={{ color: "#fff" }}>
-                          {court.courtLabel}
-                        </Typography>
-                        <Chip
-                          size="small"
-                          label={`${court.videos?.length || 0} video`}
-                          sx={{ bgcolor: "#1f2937", color: "#cbd5e1", height: 22 }}
-                        />
-                      </Stack>
-                      <Grid container spacing={1.25}>
-                        {(court.videos || []).map((v) => (
-                          <Grid size={{ xs: 6, sm: 4, md: 3 }} key={v.videoId}>
-                            <Card
-                              onClick={() => pick(v, court.courtLabel)}
-                              sx={{
-                                cursor: "pointer",
-                                bgcolor: "#111827",
-                                border: isActive(v)
-                                  ? "2px solid #dc2626"
-                                  : "1px solid rgba(255,255,255,.08)",
-                                borderRadius: 2,
-                                overflow: "hidden",
-                              }}
-                            >
-                              <Box sx={{ position: "relative", aspectRatio: "16/9", bgcolor: "#000" }}>
-                                {v.thumbnail && (
-                                  <img
-                                    src={v.thumbnail}
-                                    alt={v.title}
-                                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                                    loading="lazy"
-                                  />
-                                )}
-                                <Chip
-                                  size="small"
-                                  label={v.angleLabelDisplay || v.angleLabel}
-                                  sx={{
-                                    position: "absolute",
-                                    left: 6,
-                                    bottom: 6,
-                                    height: 20,
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                    bgcolor: angleColor(v.angle),
-                                    color: "#fff",
-                                  }}
-                                />
-                              </Box>
-                              <Typography
-                                variant="caption"
+                {/* REPLAY */}
+                {tab === 1 &&
+                  (replays.length === 0 ? (
+                    <Typography sx={{ color: "#94a3b8", py: 4, textAlign: "center" }}>
+                      Chưa có video xem lại.
+                    </Typography>
+                  ) : (
+                    <Stack spacing={1.5}>
+                      {replays.map((court) => (
+                        <Box key={court.courtKey || court.courtLabel}>
+                          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mb: 0.5 }}>
+                            <SportsTennisIcon sx={{ color: "#fbbf24" }} fontSize="small" />
+                            <Typography fontWeight={800} sx={{ color: "#fff", fontSize: 13.5 }} noWrap>
+                              {court.courtLabel}
+                            </Typography>
+                            <Chip
+                              size="small"
+                              label={`${court.videos?.length || 0}`}
+                              sx={{ ml: "auto", bgcolor: "#1f2937", color: "#cbd5e1", height: 20 }}
+                            />
+                          </Stack>
+                          <Stack spacing={0.75}>
+                            {(court.videos || []).map((v) => (
+                              <Stack
+                                key={v.videoId}
+                                direction="row"
+                                spacing={1}
+                                onClick={() => pick(v, court.courtLabel)}
                                 sx={{
-                                  display: "block",
-                                  color: "#cbd5e1",
-                                  px: 0.75,
-                                  py: 0.5,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
+                                  cursor: "pointer",
+                                  alignItems: "center",
+                                  p: 0.5,
+                                  borderRadius: 1.5,
+                                  border: isActive(v) ? "1px solid #dc2626" : "1px solid transparent",
+                                  "&:hover": { bgcolor: "rgba(255,255,255,.04)" },
                                 }}
                               >
-                                {v.title}
-                              </Typography>
-                            </Card>
-                          </Grid>
-                        ))}
-                      </Grid>
-                    </Box>
-                  ))
-                )}
+                                <Box sx={{ position: "relative", width: 104, flexShrink: 0, aspectRatio: "16/9", bgcolor: "#000", borderRadius: 1, overflow: "hidden" }}>
+                                  {v.thumbnail && (
+                                    <img
+                                      src={v.thumbnail}
+                                      alt={v.title}
+                                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                      loading="lazy"
+                                    />
+                                  )}
+                                </Box>
+                                <Box sx={{ minWidth: 0 }}>
+                                  <Chip
+                                    size="small"
+                                    label={v.angleLabelDisplay || v.angleLabel}
+                                    sx={{ height: 18, fontSize: 10, fontWeight: 700, bgcolor: angleColor(v.angle), color: "#fff", mb: 0.25 }}
+                                  />
+                                  <Typography
+                                    variant="caption"
+                                    sx={{ display: "block", color: "#cbd5e1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                  >
+                                    {v.title}
+                                  </Typography>
+                                </Box>
+                              </Stack>
+                            ))}
+                          </Stack>
+                        </Box>
+                      ))}
+                    </Stack>
+                  ))}
               </Box>
-            )}
-          </>
+            </Box>
+          </Box>
         )}
-      </Container>
+      </Box>
     </Box>
   );
 }
