@@ -210,31 +210,6 @@ function matchKeywords(title, keywords) {
   return keywords.some((k) => low.includes(k));
 }
 
-/** Đánh dấu feed nào NHÚNG được (status.embeddable). Nhiều kênh (vd FPT Bóng Đá)
- *  tắt nhúng -> nhúng iframe sẽ lỗi 150/152; client sẽ chuyển sang "Mở YouTube". */
-async function annotateEmbeddable(feeds, apiKey) {
-  if (!feeds.length) return feeds;
-  const byId = new Map(feeds.map((f) => [f.videoId, f]));
-  const ids = [...byId.keys()];
-  for (let i = 0; i < ids.length; i += 50) {
-    try {
-      const j = await ytApi(
-        "videos",
-        { part: "status", id: ids.slice(i, i + 50).join(",") },
-        apiKey,
-      );
-      for (const it of j.items || []) {
-        const f = byId.get(it.id);
-        if (f) f.embeddable = it.status?.embeddable !== false;
-      }
-    } catch {
-      /* lỗi -> để mặc định (coi như nhúng được) */
-    }
-  }
-  for (const f of feeds) if (f.embeddable === undefined) f.embeddable = true;
-  return feeds;
-}
-
 /** Lấy live + replay của 1 kênh (đã áp bộ lọc từ khoá), gắn nhãn kênh nguồn. */
 async function fetchOneChannel({ channel, keywords }, apiKey) {
   const ch = await resolveChannel(channel, apiKey);
@@ -246,8 +221,9 @@ async function fetchOneChannel({ channel, keywords }, apiKey) {
     channelTitle: ch.title || "",
   });
 
-  // 1) LIVE (search eventType=live)
-  let live = [];
+  // Thu thập id ứng viên: (a) search eventType=live (khám phá live kể cả khi
+  // uploads chưa kịp cập nhật), (b) uploads gần đây (cho replay + live search sót).
+  const candidateIds = new Set();
   try {
     const j = await ytApi(
       "search",
@@ -261,56 +237,61 @@ async function fetchOneChannel({ channel, keywords }, apiKey) {
       },
       apiKey,
     );
-    live = (j.items || [])
-      .map((v) => ({ videoId: v.id?.videoId, sn: v.snippet }))
-      .filter((v) => v.videoId && matchKeywords(v.sn?.title, keywords))
-      .map((v) =>
-        tag({
-          videoId: v.videoId,
-          title: v.sn?.title || "",
-          thumbnail: bestThumb(v.sn),
-          publishedAt: v.sn?.publishedAt || null,
-          ...parseCourtAngle(v.sn?.title),
-        }),
-      );
+    for (const v of j.items || []) if (v.id?.videoId) candidateIds.add(v.id.videoId);
   } catch {
-    /* vẫn tiếp tục lấy replay */
+    /* vẫn tiếp tục */
   }
-  const liveIds = new Set(live.map((v) => v.videoId));
-
-  // 2) XEM LẠI: playlistItems trên uploads
-  let replays = [];
   if (ch.uploads) {
     try {
       const j = await ytApi(
         "playlistItems",
-        { part: "snippet,contentDetails", playlistId: ch.uploads, maxResults: "40" },
+        { part: "contentDetails", playlistId: ch.uploads, maxResults: "50" },
         apiKey,
       );
-      replays = (j.items || [])
-        .map((it) => ({
-          vid: it.contentDetails?.videoId || it.snippet?.resourceId?.videoId,
-          sn: it.snippet,
-        }))
-        .filter(
-          (x) =>
-            x.vid && !liveIds.has(x.vid) && matchKeywords(x.sn?.title, keywords),
-        )
-        .map((x) =>
-          tag({
-            videoId: x.vid,
-            title: x.sn?.title || "",
-            thumbnail: bestThumb(x.sn),
-            publishedAt: x.sn?.publishedAt || null,
-            ...parseCourtAngle(x.sn?.title),
-          }),
-        );
+      for (const it of j.items || []) {
+        const vid = it.contentDetails?.videoId;
+        if (vid) candidateIds.add(vid);
+      }
     } catch {
       /* noop */
     }
   }
+  if (!candidateIds.size) return { live: [], replays: [] };
 
-  await annotateEmbeddable([...live, ...replays], apiKey);
+  // videos.list: dùng snippet.liveBroadcastContent để phân loại CHÍNH XÁC
+  // live vs xem lại (tránh stream đang live bị rơi sang tab Xem lại do search
+  // trễ index), + status.embeddable trong cùng 1 call.
+  const ids = [...candidateIds];
+  const live = [];
+  const replays = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    let j;
+    try {
+      j = await ytApi(
+        "videos",
+        { part: "snippet,status", id: ids.slice(i, i + 50).join(",") },
+        apiKey,
+      );
+    } catch {
+      continue;
+    }
+    for (const v of j.items || []) {
+      const sn = v.snippet || {};
+      const title = sn.title || "";
+      if (!matchKeywords(title, keywords)) continue;
+      const feed = tag({
+        videoId: v.id,
+        title,
+        thumbnail: bestThumb(sn),
+        publishedAt: sn.publishedAt || null,
+        embeddable: v.status?.embeddable !== false,
+        ...parseCourtAngle(title),
+      });
+      const lbc = sn.liveBroadcastContent; // 'live' | 'upcoming' | 'none'
+      if (lbc === "live") live.push(feed);
+      else if (lbc !== "upcoming") replays.push(feed); // bỏ 'upcoming' (chưa phát)
+    }
+  }
   return { live, replays };
 }
 
