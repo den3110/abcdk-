@@ -355,8 +355,8 @@ export default function EventLivePage() {
               display: "flex",
               flexDirection: { xs: "column", md: "row" },
               gap: 2,
-              height: { md: "calc(100vh - 190px)" },
-              minHeight: { md: 440 },
+              height: { md: "calc(100vh - 178px)" },
+              minHeight: { md: 360 },
             }}
           >
             {/* LEFT: player */}
