@@ -10,6 +10,8 @@ import {
   Card,
   Stack,
   Button,
+  IconButton,
+  Tooltip,
   CircularProgress,
   Grid,
   Avatar,
@@ -20,6 +22,9 @@ import SportsTennisIcon from "@mui/icons-material/SportsTennis";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import YouTubeIcon from "@mui/icons-material/YouTube";
+import PictureInPictureAltIcon from "@mui/icons-material/PictureInPictureAlt";
+import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
+import CloseIcon from "@mui/icons-material/Close";
 import {
   useGetEventLiveQuery,
   useTrackEventLiveViewMutation,
@@ -208,6 +213,80 @@ function Player({ active }) {
   );
 }
 
+// Cửa sổ PiP nhỏ (góc trên player chính) — luôn tắt tiếng, xem sân thứ 2.
+function MiniPlayer({ feed, onSwap, onClose }) {
+  const origin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "https://pickletour.vn";
+  const src = `https://www.youtube.com/embed/${feed.videoId}?autoplay=1&mute=1&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&controls=1&enablejsapi=1&origin=${encodeURIComponent(
+    origin,
+  )}`;
+  return (
+    <Box
+      sx={{
+        position: "absolute",
+        top: 10,
+        right: 10,
+        width: { xs: "44%", sm: "34%", md: "30%" },
+        maxWidth: 340,
+        zIndex: 5,
+        borderRadius: 2,
+        overflow: "hidden",
+        bgcolor: "#000",
+        border: "1px solid rgba(255,255,255,.25)",
+        boxShadow: "0 8px 28px rgba(0,0,0,.6)",
+      }}
+    >
+      <Box sx={{ position: "relative", width: "100%", aspectRatio: "16/9" }}>
+        {feed.embeddable === false ? (
+          <Box sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", p: 1, textAlign: "center" }}>
+            <Typography variant="caption" sx={{ color: "#cbd5e1" }}>
+              Luồng này chỉ xem trên YouTube
+            </Typography>
+          </Box>
+        ) : (
+          <iframe
+            key={feed.videoId}
+            title={feed.title || "pip"}
+            src={src}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", border: 0 }}
+            allow="autoplay; encrypted-media; picture-in-picture"
+          />
+        )}
+        {/* dải điều khiển PiP */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          sx={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            px: 0.5,
+            py: 0.25,
+            background: "linear-gradient(to bottom, rgba(0,0,0,.6), rgba(0,0,0,0))",
+          }}
+        >
+          <Typography variant="caption" sx={{ color: "#fff", fontWeight: 700, flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} noWrap>
+            {feed.courtLabel}
+          </Typography>
+          <Tooltip title="Đổi với màn chính">
+            <IconButton size="small" onClick={onSwap} sx={{ color: "#fff", p: 0.25 }}>
+              <SwapHorizIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+          <Tooltip title="Đóng">
+            <IconButton size="small" onClick={onClose} sx={{ color: "#fff", p: 0.25 }}>
+              <CloseIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      </Box>
+    </Box>
+  );
+}
+
 export default function EventLivePage() {
   const { data, isLoading, isError } = useGetEventLiveQuery(undefined, {
     pollingInterval: 60000,
@@ -215,6 +294,7 @@ export default function EventLivePage() {
   });
   const [tab, setTab] = useState(0);
   const [active, setActive] = useState(null);
+  const [pip, setPip] = useState(null); // cửa sổ PiP (sân thứ 2)
   const [trackView] = useTrackEventLiveViewMutation();
 
   // Ghi nhận lượt dùng (1 lần khi mở trang) — cho thống kê web/app.
@@ -267,6 +347,15 @@ export default function EventLivePage() {
 
   const pick = (v, courtLabel) => setActive({ ...v, courtLabel });
   const isActive = (v) => active?.videoId === v.videoId;
+  const openPip = (v, courtLabel) => {
+    if (active?.videoId === v.videoId) return; // đang là màn chính -> bỏ qua
+    setPip({ ...v, courtLabel });
+  };
+  const swapPip = () => {
+    if (!pip) return;
+    setActive(pip);
+    setPip(active);
+  };
 
   return (
     <Box
@@ -363,6 +452,7 @@ export default function EventLivePage() {
             <Box sx={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 1 }}>
               <Box
                 sx={{
+                  position: "relative",
                   flex: { md: 1 },
                   minHeight: 0,
                   width: "100%",
@@ -370,6 +460,13 @@ export default function EventLivePage() {
                 }}
               >
                 <Player active={active} />
+                {pip && (
+                  <MiniPlayer
+                    feed={pip}
+                    onSwap={swapPip}
+                    onClose={() => setPip(null)}
+                  />
+                )}
               </Box>
               {active && (
                 <Stack
@@ -460,6 +557,23 @@ export default function EventLivePage() {
                               label={<span><LiveDot />LIVE</span>}
                               sx={{ ml: "auto", bgcolor: "rgba(255,45,45,.15)", color: "#ff6b6b", fontWeight: 800, height: 20 }}
                             />
+                            {(() => {
+                              const firstEmbed = (court.angles || []).find(
+                                (a) => a.embeddable !== false,
+                              );
+                              if (!firstEmbed) return null;
+                              return (
+                                <Tooltip title="Xem ở cửa sổ nhỏ (PiP)">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => openPip(firstEmbed, court.courtLabel)}
+                                    sx={{ color: "#38bdf8", p: 0.25 }}
+                                  >
+                                    <PictureInPictureAltIcon sx={{ fontSize: 18 }} />
+                                  </IconButton>
+                                </Tooltip>
+                              );
+                            })()}
                           </Stack>
                           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                             {(court.angles || []).map((a) => (
