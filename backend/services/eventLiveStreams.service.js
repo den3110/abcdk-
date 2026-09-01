@@ -27,8 +27,40 @@ async function ytApi(path, params, apiKey) {
   return json;
 }
 
-/** Parse "san5 / sân 5 / Sân D2 / court 3 - kitchen"
- *  -> { courtKey, courtLabel, courtSort, angle, angleLabel }. */
+/** Lấy tên CỤM SÂN (venue) đứng ngay trước "sân" trong tiêu đề.
+ *  Vd "Tiên Sơn - Sân 3" -> "Tiên Sơn"; "Tuyên Sơn - Sân D1" -> "Tuyên Sơn".
+ *  "san 1 - kitchen" / "Sân D2 · Đà Nẵng ·..." -> "" (không có venue đứng trước). */
+function extractVenue(title, courtIdx) {
+  let pre = String(title).slice(0, courtIdx);
+  // Tách theo dấu phân cách phổ biến, lấy đoạn cuối cùng (gần "sân" nhất)
+  const segs = pre
+    .split(/[-:|·>–—]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  let cand = segs.length ? segs[segs.length - 1] : "";
+  cand = cand
+    .replace(/[🔴▶️🎾🏆•]/gu, "")
+    .replace(/tr[ựu]c ti[ếe]p/gi, "")
+    .replace(/\blive\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  // Loại nếu là tên giải / ngày giờ (không phải venue)
+  if (
+    !cand ||
+    cand.length < 2 ||
+    cand.length > 30 ||
+    !/[a-zà-ỹ]/i.test(cand) ||
+    /heineken|pickleball|world\s*cup|\bpwc\b|ng[àa]y|bu[ổo]i|c[uú]p|202\d|\d{1,2}\/\d{1,2}/i.test(
+      cand,
+    )
+  ) {
+    return "";
+  }
+  return cand;
+}
+
+/** Parse "Tiên Sơn - Sân 3 (Kitchen)" / "san5" / "Sân D2"
+ *  -> { courtKey, courtLabel, courtSort, venue, angle, angleLabel }. */
 export function parseCourtAngle(rawTitle) {
   const title = String(rawTitle || "");
   const low = title.toLowerCase();
@@ -37,6 +69,7 @@ export function parseCourtAngle(rawTitle) {
   let courtKey = null;
   let courtLabel = "Khác";
   let courtSort = 100000;
+  let venue = "";
   const m =
     low.match(/s[aâ]n\s*([a-zđ]{0,2})\s*0*(\d{1,3})/) ||
     low.match(/court\s*([a-z]{0,2})\s*0*(\d{1,3})/);
@@ -44,8 +77,12 @@ export function parseCourtAngle(rawTitle) {
     const letter = String(m[1] || "").toUpperCase();
     const num = parseInt(m[2], 10);
     if (Number.isFinite(num)) {
-      courtKey = letter ? `${letter}${num}` : `${num}`;
-      courtLabel = `Sân ${courtKey}`;
+      const courtNum = letter ? `${letter}${num}` : `${num}`;
+      venue = extractVenue(title, m.index);
+      const vkey = venue ? venue.toUpperCase().replace(/\s+/g, "") : "";
+      // KHÁC venue -> KHÁC sân (Tiên Sơn Sân 3 ≠ Tuyên Sơn Sân 3)
+      courtKey = vkey ? `${vkey}:${courtNum}` : courtNum;
+      courtLabel = venue ? `${venue} - Sân ${courtNum}` : `Sân ${courtNum}`;
       // Sân số thuần xếp trước; sân có chữ (D2...) xếp sau, theo chữ rồi số.
       courtSort = letter ? 10000 + letter.charCodeAt(0) * 100 + num : num;
     }
@@ -87,7 +124,7 @@ export function parseCourtAngle(rawTitle) {
     angleLabel = "Bên hông";
   }
 
-  return { courtKey, courtLabel, courtSort, angle, angleLabel };
+  return { courtKey, courtLabel, courtSort, venue, angle, angleLabel };
 }
 
 const bestThumb = (sn) => {
@@ -155,13 +192,18 @@ function groupByCourt(items, key) {
         courtKey: it.courtKey ?? null,
         courtLabel: it.courtLabel,
         courtSort: it.courtSort ?? 100000,
+        venue: it.venue || "",
         [key]: [],
       });
     map.get(k)[key].push(it);
   }
-  const groups = [...map.values()].sort(
-    (a, b) => (a.courtSort ?? 1e9) - (b.courtSort ?? 1e9),
-  );
+  // Xếp: cụm sân (venue) trước, trong cụm xếp theo số sân. Venue rỗng lên đầu.
+  const groups = [...map.values()].sort((a, b) => {
+    const va = a.venue || "";
+    const vb = b.venue || "";
+    if (va !== vb) return va.localeCompare(vb, "vi");
+    return (a.courtSort ?? 1e9) - (b.courtSort ?? 1e9);
+  });
   // Cùng 1 sân có nhiều feed cùng góc -> đánh số (Toàn cảnh 1, Toàn cảnh 2...)
   for (const g of groups) {
     const arr = g[key];
