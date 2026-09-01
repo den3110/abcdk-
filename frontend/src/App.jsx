@@ -340,6 +340,9 @@ const App = () => {
     isLiveWatchPage ||
     isAstryxHomeRoute ||
     isOverlayStudioPage;
+  // Trang Xem live giải đấu: giữ header (điều hướng) nhưng KHÔNG footer +
+  // không ép min-height, để layout khít viewport (không phải scroll trang).
+  const isEventLiveFull = astryxPath === "/live/event";
   // /messages page fullscreen trên mobile khi user đã chọn 1 conversation
   // (?c=xxx) — hide site header + bottom nav để chat chiếm trọn viewport.
   const isMessagesConvView =
@@ -457,26 +460,35 @@ const App = () => {
       {isFullScreenLayout ? (
         <Outlet />
       ) : (
-        <Container className="app-shell" fluid={isTournamentBracketPage}>
+        <Container
+          className="app-shell"
+          fluid={isTournamentBracketPage || isEventLiveFull}
+        >
           <Box
             component="main"
             sx={{
-              minHeight: {
-                xs: "calc(100dvh - 56px)",
-                md: "calc(100vh - 88px)",
-              },
+              minHeight: isEventLiveFull
+                ? "auto"
+                : {
+                    xs: "calc(100dvh - 56px)",
+                    md: "calc(100vh - 88px)",
+                  },
               display: "flex",
               flexDirection: "column",
               // Không cần padding bottom cho MobileBottomNav khi ta đã hide nó
-              pb: isMessagesConvView ? 0 : { xs: 10, md: 0 },
+              pb: isEventLiveFull
+                ? 0
+                : isMessagesConvView
+                  ? 0
+                  : { xs: 10, md: 0 },
             }}
           >
             <Box sx={{ flex: 1, minWidth: 0 }}>
               <Outlet />
             </Box>
-            <AppFooter />
+            {!isEventLiveFull && <AppFooter />}
           </Box>
-          {!hideMobileBottomNav ? <MobileBottomNav /> : null}
+          {!hideMobileBottomNav && !isEventLiveFull ? <MobileBottomNav /> : null}
           {/* <RegInvitesModal /> */}
         </Container>
       )}
