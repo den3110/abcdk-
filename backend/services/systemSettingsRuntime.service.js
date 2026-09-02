@@ -143,6 +143,8 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     youtubeChannel: "",
     youtubeApiKey: "",
     tournamentId: "",
+    autoNotify: false,
+    autoNotifyCooldownMinutes: 180,
   },
   aiGateway: {
     enabled: true,

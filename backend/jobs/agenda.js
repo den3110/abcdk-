@@ -66,6 +66,8 @@ export async function startAgenda() {
   console.log("✅ Starting Agenda...");
   await import("./notifyJobs.js");
   console.log("✅ notifyJobs handlers registered");
+  await import("./eventLiveNotifyJob.js");
+  console.log("✅ eventLiveNotifyJob handler registered");
 
   // 🆕 logging tiện debug
   agenda.on("start", (job) => {
@@ -83,6 +85,15 @@ export async function startAgenda() {
 
   await agenda.start();
   started = true;
+
+  // 🆕 Auto-push khi giải bắt đầu LIVE trên kênh YouTube đã cấu hình (mỗi 5 phút).
+  //    Job tự no-op nếu eventLive.autoNotify tắt. every() idempotent theo tên.
+  try {
+    await agenda.every("5 minutes", "event-live.auto-notify");
+    console.log("✅ event-live.auto-notify scheduled (5m)");
+  } catch (e) {
+    console.error("[agenda] schedule event-live.auto-notify error:", e?.message);
+  }
 
   // 🆕 graceful shutdown để release lock & đóng clean
   const shutdown = async (sig) => {

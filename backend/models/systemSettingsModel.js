@@ -334,6 +334,10 @@ const SystemSettingsSchema = new mongoose.Schema(
       youtubeApiKey: { type: String, default: "", trim: true },
       // (tuỳ chọn) trỏ tới trang chi tiết giải trong app
       tournamentId: { type: String, default: "", trim: true },
+      // Tự động push cho TẤT CẢ user khi có luồng mới bắt đầu LIVE
+      autoNotify: { type: Boolean, default: false },
+      // Cooldown giữa 2 lần auto-push (phút) để tránh spam khi nhiều sân lên sóng lệch giờ
+      autoNotifyCooldownMinutes: { type: Number, default: 180 },
     },
 
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

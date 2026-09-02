@@ -357,8 +357,58 @@ export async function getEventLiveConfig() {
     bannerImageUrl: cfg.bannerImageUrl || "",
     tournamentId: cfg.tournamentId || "",
     youtubeChannel: cfg.youtubeChannel || "",
+    autoNotify: cfg.autoNotify === true,
+    autoNotifyCooldownMinutes: Number(cfg.autoNotifyCooldownMinutes) || 180,
     _apiKey: cfg.youtubeApiKey || "",
   };
+}
+
+/** Dò nhanh & RẺ các luồng đang LIVE (chỉ playlistItems + videos.list, KHÔNG
+ *  dùng search 100-quota) — dùng cho job auto-notify chạy định kỳ.
+ *  @returns {Promise<{enabled, eventName, live:[{videoId,courtKey,courtLabel}]}>} */
+export async function detectLiveNow() {
+  const cfg = await getEventLiveConfig();
+  if (!cfg.enabled || !cfg.youtubeChannel) return { enabled: false, live: [] };
+  const apiKey =
+    (cfg._apiKey || "").trim() || (await getCfgStr("YOUTUBE_API_KEY", "")).trim();
+  if (!apiKey) return { enabled: true, live: [], error: "missing_api_key" };
+
+  const channels = parseChannelList(cfg.youtubeChannel);
+  const all = [];
+  const seen = new Set();
+  for (const { channel, keywords } of channels) {
+    try {
+      const ch = await resolveChannel(channel, apiKey);
+      if (!ch?.uploads) continue;
+      const pl = await ytApi(
+        "playlistItems",
+        { part: "contentDetails", playlistId: ch.uploads, maxResults: "50" },
+        apiKey,
+      );
+      const ids = (pl.items || [])
+        .map((it) => it.contentDetails?.videoId)
+        .filter(Boolean);
+      for (let i = 0; i < ids.length; i += 50) {
+        const j = await ytApi(
+          "videos",
+          { part: "snippet", id: ids.slice(i, i + 50).join(",") },
+          apiKey,
+        );
+        for (const v of j.items || []) {
+          const sn = v.snippet || {};
+          if (sn.liveBroadcastContent !== "live") continue;
+          if (!matchKeywords(sn.title || "", keywords)) continue;
+          if (seen.has(v.id)) continue;
+          seen.add(v.id);
+          const p = parseCourtAngle(sn.title);
+          all.push({ videoId: v.id, courtKey: p.courtKey, courtLabel: p.courtLabel });
+        }
+      }
+    } catch {
+      /* bỏ qua kênh lỗi */
+    }
+  }
+  return { enabled: true, eventName: cfg.eventName, live: all };
 }
 
 /** Dữ liệu cho client: { enabled, event..., live:[], replays:[] }. Cache 90s. */
