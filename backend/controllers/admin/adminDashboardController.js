@@ -176,7 +176,15 @@ export async function getDashboardSeries(req, res) {
       Registration.aggregate(
         seriesAgg({ dateField: "createdAt", tz, start, end })
       ),
-      User.aggregate(seriesAgg({ dateField: "createdAt", tz, start, end })),
+      User.aggregate(
+        seriesAgg({
+          dateField: "createdAt",
+          tz,
+          start,
+          end,
+          match: { provisionedByImport: { $ne: true } },
+        })
+      ),
       // finishedAt nếu không có → dùng updatedAt khi status finished
       Match.aggregate([
         {

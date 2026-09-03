@@ -215,6 +215,17 @@ const userSchema = new mongoose.Schema(
     },
     phoneVerificationRequiredReason: { type: String, default: "", trim: true },
 
+    // 👥 Tài khoản "khách" do admin tạo hàng loạt khi import danh sách VĐV
+    // (giải nội bộ / công đoàn). Không đếm vào "người dùng mới", ẩn khỏi BXH.
+    // Khi người thật sau này đăng nhập OTP bằng đúng SĐT → nhận lại tài khoản.
+    provisionedByImport: { type: Boolean, default: false, index: true },
+    provisionedAt: { type: Date, default: null },
+    provisionedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
     registerOtp: { type: otpStateSchema, default: () => ({}) },
     loginOtp: { type: otpStateSchema, default: () => ({}) }, // ✅ NEW: riêng cho đăng nhập
     // Kích hoạt/đổi SĐT cho tài khoản đã đăng nhập (OTP qua Zalo ZNS)

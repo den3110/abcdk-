@@ -2448,7 +2448,11 @@ export const getRankings = asyncHandler(async (req, res) => {
       const missingIds = userIdsFilter.filter((id) => !rankedSet.has(String(id)));
       if (missingIds.length) {
         const missingUsers = await User.find(
-          { _id: { $in: missingIds } },
+          {
+            _id: { $in: missingIds },
+            isHiddenFromRankings: { $ne: true },
+            provisionedByImport: { $ne: true },
+          },
           userProject,
         ).lean();
         const synth = missingUsers.map((u) => ({
@@ -2877,7 +2881,11 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
       const missingIds = userIdsFilter.filter((id) => !rankedSet.has(String(id)));
       if (missingIds.length) {
         const missingUsers = await User.find(
-          { _id: { $in: missingIds } },
+          {
+            _id: { $in: missingIds },
+            isHiddenFromRankings: { $ne: true },
+            provisionedByImport: { $ne: true },
+          },
           userProject,
         ).lean();
         const synth = missingUsers.map((u) => ({
@@ -3249,7 +3257,11 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
       const missingIds = userIdsFilter.filter((id) => !rankedSet.has(String(id)));
       if (missingIds.length) {
         const missingUsers = await User.find(
-          { _id: { $in: missingIds } },
+          {
+            _id: { $in: missingIds },
+            isHiddenFromRankings: { $ne: true },
+            provisionedByImport: { $ne: true },
+          },
           userProject,
         ).lean();
         const synth = missingUsers.map((u) => ({

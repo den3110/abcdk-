@@ -77,6 +77,7 @@ import {
   upsertTournamentReferees,
   uploadTournamentRegistrationPosterTemplate,
 } from "../controllers/admin/adminTournamentController.js";
+import { importTournamentRoster } from "../controllers/admin/rosterImportController.js";
 import {
   adminCreateRegistration,
   adminCheckin,
@@ -499,6 +500,12 @@ router.post(
   protect,
   requireTournamentManager,
   adminCreateRegistration,
+);
+router.post(
+  "/tournaments/:id/roster-import",
+  protect,
+  requireTournamentManager,
+  importTournamentRoster,
 );
 
 // ═══════════════════════════════════════════════════════════════════════════
