@@ -12,6 +12,13 @@ import {
   adminSetPhoneRequired,
 } from "../controllers/admin/adminController.js";
 import {
+  createFinanceEntry,
+  listFinanceEntries,
+  updateFinanceEntry,
+  deleteFinanceEntry,
+  financeSummary,
+} from "../controllers/admin/financeController.js";
+import {
   listNicknameRequests,
   approveNicknameRequest,
   rejectNicknameRequest,
@@ -624,6 +631,13 @@ router.post(
 // ─── END manager-accessible block ──────────────────────────────────────────
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
+
+// ─── Thu/chi giải đấu -> lợi nhuận ──────────────────────────────────────────
+router.get("/finance/summary", financeSummary);
+router.get("/finance", listFinanceEntries);
+router.post("/finance", createFinanceEntry);
+router.patch("/finance/:id", updateFinanceEntry);
+router.delete("/finance/:id", deleteFinanceEntry);
 
 router.get("/tournaments/:id/bracket-story", getAdminBracketStory);
 router.post("/tournaments/:id/bracket-story", generateAdminBracketStory);
