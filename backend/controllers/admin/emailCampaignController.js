@@ -1,6 +1,8 @@
 // controllers/admin/emailCampaignController.js
 import asyncHandler from "express-async-handler";
 import EmailCampaign from "../../models/emailCampaignModel.js";
+import EmailCampaignRecipient from "../../models/emailCampaignRecipientModel.js";
+import EmailContact from "../../models/emailContactModel.js";
 import User from "../../models/userModel.js";
 import { agenda } from "../../jobs/agenda.js";
 import { EMAIL_CAMPAIGN_JOB } from "../../jobs/emailCampaignJob.js";
@@ -12,12 +14,15 @@ import {
 } from "../../services/emailCampaignService.js";
 
 function pickAudience(body = {}) {
-  const scope = ["all", "tournament", "list"].includes(body?.audience?.scope)
+  const scope = ["all", "tournament", "list", "contactList"].includes(
+    body?.audience?.scope
+  )
     ? body.audience.scope
     : "all";
   return {
     scope,
     tournament: scope === "tournament" ? body.audience?.tournament || null : null,
+    contactList: scope === "contactList" ? body.audience?.contactList || null : null,
     emails:
       scope === "list"
         ? (body.audience?.emails || [])
@@ -203,9 +208,36 @@ export const deleteCampaign = asyncHandler(async (req, res) => {
   res.json({ ok: true, _id: req.params.id });
 });
 
+// GET /admin/email-campaigns/:id/recipients?status=&page=&q=
+export const getCampaignRecipients = asyncHandler(async (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+  const filter = { campaign: req.params.id };
+  if (["sent", "failed", "skipped"].includes(req.query.status))
+    filter.status = req.query.status;
+  if (req.query.q) {
+    const rx = new RegExp(
+      String(req.query.q).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      "i"
+    );
+    filter.$or = [{ email: rx }, { name: rx }];
+  }
+  const [items, total, sent, failed] = await Promise.all([
+    EmailCampaignRecipient.find(filter)
+      .sort({ sentAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean(),
+    EmailCampaignRecipient.countDocuments(filter),
+    EmailCampaignRecipient.countDocuments({ campaign: req.params.id, status: "sent" }),
+    EmailCampaignRecipient.countDocuments({ campaign: req.params.id, status: "failed" }),
+  ]);
+  res.json({ items, page, limit, total, totals: { sent, failed } });
+});
+
 // GET /api/email/unsubscribe?u=token  (public)
 export const unsubscribeEmail = asyncHandler(async (req, res) => {
-  const userId = verifyUnsubToken(req.query.u);
+  const parsed = verifyUnsubToken(req.query.u);
   const page = (title, msg) => `<!doctype html><html lang="vi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${title}</title></head>
@@ -216,15 +248,22 @@ export const unsubscribeEmail = asyncHandler(async (req, res) => {
 <p style="color:#6b7280;font-size:14px;line-height:1.6;margin:0">${msg}</p>
 </div></body></html>`;
 
-  if (!userId) {
+  if (!parsed) {
     return res
       .status(400)
       .send(page("Liên kết không hợp lệ", "Liên kết hủy nhận email đã hết hạn hoặc không đúng."));
   }
-  await User.updateOne(
-    { _id: userId },
-    { $set: { marketingEmailOptOut: true, marketingEmailOptOutAt: new Date() } }
-  );
+  if (parsed.kind === "u") {
+    await User.updateOne(
+      { _id: parsed.id },
+      { $set: { marketingEmailOptOut: true, marketingEmailOptOutAt: new Date() } }
+    );
+  } else {
+    await EmailContact.updateOne(
+      { _id: parsed.id },
+      { $set: { optOut: true, optOutAt: new Date() } }
+    );
+  }
   return res.send(
     page(
       "Đã hủy nhận email",

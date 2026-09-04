@@ -18,10 +18,15 @@ const emailCampaignSchema = new Schema(
       // all: mọi user có email; tournament: người tham gia 1 giải; list: danh sách email nhập tay
       scope: {
         type: String,
-        enum: ["all", "tournament", "list"],
+        enum: ["all", "tournament", "list", "contactList"],
         default: "all",
       },
       tournament: { type: Schema.Types.ObjectId, ref: "Tournament", default: null },
+      contactList: {
+        type: Schema.Types.ObjectId,
+        ref: "EmailContactList",
+        default: null,
+      },
       emails: { type: [String], default: [] },
       estimatedCount: { type: Number, default: 0 },
     },

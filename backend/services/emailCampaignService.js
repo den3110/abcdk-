@@ -3,6 +3,7 @@ import crypto from "crypto";
 import mongoose from "mongoose";
 import User from "../models/userModel.js";
 import Registration from "../models/registrationModel.js";
+import EmailContact from "../models/emailContactModel.js";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const isValidEmail = (e) => EMAIL_RE.test(String(e || "").trim());
@@ -17,36 +18,41 @@ function baseUrl() {
   return (process.env.HOST || "https://pickletour.vn").replace(/\/+$/, "");
 }
 
-export function signUnsub(userId) {
+function sign(payload) {
   return crypto
     .createHmac("sha256", UNSUB_SECRET)
-    .update(String(userId))
+    .update(String(payload))
     .digest("hex")
     .slice(0, 24);
 }
 
-export function buildUnsubToken(userId) {
-  const id = String(userId);
-  const sig = signUnsub(id);
-  return `${Buffer.from(id).toString("base64url")}.${sig}`;
+// kind: "u" (user) | "c" (contact)
+export function buildUnsubToken(kind, id) {
+  const subject = `${kind}:${id}`;
+  return `${Buffer.from(subject).toString("base64url")}.${sign(subject)}`;
 }
 
 export function verifyUnsubToken(token) {
   try {
     const [b64, sig] = String(token || "").split(".");
     if (!b64 || !sig) return null;
-    const id = Buffer.from(b64, "base64url").toString("utf8");
-    if (!mongoose.isValidObjectId(id)) return null;
-    if (signUnsub(id) !== sig) return null;
-    return id;
+    const subject = Buffer.from(b64, "base64url").toString("utf8");
+    if (sign(subject) !== sig) return null;
+    const [kind, id] = subject.split(":");
+    if (!["u", "c"].includes(kind) || !mongoose.isValidObjectId(id)) return null;
+    return { kind, id };
   } catch {
     return null;
   }
 }
 
-export function unsubscribeUrl(userId) {
+export function userUnsubscribeUrl(userId) {
   if (!userId) return "";
-  return `${baseUrl()}/api/email/unsubscribe?u=${buildUnsubToken(userId)}`;
+  return `${baseUrl()}/api/email/unsubscribe?u=${buildUnsubToken("u", userId)}`;
+}
+export function contactUnsubscribeUrl(contactId) {
+  if (!contactId) return "";
+  return `${baseUrl()}/api/email/unsubscribe?u=${buildUnsubToken("c", contactId)}`;
 }
 
 /**
@@ -67,7 +73,6 @@ export async function tournamentUserIds(tournamentId) {
 
 /**
  * Filter User cho scope "all" | "tournament".
- * Chỉ lấy user có email hợp lệ, chưa hủy nhận, không phải tài khoản khách import.
  */
 export async function buildUserFilter(audience = {}) {
   const base = {
@@ -93,6 +98,13 @@ export async function countAudience(audience = {}) {
         .filter(isValidEmail)
     );
     return uniq.size;
+  }
+  if (audience.scope === "contactList") {
+    if (!mongoose.isValidObjectId(audience.contactList)) return 0;
+    return EmailContact.countDocuments({
+      list: audience.contactList,
+      optOut: { $ne: true },
+    });
   }
   const filter = await buildUserFilter(audience);
   if (audience.scope === "tournament" && (!filter._id || !filter._id.$in.length))

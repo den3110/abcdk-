@@ -1,13 +1,16 @@
 // jobs/emailCampaignJob.js
-// Gửi chiến dịch email hàng loạt ở background, theo lô + có nhịp nghỉ để tránh
-// vượt giới hạn SMTP; hỗ trợ hủy giữa chừng.
+// Gửi chiến dịch email hàng loạt ở background (theo lô + nhịp nghỉ), ghi nhật ký
+// từng người nhận và bỏ qua người đã gửi (để chạy lại an toàn); hỗ trợ hủy.
 import { agenda } from "./agenda.js";
 import EmailCampaign from "../models/emailCampaignModel.js";
+import EmailCampaignRecipient from "../models/emailCampaignRecipientModel.js";
 import User from "../models/userModel.js";
+import EmailContact from "../models/emailContactModel.js";
 import { sendMarketingEmail } from "../services/emailService.js";
 import {
   buildUserFilter,
-  unsubscribeUrl,
+  userUnsubscribeUrl,
+  contactUnsubscribeUrl,
   isValidEmail,
 } from "../services/emailCampaignService.js";
 
@@ -67,24 +70,52 @@ agenda.define(EMAIL_CAMPAIGN_JOB, async (job, done) => {
     });
   };
 
-  // Gửi 1 lô song song rồi cập nhật tiến độ; trả về false nếu bị hủy.
+  // recips: [{ email, name, avatar, unsubUrl }]
   const processBatch = async (recips) => {
     if (await isCanceled(campaignId)) return false;
+    const emails = recips.map((r) => r.email).filter(Boolean);
+
+    // Bỏ qua người đã gửi thành công trước đó (chạy lại an toàn)
+    const already = await EmailCampaignRecipient.find({
+      campaign: campaignId,
+      email: { $in: emails },
+      status: "sent",
+    })
+      .select("email")
+      .lean();
+    const doneSet = new Set(already.map((x) => x.email));
+
+    const logDocs = [];
     await Promise.allSettled(
-      recips.map(async ({ email, userId }) => {
+      recips.map(async (r) => {
+        const email = String(r.email || "").trim().toLowerCase();
         if (!isValidEmail(email)) {
+          skipped += 1;
+          return;
+        }
+        if (doneSet.has(email)) {
           skipped += 1;
           return;
         }
         const res = await sendMarketingEmail({
           to: email,
           ...emailContent,
-          unsubscribeUrl: userId ? unsubscribeUrl(userId) : "",
+          unsubscribeUrl: r.unsubUrl || "",
         });
-        if (res?.ok) sent += 1;
-        else recordFail(email, res?.error);
+        if (res?.ok) {
+          sent += 1;
+          logDocs.push({ campaign: campaignId, email, name: r.name || "", avatar: r.avatar || "", status: "sent", sentAt: new Date() });
+        } else {
+          recordFail(email, res?.error);
+          logDocs.push({ campaign: campaignId, email, name: r.name || "", avatar: r.avatar || "", status: "failed", error: String(res?.error?.message || res?.error || "").slice(0, 240), sentAt: new Date() });
+        }
       })
     );
+
+    if (logDocs.length) {
+      // ordered:false + bỏ qua lỗi trùng key (email đã có bản ghi)
+      await EmailCampaignRecipient.insertMany(logDocs, { ordered: false }).catch(() => {});
+    }
     await flushProgress();
     return true;
   };
@@ -94,7 +125,9 @@ agenda.define(EMAIL_CAMPAIGN_JOB, async (job, done) => {
       $set: { status: "running", startedAt: new Date(), sampleFailures: [] },
     });
 
-    if (campaign.audience?.scope === "list") {
+    const scope = campaign.audience?.scope;
+
+    if (scope === "list") {
       const uniq = [
         ...new Set(
           (campaign.audience.emails || [])
@@ -102,39 +135,50 @@ agenda.define(EMAIL_CAMPAIGN_JOB, async (job, done) => {
             .filter(Boolean)
         ),
       ];
-      await EmailCampaign.findByIdAndUpdate(campaignId, {
-        $set: { "progress.total": uniq.length },
-      });
+      await EmailCampaign.findByIdAndUpdate(campaignId, { $set: { "progress.total": uniq.length } });
       const batches = chunk(
-        uniq.map((email) => ({ email, userId: null })),
+        uniq.map((email) => ({ email, name: "", avatar: "", unsubUrl: "" })),
         BATCH
       );
       for (let i = 0; i < batches.length; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
         const ok = await processBatch(batches[i]);
         if (!ok) break;
+        // eslint-disable-next-line no-await-in-loop
         if (i < batches.length - 1) await sleep(DELAY_MS);
       }
     } else {
-      const filter = await buildUserFilter(campaign.audience || {});
-      const total = await User.countDocuments(filter);
-      await EmailCampaign.findByIdAndUpdate(campaignId, {
-        $set: { "progress.total": total },
-      });
-      const cursor = User.find(filter)
-        .select("email _id")
-        .lean()
-        .cursor();
+      // Nguồn cursor: contactList | user (all/tournament)
+      let cursor;
+      let total;
+      let mapRecip;
+      if (scope === "contactList") {
+        const filter = { list: campaign.audience.contactList, optOut: { $ne: true } };
+        total = await EmailContact.countDocuments(filter);
+        cursor = EmailContact.find(filter).select("email name avatar _id").lean().cursor();
+        mapRecip = (d) => ({ email: d.email, name: d.name || "", avatar: d.avatar || "", unsubUrl: contactUnsubscribeUrl(d._id) });
+      } else {
+        const filter = await buildUserFilter(campaign.audience || {});
+        total = await User.countDocuments(filter);
+        cursor = User.find(filter).select("email name avatar _id").lean().cursor();
+        mapRecip = (d) => ({ email: d.email, name: d.name || "", avatar: d.avatar || "", unsubUrl: userUnsubscribeUrl(d._id) });
+      }
+
+      await EmailCampaign.findByIdAndUpdate(campaignId, { $set: { "progress.total": total } });
+
       let buffer = [];
       let canceled = false;
-      for await (const u of cursor) {
-        buffer.push({ email: u.email, userId: u._id });
+      for await (const d of cursor) {
+        buffer.push(mapRecip(d));
         if (buffer.length >= BATCH) {
+          // eslint-disable-next-line no-await-in-loop
           const ok = await processBatch(buffer);
           buffer = [];
           if (!ok) {
             canceled = true;
             break;
           }
+          // eslint-disable-next-line no-await-in-loop
           await sleep(DELAY_MS);
         }
       }

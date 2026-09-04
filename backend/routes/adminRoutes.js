@@ -88,7 +88,17 @@ import {
   sendCampaign,
   cancelCampaign,
   deleteCampaign,
+  getCampaignRecipients,
 } from "../controllers/admin/emailCampaignController.js";
+import {
+  createList,
+  listLists,
+  getList,
+  deleteList,
+  addContacts,
+  listContacts,
+  deleteContact,
+} from "../controllers/admin/emailContactController.js";
 import {
   adminCreateRegistration,
   adminCheckin,
@@ -666,7 +676,17 @@ router.get("/email-campaigns/:id", getCampaign);
 router.patch("/email-campaigns/:id", updateCampaign);
 router.post("/email-campaigns/:id/send", sendCampaign);
 router.post("/email-campaigns/:id/cancel", cancelCampaign);
+router.get("/email-campaigns/:id/recipients", getCampaignRecipients);
 router.delete("/email-campaigns/:id", deleteCampaign);
+
+// ─── Danh sách khách hàng (email) ───────────────────────────────────────────
+router.get("/email-contact-lists", listLists);
+router.post("/email-contact-lists", createList);
+router.get("/email-contact-lists/:id", getList);
+router.delete("/email-contact-lists/:id", deleteList);
+router.get("/email-contact-lists/:id/contacts", listContacts);
+router.post("/email-contact-lists/:id/contacts", addContacts);
+router.delete("/email-contact-lists/:id/contacts/:contactId", deleteContact);
 
 router.get("/tournaments/:id/bracket-story", getAdminBracketStory);
 router.post("/tournaments/:id/bracket-story", generateAdminBracketStory);
