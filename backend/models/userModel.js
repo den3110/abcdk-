@@ -226,6 +226,11 @@ const userSchema = new mongoose.Schema(
       default: null,
     },
 
+    // 📧 Người dùng đã hủy nhận email marketing/chiến dịch (không ảnh hưởng email
+    // giao dịch: OTP, đặt lại mật khẩu…). Đặt qua link "Hủy nhận email".
+    marketingEmailOptOut: { type: Boolean, default: false, index: true },
+    marketingEmailOptOutAt: { type: Date, default: null },
+
     registerOtp: { type: otpStateSchema, default: () => ({}) },
     loginOtp: { type: otpStateSchema, default: () => ({}) }, // ✅ NEW: riêng cho đăng nhập
     // Kích hoạt/đổi SĐT cho tài khoản đã đăng nhập (OTP qua Zalo ZNS)

@@ -371,6 +371,59 @@ Nếu không phải bạn thực hiện, hãy đổi mật khẩu và liên hệ
   }
 }
 
+/**
+ * Gửi 1 email marketing/chiến dịch (quảng cáo giải, thông báo…).
+ * Dùng chung transporter + template renderEmail của hệ thống.
+ */
+export async function sendMarketingEmail({
+  to,
+  subject,
+  previewText,
+  heading,
+  bodyHtml,
+  ctaText,
+  ctaUrl,
+  unsubscribeUrl,
+}) {
+  if (!to) return { ok: false, error: new Error("Missing recipient") };
+
+  const unsubHtml = unsubscribeUrl
+    ? `Bạn nhận được email này vì đã đăng ký tài khoản trên ${APP_NAME}.
+       <a href="${unsubscribeUrl}" style="color:${MUTED_COLOR}">Hủy nhận email</a>.`
+    : "";
+
+  const html = renderEmail({
+    previewText: previewText || heading || subject,
+    heading: heading || subject,
+    bodyHtml,
+    ctaText,
+    ctaUrl,
+    secondaryHtml: unsubHtml,
+  });
+
+  const msg = {
+    to,
+    from: { name: FROM_OBJ.name, address: process.env.SMTP_USER || FROM_OBJ.email },
+    replyTo: FROM_OBJ.email,
+    subject: subject || heading || APP_NAME,
+    html,
+    ...(unsubscribeUrl
+      ? {
+          list: {
+            unsubscribe: { url: unsubscribeUrl, comment: "Hủy nhận email" },
+          },
+        }
+      : {}),
+  };
+
+  try {
+    await transporter.sendMail(msg);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
 export async function sendCheckpointReviewDecisionEmail({
   to,
   approved = false,

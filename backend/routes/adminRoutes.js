@@ -79,6 +79,17 @@ import {
 } from "../controllers/admin/adminTournamentController.js";
 import { importTournamentRoster } from "../controllers/admin/rosterImportController.js";
 import {
+  estimateCampaignAudience,
+  createCampaign,
+  listCampaigns,
+  getCampaign,
+  updateCampaign,
+  sendTestEmail,
+  sendCampaign,
+  cancelCampaign,
+  deleteCampaign,
+} from "../controllers/admin/emailCampaignController.js";
+import {
   adminCreateRegistration,
   adminCheckin,
   adminDeleteRegistration,
@@ -645,6 +656,17 @@ router.get("/finance", listFinanceEntries);
 router.post("/finance", createFinanceEntry);
 router.patch("/finance/:id", updateFinanceEntry);
 router.delete("/finance/:id", deleteFinanceEntry);
+
+// ─── Chiến dịch gửi email ───────────────────────────────────────────────────
+router.post("/email-campaigns/estimate", estimateCampaignAudience);
+router.post("/email-campaigns/test", sendTestEmail);
+router.get("/email-campaigns", listCampaigns);
+router.post("/email-campaigns", createCampaign);
+router.get("/email-campaigns/:id", getCampaign);
+router.patch("/email-campaigns/:id", updateCampaign);
+router.post("/email-campaigns/:id/send", sendCampaign);
+router.post("/email-campaigns/:id/cancel", cancelCampaign);
+router.delete("/email-campaigns/:id", deleteCampaign);
 
 router.get("/tournaments/:id/bracket-story", getAdminBracketStory);
 router.post("/tournaments/:id/bracket-story", generateAdminBracketStory);

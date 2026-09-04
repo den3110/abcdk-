@@ -68,6 +68,8 @@ export async function startAgenda() {
   console.log("✅ notifyJobs handlers registered");
   await import("./eventLiveNotifyJob.js");
   console.log("✅ eventLiveNotifyJob handler registered");
+  await import("./emailCampaignJob.js");
+  console.log("✅ emailCampaignJob handler registered");
 
   // 🆕 logging tiện debug
   agenda.on("start", (job) => {
