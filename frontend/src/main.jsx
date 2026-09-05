@@ -86,6 +86,8 @@ import TournamentCourtQueue from "./screens/PickleBall/TournamentCourtQueue.jsx"
 import TournamentManagePage from "./screens/PickleBall/TournamentManagePage.jsx";
 import OverlayStudioPage from "./screens/PickleBall/OverlayStudioPage.jsx";
 import TournamentOverviewPage from "./screens/TournamentDetailScreen.jsx";
+import TournamentReviewsPage from "./screens/TournamentReviewsPage.jsx";
+import NotificationSettingsPage from "./screens/NotificationSettingsPage.jsx";
 import TournamentRefereePage from "./screens/PickleBall/TournamentRefereePage.jsx";
 import MyTournamentsPage from "./screens/MyTournamentsGate.jsx";
 import SupportCenterPage from "./screens/SupportGate.jsx";
@@ -181,6 +183,8 @@ const router = sentryCreateBrowserRouter(
           element={<TournamentRegistration />}
         />
         <Route path="/tournament/:id/checkin" element={<TournamentCheckin />} />
+        <Route path="/tournament/:id/reviews" element={<TournamentReviewsPage />} />
+        <Route path="/settings/notifications" element={<NotificationSettingsPage />} />
         <Route path="/tournament/:id/bracket" element={<TournamentBracket />} />
         <Route
           path="/tournament/:id/schedule"

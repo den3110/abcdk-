@@ -222,6 +222,19 @@ export const userApiSlice = apiSlice.injectEndpoints({
     //     body: { loginToken, otp },
     //   }),
     // }),
+
+    getNotificationPrefs: builder.query({
+      query: () => ({ url: `${USERS_URL}/notification-prefs` }),
+      providesTags: ["NotificationPrefs"],
+    }),
+    patchNotificationPrefs: builder.mutation({
+      query: (body) => ({
+        url: `${USERS_URL}/notification-prefs`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: ["NotificationPrefs"],
+    }),
   }),
 });
 
@@ -250,6 +263,8 @@ export const {
   useVerifyRegisterOtpMutation,
   useResendRegisterOtpMutation,
   useSkipRegisterOtpMutation,
+  useGetNotificationPrefsQuery,
+  usePatchNotificationPrefsMutation,
   // useResendLoginOtpMutation,
   // useVerifyLoginOtpMutation
 } = userApiSlice;

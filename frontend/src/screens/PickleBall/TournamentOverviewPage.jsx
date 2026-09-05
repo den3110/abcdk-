@@ -45,6 +45,7 @@ import {
   PlaceOutlined as PlaceOutlinedIcon,
   Leaderboard as LeaderboardIcon,
   FiberManualRecord as FiberManualRecordIcon,
+  Notifications as NotificationsIcon,
 } from "@mui/icons-material";
 
 import {
@@ -54,6 +55,12 @@ import {
   useAdminListMatchesByTournamentQuery,
   useVerifyRefereeQuery,
 } from "../../slices/tournamentsApiSlice";
+import {
+  useListMySubscriptionsQuery,
+  useSubscribeTopicMutation,
+  useUnsubscribeTopicMutation,
+} from "../../slices/subscriptionApiSlice";
+import TournamentReviews from "../../components/TournamentReviews.jsx";
 import { useSocket } from "../../context/SocketContext";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet";
 import { useLanguage } from "../../context/LanguageContext";
@@ -494,6 +501,20 @@ export default function TournamentOverviewPage() {
 
   const [tabValue, setTabValue] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false); // State điều khiển "Xem tất cả"
+
+  // Theo dõi giải (subscription)
+  const { data: mySubsTour } = useListMySubscriptionsQuery(undefined, { skip: !me });
+  const [subscribeTour] = useSubscribeTopicMutation();
+  const [unsubscribeTour] = useUnsubscribeTopicMutation();
+  const isFollowingTour = Array.isArray(mySubsTour)
+    && mySubsTour.some((s) => s.topicType === "tournament" && String(s.topicId) === String(id));
+  const toggleFollowTour = async () => {
+    if (!me) { window.location.href = "/login"; return; }
+    try {
+      if (isFollowingTour) await unsubscribeTour({ topicType: "tournament", topicId: id }).unwrap();
+      else await subscribeTour({ topicType: "tournament", topicId: id }).unwrap();
+    } catch (_) { /* best effort */ }
+  };
 
   // Data Fetching
   const {
@@ -1776,6 +1797,19 @@ export default function TournamentOverviewPage() {
             </Paper>
           </Grid>
         </Grid>
+
+        <Box sx={{ mt: 2, display: "flex", justifyContent: "flex-end" }}>
+          <Button
+            variant={isFollowingTour ? "contained" : "outlined"}
+            color={isFollowingTour ? "success" : "primary"}
+            startIcon={<NotificationsIcon />}
+            onClick={toggleFollowTour}
+          >
+            {isFollowingTour ? "Đang theo dõi" : "Theo dõi giải"}
+          </Button>
+        </Box>
+
+        <TournamentReviews tournamentId={id} />
       </Container>
     </Box>
   );

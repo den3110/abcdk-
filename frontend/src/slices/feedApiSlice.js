@@ -6,13 +6,14 @@ const LIMIT = 20;
 export const feedApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     listFeed: builder.query({
-      query: ({ cursor, tag, author, tournament, pinned, limit = LIMIT } = {}) => {
+      query: ({ cursor, tag, author, tournament, pinned, following, limit = LIMIT } = {}) => {
         const p = new URLSearchParams();
         if (cursor) p.set("cursor", String(cursor));
         if (tag) p.set("tag", String(tag).toLowerCase());
         if (author) p.set("author", String(author));
         if (tournament) p.set("tournament", String(tournament));
         if (pinned) p.set("pinned", "1");
+        if (following) p.set("following", "1");
         if (limit) p.set("limit", String(limit));
         const qs = p.toString();
         return { url: `/api/feed${qs ? `?${qs}` : ""}`, method: "GET" };

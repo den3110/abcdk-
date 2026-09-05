@@ -19,6 +19,8 @@ import {
   MenuItem,
   Select,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   Tooltip,
   Typography,
@@ -1918,11 +1920,13 @@ export default function FeedPage() {
   const navigate = useNavigate();
   const { postId } = useParams();
   const [tagFilter, setTagFilter] = useState("");
+  const [feedTab, setFeedTab] = useState("all"); // "all" | "following"
   const [cursor, setCursor] = useState(null);
   const singlePostQ = useGetFeedPostQuery(postId, { skip: !postId });
   const { data, isFetching, refetch } = useListFeedQuery(
     {
       tag: tagFilter || undefined,
+      following: feedTab === "following",
       cursor,
       limit: 10,
     },
@@ -1932,10 +1936,10 @@ export default function FeedPage() {
   const nextCursor = data?.nextCursor;
   const sentinelRef = useRef(null);
 
-  // Reset cursor khi đổi tag filter
+  // Reset cursor khi đổi tag filter / tab
   useEffect(() => {
     setCursor(null);
-  }, [tagFilter]);
+  }, [tagFilter, feedTab]);
 
   const handleRefresh = useCallback(() => {
     setCursor(null);
@@ -2074,6 +2078,17 @@ export default function FeedPage() {
             </Select>
           </Stack>
 
+          {me && (
+            <Tabs
+              value={feedTab}
+              onChange={(e, v) => setFeedTab(v)}
+              sx={{ mb: 1.5, minHeight: 40, "& .MuiTab-root": { textTransform: "none", fontWeight: 700, minHeight: 40 } }}
+            >
+              <Tab value="all" label="Tất cả" />
+              <Tab value="following" label="Đang theo dõi" />
+            </Tabs>
+          )}
+
           {me ? (
             <Composer me={me} onPosted={handleRefresh} />
           ) : (
@@ -2087,7 +2102,9 @@ export default function FeedPage() {
           )}
           {data?.items?.length === 0 && (
             <Box textAlign="center" py={4} color="text.secondary">
-              Chưa có bài viết. Hãy là người đầu tiên chia sẻ 👋
+              {feedTab === "following"
+                ? "Chưa có bài viết từ giải bạn theo dõi. Theo dõi giải để xem tin ở đây 🔔"
+                : "Chưa có bài viết. Hãy là người đầu tiên chia sẻ 👋"}
             </Box>
           )}
           {(data?.items || []).map((p) => (

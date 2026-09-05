@@ -42,6 +42,14 @@ import {
   useGetTournamentQuery,
   useGetRegistrationsQuery,
 } from "../../slices/tournamentsApiSlice.js";
+import {
+  useListMySubscriptionsQuery,
+  useSubscribeTopicMutation,
+  useUnsubscribeTopicMutation,
+} from "../../slices/subscriptionApiSlice.js";
+import { useGetReviewSummaryQuery } from "../../slices/reviewApiSlice.js";
+import { useSelector } from "react-redux";
+import { Star, Bell } from "lucide-react";
 
 /* ------------------------------- helpers ------------------------------- */
 const Container = ({ children, style }) => (
@@ -148,6 +156,27 @@ export default function TournamentDetailPage() {
   const dLeft = st === "upcoming" ? daysUntil(t?.registrationDeadline || t?.startDate) : null;
   const fee = t?.isFreeRegistration ? "Miễn phí" : fmtMoney(t?.registrationFee ?? t?.entryFee);
   const canManage = Boolean(t?.amOwner || t?.amManager);
+
+  // Theo dõi giải + tổng hợp đánh giá
+  const userInfo = useSelector((s) => s.auth?.userInfo);
+  const { data: mySubs } = useListMySubscriptionsQuery(undefined, { skip: !userInfo });
+  const [subscribeTopic] = useSubscribeTopicMutation();
+  const [unsubscribeTopic] = useUnsubscribeTopicMutation();
+  const isFollowing = Array.isArray(mySubs)
+    && mySubs.some((s) => s.topicType === "tournament" && String(s.topicId) === String(id));
+  const toggleFollow = async () => {
+    if (!userInfo) { window.location.href = "/login"; return; }
+    try {
+      if (isFollowing) await unsubscribeTopic({ topicType: "tournament", topicId: id }).unwrap();
+      else await subscribeTopic({ topicType: "tournament", topicId: id }).unwrap();
+    } catch (_) { /* best effort */ }
+  };
+  const { data: reviewSum } = useGetReviewSummaryQuery(
+    { targetType: "tournament", targetId: id },
+    { skip: !id }
+  );
+  const reviewAvg = reviewSum?.summary?.avg;
+  const reviewCount = reviewSum?.summary?.count || 0;
 
   const copyAccount = async () => {
     try {
@@ -335,6 +364,23 @@ export default function TournamentDetailPage() {
                             Nhóm Zalo
                           </a>
                         )}
+
+                        <button
+                          type="button"
+                          onClick={toggleFollow}
+                          style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 9, padding: "0 22px", height: 48, borderRadius: 999, background: isFollowing ? "#16a34a" : "rgba(255,255,255,.1)", color: "#fff", fontWeight: 750, fontSize: 15, whiteSpace: "nowrap", border: isFollowing ? "none" : "1px solid rgba(255,255,255,.16)" }}
+                        >
+                          <Bell size={18} />
+                          {isFollowing ? "Đang theo dõi" : "Theo dõi"}
+                        </button>
+
+                        <a
+                          href={`/tournament/${id}/reviews`}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "0 22px", height: 48, borderRadius: 999, background: "rgba(245,158,11,.16)", color: "#F0C24B", fontWeight: 750, fontSize: 15, textDecoration: "none", whiteSpace: "nowrap", border: "1px solid rgba(245,158,11,.3)" }}
+                        >
+                          <Star size={18} />
+                          {reviewCount ? `Đánh giá ${reviewAvg?.toFixed(1)}★ (${reviewCount})` : "Đánh giá"}
+                        </a>
                       </div>
                     </div>
 

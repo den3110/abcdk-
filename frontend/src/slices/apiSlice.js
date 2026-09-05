@@ -369,6 +369,10 @@ export const apiSlice = createApi({
   reducerPath: "api",
   baseQuery,
   tagTypes: [
+    "Reviews",
+    "AdminReviews",
+    "Subscriptions",
+    "NotificationPrefs",
     "NameStyle",
     "Feed",
     "FeedComments",
