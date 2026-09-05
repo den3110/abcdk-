@@ -25,12 +25,15 @@ import YouTubeIcon from "@mui/icons-material/YouTube";
 import PictureInPictureAltIcon from "@mui/icons-material/PictureInPictureAlt";
 import SwapHorizIcon from "@mui/icons-material/SwapHoriz";
 import CloseIcon from "@mui/icons-material/Close";
+import ChatBubbleIcon from "@mui/icons-material/ChatBubble";
 import {
   useGetEventLiveQuery,
   useTrackEventLiveViewMutation,
 } from "../slices/eventLiveApiSlice";
 import { logCustomEvent } from "../utils/analytics";
 import SEOHead from "../components/SEOHead";
+import { useSocket } from "../context/SocketContext";
+import EventLiveChatPanel from "../components/EventLiveChatPanel";
 
 const PULSE_CSS = `@keyframes elvPulse{0%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(1.35)}100%{opacity:1;transform:scale(1)}}`;
 
@@ -292,6 +295,7 @@ export default function EventLivePage() {
     pollingInterval: 60000,
     refetchOnMountOrArgChange: true,
   });
+  const socket = useSocket();
   const [tab, setTab] = useState(0);
   const [active, setActive] = useState(null);
   const [pip, setPip] = useState(null); // cửa sổ PiP (sân thứ 2)
@@ -530,6 +534,7 @@ export default function EventLivePage() {
                   label={`Trực tiếp${totalLive ? ` (${totalLive})` : ""}`}
                 />
                 <Tab icon={<ReplayIcon fontSize="small" />} iconPosition="start" label="Xem lại" />
+                <Tab icon={<ChatBubbleIcon fontSize="small" />} iconPosition="start" label="Chat" />
               </Tabs>
 
               <Box sx={{ flex: 1, overflowY: "auto", minHeight: 0, p: 1 }}>
@@ -673,6 +678,13 @@ export default function EventLivePage() {
                       ))}
                     </Stack>
                   ))}
+
+                {/* CHAT */}
+                {tab === 2 && (
+                  <Box sx={{ height: "100%", minHeight: 300 }}>
+                    <EventLiveChatPanel socket={socket} />
+                  </Box>
+                )}
               </Box>
             </Box>
           </Box>

@@ -4579,7 +4579,117 @@ export function initSocket(
     socket.on("tournament:subscribe", joinTournamentRoom);
     socket.on("tournament:unsubscribe", leaveTournamentRoom);
 
+    // ========= EVENT LIVE CHAT + VIEWER PRESENCE =========
+
+    // Client join/leave chat room (bất kỳ ai cũng đọc được)
+    socket.on("event-live:chat:subscribe", () => {
+      try { socket.join("event-live:chat"); } catch {}
+    });
+    socket.on("event-live:chat:unsubscribe", () => {
+      try { socket.leave("event-live:chat"); } catch {}
+    });
+
+    // Client gửi comment qua socket (latency thấp hơn REST)
+    socket.on("event-live:comment:send", async ({ content, platform } = {}, ack) => {
+      try {
+        const uid = socket.data?.userId;
+        if (!uid) { if (typeof ack === "function") ack({ error: "login_required" }); return; }
+        if (!allowSocketEvent(socket, "event-live:comment", { minIntervalMs: 2000 })) {
+          if (typeof ack === "function") ack({ error: "rate_limited" }); return;
+        }
+        const text = String(content || "").trim();
+        if (!text || text.length > 500) {
+          if (typeof ack === "function") ack({ error: "invalid_content" }); return;
+        }
+        const normP = ["web", "ios", "android"].includes(platform) ? platform : "unknown";
+        const { default: EventLiveComment } = await import("../models/eventLiveCommentModel.js");
+        const comment = await EventLiveComment.create({ user: uid, content: text, platform: normP });
+        const populated = await EventLiveComment.findById(comment._id)
+          .populate("user", "name fullName nickname nickName avatar").lean();
+        io.to("event-live:chat").emit("event-live:comment:new", populated);
+        if (typeof ack === "function") ack({ ok: true, comment: populated });
+      } catch (err) {
+        console.error("[socket] event-live:comment:send error:", err?.message || err);
+        if (typeof ack === "function") ack({ error: "server_error" });
+      }
+    });
+
+    // User bắt đầu xem live
+    socket.on("event-live:viewer:join", async ({ platform } = {}) => {
+      try {
+        const uid = socket.data?.userId;
+        if (!uid) return;
+        const normP = ["web", "ios", "android"].includes(platform) ? platform : "unknown";
+        const { addEventLiveViewer, emitEventLiveViewerSummary } = await import(
+          "../services/eventLivePresence.service.js"
+        );
+        await addEventLiveViewer({ userId: uid, socketId: socket.id, platform: normP });
+        await emitEventLiveViewerSummary(io);
+        socket.join("event-live:chat"); // auto join chat
+      } catch (err) {
+        console.error("[socket] event-live:viewer:join error:", err?.message || err);
+      }
+    });
+
+    // User rời trang live
+    socket.on("event-live:viewer:leave", async () => {
+      try {
+        const uid = socket.data?.userId;
+        if (!uid) return;
+        const { removeEventLiveViewer, emitEventLiveViewerSummary } = await import(
+          "../services/eventLivePresence.service.js"
+        );
+        await removeEventLiveViewer({ userId: uid, socketId: socket.id });
+        await emitEventLiveViewerSummary(io);
+        socket.leave("event-live:chat");
+      } catch (err) {
+        console.error("[socket] event-live:viewer:leave error:", err?.message || err);
+      }
+    });
+
+    // Heartbeat viewer (mỗi 30s)
+    socket.on("event-live:viewer:ping", async () => {
+      try {
+        if (!allowSocketEvent(socket, "event-live:viewer:ping", { minIntervalMs: 15000 })) return;
+        const { refreshEventLiveViewerHeartbeat } = await import(
+          "../services/eventLivePresence.service.js"
+        );
+        await refreshEventLiveViewerHeartbeat(socket.id);
+      } catch {}
+    });
+
+    // Admin subscribe viewer dashboard
+    socket.on("event-live:viewers:watch", async () => {
+      try {
+        if (!(await ensureAdmin(socket))) return;
+        socket.join("event-live:viewers");
+        const { emitEventLiveViewerSummary } = await import(
+          "../services/eventLivePresence.service.js"
+        );
+        await emitEventLiveViewerSummary(io, socket.id);
+      } catch (err) {
+        console.error("[socket] event-live:viewers:watch error:", err?.message || err);
+      }
+    });
+    socket.on("event-live:viewers:unwatch", () => {
+      try { socket.leave("event-live:viewers"); } catch {}
+    });
+
+    // ========= END EVENT LIVE =========
+
     socket.on("disconnect", async () => {
+      try {
+        // Cleanup event live viewer
+        if (userId) {
+          try {
+            const { removeEventLiveViewer, emitEventLiveViewerSummary } = await import(
+              "../services/eventLivePresence.service.js"
+            );
+            await removeEventLiveViewer({ userId, socketId: socket.id });
+            await emitEventLiveViewerSummary(io);
+          } catch {}
+        }
+      } catch {}
       try {
         if (userId) {
           await removeConnection({ userId, socketId: socket.id, client });
@@ -4602,6 +4712,13 @@ export function initSocket(
         }
         await emitSummary(io);
       }
+      // Dọn event-live viewer chết
+      try {
+        const { sweepStaleEventLiveViewers } = await import(
+          "../services/eventLivePresence.service.js"
+        );
+        await sweepStaleEventLiveViewers();
+      } catch {}
     } catch (e) {
       console.error("[socket] sweepStaleSockets timer error:", e);
     }
