@@ -411,6 +411,9 @@ const userSchema = new mongoose.Schema(
       // Tắt tất cả thông báo từ bảng tin: bình luận trả lời bài mình, phản
       // hồi comment mình, @mention trong post/comment.
       feedMuteAll: { type: Boolean, default: false },
+      // Tắt push gợi ý "giải mới hợp trình" (không ảnh hưởng thông báo giải
+      // mình đã đăng ký/theo dõi).
+      tournamentMuteAll: { type: Boolean, default: false },
     },
 
     /* ------- (Đý BỎ) Login tracking ra model riêng ------- */

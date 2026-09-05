@@ -19,6 +19,7 @@ import {
 } from "../../services/bracketBuilder.js";
 import { autoFeedGroupRank } from "../../services/autoFeedGroupRank.js";
 import { scheduleTournamentCountdown } from "../../utils/scheduleNotifications.js";
+import { notifyNewTournamentBySkill } from "../../services/notifications/newTournamentSkillNotifier.js";
 import Bracket from "../../models/bracketModel.js";
 import DrawSession from "../../models/drawSessionModel.js";
 import { createForumTopic, createInviteLink } from "../../utils/telegram.js";
@@ -1359,6 +1360,17 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
         {
           tournamentId: String(t._id),
         }
+      );
+    });
+  });
+
+  // 🎾 Push "giải mới hợp trình" tới VĐV có điểm trình phù hợp
+  setImmediate(() => {
+    notifyNewTournamentBySkill(t).catch((e) => {
+      console.error(
+        "[adminCreateTournament] notifyNewTournamentBySkill failed:",
+        e?.message || e,
+        { tournamentId: String(t._id) }
       );
     });
   });

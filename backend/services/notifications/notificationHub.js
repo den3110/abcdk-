@@ -27,6 +27,7 @@ export const EVENTS = {
   TOURNAMENT_COUNTDOWN: "TOURNAMENT_COUNTDOWN", // { phase: "D-3"|"D-2"|"D-1"|"D0" }
   TOURNAMENT_SCHEDULE_UPDATED: "TOURNAMENT_SCHEDULE_UPDATED",
   TOURNAMENT_CREATED: "TOURNAMENT_CREATED",
+  TOURNAMENT_MATCH_SKILL: "TOURNAMENT_MATCH_SKILL", // giải mới hợp trình VĐV (audience = directUserIds)
 
   MATCH_START_SOON: "MATCH_START_SOON",
   MATCH_RESULT_FINAL: "MATCH_RESULT_FINAL",
@@ -194,6 +195,14 @@ const implicitAudienceResolvers = {
       .select("user")
       .lean();
     return subs.map((s) => String(s.user));
+  },
+
+  // Giải mới hợp trình: audience luôn đến từ directUserIds (controller tự tính)
+  async [EVENTS.TOURNAMENT_MATCH_SKILL]({ overrideAudience }) {
+    if (Array.isArray(overrideAudience) && overrideAudience.length) {
+      return overrideAudience.map((id) => String(id));
+    }
+    return [];
   },
 
   async [EVENTS.MATCH_START_SOON]({ matchId }) {
@@ -533,6 +542,21 @@ const payloadBuilders = {
       data: {
         url: `/tournament/${tournamentId}`,
         kind: EVENTS.TOURNAMENT_CREATED,
+      },
+    };
+  },
+  async [EVENTS.TOURNAMENT_MATCH_SKILL]({ tournamentId }) {
+    const t = await Tournament.findById(tournamentId)
+      .select("name location")
+      .lean();
+    return {
+      title: "🎾 Giải mới hợp trình bạn!",
+      body: t?.name
+        ? `Giải ${t.name}${t?.location ? ` • ${t.location}` : ""} vừa mở, phù hợp trình độ của bạn. Đăng ký ngay!`
+        : "Một giải đấu mới phù hợp trình độ của bạn vừa mở. Đăng ký ngay!",
+      data: {
+        url: `/tournament/${tournamentId}/register`,
+        kind: EVENTS.TOURNAMENT_MATCH_SKILL,
       },
     };
   },
@@ -1230,6 +1254,8 @@ function makeEventKey(eventName, ctx) {
     return `tournament.scheduleUpdated:tour#${ctx.tournamentId}`;
   if (eventName === EVENTS.TOURNAMENT_CREATED)
     return `tournament.created:tour#${ctx.tournamentId}`;
+  if (eventName === EVENTS.TOURNAMENT_MATCH_SKILL)
+    return `tournament.matchSkill:tour#${ctx.tournamentId}`;
   if (eventName === EVENTS.MATCH_START_SOON)
     return `match.startSoon:match#${ctx.matchId}`;
   if (eventName === EVENTS.MATCH_RESULT_FINAL)

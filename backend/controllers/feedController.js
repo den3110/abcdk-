@@ -13,6 +13,7 @@ import Ranking from "../models/rankingModel.js";
 import { attachTournamentRegCounts } from "../utils/enrichTournament.js";
 import MarketListing from "../models/marketListingModel.js";
 import PlayInvite from "../models/playInviteModel.js";
+import Subscription from "../models/subscriptionsModel.js";
 
 // Cập nhật ảnh/giá/trạng thái sản phẩm Chợ được share lên feed theo dữ liệu LIVE
 async function enrichSharedListings(items) {
@@ -358,6 +359,7 @@ export const listFeed = asyncHandler(async (req, res) => {
   const author = req.query.author;
   const tournament = req.query.tournament;
   const pinned = req.query.pinned === "1" || req.query.pinned === "true";
+  const following = req.query.following === "1" || req.query.following === "true";
   const cursor = decodeCursor(req.query.cursor);
 
   const q = { deletedAt: null };
@@ -367,6 +369,25 @@ export const listFeed = asyncHandler(async (req, res) => {
   if (tournament && mongoose.isValidObjectId(tournament))
     q.linkedTournament = tournament;
   if (pinned) q.isPinned = true;
+
+  // Lọc theo các giải mà viewer đang theo dõi (subscription topicType=tournament)
+  if (following && viewer?._id) {
+    const subs = await Subscription.find({
+      user: viewer._id,
+      topicType: "tournament",
+      muted: { $ne: true },
+    })
+      .select("topicId")
+      .lean();
+    const tourIds = subs
+      .map((s) => s.topicId)
+      .filter(Boolean)
+      .map((id) => new mongoose.Types.ObjectId(String(id)));
+    if (!tourIds.length) {
+      return res.json({ items: [], nextCursor: null, hasMore: false });
+    }
+    q.linkedTournament = { $in: tourIds };
+  }
 
   // Loại bỏ bài của user mà viewer đã chặn (hoặc bị chặn) — Apple 1.2
   const blocked = await getBlockedIdSet(viewer?._id);
