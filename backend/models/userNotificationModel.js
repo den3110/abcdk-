@@ -21,6 +21,7 @@ export const NOTIFICATION_TYPES = [
   "PLAY_INVITE_ACCEPTED",
   "CLUB_ACTIVITY",
   "SYSTEM",
+  "BOOKING",
 ];
 
 const userNotificationSchema = new Schema(

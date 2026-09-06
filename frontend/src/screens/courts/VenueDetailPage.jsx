@@ -220,7 +220,7 @@ export default function VenueDetailPage() {
               </Box>
               <Typography variant="h6" fontWeight={800}>Đã đặt sân!</Typography>
               <Typography variant="body2" color="text.secondary">
-                Mã đặt sân <b>{created.code}</b> đang chờ thanh toán.
+                Mã đặt sân <b>{created.code}</b> — chuyển khoản rồi <b>gửi bill</b> để chủ sân duyệt (giữ chỗ 30 phút).
               </Typography>
               {qr ? (
                 <Box sx={{ p: 1.5, borderRadius: 4, border: `1px solid ${theme.palette.divider}`, bgcolor: "#fff" }}>
@@ -232,18 +232,18 @@ export default function VenueDetailPage() {
               <Box sx={{ px: 2, py: 1, borderRadius: 3, bgcolor: alpha(theme.palette.primary.main, 0.07) }}>
                 <Typography sx={{ fontSize: 13, color: "text.secondary" }}>Số tiền cần chuyển</Typography>
                 <Typography sx={{ fontSize: 22, fontWeight: 900, color: "primary.main" }}>
-                  {fmtVND(created.depositAmount > 0 ? created.depositAmount : created.totalPrice)}
+                  {fmtVND(created.totalPrice)}
                 </Typography>
-                {created.depositAmount > 0 && (
-                  <Typography variant="caption" color="text.secondary">Đặt cọc {venue?.depositPercent}% · tổng {fmtVND(created.totalPrice)}</Typography>
+                {created.bank?.memo && (
+                  <Typography variant="caption" color="text.secondary">Nội dung CK: <b>{created.bank.memo}</b></Typography>
                 )}
               </Box>
             </Stack>
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => navigate("/my-bookings")} color="inherit">Lượt đặt của tôi</Button>
-          <Button variant="contained" onClick={() => setCreated(null)} sx={{ fontWeight: 700, borderRadius: 2.5 }}>Xong</Button>
+          <Button onClick={() => setCreated(null)} color="inherit">Để sau</Button>
+          <Button variant="contained" onClick={() => navigate(`/my-bookings?booking=${created?._id}`)} sx={{ fontWeight: 700, borderRadius: 2.5 }}>Gửi bill chuyển khoản</Button>
         </DialogActions>
       </Dialog>
     </Container>

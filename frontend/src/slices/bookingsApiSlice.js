@@ -55,6 +55,47 @@ export const bookingsApiSlice = apiSlice.injectEndpoints({
         { type: "Booking", id: `VENUE-${arg.venueId || ""}` },
       ],
     }),
+    getBooking: builder.query({
+      query: (id) => `/api/bookings/${id}`,
+      providesTags: (res, err, id) => [{ type: "Booking", id }],
+    }),
+    // Khách gửi ảnh bill chuyển khoản → chờ chủ sân duyệt
+    submitPaymentProof: builder.mutation({
+      query: ({ id, imageUrl, note }) => ({
+        url: `/api/bookings/${id}/payment-proof`,
+        method: "POST",
+        body: { imageUrl, note },
+      }),
+      invalidatesTags: (res, err, arg) => [
+        { type: "Booking", id: "MINE" },
+        { type: "Booking", id: arg.id },
+      ],
+    }),
+    approveBooking: builder.mutation({
+      query: ({ id }) => ({ url: `/api/bookings/${id}/approve`, method: "PATCH" }),
+      invalidatesTags: (res, err, arg) => [
+        { type: "Booking", id: `VENUE-${arg.venueId || ""}` },
+        { type: "Booking", id: arg.id },
+      ],
+    }),
+    rejectBooking: builder.mutation({
+      query: ({ id, reason }) => ({
+        url: `/api/bookings/${id}/reject`,
+        method: "PATCH",
+        body: { reason },
+      }),
+      invalidatesTags: (res, err, arg) => [
+        { type: "Booking", id: `VENUE-${arg.venueId || ""}` },
+        { type: "Booking", id: arg.id },
+      ],
+    }),
+    // Chủ sân quét vé QR
+    checkInBooking: builder.mutation({
+      query: ({ token }) => ({ url: `/api/bookings/checkin`, method: "POST", body: { token } }),
+      invalidatesTags: (res, err, arg) => [
+        { type: "Booking", id: `VENUE-${arg.venueId || ""}` },
+      ],
+    }),
   }),
 });
 
@@ -65,4 +106,9 @@ export const {
   useGetVenueRevenueQuery,
   useUpdateBookingStatusMutation,
   useSetBookingPaymentMutation,
+  useGetBookingQuery,
+  useSubmitPaymentProofMutation,
+  useApproveBookingMutation,
+  useRejectBookingMutation,
+  useCheckInBookingMutation,
 } = bookingsApiSlice;

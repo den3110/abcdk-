@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import crypto from "crypto";
 
 const { Schema } = mongoose;
 
@@ -42,16 +43,34 @@ const bookingSchema = new Schema(
     depositAmount: { type: Number, default: 0, min: 0 },
     currency: { type: String, default: "VND" },
 
+    // pending: đã đặt, chưa gửi bill · awaiting_approval: đã gửi bill, chờ chủ sân duyệt
     status: {
       type: String,
-      enum: ["pending", "confirmed", "cancelled", "completed", "no_show"],
+      enum: ["pending", "awaiting_approval", "confirmed", "cancelled", "completed", "no_show"],
       default: "pending",
       index: true,
     },
     payment: {
       status: { type: String, enum: ["Unpaid", "Paid"], default: "Unpaid" },
       paidAt: { type: Date, default: null },
+      method: { type: String, default: "bank_qr" },
+      // Bill chuyển khoản khách gửi lên
+      proofUrl: { type: String, default: "" },
+      proofNote: { type: String, default: "" },
+      proofAt: { type: Date, default: null },
+      // Chủ sân duyệt / từ chối
+      reviewedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+      reviewedAt: { type: Date, default: null },
+      rejectReason: { type: String, default: "" },
     },
+
+    // Vé điện tử: token in QR, chủ sân quét để check-in
+    ticket: {
+      token: { type: String, default: "", index: true },
+      checkedInAt: { type: Date, default: null },
+      checkedInBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    },
+    reminderSentAt: { type: Date, default: null },
 
     note: { type: String, default: "" },
     createdByRole: {
@@ -75,6 +94,10 @@ bookingSchema.index({ user: 1, startAt: -1 });
 bookingSchema.pre("save", function genCode(next) {
   if (!this.code) {
     this.code = "BK" + String(this._id).slice(-6).toUpperCase();
+  }
+  if (!this.ticket) this.ticket = {};
+  if (!this.ticket.token) {
+    this.ticket.token = crypto.randomBytes(16).toString("hex");
   }
   next();
 });

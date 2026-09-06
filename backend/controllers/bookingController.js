@@ -4,7 +4,11 @@ import mongoose from "mongoose";
 import Venue from "../models/venueModel.js";
 import VenueCourt from "../models/venueCourtModel.js";
 import Booking from "../models/bookingModel.js";
+import BookingSlotLock, { slotStartsBetween } from "../models/bookingSlotLockModel.js";
 import { canManageVenue } from "../utils/venueAuth.js";
+import { bookingBankInfo } from "../utils/bankQr.js";
+import { notifyBooking } from "../services/bookingNotify.js";
+import { scheduleBookingReminder } from "../jobs/bookingJobs.js";
 import {
   parseHHMM,
   minutesToHHMM,
@@ -16,7 +20,12 @@ import {
 } from "../utils/venueBooking.js";
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
-const ACTIVE_STATUSES = ["pending", "confirmed"];
+const ACTIVE_STATUSES = ["pending", "awaiting_approval", "confirmed"];
+const VENUE_PUBLIC_FIELDS =
+  "name address province phone images bankShortName bankAccountNumber bankAccountName depositPercent";
+const isDupKey = (e) =>
+  e?.code === 11000 ||
+  (Array.isArray(e?.writeErrors) && e.writeErrors.some((w) => w?.code === 11000));
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /* ===================== AVAILABILITY (lưới trống) ===================== */
@@ -205,7 +214,9 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
   };
 
   if (manage) {
+    // Chủ sân đặt hộ khách vãng lai: xác nhận luôn (thu tiền tại quầy)
     doc.createdByRole = "owner";
+    doc.status = "confirmed";
     doc.user = isId(req.body.userId) ? req.body.userId : null;
     doc.customerName = String(req.body.customerName || "").slice(0, 120);
     doc.customerPhone = String(req.body.customerPhone || "").slice(0, 30);
@@ -216,8 +227,38 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
     doc.customerPhone = String(req.body.customerPhone || req.user.phone || "").slice(0, 30);
   }
 
-  const booking = await Booking.create(doc);
-  res.status(201).json(booking);
+  // Khoá slot atomic (unique court+slotStart) — 2 request đồng thời chỉ 1 thắng
+  const booking = new Booking(doc);
+  try {
+    await BookingSlotLock.insertMany(
+      slotStartsBetween(startAt, endAt).map((slotStart) => ({
+        court: courtId,
+        slotStart,
+        booking: booking._id,
+      })),
+      { ordered: false },
+    );
+  } catch (e) {
+    await BookingSlotLock.deleteMany({ booking: booking._id });
+    if (isDupKey(e)) {
+      res.status(409);
+      throw new Error("Khung giờ này vừa có người đặt trước, vui lòng chọn giờ khác");
+    }
+    throw e;
+  }
+  await booking.save();
+
+  if (doc.createdByRole === "customer") {
+    notifyBooking("created", booking, {
+      actorId: req.user._id,
+      venueName: venue.name,
+      courtName: court.name,
+    }).catch(() => {});
+  } else if (booking.user) {
+    scheduleBookingReminder(booking).catch(() => {});
+  }
+
+  res.status(201).json({ ...booking.toObject(), bank: bookingBankInfo(venue, booking) });
 });
 
 /* ===================== DANH SÁCH ===================== */
@@ -229,13 +270,36 @@ export const listMyBookings = expressAsyncHandler(async (req, res) => {
   const items = await Booking.find(filter)
     .sort({ startAt: -1 })
     .limit(200)
-    .populate(
-      "venue",
-      "name address province phone bankShortName bankAccountNumber bankAccountName depositPercent",
-    )
+    .populate("venue", VENUE_PUBLIC_FIELDS)
     .populate("court", "name")
     .lean();
-  res.json(items);
+  res.json(items.map((b) => ({ ...b, bank: bookingBankInfo(b.venue, b) })));
+});
+
+/** GET /api/bookings/:id  (khách của đơn hoặc chủ sân) */
+export const getBooking = expressAsyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!isId(id)) {
+    res.status(400);
+    throw new Error("ID không hợp lệ");
+  }
+  const b = await Booking.findById(id)
+    .populate("venue", `${VENUE_PUBLIC_FIELDS} owner managers`)
+    .populate("court", "name")
+    .populate("user", "name nickname phone avatar")
+    .lean();
+  if (!b) {
+    res.status(404);
+    throw new Error("Không tìm thấy lượt đặt");
+  }
+  const mine = b.user && String(b.user._id || b.user) === String(req.user._id);
+  const manage = await canManageVenue(req.user, b.venue);
+  if (!mine && !manage) {
+    res.status(403);
+    throw new Error("Không có quyền xem lượt đặt này");
+  }
+  const { owner, managers, ...venue } = b.venue || {};
+  res.json({ ...b, venue, bank: bookingBankInfo(b.venue, b), canManage: manage });
 });
 
 /** GET /api/venues/:id/bookings?date=&status=  (chủ sân) */
@@ -281,7 +345,7 @@ export const updateBookingStatus = expressAsyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("ID không hợp lệ");
   }
-  if (!["pending", "confirmed", "cancelled", "completed", "no_show"].includes(next)) {
+  if (!["pending", "awaiting_approval", "confirmed", "cancelled", "completed", "no_show"].includes(next)) {
     res.status(400);
     throw new Error("Trạng thái không hợp lệ");
   }
@@ -311,6 +375,23 @@ export const updateBookingStatus = expressAsyncHandler(async (req, res) => {
 
   booking.status = next;
   await booking.save();
+
+  // Huỷ / không đến → nhả slot; báo bên còn lại
+  if (next === "cancelled" || next === "no_show") {
+    await BookingSlotLock.deleteMany({ booking: booking._id });
+    if (next === "cancelled") {
+      const [v, c] = await Promise.all([
+        Venue.findById(booking.venue).select("name").lean(),
+        VenueCourt.findById(booking.court).select("name").lean(),
+      ]);
+      notifyBooking(manage && !isOwnerOfBooking ? "cancelled_by_owner" : "cancelled_by_customer", booking, {
+        actorId: req.user._id,
+        venueName: v?.name,
+        courtName: c?.name,
+        reason: booking.cancelReason,
+      }).catch(() => {});
+    }
+  }
   res.json(booking);
 });
 
@@ -340,11 +421,212 @@ export const setBookingPayment = expressAsyncHandler(async (req, res) => {
   booking.payment.status = status;
   booking.payment.paidAt = status === "Paid" ? new Date() : null;
   // Xác nhận thanh toán thì tự xác nhận lượt đặt nếu đang chờ
-  if (status === "Paid" && booking.status === "pending") {
+  if (status === "Paid" && ["pending", "awaiting_approval"].includes(booking.status)) {
     booking.status = "confirmed";
+    booking.payment.reviewedBy = req.user._id;
+    booking.payment.reviewedAt = new Date();
   }
   await booking.save();
+  if (status === "Paid" && booking.status === "confirmed") {
+    scheduleBookingReminder(booking).catch(() => {});
+  }
   res.json(booking);
+});
+
+/* ===================== BILL CHUYỂN KHOẢN & DUYỆT ===================== */
+
+async function loadBookingWithNames(id) {
+  const b = await Booking.findById(id);
+  if (!b) return { booking: null };
+  const [v, c] = await Promise.all([
+    Venue.findById(b.venue).select("name owner managers").lean(),
+    VenueCourt.findById(b.court).select("name").lean(),
+  ]);
+  return { booking: b, venue: v, court: c };
+}
+
+/** POST /api/bookings/:id/payment-proof  { imageUrl, note }  (khách gửi bill) */
+export const submitPaymentProof = expressAsyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const imageUrl = String(req.body?.imageUrl || "").trim();
+  if (!isId(id)) {
+    res.status(400);
+    throw new Error("ID không hợp lệ");
+  }
+  if (!/^(https?:\/\/|\/uploads\/)/i.test(imageUrl)) {
+    res.status(400);
+    throw new Error("Thiếu ảnh bill chuyển khoản");
+  }
+  const { booking, venue, court } = await loadBookingWithNames(id);
+  if (!booking) {
+    res.status(404);
+    throw new Error("Không tìm thấy lượt đặt");
+  }
+  if (!booking.user || String(booking.user) !== String(req.user._id)) {
+    res.status(403);
+    throw new Error("Không có quyền gửi bill cho lượt đặt này");
+  }
+  if (!["pending", "awaiting_approval"].includes(booking.status)) {
+    res.status(400);
+    throw new Error("Lượt đặt không ở trạng thái chờ thanh toán");
+  }
+
+  booking.payment.proofUrl = imageUrl.slice(0, 1000);
+  booking.payment.proofNote = String(req.body?.note || "").slice(0, 300);
+  booking.payment.proofAt = new Date();
+  booking.payment.rejectReason = "";
+  booking.status = "awaiting_approval";
+  await booking.save();
+
+  notifyBooking("proof_submitted", booking, {
+    actorId: req.user._id,
+    venueName: venue?.name,
+    courtName: court?.name,
+  }).catch(() => {});
+  res.json(booking);
+});
+
+/** PATCH /api/bookings/:id/approve  (chủ sân duyệt bill → xác nhận) */
+export const approveBooking = expressAsyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!isId(id)) {
+    res.status(400);
+    throw new Error("ID không hợp lệ");
+  }
+  const { booking, venue, court } = await loadBookingWithNames(id);
+  if (!booking) {
+    res.status(404);
+    throw new Error("Không tìm thấy lượt đặt");
+  }
+  if (!(await canManageVenue(req.user, venue))) {
+    res.status(403);
+    throw new Error("Không có quyền duyệt lượt đặt này");
+  }
+  if (!["pending", "awaiting_approval"].includes(booking.status)) {
+    res.status(400);
+    throw new Error("Lượt đặt không ở trạng thái chờ duyệt");
+  }
+
+  booking.payment.status = "Paid";
+  booking.payment.paidAt = new Date();
+  booking.payment.reviewedBy = req.user._id;
+  booking.payment.reviewedAt = new Date();
+  booking.payment.rejectReason = "";
+  booking.status = "confirmed";
+  await booking.save();
+
+  scheduleBookingReminder(booking).catch(() => {});
+  notifyBooking("approved", booking, {
+    actorId: req.user._id,
+    venueName: venue?.name,
+    courtName: court?.name,
+  }).catch(() => {});
+  res.json(booking);
+});
+
+/** PATCH /api/bookings/:id/reject  { reason }  (chủ sân từ chối bill → khách gửi lại) */
+export const rejectBooking = expressAsyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!isId(id)) {
+    res.status(400);
+    throw new Error("ID không hợp lệ");
+  }
+  const { booking, venue, court } = await loadBookingWithNames(id);
+  if (!booking) {
+    res.status(404);
+    throw new Error("Không tìm thấy lượt đặt");
+  }
+  if (!(await canManageVenue(req.user, venue))) {
+    res.status(403);
+    throw new Error("Không có quyền từ chối lượt đặt này");
+  }
+  if (booking.status !== "awaiting_approval") {
+    res.status(400);
+    throw new Error("Lượt đặt chưa có bill để từ chối");
+  }
+
+  const reason = String(req.body?.reason || "").slice(0, 300);
+  booking.payment.status = "Unpaid";
+  booking.payment.paidAt = null;
+  booking.payment.reviewedBy = req.user._id;
+  booking.payment.reviewedAt = new Date();
+  booking.payment.rejectReason = reason;
+  booking.status = "pending";
+  await booking.save();
+
+  notifyBooking("rejected", booking, {
+    actorId: req.user._id,
+    venueName: venue?.name,
+    courtName: court?.name,
+    reason,
+  }).catch(() => {});
+  res.json(booking);
+});
+
+/* ===================== CHECK-IN VÉ QR ===================== */
+
+/** POST /api/bookings/checkin  { token }  (chủ sân quét QR trên vé) */
+export const checkInBooking = expressAsyncHandler(async (req, res) => {
+  const raw = String(req.body?.token || "").trim();
+  // Chấp nhận cả nội dung QR đầy đủ "ptbk:<token>"
+  const token = raw.replace(/^ptbk:/i, "");
+  if (!token) {
+    res.status(400);
+    throw new Error("Thiếu mã vé");
+  }
+  const booking = await Booking.findOne({ "ticket.token": token })
+    .populate("venue", "name owner managers")
+    .populate("court", "name")
+    .populate("user", "name nickname phone avatar");
+  if (!booking) {
+    res.status(404);
+    throw new Error("Vé không hợp lệ");
+  }
+  if (!(await canManageVenue(req.user, booking.venue))) {
+    res.status(403);
+    throw new Error("Vé này thuộc sân khác");
+  }
+
+  const summary = () => ({
+    _id: booking._id,
+    code: booking.code,
+    status: booking.status,
+    customerName: booking.customerName || booking.user?.name || "",
+    customerPhone: booking.customerPhone || booking.user?.phone || "",
+    avatar: booking.user?.avatar || "",
+    venueName: booking.venue?.name,
+    courtName: booking.court?.name,
+    startAt: booking.startAt,
+    endAt: booking.endAt,
+    totalPrice: booking.totalPrice,
+    paymentStatus: booking.payment?.status,
+    checkedInAt: booking.ticket?.checkedInAt || null,
+  });
+
+  if (booking.ticket?.checkedInAt) {
+    return res.json({ ok: true, already: true, booking: summary() });
+  }
+  if (booking.status !== "confirmed") {
+    return res.status(400).json({
+      ok: false,
+      message:
+        booking.status === "cancelled"
+          ? "Lượt đặt đã bị huỷ"
+          : "Lượt đặt chưa được xác nhận thanh toán",
+      booking: summary(),
+    });
+  }
+
+  booking.ticket.checkedInAt = new Date();
+  booking.ticket.checkedInBy = req.user._id;
+  await booking.save();
+
+  notifyBooking("checked_in", booking, {
+    actorId: req.user._id,
+    venueName: booking.venue?.name,
+    courtName: booking.court?.name,
+  }).catch(() => {});
+  res.json({ ok: true, already: false, booking: summary() });
 });
 
 /* ===================== DOANH THU / CHỐT SỐ ===================== */

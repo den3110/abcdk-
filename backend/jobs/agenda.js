@@ -68,6 +68,8 @@ export async function startAgenda() {
   console.log("✅ notifyJobs handlers registered");
   await import("./eventLiveNotifyJob.js");
   console.log("✅ eventLiveNotifyJob handler registered");
+  await import("./bookingJobs.js");
+  console.log("✅ bookingJobs handlers registered");
   await import("./emailCampaignJob.js");
   console.log("✅ emailCampaignJob handler registered");
 
@@ -92,6 +94,7 @@ export async function startAgenda() {
   //    Job tự no-op nếu eventLive.autoNotify tắt. every() idempotent theo tên.
   try {
     await agenda.every("5 minutes", "event-live.auto-notify");
+    await agenda.every("5 minutes", "booking.expire-pending");
     console.log("✅ event-live.auto-notify scheduled (5m)");
   } catch (e) {
     console.error("[agenda] schedule event-live.auto-notify error:", e?.message);

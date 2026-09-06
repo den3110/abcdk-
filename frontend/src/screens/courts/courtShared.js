@@ -38,7 +38,8 @@ export const WEEKDAYS_LONG = [
 ];
 
 export const BOOKING_STATUS = {
-  pending: { label: "Chờ duyệt", color: "warning" },
+  pending: { label: "Chờ thanh toán", color: "warning" },
+  awaiting_approval: { label: "Chờ duyệt bill", color: "info" },
   confirmed: { label: "Đã xác nhận", color: "success" },
   cancelled: { label: "Đã huỷ", color: "default" },
   completed: { label: "Hoàn tất", color: "info" },
@@ -101,13 +102,9 @@ export function bookingQrUrl(venue, booking) {
   const bank = venue?.bankShortName || venue?.qrBank || "";
   const acc = venue?.bankAccountNumber || venue?.qrAccount || "";
   if (!bank || !acc) return "";
-  const amount =
-    Number(booking?.depositAmount) > 0
-      ? Number(booking.depositAmount)
-      : Number(booking?.totalPrice) || 0;
-  const des = normalizeNoAccent(
-    `Dat san ${venue?.name || ""} Ma ${booking?.code || ""}`,
-  );
+  // Khách thanh toán TOÀN BỘ qua QR rồi gửi bill (đồng bộ backend utils/bankQr.js)
+  const amount = Number(booking?.totalPrice) || 0;
+  const des = normalizeNoAccent(`DAT SAN ${booking?.code || ""}`);
   const params = new URLSearchParams({ bank, acc, des, template: "compact" });
   if (amount > 0) params.set("amount", String(amount));
   return `https://qr.sepay.vn/img?${params.toString()}`;
