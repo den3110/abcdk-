@@ -361,11 +361,26 @@ export const updateClub = async (req, res) => {
       }
     }
 
-    const club = await Club.findByIdAndUpdate(
-      req.club._id,
-      { $set: patch },
-      { new: true }
-    );
+    // Chuẩn hoá location trước khi ghi: toạ độ không hợp lệ -> $unset để
+    // tránh GeoJSON hỏng ({ type:"Point" } thiếu coordinates / null) làm hỏng
+    // index 2dsphere ("Can't extract geo keys").
+    const update = { $set: { ...patch } };
+    if ("location" in update.$set) {
+      const coords = update.$set.location?.coordinates;
+      const valid =
+        Array.isArray(coords) &&
+        coords.length === 2 &&
+        coords.every((n) => Number.isFinite(n));
+      if (!valid) {
+        delete update.$set.location;
+        update.$unset = { ...(update.$unset || {}), location: "" };
+      }
+    }
+    if (Object.keys(update.$set).length === 0) delete update.$set;
+
+    const club = await Club.findByIdAndUpdate(req.club._id, update, {
+      new: true,
+    });
     res.json(club);
   } catch (err) {
     console.error("updateClub error:", err);

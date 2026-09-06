@@ -79,7 +79,9 @@ const ClubSchema = new mongoose.Schema(
       type: {
         type: String,
         enum: ["Point"],
-        default: "Point",
+        // KHÔNG default "Point": nếu chưa có toạ độ thì để cả field location
+        // trống, tránh GeoJSON không hợp lệ ({ type: "Point" } thiếu coordinates)
+        // khiến index 2dsphere báo "Can't extract geo keys".
       },
       // [lon, lat]
       coordinates: {
@@ -108,8 +110,33 @@ const ClubSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// ✅ index geo
-ClubSchema.index({ location: "2dsphere" });
+// ✅ index geo — sparse để bỏ qua CLB chưa có toạ độ
+ClubSchema.index({ location: "2dsphere" }, { sparse: true });
+
+// Chuẩn hoá location: nếu coordinates không phải mảng [lon, lat] hợp lệ thì
+// bỏ hẳn field location (tránh GeoJSON không hợp lệ làm hỏng index 2dsphere).
+function normalizeClubLocation(doc) {
+  if (!doc) return;
+  const coords = doc.location?.coordinates;
+  const valid =
+    Array.isArray(coords) &&
+    coords.length === 2 &&
+    coords.every((n) => typeof n === "number" && Number.isFinite(n));
+  if (!valid) {
+    doc.location = undefined;
+  } else if (!doc.location.type) {
+    doc.location.type = "Point";
+  }
+}
+
+ClubSchema.pre("validate", function preValidateClubLocation(next) {
+  normalizeClubLocation(this);
+  next();
+});
+ClubSchema.pre("save", function preSaveClubLocation(next) {
+  normalizeClubLocation(this);
+  next();
+});
 
 // 👉 Text index cho search với $text
 ClubSchema.index(
