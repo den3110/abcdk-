@@ -95,6 +95,7 @@ export async function startAgenda() {
   try {
     await agenda.every("5 minutes", "event-live.auto-notify");
     await agenda.every("5 minutes", "booking.expire-pending");
+    await agenda.every("10 minutes", "booking.settle-past");
     console.log("✅ event-live.auto-notify scheduled (5m)");
   } catch (e) {
     console.error("[agenda] schedule event-live.auto-notify error:", e?.message);

@@ -39,9 +39,15 @@ const bookingSchema = new Schema(
     durationMin: { type: Number, required: true, min: 0 },
 
     pricePerHour: { type: Number, default: 0 },
-    totalPrice: { type: Number, default: 0, min: 0 },
+    subtotal: { type: Number, default: 0, min: 0 }, // trước giảm giá
+    discountAmount: { type: Number, default: 0, min: 0 },
+    promoCode: { type: String, default: "" },
+    totalPrice: { type: Number, default: 0, min: 0 }, // sau giảm giá (số tiền phải trả)
     depositAmount: { type: Number, default: 0, min: 0 },
     currency: { type: String, default: "VND" },
+
+    // Đặt định kỳ (nhóm các lượt sinh cùng lần)
+    recurringGroup: { type: String, default: "", index: true },
 
     // pending: đã đặt, chưa gửi bill · awaiting_approval: đã gửi bill, chờ chủ sân duyệt
     status: {

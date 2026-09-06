@@ -76,6 +76,13 @@ const venueSchema = new Schema(
     // % đặt cọc khi đặt sân (0 = không yêu cầu cọc)
     depositPercent: { type: Number, default: 0, min: 0, max: 100 },
 
+    // Chính sách huỷ: khách được tự huỷ đến trước giờ chơi bao nhiêu tiếng
+    // (0 = luôn cho huỷ). Huỷ trễ hơn -> phải liên hệ chủ sân.
+    cancelPolicy: {
+      hoursBefore: { type: Number, default: 0, min: 0, max: 168 },
+      note: { type: String, default: "", maxlength: 300 },
+    },
+
     status: {
       type: String,
       enum: ["active", "pending", "suspended"],

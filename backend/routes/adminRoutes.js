@@ -31,6 +31,11 @@ import {
   adminListBookings,
 } from "../controllers/admin/adminVenueController.js";
 import {
+  adminListRequests,
+  adminApproveRequest,
+  adminRejectRequest,
+} from "../controllers/courtOwnerController.js";
+import {
   requireTournamentManager,
   attachTournamentFromRegistration,
 } from "../utils/tournamentAuth.js";
@@ -732,6 +737,11 @@ router.get("/venues", adminListVenues);
 router.get("/venues/:id", adminGetVenue);
 router.patch("/venues/:id/status", adminSetVenueStatus);
 router.get("/bookings", adminListBookings);
+
+// Duyệt yêu cầu làm chủ sân
+router.get("/court-owner/requests", adminListRequests);
+router.patch("/court-owner/requests/:id/approve", adminApproveRequest);
+router.patch("/court-owner/requests/:id/reject", adminRejectRequest);
 
 router.put("/rankings/:id", adminUpdateRanking);
 

@@ -11,14 +11,29 @@ import {
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
 
+const toRad = (d) => (d * Math.PI) / 180;
+const haversineMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371000;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
 /* ============================ PUBLIC ============================ */
 
-/** GET /api/venues?province=&keyword=&page=&limit= */
+/** GET /api/venues?province=&keyword=&page=&limit=&lat=&lon=&radius= */
 export const listVenues = expressAsyncHandler(async (req, res) => {
   const page = Math.max(1, Number(req.query.page) || 1);
   const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
   const province = String(req.query.province || "").trim();
   const keyword = String(req.query.keyword || "").trim();
+  const lat = Number(req.query.lat);
+  const lon = Number(req.query.lon);
+  const radiusKm = Number(req.query.radius) || 0;
+  const hasGeo = Number.isFinite(lat) && Number.isFinite(lon);
 
   const filter = { isActive: true, status: "active" };
   if (province) filter.province = province;
@@ -27,6 +42,42 @@ export const listVenues = expressAsyncHandler(async (req, res) => {
       { name: { $regex: keyword, $options: "i" } },
       { address: { $regex: keyword, $options: "i" } },
     ];
+  }
+
+  // Chế độ "gần tôi": lấy các sân có toạ độ, tính khoảng cách (haversine), lọc
+  // theo bán kính rồi sắp xếp gần nhất. (Không cần index 2dsphere.)
+  if (hasGeo) {
+    const geoFilter = {
+      ...filter,
+      "locationGeo.lat": { $ne: null },
+      "locationGeo.lon": { $ne: null },
+    };
+    const all = await Venue.find(geoFilter).limit(500).lean();
+    let withDist = all.map((v) => ({
+      ...v,
+      distanceMeters: Math.round(
+        haversineMeters(lat, lon, v.locationGeo.lat, v.locationGeo.lon),
+      ),
+    }));
+    if (radiusKm > 0) withDist = withDist.filter((v) => v.distanceMeters <= radiusKm * 1000);
+    withDist.sort((a, b) => a.distanceMeters - b.distanceMeters);
+    const total = withDist.length;
+    const paged = withDist.slice((page - 1) * limit, (page - 1) * limit + limit);
+    const ids = paged.map((v) => v._id);
+    const counts = ids.length
+      ? await VenueCourt.aggregate([
+          { $match: { venue: { $in: ids }, isActive: true } },
+          { $group: { _id: "$venue", count: { $sum: 1 } } },
+        ])
+      : [];
+    const countMap = new Map(counts.map((c) => [String(c._id), c.count]));
+    return res.json({
+      items: paged.map((v) => ({ ...v, courtCount: countMap.get(String(v._id)) || 0 })),
+      total,
+      page,
+      limit,
+      near: true,
+    });
   }
 
   const [items, total] = await Promise.all([
@@ -117,6 +168,7 @@ const VENUE_EDITABLE = [
   "bankAccountNumber",
   "bankAccountName",
   "depositPercent",
+  "cancelPolicy",
 ];
 
 function pickVenueFields(body = {}) {

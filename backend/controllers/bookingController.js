@@ -5,6 +5,8 @@ import Venue from "../models/venueModel.js";
 import VenueCourt from "../models/venueCourtModel.js";
 import Booking from "../models/bookingModel.js";
 import BookingSlotLock, { slotStartsBetween } from "../models/bookingSlotLockModel.js";
+import CourtBlock from "../models/courtBlockModel.js";
+import PromoCode from "../models/promoCodeModel.js";
 import { canManageVenue } from "../utils/venueAuth.js";
 import { bookingBankInfo } from "../utils/bankQr.js";
 import { notifyBooking } from "../services/bookingNotify.js";
@@ -77,9 +79,21 @@ export const getAvailability = expressAsyncHandler(async (req, res) => {
     byCourt.get(key).push(b);
   }
 
+  // Khoá sân / bảo trì trong ngày (court=null → áp cho mọi sân)
+  const blocks = await CourtBlock.find({
+    venue: id,
+    startAt: { $lt: dayEnd },
+    endAt: { $gt: dayStart },
+  })
+    .select("court startAt endAt reason")
+    .lean();
+
   const result = courts.map((court) => {
     const day = getDayHours(venue, court, weekday);
     const existing = byCourt.get(String(court._id)) || [];
+    const courtBlocks = blocks.filter(
+      (b) => !b.court || String(b.court) === String(court._id),
+    );
     if (day.closed) {
       return { _id: court._id, name: court.name, order: court.order, closed: true, slots: [] };
     }
@@ -93,12 +107,16 @@ export const getAvailability = expressAsyncHandler(async (req, res) => {
         const overlap = existing.some(
           (b) => new Date(b.startAt) < endAt && new Date(b.endAt) > startAt,
         );
+        const blocked = courtBlocks.some(
+          (b) => new Date(b.startAt) < endAt && new Date(b.endAt) > startAt,
+        );
         const { totalPrice } = computeBookingPrice(venue, court, weekday, m, m + slot);
         slots.push({
           start: minutesToHHMM(m),
           end: minutesToHHMM(m + slot),
           price: totalPrice,
-          booked: overlap,
+          booked: overlap || blocked,
+          blocked,
           past: startAt.getTime() < now.getTime(),
         });
       }
@@ -189,13 +207,45 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
     throw new Error("Khung giờ này đã có người đặt");
   }
 
-  const { totalPrice, pricePerHour } = computeBookingPrice(
+  // Chặn đặt vào khung đang khoá / bảo trì
+  const block = await CourtBlock.findOne({
+    venue: venueId,
+    $or: [{ court: courtId }, { court: null }],
+    startAt: { $lt: endAt },
+    endAt: { $gt: startAt },
+  }).lean();
+  if (block) {
+    res.status(409);
+    throw new Error(block.reason ? `Sân đang khoá: ${block.reason}` : "Sân đang bảo trì khung giờ này");
+  }
+
+  const { totalPrice: subtotal, pricePerHour } = computeBookingPrice(
     venue,
     court,
     weekday,
     startMin,
     endMin,
   );
+
+  // Mã giảm giá (tuỳ chọn)
+  let discountAmount = 0;
+  let promoDoc = null;
+  const promoInput = String(req.body?.promoCode || "").trim().toUpperCase();
+  if (promoInput) {
+    promoDoc = await PromoCode.findOne({ venue: venueId, code: promoInput });
+    if (!promoDoc) {
+      res.status(400);
+      throw new Error("Mã giảm giá không tồn tại");
+    }
+    const r = promoDoc.computeDiscount(subtotal);
+    if (!r.ok) {
+      res.status(400);
+      throw new Error(r.reason);
+    }
+    discountAmount = r.discount;
+  }
+
+  const totalPrice = Math.max(0, subtotal - discountAmount);
   const depositAmount = Math.round((totalPrice * (venue.depositPercent || 0)) / 100);
 
   const manage = await canManageVenue(req.user, venue);
@@ -206,6 +256,9 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
     endAt,
     durationMin: endMin - startMin,
     pricePerHour,
+    subtotal,
+    discountAmount,
+    promoCode: discountAmount > 0 ? promoInput : "",
     totalPrice,
     depositAmount,
     status: "pending",
@@ -247,6 +300,10 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
     throw e;
   }
   await booking.save();
+
+  if (promoDoc && discountAmount > 0) {
+    PromoCode.updateOne({ _id: promoDoc._id }, { $inc: { usedCount: 1 } }).catch(() => {});
+  }
 
   if (doc.createdByRole === "customer") {
     notifyBooking("created", booking, {
@@ -364,6 +421,18 @@ export const updateBookingStatus = expressAsyncHandler(async (req, res) => {
     if (!manage && !isOwnerOfBooking) {
       res.status(403);
       throw new Error("Không có quyền huỷ lượt đặt này");
+    }
+    // Chính sách huỷ: khách không được tự huỷ đơn ĐÃ xác nhận khi quá sát giờ
+    if (!manage && booking.status === "confirmed") {
+      const v = await Venue.findById(booking.venue).select("cancelPolicy").lean();
+      const hoursBefore = Number(v?.cancelPolicy?.hoursBefore) || 0;
+      if (hoursBefore > 0) {
+        const deadline = new Date(booking.startAt).getTime() - hoursBefore * 3600 * 1000;
+        if (Date.now() > deadline) {
+          res.status(400);
+          throw new Error(`Chỉ được tự huỷ trước ${hoursBefore} giờ. Vui lòng liên hệ chủ sân.`);
+        }
+      }
     }
     booking.cancelledAt = new Date();
     booking.cancelReason = String(req.body?.cancelReason || "").slice(0, 300);
