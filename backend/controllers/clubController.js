@@ -62,10 +62,6 @@ const ensureSlugUnique = async (name) => {
   return slug;
 };
 
-const MAX_CLUBS_PER_USER = 3;
-const countActiveClubs = (userId) =>
-  ClubMember.countDocuments({ user: userId, status: "active" });
-
 /** Helper: validate combo visibility + joinPolicy (VIETNAMESE) */
 const validateVisibilityJoin = (visibility, joinPolicy) => {
   if (!CLUB_VISIBILITY.includes(visibility)) {
@@ -127,14 +123,6 @@ export const createClub = async (req, res) => {
 
     if (!name?.trim()) {
       return res.status(400).json({ message: "Vui lòng nhập tên CLB." });
-    }
-
-    // limit membership
-    const activeCount = await countActiveClubs(req.user._id);
-    if (activeCount >= MAX_CLUBS_PER_USER) {
-      return res.status(409).json({
-        message: `Bạn chỉ được tham gia tối đa ${MAX_CLUBS_PER_USER} CLB.`,
-      });
     }
 
     // validate visibility/joinPolicy cũ (nếu bạn đã có)
@@ -724,13 +712,6 @@ export const requestJoin = async (req, res) => {
       .status(409)
       .json({ message: "Bạn đã là thành viên của CLB này." });
 
-  // limit 3 CLB — chặn cả gửi request để tránh pending vô nghĩa
-  const activeCount = await countActiveClubs(req.user._id);
-  if (activeCount >= MAX_CLUBS_PER_USER) {
-    return res
-      .status(409)
-      .json({ message: `Bạn đã đạt giới hạn ${MAX_CLUBS_PER_USER} CLB.` });
-  }
 
   if (club.joinPolicy === "invite_only") {
     return res
@@ -802,14 +783,6 @@ export const acceptJoin = async (req, res) => {
     return res
       .status(500)
       .json({ message: "Không tìm thấy yêu cầu gia nhập." });
-
-  // limit 3 CLB cho user được accept
-  const activeCount = await countActiveClubs(jr.user);
-  if (activeCount >= MAX_CLUBS_PER_USER) {
-    return res.status(409).json({
-      message: `Người dùng đã đạt giới hạn ${MAX_CLUBS_PER_USER} CLB.`,
-    });
-  }
 
   const exists = await ClubMember.findOne({
     club: req.club._id,
@@ -899,13 +872,6 @@ export const addMember = async (req, res) => {
     });
     if (exist)
       return res.status(409).json({ message: "Người dùng đã là thành viên" });
-
-    const activeCount = await countActiveClubs(targetUserId);
-    if (activeCount >= MAX_CLUBS_PER_USER) {
-      return res.status(409).json({
-        message: `Người dùng đã đạt giới hạn ${MAX_CLUBS_PER_USER} CLB.`,
-      });
-    }
 
     await ClubMember.create({
       club: req.club._id,
