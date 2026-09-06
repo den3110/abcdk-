@@ -1,5 +1,5 @@
 // screens/EventLivePage.jsx — Xem live giải đấu (vd Heineken Pickleball World Cup 2026)
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Box,
   Container,
@@ -64,6 +64,94 @@ function LiveDot() {
   );
 }
 
+// Player HLS/URL thủ công (hls.js load động, chỉ khi cần).
+function HlsVideo({ src, title, muted, onToggleMute }) {
+  const videoRef = useRef(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !src) return undefined;
+    let hls;
+    let cancelled = false;
+
+    const canNative = video.canPlayType("application/vnd.apple.mpegurl");
+    const isHls = /\.m3u8(\?|$)/i.test(src);
+
+    if (isHls && !canNative) {
+      // Dùng hls.js cho trình duyệt không hỗ trợ HLS gốc (Chrome/Firefox).
+      import("hls.js")
+        .then(({ default: Hls }) => {
+          if (cancelled) return;
+          if (Hls.isSupported()) {
+            hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+            hls.loadSource(src);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              video.play().catch(() => {});
+            });
+          } else {
+            video.src = src;
+          }
+        })
+        .catch(() => {
+          video.src = src;
+        });
+    } else {
+      // Safari/iOS phát HLS gốc, hoặc file mp4 thường.
+      video.src = src;
+      video.play().catch(() => {});
+    }
+
+    return () => {
+      cancelled = true;
+      if (hls) hls.destroy();
+    };
+  }, [src]);
+
+  return (
+    <Box
+      sx={{
+        position: "relative",
+        width: "100%",
+        height: "100%",
+        borderRadius: 3,
+        overflow: "hidden",
+        bgcolor: "#000",
+        boxShadow: "0 10px 40px rgba(0,0,0,.5)",
+      }}
+    >
+      <video
+        ref={videoRef}
+        title={title || "live"}
+        muted={muted}
+        autoPlay
+        playsInline
+        controls
+        style={{ position: "absolute", inset: 0, width: "100%", height: "100%", background: "#000" }}
+      />
+      <Button
+        size="small"
+        startIcon={<VolumeUpIcon />}
+        onClick={onToggleMute}
+        sx={{
+          position: "absolute",
+          left: 12,
+          bottom: 56,
+          zIndex: 3,
+          bgcolor: "rgba(0,0,0,.72)",
+          color: "#fff",
+          fontWeight: 800,
+          textTransform: "none",
+          borderRadius: 999,
+          "&:hover": { bgcolor: "rgba(0,0,0,.85)" },
+        }}
+      >
+        {muted ? "Bật tiếng" : "Tắt tiếng"}
+      </Button>
+    </Box>
+  );
+}
+
 function Player({ active }) {
   // Mặc định phát tắt tiếng để autoplay không bị chặn (chặn -> hiện nút to
   // "Xem trên YouTube"). Người dùng bấm "Bật tiếng" để nghe.
@@ -88,6 +176,19 @@ function Player({ active }) {
       >
         <Typography>Chọn một sân/góc cam để xem</Typography>
       </Box>
+    );
+  }
+
+  // Luồng thủ công (HLS/URL) -> phát bằng <video> + hls.js.
+  if (active.hlsUrl || active.sourceType === "hls" || active.sourceType === "url") {
+    return (
+      <HlsVideo
+        key={active.videoId}
+        src={active.hlsUrl}
+        title={active.title}
+        muted={muted}
+        onToggleMute={() => setMuted((m) => !m)}
+      />
     );
   }
 
@@ -242,7 +343,9 @@ function MiniPlayer({ feed, onSwap, onClose }) {
       }}
     >
       <Box sx={{ position: "relative", width: "100%", aspectRatio: "16/9" }}>
-        {feed.embeddable === false ? (
+        {feed.hlsUrl || feed.sourceType === "hls" || feed.sourceType === "url" ? (
+          <HlsVideo key={feed.videoId} src={feed.hlsUrl} title={feed.title} muted onToggleMute={() => {}} />
+        ) : feed.embeddable === false ? (
           <Box sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", p: 1, textAlign: "center" }}>
             <Typography variant="caption" sx={{ color: "#cbd5e1" }}>
               Luồng này chỉ xem trên YouTube

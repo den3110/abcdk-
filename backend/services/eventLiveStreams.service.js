@@ -359,6 +359,7 @@ export async function getEventLiveConfig() {
     youtubeChannel: cfg.youtubeChannel || "",
     autoNotify: cfg.autoNotify === true,
     autoNotifyCooldownMinutes: Number(cfg.autoNotifyCooldownMinutes) || 180,
+    manualStreams: Array.isArray(cfg.manualStreams) ? cfg.manualStreams : [],
     _apiKey: cfg.youtubeApiKey || "",
   };
 }
@@ -411,6 +412,56 @@ export async function detectLiveNow() {
   return { enabled: true, eventName: cfg.eventName, live: all };
 }
 
+/** Chuẩn hoá 1 URL thành id ổn định (để React key & tracking). */
+function hashUrl(str) {
+  let h = 0;
+  const s = String(str || "");
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return `hls_${(h >>> 0).toString(36)}`;
+}
+
+const slugKey = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+
+/** Xây feed từ các luồng thủ công (HLS/URL) trong cấu hình. */
+function buildManualFeeds(cfg) {
+  const list = Array.isArray(cfg.manualStreams) ? cfg.manualStreams : [];
+  const live = [];
+  const replays = [];
+  list.forEach((m, idx) => {
+    const url = String(m?.url || "").trim();
+    if (!url || m?.enabled === false) return;
+    const courtLabel = String(m?.courtLabel || "").trim() || "Luồng thủ công";
+    const angleLabel = String(m?.angleLabel || "").trim() || "Toàn cảnh";
+    const isHls = /\.m3u8(\?|$)/i.test(url);
+    const feed = {
+      videoId: m?.id || hashUrl(url), // id tổng hợp (không phải YouTube)
+      sourceType: isHls ? "hls" : "url",
+      hlsUrl: url,
+      title: String(m?.title || "").trim() || courtLabel,
+      thumbnail: String(m?.thumbnail || "").trim() || null,
+      publishedAt: null,
+      embeddable: true,
+      courtKey: `manual:${slugKey(courtLabel) || idx}`,
+      courtLabel,
+      courtSort: -1000 + idx, // hiển thị lên đầu (luồng chủ động thêm)
+      venue: null,
+      angle: "main",
+      angleLabel,
+    };
+    if (String(m?.kind || "live") === "replay") replays.push(feed);
+    else live.push(feed);
+  });
+  return { live, replays };
+}
+
 /** Dữ liệu cho client: { enabled, event..., live:[], replays:[] }. Cache 90s. */
 export async function getEventLiveData({ force = false } = {}) {
   const now = Date.now();
@@ -428,54 +479,53 @@ export async function getEventLiveData({ force = false } = {}) {
     updatedAt: new Date().toISOString(),
   };
 
-  if (!cfg.enabled || !cfg.youtubeChannel) {
+  if (!cfg.enabled) {
     CACHE.data = base;
     CACHE.at = now;
     return base;
   }
 
-  const apiKey =
-    (cfg._apiKey || "").trim() || (await getCfgStr("YOUTUBE_API_KEY", "")).trim();
-  if (!apiKey) {
-    base.error = "missing_api_key";
-    CACHE.data = base;
-    CACHE.at = now;
-    return base;
+  // Luồng thủ công (HLS/URL) — luôn hiển thị khi bật, không phụ thuộc YouTube.
+  const manual = buildManualFeeds(cfg);
+  let allLive = [...manual.live];
+  let allReplays = [...manual.replays];
+
+  // Luồng YouTube (best-effort) — nếu có cấu hình kênh + apiKey.
+  if (cfg.youtubeChannel) {
+    const apiKey =
+      (cfg._apiKey || "").trim() ||
+      (await getCfgStr("YOUTUBE_API_KEY", "")).trim();
+    if (!apiKey) {
+      if (!allLive.length && !allReplays.length) base.error = "missing_api_key";
+    } else {
+      try {
+        const channels = parseChannelList(cfg.youtubeChannel);
+        if (channels.length) {
+          const results = await Promise.all(
+            channels.map((c) =>
+              fetchOneChannel(c, apiKey).catch(() => ({ live: [], replays: [] })),
+            ),
+          );
+          for (const r of results) {
+            allLive.push(...(r.live || []).map((f) => ({ ...f, sourceType: "youtube" })));
+            allReplays.push(...(r.replays || []).map((f) => ({ ...f, sourceType: "youtube" })));
+          }
+        } else if (!allLive.length && !allReplays.length) {
+          base.error = "channel_not_found";
+        }
+      } catch (e) {
+        if (!allLive.length && !allReplays.length) base.error = e?.message || "yt_error";
+      }
+    }
   }
 
-  try {
-    const channels = parseChannelList(cfg.youtubeChannel);
-    if (!channels.length) {
-      base.error = "channel_not_found";
-      CACHE.data = base;
-      CACHE.at = now;
-      return base;
-    }
+  allLive = dedupById(allLive);
+  const liveSet = new Set(allLive.map((f) => f.videoId));
+  allReplays = dedupById(allReplays.filter((f) => !liveSet.has(f.videoId)));
 
-    // Lấy song song từng kênh; kênh lỗi thì bỏ qua (không làm hỏng cả trang).
-    const results = await Promise.all(
-      channels.map((c) =>
-        fetchOneChannel(c, apiKey).catch(() => ({ live: [], replays: [] })),
-      ),
-    );
-
-    let allLive = [];
-    let allReplays = [];
-    for (const r of results) {
-      allLive.push(...(r.live || []));
-      allReplays.push(...(r.replays || []));
-    }
-
-    allLive = dedupById(allLive);
-    const liveSet = new Set(allLive.map((f) => f.videoId));
-    allReplays = dedupById(allReplays.filter((f) => !liveSet.has(f.videoId)));
-
-    base.live = groupByCourt(allLive, "angles");
-    base.replays = groupByCourt(allReplays, "videos");
-    base.updatedAt = new Date().toISOString();
-  } catch (e) {
-    base.error = e?.message || "yt_error";
-  }
+  base.live = groupByCourt(allLive, "angles");
+  base.replays = groupByCourt(allReplays, "videos");
+  base.updatedAt = new Date().toISOString();
 
   CACHE.data = base;
   CACHE.at = now;

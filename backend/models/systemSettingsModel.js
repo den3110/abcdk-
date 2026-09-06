@@ -338,6 +338,25 @@ const SystemSettingsSchema = new mongoose.Schema(
       autoNotify: { type: Boolean, default: false },
       // Cooldown giữa 2 lần auto-push (phút) để tránh spam khi nhiều sân lên sóng lệch giờ
       autoNotifyCooldownMinutes: { type: Number, default: 180 },
+      // Luồng thêm thủ công từ URL (HLS .m3u8 / mp4) — cho các sân không có
+      // video YouTube. Hiển thị song song với luồng YouTube.
+      manualStreams: {
+        type: [
+          {
+            _id: false,
+            id: { type: String, default: "" },
+            url: { type: String, default: "", trim: true },
+            title: { type: String, default: "", trim: true },
+            courtLabel: { type: String, default: "", trim: true },
+            angleLabel: { type: String, default: "", trim: true },
+            // "live" (đang trực tiếp) | "replay" (xem lại)
+            kind: { type: String, default: "live" },
+            thumbnail: { type: String, default: "", trim: true },
+            enabled: { type: Boolean, default: true },
+          },
+        ],
+        default: [],
+      },
     },
 
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

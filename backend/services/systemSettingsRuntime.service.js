@@ -145,6 +145,7 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     tournamentId: "",
     autoNotify: false,
     autoNotifyCooldownMinutes: 180,
+    manualStreams: [],
   },
   aiGateway: {
     enabled: true,
