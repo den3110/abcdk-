@@ -1,3 +1,22 @@
+> ## 🆕 Session 2026-09-07 — Đặt sân (Alobo-style) hoàn thiện + Nhân viên/phân quyền + POS bill/PDF + Bank picker + fix bàn phím
+>
+> **HEAD:** backend `abcdk-` master (nhiều commit: staff/permissions `e9848ef4`, hold-15' `40733b6a`, fix "Ngày không hợp lệ" `492c5939`) · mobile `pickletour-app` master (staff/POS/bank `7e2e61f`, home banner `91da93d`, keyboard fixes commit tiếp theo) · web frontend (staff page + bank picker commit tiếp theo). **Backend CHƯA chắc đã deploy — nhắc user chạy** `cd /abcdk- && git fetch origin master && git reset --hard origin/master && pm2 restart server --update-env`.
+>
+> ### 🔴🔴 QUY TẮC BÀN PHÍM CHE INPUT — KHÔNG BAO GIỜ ĐƯỢC LẶP LẠI
+> **Lỗi kinh điển đã bị nhiều lần:** màn/modal có `TextInput` mà bàn phím bật lên che mất ô nhập (user không thấy đang gõ gì). **BẮT BUỘC khi tạo BẤT KỲ màn/modal nào có TextInput:**
+> - **Bottom-sheet Modal** (`justifyContent:"flex-end"`): bọc phần sheet bằng `<KeyboardAvoidingView style={styles.modalWrap} behavior={Platform.OS === "ios" ? "padding" : undefined}>` (thay cho `<View>`); nội dung dài để trong `ScrollView keyboardShouldPersistTaps="handled"` + `modal` có `maxHeight:"88%"`.
+> - **Màn có ScrollView**: thêm `automaticallyAdjustKeyboardInsets` + `keyboardShouldPersistTaps="handled"` vào ScrollView chính (iOS tự chừa chỗ; Android Expo mặc định `softwareKeyboardLayoutMode:"resize"` nên OK).
+> - **Full-screen form không ScrollView**: bọc root bằng `KeyboardAvoidingView behavior="padding"` (xem `owner/register.tsx`, `venue/new.tsx`).
+> - Đã fix loạt file phiên này: `owner/venue/[id]/{staff,products,packages,edit,promos,blocks,recurring}.tsx`, `courts/{reviews/[id],booking/[id]}.tsx`. `courts/[id].tsx` confirm-modal đã có sẵn KAV. **Khi thêm màn mới CHECK LẠI QUY TẮC NÀY.**
+>
+> ### Tính năng ship phiên này (đọc memory `court-booking-system.md` để đủ chi tiết)
+> 1. **Đặt sân đầy đủ 3 pha** (đã xong từ phần trước phiên): tìm sân/bản đồ Mapbox(mobile), đặt giờ, thanh toán QR SePay + chụp bill → chủ duyệt, vé QR check-in, chống trùng slot-lock, gói giờ/thẻ, mã giảm, khoá sân, định kỳ, POS, phân tích, hoa hồng/đối soát. **Giữ chỗ 15'** (`PENDING_TTL_MIN=15`, job `booking.expire-pending` mỗi 1'), API trả `holdExpiresAt`. **Đặt hộ** chỉ khi `body.asOwner===true` (nút "Đặt hộ" → `/courts/[id]?walkin=1`); admin/chủ tự đặt bình thường đi luồng khách (có QR + vào "Lịch của tôi").
+> 2. **Nhân viên & phân quyền:** `venuePermissions.js` (12 quyền), `venueStaffModel`, `venueStaffController` + routes `/api/venues/:id/{staff,my-access}`. `venueAuth.resolveVenueAccess/venueCan/venueCanAny`; role "manager" sync vào `Venue.managers`. Đã thread quyền vào mọi controller POS/booking/ops/packages/analytics/venue.edit. Mobile màn `owner/venue/[id]/staff.tsx` + hub lọc tile theo `my-access`. Web `VenueStaffPage.jsx` + route `/owner/venues/:id/staff`.
+> 3. **POS in bill/PDF:** `venueSale.code`, `utils/receiptHtml.ts` (80mm + báo cáo ngày), in/PDF qua expo-print/expo-sharing (đã có trong binary).
+> 4. **Bank picker có logo:** copy `constants/banks.ts` + `assets/banks/*.png` (52 logo) từ `/Users/admin/Projects/PickleBook/owner-app`. Mobile `components/courts/BankPicker.tsx`, web `components/BankSelect.jsx` (logo qua `import.meta.glob`) + `screens/courts/banks.js`. Lưu `venue.bankCode`+`bankShortName`(=bank.name kiểu SePay "Vietcombank"/"MBBank"). Hiện logo ở màn thanh toán khách.
+> 5. **Giá theo khung giờ/thứ:** ĐÃ CÓ SẴN (`court.priceRules` + `computeBookingPrice` + UI CourtsManager) — không làm mới.
+> 6. **Trang chủ:** banner "Đặt sân" nổi bật (`components/home/CourtBookingBanner.tsx`) + lưới Tính năng luxury; ô "Đặt sân" isHot.
+>
 > ## 🆕 Session 2026-08-27→28 — Zalo ZNS OTP toàn diện + CLB (chat/quỹ/buổi tập/BXH) + Parity giao diện V2 (Astryx)
 >
 > **HEAD:** `abcdk-` = `ab1285e6` · `abcde` (admin) = `0c84eb2` · `pickletour-app` (mobile) = `bf6d3b9`. **Đã deploy hết** (backend + web + admin + mobile OTA OK=4/4 nhiều lần).
