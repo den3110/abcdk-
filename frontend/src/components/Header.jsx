@@ -604,15 +604,15 @@ export default function Header() {
             </Box>
           </Box>
 
+          {/* Nút Tìm kiếm đưa sang góc TRÁI trên mobile để không che logo PickleTour */}
           <Box
             sx={{
               display: { xs: "flex", md: "none" },
               position: "absolute",
-              right: 0,
+              left: showBackButton ? 40 : 0,
               top: "50%",
               transform: "translateY(-50%)",
               alignItems: "center",
-              gap: 0.75,
             }}
           >
             <Tooltip title={t("commandPalette.triggerAria")}>
@@ -631,6 +631,19 @@ export default function Header() {
                 <SearchIcon fontSize="small" />
               </IconButton>
             </Tooltip>
+          </Box>
+
+          <Box
+            sx={{
+              display: { xs: "flex", md: "none" },
+              position: "absolute",
+              right: 0,
+              top: "50%",
+              transform: "translateY(-50%)",
+              alignItems: "center",
+              gap: 0.75,
+            }}
+          >
             <Tooltip
               title={
                 isDark
