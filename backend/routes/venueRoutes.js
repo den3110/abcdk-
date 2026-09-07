@@ -26,6 +26,8 @@ import {
   deletePromo,
   validatePromo,
   createRecurring,
+  listRecurringGroups,
+  cancelRecurringGroup,
   myVenuesOverview,
 } from "../controllers/venueOpsController.js";
 import {
@@ -88,8 +90,10 @@ router.patch("/:id/promos/:promoId", protect, updatePromo);
 router.delete("/:id/promos/:promoId", protect, deletePromo);
 router.get("/:id/promos/validate", validatePromo); // khách kiểm tra mã (public)
 
-// Đặt định kỳ
+// Đặt định kỳ / lịch cố định
+router.get("/:id/recurring", protect, listRecurringGroups);
 router.post("/:id/recurring", protect, createRecurring);
+router.delete("/:id/recurring/:group", protect, cancelRecurringGroup);
 
 // Bán hàng / kho (POS)
 router.get("/:id/products", protect, listProducts);
