@@ -69,7 +69,9 @@ export const listSessions = async (req, res) => {
 /** POST /clubs/:id/sessions — admin (repeatWeeks: lặp hàng tuần) */
 export const createSession = async (req, res) => {
   try {
-    const { title = "Buổi tập", startAt, location = "", note = "", repeatWeeks = 1 } = req.body || {};
+    const { title = "Buổi tập", startAt, location = "", note = "", repeatWeeks = 1, venue = null, court = null } = req.body || {};
+    const venueId = mongoose.isValidObjectId(venue) ? venue : null;
+    const courtId = mongoose.isValidObjectId(court) ? court : null;
     if (!startAt) return res.status(400).json({ message: "Thiếu thời gian bắt đầu." });
     const base = new Date(startAt);
     if (Number.isNaN(base.getTime()))
@@ -86,6 +88,8 @@ export const createSession = async (req, res) => {
         startAt: d,
         location: String(location || "").slice(0, 300),
         note: String(note || "").slice(0, 2000),
+        venue: venueId,
+        court: courtId,
         createdBy: req.user._id,
       });
     }

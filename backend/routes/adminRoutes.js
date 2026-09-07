@@ -36,6 +36,10 @@ import {
   adminRejectRequest,
 } from "../controllers/courtOwnerController.js";
 import {
+  adminReconciliation,
+  adminSetCommission,
+} from "../controllers/admin/adminReconController.js";
+import {
   requireTournamentManager,
   attachTournamentFromRegistration,
 } from "../utils/tournamentAuth.js";
@@ -734,6 +738,7 @@ router.post("/users/:id/reset-nickname-cooldown", resetNicknameCooldown);
 
 // ===== Quản lý đặt sân (venues/bookings) =====
 router.get("/venues", adminListVenues);
+router.get("/venues/reconciliation", adminReconciliation); // TRƯỚC /venues/:id
 router.get("/venues/:id", adminGetVenue);
 router.patch("/venues/:id/status", adminSetVenueStatus);
 router.get("/bookings", adminListBookings);
@@ -742,6 +747,10 @@ router.get("/bookings", adminListBookings);
 router.get("/court-owner/requests", adminListRequests);
 router.patch("/court-owner/requests/:id/approve", adminApproveRequest);
 router.patch("/court-owner/requests/:id/reject", adminRejectRequest);
+
+// Đối soát hoa hồng nền tảng (commission route đặt riêng, /reconciliation
+// đã khai báo TRƯỚC /venues/:id ở trên)
+router.patch("/venues/:id/commission", adminSetCommission);
 
 router.put("/rankings/:id", adminUpdateRanking);
 

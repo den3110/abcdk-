@@ -28,6 +28,25 @@ import {
   createRecurring,
   myVenuesOverview,
 } from "../controllers/venueOpsController.js";
+import {
+  listProducts,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+  createSale,
+  listSales,
+} from "../controllers/venuePosController.js";
+import {
+  listPackages,
+  createPackage,
+  updatePackage,
+  deletePackage,
+  purchasePackage,
+  listVenuePurchases,
+  activatePurchase,
+} from "../controllers/venuePackageController.js";
+import { getVenueAnalytics } from "../controllers/venueAnalyticsController.js";
+import { attachJwtIfPresent } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
@@ -64,5 +83,25 @@ router.get("/:id/promos/validate", validatePromo); // khách kiểm tra mã (pub
 
 // Đặt định kỳ
 router.post("/:id/recurring", protect, createRecurring);
+
+// Bán hàng / kho (POS)
+router.get("/:id/products", protect, listProducts);
+router.post("/:id/products", protect, createProduct);
+router.patch("/:id/products/:productId", protect, updateProduct);
+router.delete("/:id/products/:productId", protect, deleteProduct);
+router.get("/:id/sales", protect, listSales);
+router.post("/:id/sales", protect, createSale);
+
+// Gói giờ / thẻ tháng
+router.get("/:id/packages", attachJwtIfPresent, listPackages); // public (active) hoặc owner all=1
+router.post("/:id/packages", protect, createPackage);
+router.patch("/:id/packages/:packageId", protect, updatePackage);
+router.delete("/:id/packages/:packageId", protect, deletePackage);
+router.post("/:id/packages/:packageId/purchase", protect, purchasePackage);
+router.get("/:id/package-purchases", protect, listVenuePurchases);
+router.patch("/:id/package-purchases/:purchaseId/activate", protect, activatePurchase);
+
+// Phân tích lấp đầy + doanh thu gộp
+router.get("/:id/analytics", protect, getVenueAnalytics);
 
 export default router;

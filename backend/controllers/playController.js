@@ -175,6 +175,8 @@ export const createInvite = asyncHandler(async (req, res) => {
     skillMax: b.skillMax != null && b.skillMax !== "" ? Number(b.skillMax) : null,
     slots: Math.max(1, Math.min(50, Number(b.slots) || 1)),
     contactPhone: String(b.contactPhone || "").slice(0, 20),
+    venue: mongoose.Types.ObjectId.isValid(b.venue) ? b.venue : null,
+    booking: mongoose.Types.ObjectId.isValid(b.booking) ? b.booking : null,
   });
   const populated = await PlayInvite.findById(doc._id).populate("host", HOST_FIELDS);
   res.status(201).json(toDTO(populated, req.user._id));

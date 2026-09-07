@@ -49,6 +49,11 @@ const bookingSchema = new Schema(
     // Đặt định kỳ (nhóm các lượt sinh cùng lần)
     recurringGroup: { type: String, default: "", index: true },
 
+    // Thanh toán bằng gói giờ/thẻ tháng (thay vì QR)
+    paidWithPackage: { type: Schema.Types.ObjectId, ref: "PackagePurchase", default: null },
+    // Hoa hồng nền tảng chốt tại thời điểm thanh toán (đối soát)
+    commissionAmount: { type: Number, default: 0, min: 0 },
+
     // pending: đã đặt, chưa gửi bill · awaiting_approval: đã gửi bill, chờ chủ sân duyệt
     status: {
       type: String,

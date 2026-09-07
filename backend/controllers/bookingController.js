@@ -7,6 +7,8 @@ import Booking from "../models/bookingModel.js";
 import BookingSlotLock, { slotStartsBetween } from "../models/bookingSlotLockModel.js";
 import CourtBlock from "../models/courtBlockModel.js";
 import PromoCode from "../models/promoCodeModel.js";
+import PackagePurchase from "../models/packagePurchaseModel.js";
+import VenueSale from "../models/venueSaleModel.js";
 import { canManageVenue } from "../utils/venueAuth.js";
 import { bookingBankInfo } from "../utils/bankQr.js";
 import { notifyBooking } from "../services/bookingNotify.js";
@@ -28,6 +30,17 @@ const VENUE_PUBLIC_FIELDS =
 const isDupKey = (e) =>
   e?.code === 11000 ||
   (Array.isArray(e?.writeErrors) && e.writeErrors.some((w) => w?.code === 11000));
+
+/** Chốt hoa hồng nền tảng khi 1 booking được thanh toán. */
+async function applyCommission(booking) {
+  try {
+    const v = await Venue.findById(booking.venue).select("commissionPercent").lean();
+    const pct = Number(v?.commissionPercent) || 0;
+    booking.commissionAmount = pct > 0 ? Math.round((Number(booking.totalPrice) || 0) * pct / 100) : 0;
+  } catch {
+    booking.commissionAmount = 0;
+  }
+}
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /* ===================== AVAILABILITY (lưới trống) ===================== */
@@ -245,7 +258,34 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
     discountAmount = r.discount;
   }
 
-  const totalPrice = Math.max(0, subtotal - discountAmount);
+  let totalPrice = Math.max(0, subtotal - discountAmount);
+
+  // Thanh toán bằng gói giờ / thẻ tháng (tuỳ chọn)
+  let usePackage = null;
+  if (isId(req.body?.packagePurchaseId)) {
+    const pur = await PackagePurchase.findOne({
+      _id: req.body.packagePurchaseId,
+      user: req.user._id,
+      venue: venueId,
+      status: "active",
+    });
+    if (!pur) {
+      res.status(400);
+      throw new Error("Gói không khả dụng");
+    }
+    if (pur.expiresAt && Date.now() > new Date(pur.expiresAt).getTime()) {
+      res.status(400);
+      throw new Error("Gói đã hết hạn");
+    }
+    const durMin = endMin - startMin;
+    if (pur.type === "credits" && pur.minutesRemaining < durMin) {
+      res.status(400);
+      throw new Error("Gói không đủ số giờ còn lại");
+    }
+    usePackage = pur;
+    totalPrice = 0;
+  }
+
   const depositAmount = Math.round((totalPrice * (venue.depositPercent || 0)) / 100);
 
   const manage = await canManageVenue(req.user, venue);
@@ -266,6 +306,12 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
     createdBy: req.user._id,
   };
 
+  if (usePackage) {
+    doc.paidWithPackage = usePackage._id;
+    doc.status = "confirmed";
+    doc.payment = { status: "Paid", paidAt: new Date(), method: "package" };
+  }
+
   if (manage) {
     // Chủ sân đặt hộ khách vãng lai: xác nhận luôn (thu tiền tại quầy)
     doc.createdByRole = "owner";
@@ -279,6 +325,7 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
     doc.customerName = String(req.body.customerName || req.user.name || "").slice(0, 120);
     doc.customerPhone = String(req.body.customerPhone || req.user.phone || "").slice(0, 30);
   }
+  if (usePackage) doc.user = req.user._id; // gói luôn gắn với người mua
 
   // Khoá slot atomic (unique court+slotStart) — 2 request đồng thời chỉ 1 thắng
   const booking = new Booking(doc);
@@ -305,7 +352,15 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
     PromoCode.updateOne({ _id: promoDoc._id }, { $inc: { usedCount: 1 } }).catch(() => {});
   }
 
-  if (doc.createdByRole === "customer") {
+  if (usePackage) {
+    if (usePackage.type === "credits") {
+      await PackagePurchase.updateOne(
+        { _id: usePackage._id },
+        { $inc: { minutesRemaining: -(endMin - startMin) } },
+      );
+    }
+    scheduleBookingReminder(booking).catch(() => {});
+  } else if (doc.createdByRole === "customer") {
     notifyBooking("created", booking, {
       actorId: req.user._id,
       venueName: venue.name,
@@ -315,7 +370,7 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
     scheduleBookingReminder(booking).catch(() => {});
   }
 
-  res.status(201).json({ ...booking.toObject(), bank: bookingBankInfo(venue, booking) });
+  res.status(201).json({ ...booking.toObject(), bank: usePackage ? null : bookingBankInfo(venue, booking) });
 });
 
 /* ===================== DANH SÁCH ===================== */
@@ -495,6 +550,8 @@ export const setBookingPayment = expressAsyncHandler(async (req, res) => {
     booking.payment.reviewedBy = req.user._id;
     booking.payment.reviewedAt = new Date();
   }
+  if (status === "Paid") await applyCommission(booking);
+  else booking.commissionAmount = 0;
   await booking.save();
   if (status === "Paid" && booking.status === "confirmed") {
     scheduleBookingReminder(booking).catch(() => {});
@@ -582,6 +639,7 @@ export const approveBooking = expressAsyncHandler(async (req, res) => {
   booking.payment.reviewedAt = new Date();
   booking.payment.rejectReason = "";
   booking.status = "confirmed";
+  await applyCommission(booking);
   await booking.save();
 
   scheduleBookingReminder(booking).catch(() => {});
@@ -733,16 +791,23 @@ export const getVenueRevenue = expressAsyncHandler(async (req, res) => {
   const fromInstant = buildInstant(from, "00:00");
   const toInstant = new Date(buildInstant(to, "00:00").getTime() + DAY_MS);
 
-  const bookings = await Booking.find({
-    venue: id,
-    startAt: { $gte: fromInstant, $lt: toInstant },
-  })
-    .select("court startAt totalPrice depositAmount status payment")
-    .populate("court", "name")
-    .lean();
+  const [bookings, sales] = await Promise.all([
+    Booking.find({
+      venue: id,
+      startAt: { $gte: fromInstant, $lt: toInstant },
+    })
+      .select("court startAt totalPrice depositAmount status payment commissionAmount")
+      .populate("court", "name")
+      .lean(),
+    VenueSale.find({ venue: id, createdAt: { $gte: fromInstant, $lt: toInstant } })
+      .select("total")
+      .lean(),
+  ]);
+  const salesRevenue = sales.reduce((s, x) => s + (Number(x.total) || 0), 0);
 
   let paidRevenue = 0;
   let paidCount = 0;
+  let commissionTotal = 0;
   let expectedRevenue = 0;
   let activeCount = 0;
   let unpaidAmount = 0;
@@ -765,6 +830,7 @@ export const getVenueRevenue = expressAsyncHandler(async (req, res) => {
     if (isPaid) {
       paidRevenue += total;
       paidCount += 1;
+      commissionTotal += Number(b.commissionAmount) || 0;
     } else {
       unpaidAmount += total;
       unpaidCount += 1;
@@ -806,6 +872,10 @@ export const getVenueRevenue = expressAsyncHandler(async (req, res) => {
       unpaidCount,
       cancelledCount,
       totalBookings: bookings.length,
+      salesRevenue,
+      grossRevenue: paidRevenue + salesRevenue,
+      commissionTotal,
+      netPayout: paidRevenue + salesRevenue - commissionTotal,
     },
     statusCounts,
     byCourt: Array.from(byCourt.values()).sort((a, b) => b.paid - a.paid),

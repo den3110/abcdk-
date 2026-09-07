@@ -33,6 +33,9 @@ const playInviteSchema = new Schema(
     province: { type: String, default: "", trim: true, maxlength: 80, index: true },
     district: { type: String, default: "", trim: true, maxlength: 80 },
     courtName: { type: String, default: "", trim: true, maxlength: 160 },
+    // Liên kết cụm sân / lượt đặt (mở kèo từ 1 booking)
+    venue: { type: mongoose.Schema.Types.ObjectId, ref: "Venue", default: null, index: true },
+    booking: { type: mongoose.Schema.Types.ObjectId, ref: "Booking", default: null },
 
     // Thời gian chơi
     playAt: { type: Date, required: true, index: true },

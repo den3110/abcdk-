@@ -83,6 +83,9 @@ const venueSchema = new Schema(
       note: { type: String, default: "", maxlength: 300 },
     },
 
+    // Hoa hồng nền tảng (%) tính trên doanh thu đã thu (đối soát)
+    commissionPercent: { type: Number, default: 0, min: 0, max: 100 },
+
     status: {
       type: String,
       enum: ["active", "pending", "suspended"],

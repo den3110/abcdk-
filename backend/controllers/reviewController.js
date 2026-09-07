@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Review from "../models/reviewModel.js";
 import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
+import Booking from "../models/bookingModel.js";
 import { asId } from "../utils/ids.js";
 
 const TARGET_TYPES = ["tournament", "venue"];
@@ -150,6 +151,13 @@ export async function upsertReview(req, res) {
     let verified = false;
     if (targetType === "tournament") {
       verified = await hasParticipated(userId, targetId);
+    } else if (targetType === "venue" && mongoose.Types.ObjectId.isValid(targetId)) {
+      const cnt = await Booking.countDocuments({
+        venue: asId(targetId),
+        user: asId(userId),
+        status: { $in: ["confirmed", "completed"] },
+      });
+      verified = cnt > 0;
     }
 
     const doc = await Review.findOneAndUpdate(
