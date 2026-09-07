@@ -79,6 +79,31 @@ export const venuesApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (res, err, { venueId }) => [{ type: "Venue", id: venueId }],
     }),
+
+    /* -------- Nhân viên & phân quyền -------- */
+    getMyVenueAccess: builder.query({
+      query: (venueId) => `/api/venues/${venueId}/my-access`,
+      providesTags: (r, e, id) => [{ type: "VenueAccess", id }],
+    }),
+    listStaff: builder.query({
+      query: (venueId) => `/api/venues/${venueId}/staff`,
+      providesTags: (r, e, id) => [{ type: "VenueStaff", id }],
+    }),
+    addStaff: builder.mutation({
+      query: ({ venueId, ...body }) => ({ url: `/api/venues/${venueId}/staff`, method: "POST", body }),
+      invalidatesTags: (r, e, a) => [{ type: "VenueStaff", id: a.venueId }],
+    }),
+    updateStaff: builder.mutation({
+      query: ({ venueId, staffId, ...body }) => ({ url: `/api/venues/${venueId}/staff/${staffId}`, method: "PATCH", body }),
+      invalidatesTags: (r, e, a) => [{ type: "VenueStaff", id: a.venueId }],
+    }),
+    removeStaff: builder.mutation({
+      query: ({ venueId, staffId }) => ({ url: `/api/venues/${venueId}/staff/${staffId}`, method: "DELETE" }),
+      invalidatesTags: (r, e, a) => [{ type: "VenueStaff", id: a.venueId }],
+    }),
+    searchUsers: builder.query({
+      query: (q) => `/api/users/search?q=${encodeURIComponent(q)}&limit=15`,
+    }),
   }),
 });
 
@@ -93,4 +118,10 @@ export const {
   useAddCourtMutation,
   useUpdateCourtMutation,
   useDeleteCourtMutation,
+  useGetMyVenueAccessQuery,
+  useListStaffQuery,
+  useAddStaffMutation,
+  useUpdateStaffMutation,
+  useRemoveStaffMutation,
+  useLazySearchUsersQuery,
 } = venuesApiSlice;

@@ -114,6 +114,7 @@ import OwnerVenuesPage from "./screens/courts/owner/OwnerVenuesPage.jsx";
 import VenueEditorPage from "./screens/courts/owner/VenueEditorPage.jsx";
 import VenueBookingsPage from "./screens/courts/owner/VenueBookingsPage.jsx";
 import VenueRevenuePage from "./screens/courts/owner/VenueRevenuePage.jsx";
+import VenueStaffPage from "./screens/courts/owner/VenueStaffPage.jsx";
 import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
 import LiveFeedPage from "./screens/LiveScreen.jsx";
 import LiveWatchPage from "./screens/live/LiveWatchPage.jsx";
@@ -289,6 +290,10 @@ const router = sentryCreateBrowserRouter(
           <Route
             path="/owner/venues/:id/revenue"
             element={<VenueRevenuePage />}
+          />
+          <Route
+            path="/owner/venues/:id/staff"
+            element={<VenueStaffPage />}
           />
         </Route>
         <Route path="/clubs" element={<ClubsListPage />} />

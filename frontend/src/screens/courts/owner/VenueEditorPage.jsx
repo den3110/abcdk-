@@ -32,6 +32,8 @@ import EditIcon from "@mui/icons-material/Edit";
 import SaveIcon from "@mui/icons-material/Save";
 import EventNoteIcon from "@mui/icons-material/EventNote";
 import BarChartIcon from "@mui/icons-material/BarChart";
+import GroupIcon from "@mui/icons-material/Group";
+import BankSelect from "../../../components/BankSelect";
 
 import {
   useGetVenueQuery,
@@ -81,6 +83,7 @@ export default function VenueEditorPage() {
       defaultPricePerHour: venue.defaultPricePerHour || 0,
       depositPercent: venue.depositPercent || 0,
       bankShortName: venue.bankShortName || "",
+      bankCode: venue.bankCode || "",
       bankAccountNumber: venue.bankAccountNumber || "",
       bankAccountName: venue.bankAccountName || "",
       images: Array.isArray(venue.images) ? venue.images : [],
@@ -169,6 +172,13 @@ export default function VenueEditorPage() {
             onClick={() => navigate(`/owner/venues/${id}/bookings`)}
           >
             Lượt đặt
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<GroupIcon />}
+            onClick={() => navigate(`/owner/venues/${id}/staff`)}
+          >
+            Nhân viên
           </Button>
         </Stack>
       </Stack>
@@ -300,7 +310,7 @@ export default function VenueEditorPage() {
             <TextField fullWidth size="small" type="number" label="Đặt cọc" value={form.depositPercent} onChange={(e) => set({ depositPercent: Number(e.target.value) })} InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }} />
           </Grid>
           <Grid item xs={12} sm={4}>
-            <TextField fullWidth size="small" label="Ngân hàng (mã)" placeholder="VD: VCB, MB…" value={form.bankShortName} onChange={(e) => set({ bankShortName: e.target.value })} />
+            <BankSelect value={form.bankCode} onChange={(b) => set({ bankCode: b?.code || "", bankShortName: b?.name || "" })} />
           </Grid>
           <Grid item xs={12} sm={4}>
             <TextField fullWidth size="small" label="Số tài khoản" value={form.bankAccountNumber} onChange={(e) => set({ bankAccountNumber: e.target.value })} />
