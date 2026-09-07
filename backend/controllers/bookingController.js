@@ -452,14 +452,25 @@ export const listVenueBookings = expressAsyncHandler(async (req, res) => {
 
   const filter = { venue: id };
   if (req.query.status) filter.status = String(req.query.status);
+
+  // Lọc theo 1 ngày (date) HOẶC khoảng ngày (from → to). Bao trùm cả ngày "to".
+  let ranged = false;
   if (isValidDateStr(req.query.date)) {
     const dayStart = buildInstant(req.query.date, "00:00");
     filter.startAt = { $gte: dayStart, $lt: new Date(dayStart.getTime() + DAY_MS) };
+    ranged = true;
+  } else if (isValidDateStr(req.query.from) || isValidDateStr(req.query.to)) {
+    const fromStr = isValidDateStr(req.query.from) ? req.query.from : req.query.to;
+    const toStr = isValidDateStr(req.query.to) ? req.query.to : req.query.from;
+    const start = buildInstant(fromStr, "00:00");
+    const end = new Date(buildInstant(toStr, "00:00").getTime() + DAY_MS);
+    filter.startAt = { $gte: start, $lt: end };
+    ranged = true;
   }
 
   const items = await Booking.find(filter)
-    .sort({ startAt: req.query.date ? 1 : -1 })
-    .limit(500)
+    .sort({ startAt: ranged ? 1 : -1 })
+    .limit(1000)
     .populate("court", "name")
     .populate("user", "name nickname phone")
     .lean();
