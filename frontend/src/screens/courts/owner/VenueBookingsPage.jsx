@@ -107,16 +107,16 @@ export default function VenueBookingsPage() {
 
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 2 }}>
         <Grid container spacing={1.5} alignItems="center">
-          <Grid item xs={12} sm={4}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <TextField fullWidth size="small" type="date" label="Ngày" InputLabelProps={{ shrink: true }} value={date} onChange={(e) => setDate(e.target.value)} />
           </Grid>
-          <Grid item xs={7} sm={4}>
+          <Grid size={{ xs: 7, sm: 4 }}>
             <TextField select fullWidth size="small" label="Trạng thái" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <MenuItem value="">Tất cả</MenuItem>
               {STATUS_OPTIONS.map(([v, l]) => <MenuItem key={v} value={v}>{l}</MenuItem>)}
             </TextField>
           </Grid>
-          <Grid item xs={5} sm={4}>
+          <Grid size={{ xs: 5, sm: 4 }}>
             <Stack alignItems="flex-end">
               <Typography variant="caption" color="text.secondary">Doanh thu đã thu</Typography>
               <Typography variant="h6" fontWeight={900} color="success.main">{fmtVND(stats.revenue)}</Typography>

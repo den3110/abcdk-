@@ -132,16 +132,16 @@ export default function VenueRevenuePage() {
         <>
           {/* KPI */}
           <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <Kpi label="Đã thu" value={fmtVND(totals.paidRevenue || 0)} sub={`${totals.paidCount || 0} lượt`} color="success.main" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <Kpi label="Dự kiến" value={fmtVND(totals.expectedRevenue || 0)} sub={`${totals.activeCount || 0} lượt`} color="primary.main" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <Kpi label="Chưa thu" value={fmtVND(totals.unpaidAmount || 0)} sub={`${totals.unpaidCount || 0} lượt`} color="warning.main" />
             </Grid>
-            <Grid item xs={6} md={3}>
+            <Grid size={{ xs: 6, md: 3 }}>
               <Kpi label="Đã huỷ" value={totals.cancelledCount || 0} sub="lượt" color="text.secondary" />
             </Grid>
           </Grid>

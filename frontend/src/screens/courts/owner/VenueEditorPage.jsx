@@ -199,19 +199,19 @@ export default function VenueEditorPage() {
       {/* Thông tin chung */}
       <Section title="Thông tin chung">
         <Grid container spacing={1.5}>
-          <Grid item xs={12} sm={6}>
+          <Grid size={{ xs: 12, sm: 6 }}>
             <TextField fullWidth size="small" label="Tên cụm sân" value={form.name} onChange={(e) => set({ name: e.target.value })} />
           </Grid>
-          <Grid item xs={12} sm={6}>
+          <Grid size={{ xs: 12, sm: 6 }}>
             <TextField fullWidth size="small" label="Số điện thoại" value={form.phone} onChange={(e) => set({ phone: e.target.value })} />
           </Grid>
-          <Grid item xs={12} sm={8}>
+          <Grid size={{ xs: 12, sm: 8 }}>
             <TextField fullWidth size="small" label="Địa chỉ" value={form.address} onChange={(e) => set({ address: e.target.value })} />
           </Grid>
-          <Grid item xs={12} sm={4}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <TextField fullWidth size="small" label="Tỉnh/TP" value={form.province} onChange={(e) => set({ province: e.target.value })} />
           </Grid>
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <TextField fullWidth size="small" label="Mô tả" value={form.description} onChange={(e) => set({ description: e.target.value })} multiline minRows={2} />
           </Grid>
         </Grid>
@@ -305,26 +305,26 @@ export default function VenueEditorPage() {
       {/* Cấu hình đặt & thanh toán */}
       <Section title="Đặt sân & thanh toán">
         <Grid container spacing={1.5}>
-          <Grid item xs={6} sm={3}>
+          <Grid size={{ xs: 6, sm: 3 }}>
             <TextField select fullWidth size="small" label="Bước giờ" value={form.slotMinutes} onChange={(e) => set({ slotMinutes: Number(e.target.value) })}>
               {[30, 60, 90, 120].map((m) => (
                 <MenuItem key={m} value={m}>{m} phút</MenuItem>
               ))}
             </TextField>
           </Grid>
-          <Grid item xs={6} sm={4}>
+          <Grid size={{ xs: 6, sm: 4 }}>
             <TextField fullWidth size="small" type="number" label="Giá mặc định/giờ" value={form.defaultPricePerHour} onChange={(e) => set({ defaultPricePerHour: Number(e.target.value) })} InputProps={{ endAdornment: <InputAdornment position="end">đ</InputAdornment> }} />
           </Grid>
-          <Grid item xs={6} sm={3}>
+          <Grid size={{ xs: 6, sm: 3 }}>
             <TextField fullWidth size="small" type="number" label="Đặt cọc" value={form.depositPercent} onChange={(e) => set({ depositPercent: Number(e.target.value) })} InputProps={{ endAdornment: <InputAdornment position="end">%</InputAdornment> }} />
           </Grid>
-          <Grid item xs={12} sm={4}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <BankSelect value={form.bankCode} onChange={(b) => set({ bankCode: b?.code || "", bankShortName: b?.name || "" })} />
           </Grid>
-          <Grid item xs={12} sm={4}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <TextField fullWidth size="small" label="Số tài khoản" value={form.bankAccountNumber} onChange={(e) => set({ bankAccountNumber: e.target.value })} />
           </Grid>
-          <Grid item xs={12} sm={4}>
+          <Grid size={{ xs: 12, sm: 4 }}>
             <TextField fullWidth size="small" label="Tên chủ tài khoản" value={form.bankAccountName} onChange={(e) => set({ bankAccountName: e.target.value })} />
           </Grid>
         </Grid>

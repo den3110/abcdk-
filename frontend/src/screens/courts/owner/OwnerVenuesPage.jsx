@@ -84,7 +84,7 @@ export default function OwnerVenuesPage() {
       {isLoading ? (
         <Grid container spacing={2.5}>
           {Array.from({ length: 3 }).map((_, i) => (
-            <Grid item xs={12} sm={6} md={4} key={i}><Skeleton variant="rounded" height={170} sx={{ borderRadius: 4 }} /></Grid>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={i}><Skeleton variant="rounded" height={170} sx={{ borderRadius: 4 }} /></Grid>
           ))}
         </Grid>
       ) : venues.length === 0 ? (
@@ -100,7 +100,7 @@ export default function OwnerVenuesPage() {
           {venues.map((v) => {
             const st = STATUS[v.status] || STATUS.active;
             return (
-              <Grid item xs={12} sm={6} md={4} key={v._id}>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={v._id}>
                 <Box sx={{ height: "100%", borderRadius: 4, border: `1px solid ${theme.palette.divider}`, bgcolor: "background.paper", p: 2, display: "flex", flexDirection: "column", gap: 1, transition: "box-shadow .18s ease, border-color .18s ease", "@media (prefers-reduced-motion: reduce)": { transition: "none" }, "&:hover": { borderColor: alpha(theme.palette.primary.main, 0.4), boxShadow: `0 12px 30px -16px ${alpha(theme.palette.common.black, 0.5)}` } }}>
                   <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
                     <Typography sx={{ fontWeight: 800, fontSize: 16.5 }} noWrap>{v.name}</Typography>

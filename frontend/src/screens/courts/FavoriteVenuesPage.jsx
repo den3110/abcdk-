@@ -96,7 +96,7 @@ export default function FavoriteVenuesPage() {
       ) : (
         <Grid container spacing={2.5}>
           {items.map((v) => (
-            <Grid item xs={12} sm={6} md={4} key={v._id}>
+            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={v._id}>
               <FavoriteCard venue={v} onOpen={(id) => navigate(`/courts/${id}`)} />
             </Grid>
           ))}

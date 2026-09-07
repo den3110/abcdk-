@@ -192,7 +192,7 @@ export default function CourtsBrowsePage() {
       <Grid container spacing={2.5}>
         {loading
           ? skeletons.map((_, i) => (
-              <Grid item xs={12} sm={6} md={3} key={i}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }} key={i}>
                 <Box sx={{ borderRadius: 4, overflow: "hidden", border: `1px solid ${theme.palette.divider}` }}>
                   <Skeleton variant="rectangular" sx={{ aspectRatio: "16 / 10" }} />
                   <Box sx={{ p: 1.75 }}>
@@ -204,7 +204,7 @@ export default function CourtsBrowsePage() {
               </Grid>
             ))
           : items.map((v) => (
-              <Grid item xs={12} sm={6} md={3} key={v._id}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }} key={v._id}>
                 <VenueCard venue={v} onOpen={(id) => navigate(`/courts/${id}`)} />
               </Grid>
             ))}

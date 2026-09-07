@@ -432,6 +432,7 @@ export const apiSlice = createApi({
     "VenueStaff",
     "VenueAccess",
     "Booking",
+    "Event",
     "AssessmentHistory",
     "RatingHistory",
     "MatchHistory",

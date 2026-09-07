@@ -75,7 +75,7 @@ export default function NoShowReportPage() {
       ) : (
         <>
           <Grid container spacing={2} sx={{ mb: 2 }}>
-            <Grid item xs={6}>
+            <Grid size={{ xs: 6 }}>
               <StatCard
                 icon={<EventBusyIcon sx={{ fontSize: 18 }} />}
                 label="Tổng lượt bỏ hẹn"
@@ -83,7 +83,7 @@ export default function NoShowReportPage() {
                 color="error.main"
               />
             </Grid>
-            <Grid item xs={6}>
+            <Grid size={{ xs: 6 }}>
               <StatCard
                 icon={<PeopleAltIcon sx={{ fontSize: 18 }} />}
                 label="Số khách"

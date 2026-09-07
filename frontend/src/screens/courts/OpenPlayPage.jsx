@@ -213,7 +213,7 @@ export default function OpenPlayPage() {
       ) : (
         <Grid container spacing={2.5}>
           {items.map((item) => (
-            <Grid item xs={12} md={6} key={item._id}>
+            <Grid size={{ xs: 12, md: 6 }} key={item._id}>
               <OpenPlayCard
                 item={item}
                 joining={joining}
