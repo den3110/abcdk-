@@ -300,16 +300,39 @@ async function loadManageableVenue(req, res) {
   return venue;
 }
 
-/** POST /api/venues/:id/courts */
+/** POST /api/venues/:id/courts
+ * Tạo 1 hoặc NHIỀU sân cùng lúc với chung dữ liệu giá/giờ vàng.
+ * body: { name, count?, startNumber?, names?:[], defaultPricePerHour, priceRules, openHours, sport }
+ * - count>1: tạo `count` sân, tên "{name} {startNumber+i}" (hoặc dùng mảng `names` nếu có).
+ */
 export const addCourt = expressAsyncHandler(async (req, res) => {
   const venue = await loadManageableVenue(req, res);
   const data = pickCourtFields(req.body);
-  if (!String(data.name || "").trim()) {
+  const baseName = String(data.name || "").trim();
+
+  const explicitNames = Array.isArray(req.body?.names)
+    ? req.body.names.map((n) => String(n || "").trim()).filter(Boolean)
+    : null;
+  const count = Math.min(30, Math.max(1, Number(req.body?.count) || (explicitNames ? explicitNames.length : 1)));
+  const startNumber = Number.isFinite(Number(req.body?.startNumber)) ? Number(req.body.startNumber) : 1;
+
+  if (!baseName && !explicitNames?.length) {
     res.status(400);
     throw new Error("Cần nhập tên sân");
   }
-  const court = await VenueCourt.create({ ...data, venue: venue._id });
-  res.status(201).json(court);
+
+  const baseOrder = await VenueCourt.countDocuments({ venue: venue._id });
+  const names =
+    explicitNames?.length
+      ? explicitNames
+      : count > 1
+        ? Array.from({ length: count }, (_, i) => `${baseName} ${startNumber + i}`)
+        : [baseName];
+
+  const { name: _omit, ...shared } = data; // giá / priceRules / openHours / sport dùng chung
+  const docs = names.map((name, i) => ({ ...shared, name, venue: venue._id, order: baseOrder + i }));
+  const created = await VenueCourt.insertMany(docs);
+  res.status(201).json(created.length === 1 ? created[0] : created);
 });
 
 /** PUT /api/venues/:id/courts/:courtId */
