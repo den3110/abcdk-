@@ -460,7 +460,7 @@ export const listRecurringGroups = expressAsyncHandler(async (req, res) => {
   const venue = await requireManage(req, res, "recurring.manage");
   const now = new Date();
   const groups = await Booking.aggregate([
-    { $match: { venue: venue._id, recurringGroup: { $ne: null } } },
+    { $match: { venue: venue._id, recurringGroup: { $nin: [null, ""] } } },
     { $sort: { startAt: 1 } },
     {
       $group: {
@@ -526,7 +526,11 @@ export const listRecurringGroups = expressAsyncHandler(async (req, res) => {
  */
 export const cancelRecurringGroup = expressAsyncHandler(async (req, res) => {
   const venue = await requireManage(req, res, "recurring.manage");
-  const { group } = req.params;
+  const group = String(req.params.group || "").trim();
+  if (!group) {
+    res.status(400);
+    throw new Error("Thiếu mã lịch cố định");
+  }
   const hard = req.query.hard === "1";
 
   const filter = { venue: venue._id, recurringGroup: group };
@@ -558,7 +562,11 @@ export const cancelRecurringGroup = expressAsyncHandler(async (req, res) => {
  */
 export const updateRecurringGroup = expressAsyncHandler(async (req, res) => {
   const venue = await requireManage(req, res, "recurring.manage");
-  const { group } = req.params;
+  const group = String(req.params.group || "").trim();
+  if (!group) {
+    res.status(400);
+    throw new Error("Thiếu mã lịch cố định");
+  }
 
   // 1) Cập nhật kế hoạch (tự gia hạn / kết thúc) — làm được kể cả khi không còn buổi sắp tới
   const planPatch = {};
