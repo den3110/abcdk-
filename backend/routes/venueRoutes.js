@@ -50,6 +50,12 @@ import {
 } from "../controllers/venuePackageController.js";
 import { getVenueAnalytics } from "../controllers/venueAnalyticsController.js";
 import {
+  toggleFavoriteVenue,
+  listFavoriteVenues,
+  getVenueWeather,
+  getVenueNoShowReport,
+} from "../controllers/bookingExtraController.js";
+import {
   createEvent,
   updateEvent,
   cancelEvent,
@@ -70,12 +76,17 @@ const router = express.Router();
 
 // Công khai
 router.get("/", listVenues);
-// "mine" phải đứng trước "/:id"
+// "mine"/"favorites" phải đứng trước "/:id"
 router.get("/mine", protect, listMyVenues);
 router.get("/mine/overview", protect, myVenuesOverview);
+router.get("/favorites/mine", protect, listFavoriteVenues);
 router.post("/", protect, createVenue);
 
 router.get("/:id", getVenueById);
+// Sân yêu thích + thời tiết + báo cáo no-show
+router.post("/:id/favorite", protect, toggleFavoriteVenue);
+router.get("/:id/weather", getVenueWeather);
+router.get("/:id/no-show-report", protect, getVenueNoShowReport);
 router.put("/:id", protect, updateVenue);
 router.delete("/:id", protect, deleteVenue);
 

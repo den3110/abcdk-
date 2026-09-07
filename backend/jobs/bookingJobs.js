@@ -74,11 +74,19 @@ agenda.define(BOOKING_SETTLE_JOB, async (_job, done) => {
       status: "confirmed",
       endAt: { $lt: cutoff },
     })
-      .select("_id ticket")
+      .select("_id ticket payment depositAmount depositSettled")
       .lean();
     for (const b of past) {
-      const next = b.ticket?.checkedInAt ? "completed" : "no_show";
-      await Booking.updateOne({ _id: b._id, status: "confirmed" }, { $set: { status: next } });
+      const checkedIn = !!b.ticket?.checkedInAt;
+      const next = checkedIn ? "completed" : "no_show";
+      const set = { status: next };
+      // Không đến + đã trả cọc → giữ cọc (đối soát thất thu cho chủ sân)
+      if (!checkedIn && b.payment?.status === "Paid" && (b.depositAmount || 0) > 0 && !b.depositSettled) {
+        set.depositSettled = "forfeited";
+        set.depositSettledAt = new Date();
+        set.depositRefundAmount = 0;
+      }
+      await Booking.updateOne({ _id: b._id, status: "confirmed" }, { $set: set });
       await BookingSlotLock.deleteMany({ booking: b._id });
     }
     done();

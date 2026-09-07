@@ -83,6 +83,41 @@ const bookingSchema = new Schema(
     },
     reminderSentAt: { type: Date, default: null },
 
+    // Sân MỞ GHÉP (open play): chủ lượt mở cho người khác vào đánh chung, chia tiền theo đầu người.
+    openPlay: {
+      enabled: { type: Boolean, default: false, index: true },
+      capacity: { type: Number, default: 0, min: 0 }, // tổng số người tối đa (kể cả chủ)
+      pricePerPerson: { type: Number, default: 0, min: 0 },
+      skillMin: { type: Number, default: 0 },
+      skillMax: { type: Number, default: 0 },
+      genderPolicy: { type: String, enum: ["any", "male", "female", "balanced"], default: "any" },
+      note: { type: String, default: "", maxlength: 300 },
+      players: [
+        new Schema(
+          {
+            user: { type: Schema.Types.ObjectId, ref: "User", default: null },
+            name: { type: String, default: "" },
+            phone: { type: String, default: "" },
+            skillPoint: { type: Number, default: null },
+            gender: { type: String, default: "" },
+            status: { type: String, enum: ["going", "left"], default: "going" },
+            paid: { type: Boolean, default: false },
+            joinedAt: { type: Date, default: Date.now },
+          },
+          { _id: true },
+        ),
+      ],
+    },
+
+    // Đối soát cọc khi huỷ / không đến
+    depositSettled: {
+      type: String,
+      enum: ["", "refunded", "forfeited"],
+      default: "",
+    },
+    depositSettledAt: { type: Date, default: null },
+    depositRefundAmount: { type: Number, default: 0, min: 0 },
+
     note: { type: String, default: "" },
     createdByRole: {
       type: String,

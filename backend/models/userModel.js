@@ -202,6 +202,8 @@ const userSchema = new mongoose.Schema(
     },
     // Lần gần nhất user đổi nickname — dùng cho rate-limit (SystemSettings.profile.nicknameChangeCooldownDays).
     nicknameChangedAt: { type: Date, default: null },
+    // Cụm sân yêu thích (đặt sân) — dùng ở màn "Sân yêu thích"
+    favoriteVenues: [{ type: mongoose.Schema.Types.ObjectId, ref: "Venue" }],
     phone: { type: String, unique: true, sparse: true, trim: true },
     phoneVerified: { type: Boolean, default: false },
     phoneVerifiedAt: { type: Date, default: null },

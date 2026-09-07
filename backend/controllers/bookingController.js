@@ -363,6 +363,24 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
   }
   if (usePackage) doc.user = req.user._id; // gói luôn gắn với người mua
 
+  // Sân MỞ GHÉP (open play): người đặt mở lượt cho người khác vào đánh chung.
+  const op = req.body?.openPlay;
+  if (op && op.enabled) {
+    const cap = Math.max(2, Math.min(30, Number(op.capacity) || 0));
+    doc.openPlay = {
+      enabled: true,
+      capacity: cap,
+      pricePerPerson: Math.max(0, Number(op.pricePerPerson) || 0),
+      skillMin: Math.max(0, Number(op.skillMin) || 0),
+      skillMax: Math.max(0, Number(op.skillMax) || 0),
+      genderPolicy: ["any", "male", "female", "balanced"].includes(op.genderPolicy)
+        ? op.genderPolicy
+        : "any",
+      note: String(op.note || "").slice(0, 300),
+      players: [],
+    };
+  }
+
   // Khoá slot atomic (unique court+slotStart) — 2 request đồng thời chỉ 1 thắng
   const booking = new Booking(doc);
   try {
@@ -550,6 +568,23 @@ export const updateBookingStatus = expressAsyncHandler(async (req, res) => {
     }
     booking.cancelledAt = new Date();
     booking.cancelReason = String(req.body?.cancelReason || "").slice(0, 300);
+
+    // Đối soát cọc khi huỷ: đã trả cọc + huỷ trong hạn cho phép → đánh dấu hoàn cọc.
+    if (booking.payment?.status === "Paid" && (booking.depositAmount || 0) > 0 && !booking.depositSettled) {
+      const v = await Venue.findById(booking.venue).select("cancelPolicy").lean();
+      const hoursBefore = Number(v?.cancelPolicy?.hoursBefore) || 0;
+      const deadline = new Date(booking.startAt).getTime() - hoursBefore * 3600 * 1000;
+      const inTime = hoursBefore === 0 || Date.now() <= deadline;
+      if (inTime) {
+        booking.depositSettled = "refunded";
+        booking.depositRefundAmount = booking.depositAmount;
+      } else {
+        // Huỷ sát giờ → giữ cọc
+        booking.depositSettled = "forfeited";
+        booking.depositRefundAmount = 0;
+      }
+      booking.depositSettledAt = new Date();
+    }
   } else if (!manage) {
     // Các trạng thái khác chỉ chủ sân/admin được đổi
     res.status(403);
