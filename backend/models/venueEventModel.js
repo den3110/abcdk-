@@ -10,6 +10,8 @@ const venueEventSchema = new Schema(
   {
     venue: { type: Schema.Types.ObjectId, ref: "Venue", required: true, index: true },
     court: { type: Schema.Types.ObjectId, ref: "VenueCourt", default: null },
+    // Các sân con tổ chức sự kiện (1–n sân; rỗng = không chiếm sân nào)
+    courts: [{ type: Schema.Types.ObjectId, ref: "VenueCourt" }],
     createdBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
 
     title: { type: String, required: true, trim: true, maxlength: 160 },

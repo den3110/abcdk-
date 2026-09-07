@@ -9,6 +9,7 @@ import CourtBlock from "../models/courtBlockModel.js";
 import PromoCode from "../models/promoCodeModel.js";
 import PackagePurchase from "../models/packagePurchaseModel.js";
 import VenueSale from "../models/venueSaleModel.js";
+import VenueEvent from "../models/venueEventModel.js";
 import { canManageVenue, venueCan } from "../utils/venueAuth.js";
 import { bookingBankInfo } from "../utils/bankQr.js";
 import { notifyBooking } from "../services/bookingNotify.js";
@@ -107,11 +108,27 @@ export const getAvailability = expressAsyncHandler(async (req, res) => {
     .select("court startAt endAt reason")
     .lean();
 
+  // Sự kiện xé vé đang mở chiếm sân trong khung giờ → coi như khoá sân đó
+  const dayEvents = courtIds.length
+    ? await VenueEvent.find({
+        venue: id,
+        status: "open",
+        courts: { $in: courtIds },
+        startAt: { $lt: dayEnd },
+        endAt: { $gt: dayStart },
+      })
+        .select("courts startAt endAt")
+        .lean()
+    : [];
+
   const result = courts.map((court) => {
     const day = getDayHours(venue, court, weekday);
     const existing = byCourt.get(String(court._id)) || [];
     const courtBlocks = blocks.filter(
       (b) => !b.court || String(b.court) === String(court._id),
+    );
+    const courtEvents = dayEvents.filter((e) =>
+      (e.courts || []).some((c) => String(c) === String(court._id)),
     );
     if (day.closed) {
       return { _id: court._id, name: court.name, order: court.order, closed: true, slots: [] };
@@ -126,9 +143,9 @@ export const getAvailability = expressAsyncHandler(async (req, res) => {
         const overlap = existing.some(
           (b) => new Date(b.startAt) < endAt && new Date(b.endAt) > startAt,
         );
-        const blocked = courtBlocks.some(
-          (b) => new Date(b.startAt) < endAt && new Date(b.endAt) > startAt,
-        );
+        const blocked =
+          courtBlocks.some((b) => new Date(b.startAt) < endAt && new Date(b.endAt) > startAt) ||
+          courtEvents.some((e) => new Date(e.startAt) < endAt && new Date(e.endAt) > startAt);
         const { totalPrice } = computeBookingPrice(venue, court, weekday, m, m + slot);
         slots.push({
           start: minutesToHHMM(m),
@@ -236,6 +253,18 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
   if (block) {
     res.status(409);
     throw new Error(block.reason ? `Sân đang khoá: ${block.reason}` : "Sân đang bảo trì khung giờ này");
+  }
+  // Sân đang có sự kiện xé vé trong khung giờ này
+  const evClash = await VenueEvent.findOne({
+    venue: venueId,
+    status: "open",
+    courts: courtId,
+    startAt: { $lt: endAt },
+    endAt: { $gt: startAt },
+  }).select("title").lean();
+  if (evClash) {
+    res.status(409);
+    throw new Error(`Sân có sự kiện "${evClash.title}" trong khung giờ này`);
   }
 
   const { totalPrice: subtotal, pricePerHour } = computeBookingPrice(

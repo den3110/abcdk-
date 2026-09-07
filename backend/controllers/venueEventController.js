@@ -3,6 +3,7 @@ import expressAsyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 
 import Venue from "../models/venueModel.js";
+import VenueCourt from "../models/venueCourtModel.js";
 import VenueEvent from "../models/venueEventModel.js";
 import EventRegistration from "../models/eventRegistrationModel.js";
 import Ranking from "../models/rankingModel.js";
@@ -31,6 +32,14 @@ async function loadVenuePerm(req, res, perm) {
   if (!venue) { res.status(404); throw new Error("Không tìm thấy cụm sân"); }
   if (!(await venueCan(req.user, venue, perm))) { res.status(403); throw new Error("Không có quyền với thao tác này"); }
   return venue;
+}
+
+/** Lọc danh sách sân con thuộc đúng cụm sân (bỏ id lạ). */
+async function ownCourts(venueId, arr) {
+  const ids = (Array.isArray(arr) ? arr : []).filter(isId);
+  if (!ids.length) return [];
+  const found = await VenueCourt.find({ _id: { $in: ids }, venue: venueId }).select("_id").lean();
+  return found.map((c) => c._id);
 }
 
 /** Điểm trình của user theo loại skill (double/single/mix). */
@@ -73,6 +82,7 @@ export const createEvent = expressAsyncHandler(async (req, res) => {
     startAt: s,
     endAt: e,
     court: isId(req.body?.court) ? req.body.court : null,
+    courts: await ownCourts(venue._id, req.body?.courts),
     status: "open",
   });
   res.status(201).json(doc);
@@ -89,6 +99,7 @@ export const updateEvent = expressAsyncHandler(async (req, res) => {
   if (req.body?.endAt) ev.endAt = new Date(req.body.endAt);
   if (["open", "closed", "cancelled"].includes(req.body?.status)) ev.status = req.body.status;
   if (req.body?.court !== undefined) ev.court = isId(req.body.court) ? req.body.court : null;
+  if (Array.isArray(req.body?.courts)) ev.courts = await ownCourts(venue._id, req.body.courts);
   await ev.save();
   res.json(ev);
 });
@@ -119,7 +130,7 @@ export const cancelEvent = expressAsyncHandler(async (req, res) => {
 /** GET /api/venues/:id/events — chủ sân xem tất cả sự kiện + thống kê nhanh */
 export const listVenueEvents = expressAsyncHandler(async (req, res) => {
   const venue = await loadVenuePerm(req, res, "events.manage");
-  const events = await VenueEvent.find({ venue: venue._id }).sort({ startAt: -1 }).limit(200).lean();
+  const events = await VenueEvent.find({ venue: venue._id }).sort({ startAt: -1 }).limit(200).populate("courts", "name").lean();
   const ids = events.map((e) => e._id);
   const regs = await EventRegistration.find({ event: { $in: ids } }).select("event status payment price ticket gender").lean();
   const byEvent = new Map(ids.map((id) => [String(id), []]));
@@ -182,6 +193,7 @@ export const listPublicEvents = expressAsyncHandler(async (req, res) => {
     .sort({ startAt: 1 })
     .limit(100)
     .populate("venue", "name address province images")
+    .populate("courts", "name")
     .lean();
   const ids = events.map((e) => e._id);
   const counts = await EventRegistration.aggregate([
@@ -196,7 +208,10 @@ export const listPublicEvents = expressAsyncHandler(async (req, res) => {
 export const getEvent = expressAsyncHandler(async (req, res) => {
   const { eventId } = req.params;
   if (!isId(eventId)) { res.status(400); throw new Error("ID không hợp lệ"); }
-  const ev = await VenueEvent.findById(eventId).populate("venue", "name address province images phone bankShortName bankCode bankAccountNumber bankAccountName").lean();
+  const ev = await VenueEvent.findById(eventId)
+    .populate("venue", "name address province images phone bankShortName bankCode bankAccountNumber bankAccountName")
+    .populate("courts", "name")
+    .lean();
   if (!ev) { res.status(404); throw new Error("Không tìm thấy sự kiện"); }
   const regs = await EventRegistration.find({ event: eventId }).select("user status payment price gender skillPoint ticket code name").lean();
   const stats = eventStats(regs);
