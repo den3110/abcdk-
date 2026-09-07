@@ -69,6 +69,7 @@ export async function startAgenda() {
   await import("./eventLiveNotifyJob.js");
   console.log("✅ eventLiveNotifyJob handler registered");
   await import("./bookingJobs.js");
+  await import("./recurringJobs.js");
   console.log("✅ bookingJobs handlers registered");
   await import("./emailCampaignJob.js");
   console.log("✅ emailCampaignJob handler registered");
@@ -96,6 +97,7 @@ export async function startAgenda() {
     await agenda.every("5 minutes", "event-live.auto-notify");
     await agenda.every("1 minute", "booking.expire-pending");
     await agenda.every("10 minutes", "booking.settle-past");
+    await agenda.every("6 hours", "recurring.auto-renew");
     console.log("✅ event-live.auto-notify scheduled (5m)");
   } catch (e) {
     console.error("[agenda] schedule event-live.auto-notify error:", e?.message);

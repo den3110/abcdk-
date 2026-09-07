@@ -9,7 +9,9 @@ import BookingSlotLock, { slotStartsBetween } from "../models/bookingSlotLockMod
 import CourtBlock from "../models/courtBlockModel.js";
 import PromoCode from "../models/promoCodeModel.js";
 import VenueStaff from "../models/venueStaffModel.js";
+import VenueRecurringPlan from "../models/venueRecurringPlanModel.js";
 import { canManageVenue, venueCan } from "../utils/venueAuth.js";
+import { pushToUsers, venueStaffIds } from "../services/venueNotify.js";
 import {
   parseHHMM,
   isValidDateStr,
@@ -288,85 +290,113 @@ export const createRecurring = expressAsyncHandler(async (req, res) => {
     throw new Error("Không có buổi nào trong khoảng đã chọn");
   }
 
-  // Giá: "custom" tự set/buổi, "total" trọn gói cả kỳ (chia đều các buổi), "auto" theo bảng giá
-  const priceMode = ["custom", "total"].includes(req.body?.priceMode) ? req.body.priceMode : "auto";
-  const customPrice = Math.max(0, Math.round(Number(req.body?.pricePerSession) || 0));
-  const packageTotal = Math.max(0, Math.round(Number(req.body?.totalPackagePrice) || 0));
-  const markPaid = req.body?.markPaid === true;
-  const payMethod = req.body?.paymentMethod === "transfer" ? "transfer" : "cash";
-  const commissionPct = Number(venue.commissionPercent) || 0;
-  const hours = (endMin - startMin) / 60;
+  const cfg = {
+    start, end,
+    priceMode: ["custom", "total"].includes(req.body?.priceMode) ? req.body.priceMode : "auto",
+    pricePerSession: Math.max(0, Math.round(Number(req.body?.pricePerSession) || 0)),
+    totalPackagePrice: Math.max(0, Math.round(Number(req.body?.totalPackagePrice) || 0)),
+    markPaid: req.body?.markPaid === true,
+    paymentMethod: req.body?.paymentMethod === "transfer" ? "transfer" : "cash",
+    customerName: String(req.body?.customerName || "").slice(0, 120),
+    customerPhone: String(req.body?.customerPhone || "").slice(0, 30),
+    note: String(note || "Lịch cố định").slice(0, 300),
+  };
 
-  // Pha 1: lọc các buổi hợp lệ (đóng cửa / đã qua / trùng / khoá)
+  const group = crypto.randomBytes(6).toString("hex");
+  const { created, skipped, revenue } = await generateSessions({ venue, court, cfg, dates, group, createdBy: req.user._id });
+
+  // Lưu kế hoạch để hỗ trợ tự động gia hạn + sửa/kết thúc sau này
+  await VenueRecurringPlan.create({
+    venue: venue._id,
+    court: court._id,
+    group,
+    daysOfWeek: days,
+    start, end,
+    priceMode: cfg.priceMode,
+    pricePerSession: cfg.pricePerSession,
+    totalPackagePrice: cfg.totalPackagePrice,
+    markPaid: cfg.markPaid,
+    paymentMethod: cfg.paymentMethod,
+    customerName: cfg.customerName,
+    customerPhone: cfg.customerPhone,
+    note: cfg.note,
+    autoRenew: req.body?.autoRenew === true,
+    renewEveryMonths: Math.min(12, Math.max(1, Number(req.body?.renewEveryMonths) || 1)),
+    lastGeneratedTo: endDate,
+    status: "active",
+    createdBy: req.user._id,
+  });
+
+  res.status(201).json({
+    group, created, skipped,
+    createdCount: created.length, skippedCount: skipped.length,
+    grossTotal: created.reduce((s, c) => s + c.totalPrice, 0),
+    paidRevenue: revenue,
+  });
+});
+
+/** Sinh các buổi cho 1 loạt ngày với cấu hình cfg (dùng chung cho tạo mới + tự gia hạn). */
+async function generateSessions({ venue, court, cfg, dates, group, createdBy }) {
+  const startMin = parseHHMM(cfg.start);
+  const endMin = parseHHMM(cfg.end);
+  const hours = (endMin - startMin) / 60;
+  const commissionPct = Number(venue.commissionPercent) || 0;
+
+  // Pha 1: lọc buổi hợp lệ
   const valid = [];
   const skipped = [];
   for (const date of dates) {
     const wd = weekdayOf(date);
     const day = getDayHours(venue, court, wd);
     if (day.closed) { skipped.push({ date, reason: "đóng cửa" }); continue; }
-    const startAt = buildInstant(date, start);
-    const endAt = buildInstant(date, end);
+    const startAt = buildInstant(date, cfg.start);
+    const endAt = buildInstant(date, cfg.end);
     if (startAt.getTime() < Date.now()) { skipped.push({ date, reason: "đã qua" }); continue; }
     const clash = await Booking.findOne({
-      court: courtId, status: { $in: ACTIVE_STATUSES },
+      court: court._id, status: { $in: ACTIVE_STATUSES },
       startAt: { $lt: endAt }, endAt: { $gt: startAt },
     }).lean();
     if (clash) { skipped.push({ date, reason: "đã có lượt" }); continue; }
     const block = await CourtBlock.findOne({
-      venue: venue._id, $or: [{ court: courtId }, { court: null }],
+      venue: venue._id, $or: [{ court: court._id }, { court: null }],
       startAt: { $lt: endAt }, endAt: { $gt: startAt },
     }).lean();
     if (block) { skipped.push({ date, reason: "khoá sân" }); continue; }
     valid.push({ date, wd, startAt, endAt });
   }
 
-  // Giá mỗi buổi: total → chia đều (buổi đầu gánh phần lẻ); custom → cố định; auto → theo bảng giá
   const n = valid.length;
-  const perSessionShare = (idx) => {
-    if (priceMode === "total") {
-      if (n === 0) return 0;
-      const base = Math.floor(packageTotal / n);
-      const remainder = packageTotal - base * n;
-      return base + (idx < remainder ? 1 : 0);
+  const priceAt = (idx) => {
+    if (cfg.priceMode === "total") {
+      if (!n) return 0;
+      const base = Math.floor(cfg.totalPackagePrice / n);
+      const rem = cfg.totalPackagePrice - base * n;
+      return base + (idx < rem ? 1 : 0);
     }
-    if (priceMode === "custom") return customPrice;
+    if (cfg.priceMode === "custom") return cfg.pricePerSession;
     return computeBookingPrice(venue, court, valid[idx].wd, startMin, endMin).totalPrice;
   };
 
-  const group = crypto.randomBytes(6).toString("hex");
   const created = [];
   let revenue = 0;
-
-  // Pha 2: tạo booking
   for (let i = 0; i < valid.length; i += 1) {
     const { date, startAt, endAt } = valid[i];
-    const totalPrice = perSessionShare(i);
+    const totalPrice = priceAt(i);
     const pricePerHour = hours > 0 ? Math.round(totalPrice / hours) : totalPrice;
-
     const booking = new Booking({
-      venue: venue._id,
-      court: courtId,
-      startAt,
-      endAt,
-      durationMin: endMin - startMin,
-      pricePerHour,
-      subtotal: totalPrice,
-      totalPrice,
-      status: "confirmed",
-      createdByRole: "owner",
-      createdBy: req.user._id,
-      customerName: String(req.body?.customerName || "").slice(0, 120),
-      customerPhone: String(req.body?.customerPhone || "").slice(0, 30),
-      note: String(note || "Lịch cố định").slice(0, 300),
+      venue: venue._id, court: court._id, startAt, endAt,
+      durationMin: endMin - startMin, pricePerHour, subtotal: totalPrice, totalPrice,
+      status: "confirmed", createdByRole: "owner", createdBy,
+      customerName: cfg.customerName, customerPhone: cfg.customerPhone, note: cfg.note,
       recurringGroup: group,
     });
-    if (markPaid) {
-      booking.payment = { status: "Paid", paidAt: new Date(), method: payMethod, reviewedBy: req.user._id, reviewedAt: new Date() };
+    if (cfg.markPaid) {
+      booking.payment = { status: "Paid", paidAt: new Date(), method: cfg.paymentMethod, reviewedBy: createdBy, reviewedAt: new Date() };
       booking.commissionAmount = commissionPct > 0 ? Math.round((totalPrice * commissionPct) / 100) : 0;
     }
     try {
       await BookingSlotLock.insertMany(
-        slotStartsBetween(startAt, endAt).map((slotStart) => ({ court: courtId, slotStart, booking: booking._id })),
+        slotStartsBetween(startAt, endAt).map((slotStart) => ({ court: court._id, slotStart, booking: booking._id })),
         { ordered: false },
       );
     } catch (e) {
@@ -376,17 +406,54 @@ export const createRecurring = expressAsyncHandler(async (req, res) => {
     }
     await booking.save();
     scheduleBookingReminder(booking).catch(() => {});
-    if (markPaid) revenue += totalPrice;
+    if (cfg.markPaid) revenue += totalPrice;
     created.push({ date, id: booking._id, code: booking.code, totalPrice });
   }
+  return { created, skipped, revenue };
+}
 
-  res.status(201).json({
-    group, created, skipped,
-    createdCount: created.length, skippedCount: skipped.length,
-    grossTotal: created.reduce((s, c) => s + c.totalPrice, 0),
-    paidRevenue: revenue,
-  });
-});
+/** Job: tự động gia hạn các lịch cố định sắp hết (autoRenew, còn active). */
+export async function runRecurringAutoRenew() {
+  const LEAD_DAYS = 10; // gia hạn khi còn ≤10 ngày là hết lịch đã tạo
+  const today = todayStrVN();
+  const threshold = addDaysStr(today, LEAD_DAYS);
+  const plans = await VenueRecurringPlan.find({
+    status: "active",
+    autoRenew: true,
+    lastGeneratedTo: { $lte: threshold },
+  }).lean();
+  let renewed = 0;
+  for (const plan of plans) {
+    try {
+      const venue = await Venue.findById(plan.venue).lean();
+      const court = await VenueCourt.findOne({ _id: plan.court, venue: plan.venue, isActive: true }).lean();
+      if (!venue || venue.isActive === false || !court) continue;
+      const from = addDaysStr(plan.lastGeneratedTo && plan.lastGeneratedTo >= today ? plan.lastGeneratedTo : today, 1);
+      const to = addMonthsStr(from, plan.renewEveryMonths || 1);
+      const dates = [];
+      let cur = from;
+      for (let g = 0; g < 800 && cur <= to && dates.length < 200; g += 1) {
+        if ((plan.daysOfWeek || []).includes(weekdayOf(cur))) dates.push(cur);
+        cur = addDaysStr(cur, 1);
+      }
+      if (dates.length) {
+        await generateSessions({ venue, court, cfg: plan, group: plan.group, createdBy: plan.createdBy });
+      }
+      await VenueRecurringPlan.updateOne({ _id: plan._id }, { $set: { lastGeneratedTo: to, lastRenewedAt: new Date() } });
+      renewed += 1;
+      pushToUsers({
+        recipients: await venueStaffIds(plan.venue, "recurring.manage"),
+        title: "🔁 Đã tự gia hạn lịch cố định",
+        body: `Lịch "${plan.customerName || "CLB"}" đã được gia hạn thêm ${plan.renewEveryMonths || 1} tháng (đến ${to.split("-").reverse().join("/")}).`,
+        url: `/owner/venues/${plan.venue}`,
+        data: { kind: "recurring_renewed", venueId: String(plan.venue), group: plan.group },
+      }).catch(() => {});
+    } catch (e) {
+      console.warn("[autoRenew] fail plan", String(plan._id), e?.message || e);
+    }
+  }
+  return { plans: plans.length, renewed };
+}
 
 /** GET /api/venues/:id/recurring — danh sách các lịch cố định (nhóm theo recurringGroup) */
 export const listRecurringGroups = expressAsyncHandler(async (req, res) => {
@@ -421,45 +488,146 @@ export const listRecurringGroups = expressAsyncHandler(async (req, res) => {
   const courtIds = [...new Set(groups.map((g) => String(g.court)))];
   const courts = await VenueCourt.find({ _id: { $in: courtIds } }).select("name").lean();
   const courtMap = new Map(courts.map((c) => [String(c._id), c.name]));
+  const plans = await VenueRecurringPlan.find({ venue: venue._id }).lean();
+  const planMap = new Map(plans.map((p) => [p.group, p]));
   // $dayOfWeek: 1=CN..7=T7 → 0..6
   res.json(
-    groups.map((g) => ({
-      group: g._id,
-      customerName: g.customerName,
-      customerPhone: g.customerPhone,
-      note: g.note,
-      courtName: courtMap.get(String(g.court)) || "",
-      sampleStart: g.sampleStart,
-      sampleEnd: g.sampleEnd,
-      firstStart: g.firstStart,
-      lastStart: g.lastStart,
-      weekdays: (g.weekdays || []).map((d) => (d - 1)).sort((a, b) => a - b),
-      total: g.total,
-      upcoming: g.upcoming,
-      cancelled: g.cancelled,
-      grossTotal: g.grossTotal,
-      paidRevenue: g.paidRevenue,
-    })),
+    groups.map((g) => {
+      const plan = planMap.get(g._id);
+      return {
+        group: g._id,
+        customerName: g.customerName,
+        customerPhone: g.customerPhone,
+        note: g.note,
+        courtName: courtMap.get(String(g.court)) || "",
+        sampleStart: g.sampleStart,
+        sampleEnd: g.sampleEnd,
+        firstStart: g.firstStart,
+        lastStart: g.lastStart,
+        weekdays: (g.weekdays || []).map((d) => (d - 1)).sort((a, b) => a - b),
+        total: g.total,
+        upcoming: g.upcoming,
+        cancelled: g.cancelled,
+        grossTotal: g.grossTotal,
+        paidRevenue: g.paidRevenue,
+        // Thông tin kế hoạch tự gia hạn
+        autoRenew: plan?.autoRenew || false,
+        renewEveryMonths: plan?.renewEveryMonths || 1,
+        planStatus: plan?.status || null,
+        priceMode: plan?.priceMode || null,
+      };
+    }),
   );
 });
 
-/** DELETE /api/venues/:id/recurring/:group?scope=upcoming|all — huỷ cả series */
+/** DELETE /api/venues/:id/recurring/:group?scope=upcoming|all&hard=1
+ * scope=upcoming (mặc định): huỷ các buổi sắp tới. scope=all: huỷ toàn bộ.
+ * hard=1: XOÁ HẲN booking khỏi DB (dùng khi cài nhầm) — mặc định chỉ huỷ (giữ lịch sử).
+ */
 export const cancelRecurringGroup = expressAsyncHandler(async (req, res) => {
   const venue = await requireManage(req, res, "recurring.manage");
   const { group } = req.params;
-  const filter = { venue: venue._id, recurringGroup: group, status: { $in: ACTIVE_STATUSES } };
+  const hard = req.query.hard === "1";
+
+  const filter = { venue: venue._id, recurringGroup: group };
+  if (!hard) filter.status = { $in: ACTIVE_STATUSES };
   if (req.query.scope !== "all") filter.startAt = { $gt: new Date() };
 
   const items = await Booking.find(filter).select("_id").lean();
   const ids = items.map((b) => b._id);
   if (ids.length) {
-    await Booking.updateMany(
-      { _id: { $in: ids } },
-      { $set: { status: "cancelled", cancelledAt: new Date(), cancelReason: "Huỷ lịch cố định" } },
-    );
     await BookingSlotLock.deleteMany({ booking: { $in: ids } });
+    if (hard) {
+      await Booking.deleteMany({ _id: { $in: ids } });
+    } else {
+      await Booking.updateMany(
+        { _id: { $in: ids } },
+        { $set: { status: "cancelled", cancelledAt: new Date(), cancelReason: "Huỷ lịch cố định" } },
+      );
+    }
   }
-  res.json({ ok: true, cancelled: ids.length });
+  // Ngừng tự gia hạn: hard xoá hẳn kế hoạch; ngược lại chuyển sang "ended"
+  if (hard) await VenueRecurringPlan.deleteOne({ venue: venue._id, group });
+  else await VenueRecurringPlan.updateOne({ venue: venue._id, group }, { $set: { status: "ended", autoRenew: false } });
+  res.json({ ok: true, [hard ? "deleted" : "cancelled"]: ids.length });
+});
+
+/** PATCH /api/venues/:id/recurring/:group — sửa series & bật/tắt tự gia hạn / kết thúc
+ * body { customerName?, customerPhone?, note?, priceMode?, pricePerSession?, totalPackagePrice?,
+ *        markPaid?, paymentMethod?, autoRenew?, renewEveryMonths?, endPlan?:bool }
+ */
+export const updateRecurringGroup = expressAsyncHandler(async (req, res) => {
+  const venue = await requireManage(req, res, "recurring.manage");
+  const { group } = req.params;
+
+  // 1) Cập nhật kế hoạch (tự gia hạn / kết thúc) — làm được kể cả khi không còn buổi sắp tới
+  const planPatch = {};
+  if (typeof req.body?.autoRenew === "boolean") planPatch.autoRenew = req.body.autoRenew;
+  if (req.body?.renewEveryMonths !== undefined) planPatch.renewEveryMonths = Math.min(12, Math.max(1, Number(req.body.renewEveryMonths) || 1));
+  if (req.body?.endPlan === true) { planPatch.status = "ended"; planPatch.autoRenew = false; }
+  if (req.body?.customerName !== undefined) planPatch.customerName = String(req.body.customerName).slice(0, 120);
+  if (req.body?.customerPhone !== undefined) planPatch.customerPhone = String(req.body.customerPhone).slice(0, 30);
+  if (req.body?.note !== undefined) planPatch.note = String(req.body.note).slice(0, 300);
+  if (["custom", "total", "auto"].includes(req.body?.priceMode)) planPatch.priceMode = req.body.priceMode;
+  if (req.body?.pricePerSession !== undefined) planPatch.pricePerSession = Math.max(0, Math.round(Number(req.body.pricePerSession) || 0));
+  if (req.body?.totalPackagePrice !== undefined) planPatch.totalPackagePrice = Math.max(0, Math.round(Number(req.body.totalPackagePrice) || 0));
+  if (typeof req.body?.markPaid === "boolean") planPatch.markPaid = req.body.markPaid;
+  if (Object.keys(planPatch).length) await VenueRecurringPlan.updateOne({ venue: venue._id, group }, { $set: planPatch });
+
+  // 2) Áp thay đổi thông tin/giá cho các buổi SẮP TỚI (nếu có)
+  const items = await Booking.find({
+    venue: venue._id,
+    recurringGroup: group,
+    status: { $ne: "cancelled" },
+    startAt: { $gt: new Date() },
+  }).sort({ startAt: 1 });
+  if (!items.length) {
+    return res.json({ ok: true, updated: 0, planUpdated: Object.keys(planPatch).length > 0 });
+  }
+
+  const commissionPct = Number(venue.commissionPercent) || 0;
+  const priceMode = ["custom", "total"].includes(req.body?.priceMode) ? req.body.priceMode : null;
+  const markPaid = typeof req.body?.markPaid === "boolean" ? req.body.markPaid : null;
+  const payMethod = req.body?.paymentMethod === "transfer" ? "transfer" : "cash";
+
+  // Giá mới cho từng buổi (nếu có yêu cầu đổi giá)
+  let prices = null;
+  if (priceMode === "custom") {
+    const p = Math.max(0, Math.round(Number(req.body?.pricePerSession) || 0));
+    prices = items.map(() => p);
+  } else if (priceMode === "total") {
+    const total = Math.max(0, Math.round(Number(req.body?.totalPackagePrice) || 0));
+    const n = items.length;
+    const base = Math.floor(total / n);
+    const rem = total - base * n;
+    prices = items.map((_, i) => base + (i < rem ? 1 : 0));
+  }
+
+  for (let i = 0; i < items.length; i += 1) {
+    const b = items[i];
+    if (req.body?.customerName !== undefined) b.customerName = String(req.body.customerName).slice(0, 120);
+    if (req.body?.customerPhone !== undefined) b.customerPhone = String(req.body.customerPhone).slice(0, 30);
+    if (req.body?.note !== undefined) b.note = String(req.body.note).slice(0, 300);
+    if (prices) {
+      const tp = prices[i];
+      const hours = (b.durationMin || 0) / 60;
+      b.subtotal = tp;
+      b.totalPrice = tp;
+      b.pricePerHour = hours > 0 ? Math.round(tp / hours) : tp;
+    }
+    if (markPaid !== null) {
+      if (markPaid) {
+        b.payment = { ...(b.payment?.toObject?.() || b.payment || {}), status: "Paid", paidAt: b.payment?.paidAt || new Date(), method: payMethod, reviewedBy: req.user._id, reviewedAt: new Date() };
+      } else {
+        b.payment = { ...(b.payment?.toObject?.() || b.payment || {}), status: "Unpaid", paidAt: null };
+      }
+    }
+    // Chốt lại hoa hồng theo trạng thái/giá hiện tại
+    b.commissionAmount = b.payment?.status === "Paid" && commissionPct > 0 ? Math.round((b.totalPrice || 0) * commissionPct / 100) : 0;
+    await b.save();
+  }
+
+  res.json({ ok: true, updated: items.length, grossTotal: items.reduce((s, b) => s + (b.totalPrice || 0), 0) });
 });
 
 /* ============================ TỔNG QUAN CHỦ SÂN ============================ */
