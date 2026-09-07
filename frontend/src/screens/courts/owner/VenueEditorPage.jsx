@@ -33,6 +33,7 @@ import SaveIcon from "@mui/icons-material/Save";
 import EventNoteIcon from "@mui/icons-material/EventNote";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import GroupIcon from "@mui/icons-material/Group";
+import EventBusyIcon from "@mui/icons-material/EventBusy";
 import BankSelect from "../../../components/BankSelect";
 
 import {
@@ -179,6 +180,14 @@ export default function VenueEditorPage() {
             onClick={() => navigate(`/owner/venues/${id}/staff`)}
           >
             Nhân viên
+          </Button>
+          <Button
+            variant="outlined"
+            color="error"
+            startIcon={<EventBusyIcon />}
+            onClick={() => navigate(`/owner/venues/${id}/no-show`)}
+          >
+            Khách bỏ hẹn
           </Button>
         </Stack>
       </Stack>

@@ -96,6 +96,27 @@ export const bookingsApiSlice = apiSlice.injectEndpoints({
         { type: "Booking", id: `VENUE-${arg.venueId || ""}` },
       ],
     }),
+    // Sân mở ghép (open play)
+    listOpenPlay: builder.query({
+      query: ({ province = "" } = {}) => ({
+        url: `/api/bookings/open-play${province ? `?province=${encodeURIComponent(province)}` : ""}`,
+      }),
+      providesTags: [{ type: "Booking", id: "OPENPLAY" }],
+    }),
+    joinOpenPlay: builder.mutation({
+      query: (id) => ({ url: `/api/bookings/${id}/open-play/join`, method: "POST" }),
+      invalidatesTags: (r, e, id) => [
+        { type: "Booking", id: "OPENPLAY" },
+        { type: "Booking", id },
+      ],
+    }),
+    leaveOpenPlay: builder.mutation({
+      query: (id) => ({ url: `/api/bookings/${id}/open-play/leave`, method: "POST" }),
+      invalidatesTags: (r, e, id) => [
+        { type: "Booking", id: "OPENPLAY" },
+        { type: "Booking", id },
+      ],
+    }),
   }),
 });
 
@@ -111,4 +132,7 @@ export const {
   useApproveBookingMutation,
   useRejectBookingMutation,
   useCheckInBookingMutation,
+  useListOpenPlayQuery,
+  useJoinOpenPlayMutation,
+  useLeaveOpenPlayMutation,
 } = bookingsApiSlice;

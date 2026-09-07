@@ -104,6 +104,30 @@ export const venuesApiSlice = apiSlice.injectEndpoints({
     searchUsers: builder.query({
       query: (q) => `/api/users/search?q=${encodeURIComponent(q)}&limit=15`,
     }),
+    // Sân yêu thích + thời tiết
+    listFavoriteVenues: builder.query({
+      query: () => ({ url: `/api/venues/favorites/mine` }),
+      providesTags: [{ type: "Venue", id: "FAVORITES" }],
+    }),
+    toggleFavoriteVenue: builder.mutation({
+      query: (id) => ({ url: `/api/venues/${id}/favorite`, method: "POST" }),
+      invalidatesTags: (r, e, id) => [
+        { type: "Venue", id: "FAVORITES" },
+        { type: "Venue", id },
+      ],
+    }),
+    getVenueWeather: builder.query({
+      query: (id) => ({ url: `/api/venues/${id}/weather` }),
+    }),
+    getNoShowReport: builder.query({
+      query: ({ venueId, from = "", to = "" }) => {
+        const p = new URLSearchParams();
+        if (from) p.set("from", from);
+        if (to) p.set("to", to);
+        const qs = p.toString();
+        return { url: `/api/venues/${venueId}/no-show-report${qs ? `?${qs}` : ""}` };
+      },
+    }),
   }),
 });
 
@@ -124,4 +148,8 @@ export const {
   useUpdateStaffMutation,
   useRemoveStaffMutation,
   useLazySearchUsersQuery,
+  useListFavoriteVenuesQuery,
+  useToggleFavoriteVenueMutation,
+  useGetVenueWeatherQuery,
+  useGetNoShowReportQuery,
 } = venuesApiSlice;

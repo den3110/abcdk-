@@ -145,13 +145,27 @@ export default function CourtsBrowsePage() {
               Tìm sân quanh bạn, chọn khung giờ và đặt trong vài chạm.
             </Typography>
           </Box>
-          <Button
-            startIcon={<StorefrontOutlinedIcon />}
-            onClick={() => navigate("/owner/venues")}
-            sx={{ bgcolor: alpha("#fff", 0.16), color: "#fff", fontWeight: 700, borderRadius: 2.5, backdropFilter: "blur(4px)", "&:hover": { bgcolor: alpha("#fff", 0.26) } }}
-          >
-            Quản lý sân của tôi
-          </Button>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Button
+              onClick={() => navigate("/courts/open-play")}
+              sx={{ bgcolor: alpha("#fff", 0.16), color: "#fff", fontWeight: 700, borderRadius: 2.5, backdropFilter: "blur(4px)", "&:hover": { bgcolor: alpha("#fff", 0.26) } }}
+            >
+              Sân mở ghép
+            </Button>
+            <Button
+              onClick={() => navigate("/courts/favorites")}
+              sx={{ bgcolor: alpha("#fff", 0.16), color: "#fff", fontWeight: 700, borderRadius: 2.5, backdropFilter: "blur(4px)", "&:hover": { bgcolor: alpha("#fff", 0.26) } }}
+            >
+              Sân yêu thích
+            </Button>
+            <Button
+              startIcon={<StorefrontOutlinedIcon />}
+              onClick={() => navigate("/owner/venues")}
+              sx={{ bgcolor: alpha("#fff", 0.16), color: "#fff", fontWeight: 700, borderRadius: 2.5, backdropFilter: "blur(4px)", "&:hover": { bgcolor: alpha("#fff", 0.26) } }}
+            >
+              Quản lý sân của tôi
+            </Button>
+          </Stack>
         </Stack>
 
         {/* Search bar nổi trên hero */}

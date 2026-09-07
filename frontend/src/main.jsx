@@ -110,6 +110,9 @@ import ClubDetailPage from "./screens/ClubDetailScreen.jsx";
 import CourtsBrowsePage from "./screens/courts/CourtsBrowsePage.jsx";
 import VenueDetailPage from "./screens/courts/VenueDetailPage.jsx";
 import MyBookingsPage from "./screens/courts/MyBookingsPage.jsx";
+import OpenPlayPage from "./screens/courts/OpenPlayPage.jsx";
+import FavoriteVenuesPage from "./screens/courts/FavoriteVenuesPage.jsx";
+import NoShowReportPage from "./screens/courts/owner/NoShowReportPage.jsx";
 import OwnerVenuesPage from "./screens/courts/owner/OwnerVenuesPage.jsx";
 import VenueEditorPage from "./screens/courts/owner/VenueEditorPage.jsx";
 import VenueBookingsPage from "./screens/courts/owner/VenueBookingsPage.jsx";
@@ -295,10 +298,16 @@ const router = sentryCreateBrowserRouter(
             path="/owner/venues/:id/staff"
             element={<VenueStaffPage />}
           />
+          <Route
+            path="/owner/venues/:id/no-show"
+            element={<NoShowReportPage />}
+          />
         </Route>
         <Route path="/clubs" element={<ClubsListPage />} />
         <Route path="/clubs/:id" element={<ClubDetailPage />} />
         <Route path="/courts" element={<CourtsBrowsePage />} />
+        <Route path="/courts/open-play" element={<OpenPlayPage />} />
+        <Route path="/courts/favorites" element={<FavoriteVenuesPage />} />
         <Route path="/courts/:id" element={<VenueDetailPage />} />
         <Route path="/live/watch/:matchId" element={<LiveWatchPage />} />
         <Route path="/live" element={<LiveFeedPage />} />

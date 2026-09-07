@@ -33,8 +33,34 @@ import {
   useSubmitPaymentProofMutation,
 } from "../../slices/bookingsApiSlice";
 import { useUploadImageToFolderMutation } from "../../slices/uploadApiSlice";
+import ReplayIcon from "@mui/icons-material/Replay";
+import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import { fmtVND, imgSrc, BOOKING_STATUS, PAYMENT_STATUS } from "./courtShared";
 import TicketQr from "../../components/TicketQr.jsx";
+
+// Thêm vào Google Calendar
+function addToCalendar(b) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const g = (d) => {
+    const x = new Date(d);
+    return `${x.getUTCFullYear()}${pad(x.getUTCMonth() + 1)}${pad(x.getUTCDate())}T${pad(x.getUTCHours())}${pad(x.getUTCMinutes())}00Z`;
+  };
+  const title = `Đặt sân ${b.venue?.name || ""}${b.court?.name ? ` - ${b.court.name}` : ""}`.trim();
+  const loc = [b.venue?.name, b.venue?.address].filter(Boolean).join(", ");
+  const url =
+    `https://calendar.google.com/calendar/render?action=TEMPLATE` +
+    `&text=${encodeURIComponent(title)}&dates=${g(b.startAt)}/${g(b.endAt)}` +
+    `&details=${encodeURIComponent(`Mã đặt ${b.code || ""}.`)}&location=${encodeURIComponent(loc)}`;
+  window.open(url, "_blank", "noopener");
+}
+function nextWeekDate(startAt) {
+  try {
+    const d = new Date(startAt);
+    d.setDate(d.getDate() + 7);
+    const iso = d.toISOString().slice(0, 10);
+    return iso >= new Date().toISOString().slice(0, 10) ? iso : "";
+  } catch { return ""; }
+}
 
 const tz = { timeZone: "Asia/Bangkok" };
 const dLabel = (iso) => new Date(iso).toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", ...tz });
@@ -158,6 +184,8 @@ export default function MyBookingsPage() {
                     {canCancel && (
                       <Button size="small" color="error" disabled={updating} onClick={() => cancel(b)} sx={{ borderRadius: 2 }}>Huỷ</Button>
                     )}
+                    <Button size="small" variant="outlined" startIcon={<ReplayIcon />} onClick={() => { const vid = b.venue?._id || b.venue; const nd = nextWeekDate(b.startAt); if (vid) navigate(`/courts/${vid}${nd ? `?date=${nd}` : ""}`); }} sx={{ borderRadius: 2 }}>Đặt lại</Button>
+                    <Button size="small" variant="text" startIcon={<EventAvailableIcon />} onClick={() => addToCalendar(b)} sx={{ borderRadius: 2 }}>Thêm vào lịch</Button>
                   </Stack>
                 </Box>
               </Box>

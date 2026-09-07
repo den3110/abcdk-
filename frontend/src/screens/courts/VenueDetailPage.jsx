@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 import { useState, useMemo } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import {
@@ -29,8 +29,12 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import CloseIcon from "@mui/icons-material/Close";
 
-import { useGetVenueQuery, useGetVenueAvailabilityQuery } from "../../slices/venuesApiSlice";
+import { useGetVenueQuery, useGetVenueAvailabilityQuery, useListFavoriteVenuesQuery, useToggleFavoriteVenueMutation, useGetVenueWeatherQuery } from "../../slices/venuesApiSlice";
 import { useCreateBookingMutation } from "../../slices/bookingsApiSlice";
+import FavoriteIcon from "@mui/icons-material/Favorite";
+import FavoriteBorderIcon from "@mui/icons-material/FavoriteBorder";
+import WbSunnyOutlinedIcon from "@mui/icons-material/WbSunnyOutlined";
+import { FormControlLabel, Switch } from "@mui/material";
 import AvailabilityGrid from "./AvailabilityGrid";
 import { imgSrc, fmtVND, toDateInput, fmtDateLabel, WEEKDAYS_SHORT, bookingQrUrl } from "./courtShared";
 
@@ -47,7 +51,11 @@ export default function VenueDetailPage() {
   const userInfo = useSelector((s) => s.auth?.userInfo);
 
   const today = toDateInput();
-  const [date, setDate] = useState(today);
+  const [searchParams] = useSearchParams();
+  const dateParam = searchParams.get("date");
+  const [date, setDate] = useState(
+    /^\d{4}-\d{2}-\d{2}$/.test(dateParam || "") && dateParam >= today ? dateParam : today
+  );
 
   const { data: venue, isLoading: venueLoading } = useGetVenueQuery(id);
   const { data: avail, isFetching: availLoading } = useGetVenueAvailabilityQuery({ id, date }, { skip: !id || !date });
@@ -58,6 +66,20 @@ export default function VenueDetailPage() {
   const [phone, setPhone] = useState(userInfo?.phone || "");
   const [note, setNote] = useState("");
   const [created, setCreated] = useState(null);
+  // Mở ghép (open play)
+  const [opEnabled, setOpEnabled] = useState(false);
+  const [opCap, setOpCap] = useState("4");
+  const [opPrice, setOpPrice] = useState("");
+
+  // Sân yêu thích + thời tiết
+  const { data: favVenues } = useListFavoriteVenuesQuery(undefined, { skip: !userInfo });
+  const [toggleFav] = useToggleFavoriteVenueMutation();
+  const fav = useMemo(() => Array.isArray(favVenues) && favVenues.some((v) => String(v._id) === String(id)), [favVenues, id]);
+  const onToggleFav = async () => {
+    if (!userInfo) return navigate("/login");
+    try { await toggleFav(id).unwrap(); } catch (e) { toast.error(e?.data?.message || "Không lưu được"); }
+  };
+  const { data: weather } = useGetVenueWeatherQuery(id, { skip: !id });
 
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(today, i)), [today]);
   const cover = imgSrc(venue?.images?.[0]);
@@ -81,9 +103,13 @@ export default function VenueDetailPage() {
       const b = await createBooking({
         venueId: id, courtId: confirm.courtId, date, start: confirm.start, end: confirm.end,
         customerName: name, customerPhone: phone, note,
+        openPlay: opEnabled
+          ? { enabled: true, capacity: Math.max(2, Number(opCap) || 4), pricePerPerson: Math.max(0, Number(opPrice) || 0) }
+          : undefined,
       }).unwrap();
       setConfirm(null);
       setCreated(b);
+      setOpEnabled(false);
       toast.success("Đặt sân thành công! Thanh toán để được xác nhận.");
     } catch (e) {
       toast.error(e?.data?.message || e?.message || "Đặt sân thất bại");
@@ -115,6 +141,9 @@ export default function VenueDetailPage() {
               <Box sx={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(0,0,0,.1) 30%, rgba(0,0,0,.72))" }} />
             </>
           )}
+          <IconButton onClick={onToggleFav} aria-label="Yêu thích" sx={{ position: "absolute", top: 14, right: 14, bgcolor: alpha("#000", 0.4), color: "#fff", "&:hover": { bgcolor: alpha("#000", 0.55) } }}>
+            {fav ? <FavoriteIcon sx={{ color: "#f43f5e" }} /> : <FavoriteBorderIcon />}
+          </IconButton>
           <Box sx={{ position: "relative", width: "100%" }}>
             <Typography sx={{ fontSize: { xs: 26, md: 36 }, fontWeight: 900, letterSpacing: "-0.02em", textShadow: "0 2px 12px rgba(0,0,0,.4)" }}>
               {venue?.name}
@@ -125,6 +154,17 @@ export default function VenueDetailPage() {
               {todayHours && metaPill(<AccessTimeIcon sx={{ fontSize: 16 }} />, todayHours.closed ? "Đóng cửa hôm nay" : `${todayHours.open}–${todayHours.close}`)}
             </Stack>
           </Box>
+        </Box>
+      )}
+
+      {/* Thời tiết sân ngoài trời */}
+      {weather?.available && weather?.current && (
+        <Box sx={{ mb: 2, display: "inline-flex", alignItems: "center", gap: 1, px: 1.5, py: 0.75, borderRadius: 2.5, bgcolor: alpha(theme.palette.primary.main, 0.08), border: `1px solid ${alpha(theme.palette.primary.main, 0.18)}` }}>
+          <WbSunnyOutlinedIcon sx={{ fontSize: 18, color: "primary.main" }} />
+          <Typography sx={{ fontSize: 14, fontWeight: 700 }}>{Math.round(weather.current.temp)}°C</Typography>
+          {Array.isArray(weather.hours) && weather.hours[0]?.rainProb != null && (
+            <Typography sx={{ fontSize: 13, color: "text.secondary" }}>· Mưa {weather.hours[0].rainProb}%</Typography>
+          )}
         </Box>
       )}
 
@@ -199,6 +239,18 @@ export default function VenueDetailPage() {
               <TextField size="small" label="Tên người đặt" value={name} onChange={(e) => setName(e.target.value)} />
               <TextField size="small" label="Số điện thoại" value={phone} onChange={(e) => setPhone(e.target.value)} />
               <TextField size="small" label="Ghi chú (tuỳ chọn)" value={note} onChange={(e) => setNote(e.target.value)} multiline minRows={2} />
+              <Box sx={{ p: 1.25, borderRadius: 2.5, border: `1px solid ${opEnabled ? theme.palette.primary.main : theme.palette.divider}` }}>
+                <FormControlLabel
+                  control={<Switch checked={opEnabled} onChange={(e) => setOpEnabled(e.target.checked)} />}
+                  label={<Box><Typography sx={{ fontWeight: 700, fontSize: 14 }}>Mở ghép sân này</Typography><Typography sx={{ fontSize: 12, color: "text.secondary" }}>Cho người lạ vào đánh chung, chia tiền theo đầu người.</Typography></Box>}
+                />
+                {opEnabled && (
+                  <Stack direction="row" spacing={1.5} sx={{ mt: 1 }}>
+                    <TextField size="small" type="number" label="Số người tối đa" value={opCap} onChange={(e) => setOpCap(e.target.value)} sx={{ flex: 1 }} />
+                    <TextField size="small" type="number" label="Giá / người (đ)" value={opPrice} onChange={(e) => setOpPrice(e.target.value)} sx={{ flex: 1 }} />
+                  </Stack>
+                )}
+              </Box>
             </Stack>
           )}
         </DialogContent>
