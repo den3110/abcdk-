@@ -6,6 +6,7 @@ export const VENUE_PERMISSIONS = [
   { key: "bookings.manage", label: "Duyệt / huỷ / check-in đơn", group: "Đặt sân" },
   { key: "pos.sell", label: "Bán hàng tại quầy", group: "Bán hàng" },
   { key: "pos.products", label: "Quản lý sản phẩm & kho", group: "Bán hàng" },
+  { key: "events.manage", label: "Quản lý sự kiện (xé vé / social)", group: "Sự kiện" },
   { key: "packages.manage", label: "Quản lý gói giờ / thẻ tháng", group: "Vận hành" },
   { key: "promos.manage", label: "Quản lý mã giảm giá", group: "Vận hành" },
   { key: "blocks.manage", label: "Khoá sân / bảo trì", group: "Vận hành" },
@@ -28,7 +29,7 @@ export const VENUE_ROLE_LABEL = {
 };
 export const VENUE_ROLE_PRESETS = {
   manager: [...VENUE_PERMISSION_KEYS], // toàn quyền như chủ sân (trừ chuyển nhượng)
-  cashier: ["bookings.view", "bookings.manage", "pos.sell", "pos.products", "revenue.view"],
+  cashier: ["bookings.view", "bookings.manage", "pos.sell", "pos.products", "events.manage", "revenue.view"],
   staff: ["bookings.view", "pos.sell"],
 };
 

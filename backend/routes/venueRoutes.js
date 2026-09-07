@@ -50,6 +50,14 @@ import {
 } from "../controllers/venuePackageController.js";
 import { getVenueAnalytics } from "../controllers/venueAnalyticsController.js";
 import {
+  createEvent,
+  updateEvent,
+  cancelEvent,
+  listVenueEvents,
+  listEventRegistrations,
+  updateRegistration,
+} from "../controllers/venueEventController.js";
+import {
   listStaff,
   addStaff,
   updateStaff,
@@ -116,6 +124,14 @@ router.patch("/:id/package-purchases/:purchaseId/activate", protect, activatePur
 
 // Phân tích lấp đầy + doanh thu gộp
 router.get("/:id/analytics", protect, getVenueAnalytics);
+
+// Sự kiện xé vé / social (chủ sân)
+router.get("/:id/events", protect, listVenueEvents);
+router.post("/:id/events", protect, createEvent);
+router.patch("/:id/events/:eventId", protect, updateEvent);
+router.delete("/:id/events/:eventId", protect, cancelEvent);
+router.get("/:id/events/:eventId/registrations", protect, listEventRegistrations);
+router.patch("/:id/events/:eventId/registrations/:regId", protect, updateRegistration);
 
 // Nhân viên & phân quyền
 router.get("/:id/my-access", protect, getMyVenueAccess);
