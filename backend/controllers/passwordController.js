@@ -36,10 +36,149 @@ function maskResetPhone(s = "") {
 }
 const sha256 = (v) => crypto.createHash("sha256").update(String(v)).digest("hex");
 
+const looksLikeEmail = (s = "") => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s).trim());
+
+// Tìm user theo "định danh" người dùng nhập ở màn Quên mật khẩu:
+// - dạng email  -> tra theo email
+// - dạng SĐT    -> tra theo phone (đã kích hoạt)
+async function findResetUserByIdentifier(identifier = "") {
+  const id = String(identifier || "").trim();
+  if (!id) return null;
+  if (looksLikeEmail(id)) {
+    return User.findOne({ email: id.toLowerCase() });
+  }
+  const phoneStore = normalizeResetPhone(id);
+  if (isValidResetPhone(phoneStore)) {
+    return User.findOne({ phone: phoneStore, phoneVerified: true });
+  }
+  return null;
+}
+
+// Kênh khả dụng để đặt lại mật khẩu cho 1 user
+function resetChannelsOf(user) {
+  return {
+    email: !!user?.email,
+    // Zalo chỉ khi SĐT đã kích hoạt
+    zalo: !!(user?.phone && user?.phoneVerified),
+  };
+}
+
+// POST /api/users/forgot-password/options   { identifier }
+// Trả về các kênh khả dụng (email / zalo) + giá trị đã che, KHÔNG lộ email/SĐT thật.
+// Dùng cho app: tài khoản không có email -> chỉ Zalo; có email -> cho chọn Email hoặc Zalo.
+export async function resolveResetOptions(req, res) {
+  const { identifier } = req.body || {};
+  const id = String(identifier || "").trim();
+  if (!id) {
+    return res.status(400).json({ message: "Vui lòng nhập email hoặc số điện thoại." });
+  }
+  const user = await findResetUserByIdentifier(id);
+  if (!user) {
+    return res.json({
+      ok: true,
+      found: false,
+      channels: { email: false, zalo: false },
+      message: "Không tìm thấy tài khoản khớp với thông tin này.",
+    });
+  }
+  const channels = resetChannelsOf(user);
+  return res.json({
+    ok: true,
+    found: true,
+    channels,
+    maskedEmail: user.email ? maskEmail(user.email) : null,
+    maskedPhone: user.phone ? maskResetPhone(user.phone) : null,
+    message: "OK",
+  });
+}
+
 // POST /api/users/forgot-password  { email, platform?="web"|"app" }
 // controllers/passwordController.js (trích phần forgotPassword, giữ nguyên phần khác)
 export async function forgotPassword(req, res) {
-  const { email, phone, platform = "web", channel } = req.body || {};
+  const { email, phone, platform = "web", channel, identifier } = req.body || {};
+
+  // ⬇️ NHÁNH ĐỊNH DANH (app mới): resolve user theo identifier rồi gửi OTP theo kênh chọn.
+  // Không cần client biết email/SĐT thật của tài khoản.
+  if (identifier && (channel === "email" || channel === "zalo")) {
+    const user = await findResetUserByIdentifier(identifier);
+    if (!user) {
+      return res.json({
+        ok: true,
+        exists: false,
+        channel,
+        message: "Không tìm thấy tài khoản khớp với thông tin này.",
+      });
+    }
+
+    if (channel === "zalo") {
+      if (!(user.phone && user.phoneVerified)) {
+        return res.status(400).json({
+          ok: false,
+          channel: "zalo",
+          message: "Tài khoản chưa có số điện thoại đã kích hoạt.",
+        });
+      }
+      let sent;
+      try {
+        sent = await sendOtpWithLimit({
+          user: user._id,
+          phone: user.phone,
+          purpose: "reset",
+          ip: req.ip,
+        });
+      } catch (e) {
+        return res.status(e?.rateLimited ? 429 : 400).json({
+          ok: false,
+          channel: "zalo",
+          message: e?.rateLimited ? e.message : "Không gửi được OTP. Vui lòng thử lại.",
+        });
+      }
+      user.resetPasswordToken = sha256(sent.otp);
+      user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000);
+      await user.save();
+      return res.json({
+        ok: true,
+        exists: true,
+        channel: "zalo",
+        masked: maskResetPhone(user.phone),
+        expiresIn: 600,
+        message: "Đã gửi mã OTP qua Zalo.",
+      });
+    }
+
+    // channel === "email"
+    if (!user.email) {
+      return res.status(400).json({
+        ok: false,
+        channel: "email",
+        message: "Tài khoản không có email.",
+      });
+    }
+    const { raw, hashed, expiresAt } = createSixDigitOtp();
+    user.resetPasswordToken = hashed;
+    user.resetPasswordExpires = new Date(expiresAt);
+    await user.save();
+    try {
+      await sendPasswordResetOtpEmail({ to: user.email, otp: raw });
+      return res.json({
+        ok: true,
+        exists: true,
+        channel: "email",
+        masked: maskEmail(user.email),
+        expiresIn: Math.floor((expiresAt - Date.now()) / 1000) || 600,
+        message: "Đã gửi OTP tới email.",
+      });
+    } catch (e) {
+      user.resetPasswordToken = undefined;
+      user.resetPasswordExpires = undefined;
+      await user.save();
+      return res.status(400).json({
+        ok: false,
+        channel: "email",
+        message: "Không gửi được OTP tới email. Vui lòng thử lại.",
+      });
+    }
+  }
 
   // ⬇️ NHÁNH ZALO: đặt lại qua SĐT + OTP Zalo (chỉ SĐT đã kích hoạt)
   if (channel === "zalo" || (phone && !email)) {
@@ -171,13 +310,41 @@ export async function forgotPassword(req, res) {
 // Web:   { token, password }
 // App:   { platform:"app", email, otp, password }
 export async function resetPassword(req, res) {
-  const { token, password, platform, email, otp, phone, channel } = req.body || {};
+  const { token, password, platform, email, otp, phone, channel, identifier } = req.body || {};
 
   if (!password) {
     return res.status(400).json({ message: "Thiếu token/OTP hoặc password" });
   }
   if (String(password).length < 6) {
     return res.status(400).json({ message: "Mật khẩu tối thiểu 6 ký tự" });
+  }
+
+  // === NHÁNH ĐỊNH DANH (app mới): đặt lại theo identifier + OTP ===
+  if (identifier && otp) {
+    const user = await findResetUserByIdentifier(identifier);
+    const valid =
+      user &&
+      user.resetPasswordToken === sha256(otp) &&
+      user.resetPasswordExpires &&
+      new Date(user.resetPasswordExpires).getTime() > Date.now();
+    if (!valid) {
+      return res.status(400).json({ message: "OTP không hợp lệ hoặc đã hết hạn." });
+    }
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+    if (user.email) {
+      try {
+        await sendPasswordChangedEmail({ to: user.email });
+      } catch (e) {
+        console.log(e);
+      }
+    }
+    return res.json({
+      ok: true,
+      message: "Đổi mật khẩu thành công. Vui lòng đăng nhập lại.",
+    });
   }
 
   // === NHÁNH ZALO: xác thực bằng SĐT + OTP ===
@@ -291,7 +458,30 @@ export async function resetPassword(req, res) {
 }
 
 export async function verifyResetOtp(req, res) {
-  const { email, otp, platform, phone, channel } = req.body || {};
+  const { email, otp, platform, phone, channel, identifier } = req.body || {};
+
+  // === NHÁNH ĐỊNH DANH (app mới): xác thực OTP theo identifier + token ===
+  if (identifier && otp) {
+    const user = await findResetUserByIdentifier(identifier);
+    const valid =
+      user &&
+      user.resetPasswordToken === sha256(otp) &&
+      user.resetPasswordExpires &&
+      new Date(user.resetPasswordExpires).getTime() > Date.now();
+    if (!valid) {
+      return res.status(400).json({ message: "OTP không hợp lệ hoặc đã hết hạn." });
+    }
+    const expiresIn = Math.max(
+      0,
+      Math.floor((new Date(user.resetPasswordExpires).getTime() - Date.now()) / 1000)
+    );
+    return res.json({
+      ok: true,
+      message: "OTP hợp lệ",
+      masked: user.email ? maskEmail(user.email) : maskResetPhone(user.phone),
+      expiresIn,
+    });
+  }
 
   // === NHÁNH ZALO: xác thực OTP theo SĐT ===
   if (channel === "zalo") {

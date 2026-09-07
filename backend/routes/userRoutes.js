@@ -45,6 +45,7 @@ import {
   forgotPassword,
   resetPassword,
   verifyResetOtp,
+  resolveResetOptions,
 } from "../controllers/passwordController.js";
 import { simpleRateLimit } from "../middleware/rateLimit.js";
 import { getUserAchievements } from "../controllers/achievements.controller.js";
@@ -129,6 +130,7 @@ router.delete("/me", protect, softDeleteMe);
 router.get("/me", protect, getMe);
 router.post("/evaluations", protect, createEvaluation);
 
+router.post("/forgot-password/options", simpleRateLimit(60_000, 10), resolveResetOptions);
 router.post("/forgot-password", forgotPassword);
 router.post("/verify-reset-otp", verifyResetOtp);
 router.post("/reset-password", simpleRateLimit(60_000, 5), resetPassword);
