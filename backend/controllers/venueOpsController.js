@@ -345,24 +345,31 @@ async function generateSessions({ venue, court, cfg, dates, group, createdBy }) 
   // Pha 1: lọc buổi hợp lệ
   const valid = [];
   const skipped = [];
+  const nowMs = Date.now();
   for (const date of dates) {
     const wd = weekdayOf(date);
     const day = getDayHours(venue, court, wd);
     if (day.closed) { skipped.push({ date, reason: "đóng cửa" }); continue; }
     const startAt = buildInstant(date, cfg.start);
     const endAt = buildInstant(date, cfg.end);
-    if (startAt.getTime() < Date.now()) { skipped.push({ date, reason: "đã qua" }); continue; }
+    // Buổi đã qua (endAt ≤ hiện tại) vẫn được ghi nhận dưới dạng "completed" để tính doanh thu
+    // cho hợp đồng CLB bắt đầu trong quá khứ.
+    const past = endAt.getTime() <= nowMs;
+    // Chống trùng: buổi tương lai xét đơn đang hoạt động; buổi quá khứ xét mọi đơn chưa huỷ.
     const clash = await Booking.findOne({
-      court: court._id, status: { $in: ACTIVE_STATUSES },
+      court: court._id,
+      status: past ? { $ne: "cancelled" } : { $in: ACTIVE_STATUSES },
       startAt: { $lt: endAt }, endAt: { $gt: startAt },
     }).lean();
     if (clash) { skipped.push({ date, reason: "đã có lượt" }); continue; }
-    const block = await CourtBlock.findOne({
-      venue: venue._id, $or: [{ court: court._id }, { court: null }],
-      startAt: { $lt: endAt }, endAt: { $gt: startAt },
-    }).lean();
-    if (block) { skipped.push({ date, reason: "khoá sân" }); continue; }
-    valid.push({ date, wd, startAt, endAt });
+    if (!past) {
+      const block = await CourtBlock.findOne({
+        venue: venue._id, $or: [{ court: court._id }, { court: null }],
+        startAt: { $lt: endAt }, endAt: { $gt: startAt },
+      }).lean();
+      if (block) { skipped.push({ date, reason: "khoá sân" }); continue; }
+    }
+    valid.push({ date, wd, startAt, endAt, past });
   }
 
   const n = valid.length;
@@ -380,13 +387,13 @@ async function generateSessions({ venue, court, cfg, dates, group, createdBy }) 
   const created = [];
   let revenue = 0;
   for (let i = 0; i < valid.length; i += 1) {
-    const { date, startAt, endAt } = valid[i];
+    const { date, startAt, endAt, past } = valid[i];
     const totalPrice = priceAt(i);
     const pricePerHour = hours > 0 ? Math.round(totalPrice / hours) : totalPrice;
     const booking = new Booking({
       venue: venue._id, court: court._id, startAt, endAt,
       durationMin: endMin - startMin, pricePerHour, subtotal: totalPrice, totalPrice,
-      status: "confirmed", createdByRole: "owner", createdBy,
+      status: past ? "completed" : "confirmed", createdByRole: "owner", createdBy,
       customerName: cfg.customerName, customerPhone: cfg.customerPhone, note: cfg.note,
       recurringGroup: group,
     });
@@ -394,18 +401,21 @@ async function generateSessions({ venue, court, cfg, dates, group, createdBy }) 
       booking.payment = { status: "Paid", paidAt: new Date(), method: cfg.paymentMethod, reviewedBy: createdBy, reviewedAt: new Date() };
       booking.commissionAmount = commissionPct > 0 ? Math.round((totalPrice * commissionPct) / 100) : 0;
     }
-    try {
-      await BookingSlotLock.insertMany(
-        slotStartsBetween(startAt, endAt).map((slotStart) => ({ court: court._id, slotStart, booking: booking._id })),
-        { ordered: false },
-      );
-    } catch (e) {
-      await BookingSlotLock.deleteMany({ booking: booking._id });
-      skipped.push({ date, reason: "trùng slot" });
-      continue;
+    // Buổi tương lai: khoá slot chống trùng + lên lịch nhắc. Buổi quá khứ: không cần.
+    if (!past) {
+      try {
+        await BookingSlotLock.insertMany(
+          slotStartsBetween(startAt, endAt).map((slotStart) => ({ court: court._id, slotStart, booking: booking._id })),
+          { ordered: false },
+        );
+      } catch (e) {
+        await BookingSlotLock.deleteMany({ booking: booking._id });
+        skipped.push({ date, reason: "trùng slot" });
+        continue;
+      }
     }
     await booking.save();
-    scheduleBookingReminder(booking).catch(() => {});
+    if (!past) scheduleBookingReminder(booking).catch(() => {});
     if (cfg.markPaid) revenue += totalPrice;
     created.push({ date, id: booking._id, code: booking.code, totalPrice });
   }
