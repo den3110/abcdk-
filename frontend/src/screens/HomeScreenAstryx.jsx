@@ -984,6 +984,7 @@ function RankTable({ ranks, ranksLoading, climbers }) {
 function ValueAndCTA() {
   const ctaAuthed = Boolean(useSelector((s) => s.auth?.userInfo));
   const cols = [
+    [CalendarDays, "Đặt sân trong vài chạm", "Tìm sân gần bạn, chọn khung giờ trống và đặt ngay — có cả sân mở ghép để đánh chung.", "/courts", "Đặt sân"],
     [Zap, "Tổ chức trong vài phút", "Bốc thăm, tạo sơ đồ và xếp lịch tự động — không cần bảng tính hay giấy bút.", "/pickle-ball/tournaments", "Tạo giải"],
     [ShieldCheck, "Minh bạch tuyệt đối", "Điểm trình cộng/trừ rõ ràng theo từng vòng, ai cũng kiểm chứng được.", "/pickle-ball/rankings", "Cách tính điểm"],
     [Radar, "Sẵn sàng lên sóng", "Live/record ngay trên điện thoại với overlay chuyên nghiệp.", "/live", "Xem trực tiếp"],
@@ -991,7 +992,7 @@ function ValueAndCTA() {
   return (
     <>
       <Band>
-        <div className="pk-3col" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0,1fr))", gap: 28 }}>
+        <div className="pk-3col" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 28 }}>
           {cols.map(([IconComp, title, body, href, link]) => (
             <div key={title} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <span style={{ width: 44, height: 44, borderRadius: 12, background: "color-mix(in srgb, var(--color-accent) 16%, transparent)", color: "var(--color-text-accent)", display: "grid", placeItems: "center", transition: "all .6s" }}><IconComp size={22} /></span>

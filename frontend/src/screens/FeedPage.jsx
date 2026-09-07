@@ -1317,6 +1317,57 @@ function SharedPlayCard({ sp, nav }) {
   );
 }
 
+function SharedEventCard({ se, nav }) {
+  const go = () => se.eventId && nav(`/events/${se.eventId}`);
+  const start = se.startAt ? new Date(se.startAt) : null;
+  const when = start
+    ? start.toLocaleString("vi-VN", { weekday: "short", hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })
+    : "";
+  const ended = se.endAt ? new Date(se.endAt).getTime() < Date.now() : false;
+  const left = Math.max(0, (se.capacity || 0) - (se.registered || 0));
+  const price = se.price > 0 ? `${Number(se.price).toLocaleString("vi-VN")}đ` : "Miễn phí";
+  const skill = se.skillMin || se.skillMax ? `Trình ${se.skillMin || 0}${se.skillMax ? `–${se.skillMax}` : "+"}` : "Mọi trình";
+  const gender = { male: "Chỉ nam", female: "Chỉ nữ", balanced: "Cân bằng nam/nữ" }[se.genderPolicy];
+  return (
+    <Box
+      onClick={go}
+      sx={{
+        mt: 1.5, borderRadius: 2, border: "1px solid", borderColor: "divider",
+        overflow: "hidden", cursor: se.eventId ? "pointer" : "default",
+        "&:hover": { borderColor: "#e11d48" },
+      }}
+    >
+      {se.coverImage && (
+        <Box component="img" src={se.coverImage} alt={se.title} sx={{ width: "100%", height: 160, objectFit: "cover", display: "block" }} />
+      )}
+      <Box sx={{ px: 1.5, py: 0.75, bgcolor: "#e11d48", color: "#fff", display: "flex", alignItems: "center", gap: 1 }}>
+        <span>🎟️</span>
+        <Typography variant="caption" sx={{ fontWeight: 700, flex: 1 }} noWrap>
+          Sự kiện xé vé · Đánh social
+        </Typography>
+        <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: "rgba(255,255,255,.25)", fontSize: 11, fontWeight: 700 }}>
+          {ended ? "Đã diễn ra" : left > 0 ? `Còn ${left} suất` : "Hết suất"}
+        </Box>
+      </Box>
+      <Box sx={{ p: 1.5 }}>
+        <Typography sx={{ fontWeight: 800, fontSize: 15 }}>{se.title || "Sự kiện"}</Typography>
+        {when && <Typography sx={{ fontSize: 13, color: "text.secondary", mt: 0.5 }}>🕒 {when}</Typography>}
+        <Typography sx={{ fontSize: 13, color: "text.secondary" }} noWrap>
+          📍 {[se.venueName, se.address].filter(Boolean).join(" · ") || "—"}{se.courts ? ` · ${se.courts}` : ""}
+        </Typography>
+        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mt: 1, gap: 1 }}>
+          <Typography sx={{ fontSize: 12.5, color: "text.secondary" }} noWrap>
+            {skill}{gender ? ` · ${gender}` : ""} · {se.registered || 0}/{se.capacity || 0} suất · {price}
+          </Typography>
+          <Box sx={{ px: 1.5, py: 0.5, borderRadius: 999, bgcolor: !ended && left > 0 ? "#e11d48" : "action.disabledBackground", color: !ended && left > 0 ? "#fff" : "text.disabled", fontWeight: 700, fontSize: 12.5, whiteSpace: "nowrap" }}>
+            {!ended && left > 0 ? "Tham gia" : "Xem"}
+          </Box>
+        </Box>
+      </Box>
+    </Box>
+  );
+}
+
 function PostCard({ post, me, defaultShowComments = false }) {
   const nav = useNavigate();
   const [react] = useReactFeedPostMutation();
@@ -1500,6 +1551,7 @@ function PostCard({ post, me, defaultShowComments = false }) {
         {post.sharedMatch && <SharedMatchCard sm={post.sharedMatch} nav={nav} />}
         {post.sharedListing && <SharedListingCard sl={post.sharedListing} nav={nav} />}
         {post.sharedPlay && <SharedPlayCard sp={post.sharedPlay} nav={nav} />}
+        {post.sharedEvent && <SharedEventCard se={post.sharedEvent} nav={nav} />}
         {poll && <PollBlock poll={poll} onVote={handleVote} />}
         {post.media?.length > 0 && (
           <Box
@@ -1886,7 +1938,7 @@ function PostCard({ post, me, defaultShowComments = false }) {
             placeholder="Nội dung bài viết…"
             sx={{ mt: 1 }}
           />
-          {(post.sharedListing || post.sharedPlay || post.sharedMatch) && (
+          {(post.sharedListing || post.sharedPlay || post.sharedMatch || post.sharedEvent) && (
             <Typography sx={{ mt: 1, fontSize: 12.5, color: "text.secondary" }}>
               * Phần đính kèm (sản phẩm/kèo/trận) được giữ nguyên.
             </Typography>
