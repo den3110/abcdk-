@@ -9,6 +9,23 @@ import {
   isCourtOwnerLike,
   venueCan,
 } from "../utils/venueAuth.js";
+import { geocodeTournamentLocation } from "../services/openaiGeocode.js";
+
+/** Geocode địa chỉ cụm sân → { lat, lon, displayName } (best-effort, null nếu không ra). */
+async function geocodeVenue(src) {
+  const location = [src?.address, src?.province].map((s) => String(s || "").trim()).filter(Boolean).join(", ");
+  if (!location) return null;
+  try {
+    const geo = await geocodeTournamentLocation({ location, countryHint: "VN" });
+    if (Number.isFinite(geo?.lat) && Number.isFinite(geo?.lon)) {
+      return { lat: geo.lat, lon: geo.lon, displayName: geo.formatted || location };
+    }
+  } catch (e) {
+    console.warn("[venue geocode] fail:", e?.message || e);
+  }
+  return null;
+}
+const hasCoords = (g) => Number.isFinite(g?.lat) && Number.isFinite(g?.lon);
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
 
@@ -192,6 +209,11 @@ export const createVenue = expressAsyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Cần nhập tên cụm sân");
   }
+  // Toạ độ để hiển thị trên bản đồ: ưu tiên client gửi, không thì geocode địa chỉ
+  if (!hasCoords(data.locationGeo)) {
+    const geo = await geocodeVenue(data);
+    if (geo) data.locationGeo = geo;
+  }
   const venue = await Venue.create({ ...data, owner: req.user._id });
   res.status(201).json(venue);
 });
@@ -214,6 +236,14 @@ export const updateVenue = expressAsyncHandler(async (req, res) => {
   }
   Object.assign(venue, pickVenueFields(req.body));
   if (typeof req.body.isActive === "boolean") venue.isActive = req.body.isActive;
+  // Cập nhật toạ độ: nếu client gửi locationGeo hợp lệ thì giữ; nếu đổi địa chỉ hoặc sân
+  // chưa có toạ độ thì geocode lại từ địa chỉ.
+  const clientGeo = hasCoords(req.body?.locationGeo);
+  const addrTouched = req.body?.address !== undefined || req.body?.province !== undefined;
+  if (!clientGeo && (addrTouched || !hasCoords(venue.locationGeo))) {
+    const geo = await geocodeVenue(venue);
+    if (geo) venue.locationGeo = geo;
+  }
   await venue.save();
   res.json(venue);
 });
