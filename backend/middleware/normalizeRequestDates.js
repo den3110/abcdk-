@@ -59,13 +59,20 @@ function normalizeObjectDates(obj, timezone) {
   }
 }
 
+// Module đặt sân dùng chuỗi ngày "YYYY-MM-DD" + giờ "HH:MM" theo múi giờ sân (validate bằng isValidDateStr),
+// KHÔNG được ép sang Date — nếu ép, controller sẽ trả "Ngày không hợp lệ".
+const SKIP_PREFIXES = ["/api/bookings", "/api/venues", "/api/packages", "/api/court-owner"];
+
 /**
  * Middleware:
  * - Chỉ xử lý với method có khả năng ghi dữ liệu: POST / PUT / PATCH
  * - Dò mọi field trong req.body, nếu key nằm trong DATE_KEYS thì convert → Date UTC
+ * - Bỏ qua các route trong SKIP_PREFIXES
  */
 export function normalizeRequestDates(req, _res, next) {
   if (!["POST", "PUT", "PATCH"].includes(req.method)) return next();
+  const url = String(req.originalUrl || req.path || "");
+  if (SKIP_PREFIXES.some((p) => url === p || url.startsWith(p + "/") || url.startsWith(p + "?"))) return next();
 
   const tz = req.userTimezone || "UTC";
   normalizeObjectDates(req.body, tz);
