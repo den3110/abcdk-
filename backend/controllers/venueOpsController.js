@@ -8,7 +8,8 @@ import Booking from "../models/bookingModel.js";
 import BookingSlotLock, { slotStartsBetween } from "../models/bookingSlotLockModel.js";
 import CourtBlock from "../models/courtBlockModel.js";
 import PromoCode from "../models/promoCodeModel.js";
-import { canManageVenue } from "../utils/venueAuth.js";
+import VenueStaff from "../models/venueStaffModel.js";
+import { canManageVenue, venueCan } from "../utils/venueAuth.js";
 import {
   parseHHMM,
   isValidDateStr,
@@ -23,7 +24,7 @@ const isId = (v) => mongoose.Types.ObjectId.isValid(v);
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_STATUSES = ["pending", "awaiting_approval", "confirmed"];
 
-async function requireManage(req, res) {
+async function requireManage(req, res, perm) {
   const { id } = req.params;
   if (!isId(id)) {
     res.status(400);
@@ -34,7 +35,7 @@ async function requireManage(req, res) {
     res.status(404);
     throw new Error("Không tìm thấy cụm sân");
   }
-  if (!(await canManageVenue(req.user, venue))) {
+  if (!(perm ? await venueCan(req.user, venue, perm) : await canManageVenue(req.user, venue))) {
     res.status(403);
     throw new Error("Không có quyền với cụm sân này");
   }
@@ -45,7 +46,7 @@ async function requireManage(req, res) {
 
 /** GET /api/venues/:id/blocks?from=&to=  (chủ sân) */
 export const listBlocks = expressAsyncHandler(async (req, res) => {
-  await requireManage(req, res);
+  await requireManage(req, res, "blocks.manage");
   const filter = { venue: req.params.id };
   if (isValidDateStr(req.query.from)) {
     filter.endAt = { $gt: buildInstant(req.query.from, "00:00") };
@@ -62,7 +63,7 @@ export const listBlocks = expressAsyncHandler(async (req, res) => {
 
 /** POST /api/venues/:id/blocks  { courtId?, date, start, end, reason }  (chủ sân) */
 export const createBlock = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireManage(req, res, "blocks.manage");
   const { courtId, date, start, end, reason } = req.body || {};
   if (!isValidDateStr(date)) {
     res.status(400);
@@ -100,7 +101,7 @@ export const createBlock = expressAsyncHandler(async (req, res) => {
 
 /** DELETE /api/venues/:id/blocks/:blockId  (chủ sân) */
 export const deleteBlock = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireManage(req, res, "blocks.manage");
   const { blockId } = req.params;
   if (!isId(blockId)) {
     res.status(400);
@@ -114,14 +115,14 @@ export const deleteBlock = expressAsyncHandler(async (req, res) => {
 
 /** GET /api/venues/:id/promos  (chủ sân) */
 export const listPromos = expressAsyncHandler(async (req, res) => {
-  await requireManage(req, res);
+  await requireManage(req, res, "promos.manage");
   const items = await PromoCode.find({ venue: req.params.id }).sort({ createdAt: -1 }).lean();
   res.json(items);
 });
 
 /** POST /api/venues/:id/promos  (chủ sân) */
 export const createPromo = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireManage(req, res, "promos.manage");
   const code = String(req.body?.code || "").trim().toUpperCase();
   if (!code) {
     res.status(400);
@@ -158,7 +159,7 @@ export const createPromo = expressAsyncHandler(async (req, res) => {
 
 /** PATCH /api/venues/:id/promos/:promoId  (chủ sân — sửa nhanh active/value…) */
 export const updatePromo = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireManage(req, res, "promos.manage");
   const { promoId } = req.params;
   if (!isId(promoId)) {
     res.status(400);
@@ -181,7 +182,7 @@ export const updatePromo = expressAsyncHandler(async (req, res) => {
 
 /** DELETE /api/venues/:id/promos/:promoId */
 export const deletePromo = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireManage(req, res, "promos.manage");
   const { promoId } = req.params;
   if (!isId(promoId)) {
     res.status(400);
@@ -219,7 +220,7 @@ export const validatePromo = expressAsyncHandler(async (req, res) => {
  * Chủ sân tạo loạt lượt đặt hàng tuần cho khách quen (bỏ qua tuần trùng/khoá).
  */
 export const createRecurring = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireManage(req, res, "recurring.manage");
   const { courtId, weekday, start, end, dateFrom, note } = req.body || {};
   const weeks = Math.min(26, Math.max(1, Number(req.body?.weeks) || 4));
   if (!isId(courtId)) {
@@ -333,7 +334,11 @@ export const createRecurring = expressAsyncHandler(async (req, res) => {
 /** GET /api/venues/mine/overview  — tổng hợp nhanh toàn bộ cụm sân của tôi */
 export const myVenuesOverview = expressAsyncHandler(async (req, res) => {
   const uid = req.user._id;
-  const venues = await Venue.find({ $or: [{ owner: uid }, { managers: uid }] })
+  // Venue mà user là chủ / quản lý (managers) hoặc là nhân viên được cấp quyền
+  const staffVenueIds = await VenueStaff.find({ user: uid, active: true }).distinct("venue");
+  const venues = await Venue.find({
+    $or: [{ owner: uid }, { managers: uid }, { _id: { $in: staffVenueIds } }],
+  })
     .select("name province images isActive status")
     .lean();
   const ids = venues.map((v) => v._id);

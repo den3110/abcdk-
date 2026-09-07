@@ -6,7 +6,7 @@ import VenueCourt from "../models/venueCourtModel.js";
 import Booking from "../models/bookingModel.js";
 import VenueSale from "../models/venueSaleModel.js";
 import CourtBlock from "../models/courtBlockModel.js";
-import { canManageVenue } from "../utils/venueAuth.js";
+import { venueCan } from "../utils/venueAuth.js";
 import { parseHHMM, isValidDateStr, weekdayOf, buildInstant, getDayHours } from "../utils/venueBooking.js";
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
@@ -36,7 +36,7 @@ export const getVenueAnalytics = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy cụm sân");
   }
-  if (!(await canManageVenue(req.user, venue))) {
+  if (!(await venueCan(req.user, venue, "analytics.view"))) {
     res.status(403);
     throw new Error("Không có quyền xem phân tích");
   }

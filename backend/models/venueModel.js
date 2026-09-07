@@ -66,7 +66,10 @@ const venueSchema = new Schema(
     defaultPricePerHour: { type: Number, default: 0, min: 0 },
 
     // Thông tin nhận thanh toán (QR chuyển khoản — giống đăng ký giải)
+    // bankShortName = tên ngân hàng tương thích SePay/VietQR (vd "Vietcombank", "MBBank")
+    // bankCode = mã ngắn (vd VCB, MB) để tra logo phía app
     bankShortName: { type: String, trim: true, default: "" },
+    bankCode: { type: String, trim: true, default: "" },
     bankAccountNumber: {
       type: String,
       default: "",

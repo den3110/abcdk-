@@ -4,14 +4,14 @@ import mongoose from "mongoose";
 import Venue from "../models/venueModel.js";
 import VenuePackage from "../models/venuePackageModel.js";
 import PackagePurchase from "../models/packagePurchaseModel.js";
-import { canManageVenue } from "../utils/venueAuth.js";
+import { canManageVenue, venueCan } from "../utils/venueAuth.js";
 import { bookingBankInfo } from "../utils/bankQr.js";
 import { publishNotification, EVENTS } from "../services/notifications/notificationHub.js";
 import { createInAppNotifications } from "../services/inAppNotify.js";
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
 
-async function requireManage(req, res) {
+async function requireManage(req, res, perm) {
   const { id } = req.params;
   if (!isId(id)) {
     res.status(400);
@@ -22,7 +22,7 @@ async function requireManage(req, res) {
     res.status(404);
     throw new Error("Không tìm thấy cụm sân");
   }
-  if (!(await canManageVenue(req.user, venue))) {
+  if (!(perm ? await venueCan(req.user, venue, perm) : await canManageVenue(req.user, venue))) {
     res.status(403);
     throw new Error("Không có quyền với cụm sân này");
   }
@@ -55,7 +55,7 @@ export const listPackages = expressAsyncHandler(async (req, res) => {
 
 /** POST /api/venues/:id/packages */
 export const createPackage = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireManage(req, res, "packages.manage");
   const name = String(req.body?.name || "").trim();
   const price = Math.max(0, Number(req.body?.price) || 0);
   if (!name || !price) {
@@ -78,7 +78,7 @@ export const createPackage = expressAsyncHandler(async (req, res) => {
 
 /** PATCH /api/venues/:id/packages/:packageId */
 export const updatePackage = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireManage(req, res, "packages.manage");
   const { packageId } = req.params;
   if (!isId(packageId)) {
     res.status(400);
@@ -102,7 +102,7 @@ export const updatePackage = expressAsyncHandler(async (req, res) => {
 
 /** DELETE /api/venues/:id/packages/:packageId */
 export const deletePackage = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireManage(req, res, "packages.manage");
   const { packageId } = req.params;
   if (!isId(packageId)) {
     res.status(400);
@@ -168,7 +168,7 @@ export const listMyPackages = expressAsyncHandler(async (req, res) => {
 
 /** GET /api/venues/:id/package-purchases?status=  (chủ sân xem lượt mua) */
 export const listVenuePurchases = expressAsyncHandler(async (req, res) => {
-  await requireManage(req, res);
+  await requireManage(req, res, "packages.manage");
   const filter = { venue: req.params.id };
   if (["pending", "active", "expired", "cancelled"].includes(req.query.status)) filter.status = req.query.status;
   const items = await PackagePurchase.find(filter)
@@ -180,7 +180,7 @@ export const listVenuePurchases = expressAsyncHandler(async (req, res) => {
 
 /** PATCH /api/venues/:id/package-purchases/:purchaseId/activate  (chủ sân kích hoạt) */
 export const activatePurchase = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireManage(req, res, "packages.manage");
   const { purchaseId } = req.params;
   if (!isId(purchaseId)) {
     res.status(400);

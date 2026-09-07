@@ -5,13 +5,14 @@ import Venue from "../models/venueModel.js";
 import VenueProduct from "../models/venueProductModel.js";
 import VenueSale from "../models/venueSaleModel.js";
 import Booking from "../models/bookingModel.js";
-import { canManageVenue } from "../utils/venueAuth.js";
+import { venueCan, venueCanAny } from "../utils/venueAuth.js";
 import { isValidDateStr, buildInstant } from "../utils/venueBooking.js";
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-async function requireManage(req, res) {
+/** Nạp venue + kiểm tra quyền. `perm` = 1 key hoặc mảng key (bất kỳ). */
+async function requireAccess(req, res, perm) {
   const { id } = req.params;
   if (!isId(id)) {
     res.status(400);
@@ -22,9 +23,12 @@ async function requireManage(req, res) {
     res.status(404);
     throw new Error("Không tìm thấy cụm sân");
   }
-  if (!(await canManageVenue(req.user, venue))) {
+  const ok = Array.isArray(perm)
+    ? await venueCanAny(req.user, venue, perm)
+    : await venueCan(req.user, venue, perm);
+  if (!ok) {
     res.status(403);
-    throw new Error("Không có quyền với cụm sân này");
+    throw new Error("Không có quyền với thao tác này");
   }
   return venue;
 }
@@ -33,7 +37,7 @@ async function requireManage(req, res) {
 
 /** GET /api/venues/:id/products?all=1 */
 export const listProducts = expressAsyncHandler(async (req, res) => {
-  await requireManage(req, res);
+  await requireAccess(req, res, ["pos.sell", "pos.products"]);
   const filter = { venue: req.params.id };
   if (req.query.all !== "1") filter.active = true;
   const items = await VenueProduct.find(filter).sort({ order: 1, createdAt: 1 }).lean();
@@ -42,7 +46,7 @@ export const listProducts = expressAsyncHandler(async (req, res) => {
 
 /** POST /api/venues/:id/products */
 export const createProduct = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireAccess(req, res, "pos.products");
   const name = String(req.body?.name || "").trim();
   if (!name) {
     res.status(400);
@@ -65,7 +69,7 @@ export const createProduct = expressAsyncHandler(async (req, res) => {
 
 /** PATCH /api/venues/:id/products/:productId  (sửa / nhập thêm kho qua stockDelta) */
 export const updateProduct = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireAccess(req, res, "pos.products");
   const { productId } = req.params;
   if (!isId(productId)) {
     res.status(400);
@@ -93,7 +97,7 @@ export const updateProduct = expressAsyncHandler(async (req, res) => {
 
 /** DELETE /api/venues/:id/products/:productId */
 export const deleteProduct = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireAccess(req, res, "pos.products");
   const { productId } = req.params;
   if (!isId(productId)) {
     res.status(400);
@@ -107,7 +111,7 @@ export const deleteProduct = expressAsyncHandler(async (req, res) => {
 
 /** POST /api/venues/:id/sales  { items:[{productId, qty}], paymentMethod, bookingId?, customerName, note } */
 export const createSale = expressAsyncHandler(async (req, res) => {
-  const venue = await requireManage(req, res);
+  const venue = await requireAccess(req, res, "pos.sell");
   const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
   if (!rawItems.length) {
     res.status(400);
@@ -161,7 +165,7 @@ export const createSale = expressAsyncHandler(async (req, res) => {
 
 /** GET /api/venues/:id/sales?date=  (danh sách bán hàng) */
 export const listSales = expressAsyncHandler(async (req, res) => {
-  await requireManage(req, res);
+  await requireAccess(req, res, ["pos.sell", "revenue.view"]);
   const filter = { venue: req.params.id };
   if (isValidDateStr(req.query.date)) {
     const s = buildInstant(req.query.date, "00:00");

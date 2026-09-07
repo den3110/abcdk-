@@ -46,6 +46,13 @@ import {
   activatePurchase,
 } from "../controllers/venuePackageController.js";
 import { getVenueAnalytics } from "../controllers/venueAnalyticsController.js";
+import {
+  listStaff,
+  addStaff,
+  updateStaff,
+  removeStaff,
+  getMyVenueAccess,
+} from "../controllers/venueStaffController.js";
 import { attachJwtIfPresent } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -103,5 +110,12 @@ router.patch("/:id/package-purchases/:purchaseId/activate", protect, activatePur
 
 // Phân tích lấp đầy + doanh thu gộp
 router.get("/:id/analytics", protect, getVenueAnalytics);
+
+// Nhân viên & phân quyền
+router.get("/:id/my-access", protect, getMyVenueAccess);
+router.get("/:id/staff", protect, listStaff);
+router.post("/:id/staff", protect, addStaff);
+router.patch("/:id/staff/:staffId", protect, updateStaff);
+router.delete("/:id/staff/:staffId", protect, removeStaff);
 
 export default router;

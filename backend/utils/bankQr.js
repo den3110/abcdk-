@@ -29,6 +29,7 @@ export function buildBookingQrUrl(venue, booking) {
 export function bookingBankInfo(venue, booking) {
   return {
     bankShortName: venue?.bankShortName || venue?.qrBank || "",
+    bankCode: venue?.bankCode || "",
     bankAccountNumber: venue?.bankAccountNumber || venue?.qrAccount || "",
     bankAccountName: venue?.bankAccountName || "",
     amount: Number(booking?.totalPrice) || 0,

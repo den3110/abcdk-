@@ -18,6 +18,7 @@ const venueSaleSchema = new Schema(
   {
     venue: { type: Schema.Types.ObjectId, ref: "Venue", required: true, index: true },
     booking: { type: Schema.Types.ObjectId, ref: "Booking", default: null, index: true },
+    code: { type: String, default: "", index: true }, // mã hoá đơn ngắn cho bill
     items: { type: [saleItemSchema], default: [] },
     total: { type: Number, default: 0, min: 0 },
     paymentMethod: { type: String, enum: ["cash", "transfer"], default: "cash" },
@@ -29,5 +30,12 @@ const venueSaleSchema = new Schema(
 );
 
 venueSaleSchema.index({ venue: 1, createdAt: -1 });
+
+venueSaleSchema.pre("save", function genCode(next) {
+  if (!this.code) {
+    this.code = "HD" + Date.now().toString(36).slice(-6).toUpperCase();
+  }
+  next();
+});
 
 export default mongoose.model("VenueSale", venueSaleSchema);

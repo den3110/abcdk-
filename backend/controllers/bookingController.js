@@ -9,7 +9,7 @@ import CourtBlock from "../models/courtBlockModel.js";
 import PromoCode from "../models/promoCodeModel.js";
 import PackagePurchase from "../models/packagePurchaseModel.js";
 import VenueSale from "../models/venueSaleModel.js";
-import { canManageVenue } from "../utils/venueAuth.js";
+import { canManageVenue, venueCan } from "../utils/venueAuth.js";
 import { bookingBankInfo } from "../utils/bankQr.js";
 import { notifyBooking } from "../services/bookingNotify.js";
 import { scheduleBookingReminder, PENDING_TTL_MIN } from "../jobs/bookingJobs.js";
@@ -439,7 +439,7 @@ export const listVenueBookings = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy cụm sân");
   }
-  if (!(await canManageVenue(req.user, venue))) {
+  if (!(await venueCan(req.user, venue, "bookings.view"))) {
     res.status(403);
     throw new Error("Không có quyền xem lượt đặt của cụm sân này");
   }
@@ -481,7 +481,7 @@ export const updateBookingStatus = expressAsyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy lượt đặt");
   }
 
-  const manage = await canManageVenue(req.user, booking.venue);
+  const manage = await venueCan(req.user, booking.venue, "bookings.manage");
   const isOwnerOfBooking =
     booking.user && String(booking.user) === String(req.user._id);
 
@@ -550,7 +550,7 @@ export const setBookingPayment = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy lượt đặt");
   }
-  if (!(await canManageVenue(req.user, booking.venue))) {
+  if (!(await venueCan(req.user, booking.venue, "bookings.manage"))) {
     res.status(403);
     throw new Error("Không có quyền xác nhận thanh toán");
   }
@@ -637,7 +637,7 @@ export const approveBooking = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy lượt đặt");
   }
-  if (!(await canManageVenue(req.user, venue))) {
+  if (!(await venueCan(req.user, venue, "bookings.manage"))) {
     res.status(403);
     throw new Error("Không có quyền duyệt lượt đặt này");
   }
@@ -676,7 +676,7 @@ export const rejectBooking = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy lượt đặt");
   }
-  if (!(await canManageVenue(req.user, venue))) {
+  if (!(await venueCan(req.user, venue, "bookings.manage"))) {
     res.status(403);
     throw new Error("Không có quyền từ chối lượt đặt này");
   }
@@ -722,7 +722,7 @@ export const checkInBooking = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Vé không hợp lệ");
   }
-  if (!(await canManageVenue(req.user, booking.venue))) {
+  if (!(await venueCan(req.user, booking.venue, "bookings.manage"))) {
     res.status(403);
     throw new Error("Vé này thuộc sân khác");
   }
@@ -791,7 +791,7 @@ export const getVenueRevenue = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy cụm sân");
   }
-  if (!(await canManageVenue(req.user, venue))) {
+  if (!(await venueCan(req.user, venue, "revenue.view"))) {
     res.status(403);
     throw new Error("Không có quyền xem doanh thu");
   }

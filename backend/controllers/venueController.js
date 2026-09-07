@@ -7,6 +7,7 @@ import Booking from "../models/bookingModel.js";
 import {
   canManageVenue,
   isCourtOwnerLike,
+  venueCan,
 } from "../utils/venueAuth.js";
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
@@ -165,6 +166,7 @@ const VENUE_EDITABLE = [
   "slotMinutes",
   "defaultPricePerHour",
   "bankShortName",
+  "bankCode",
   "bankAccountNumber",
   "bankAccountName",
   "depositPercent",
@@ -206,7 +208,7 @@ export const updateVenue = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy cụm sân");
   }
-  if (!(await canManageVenue(req.user, venue))) {
+  if (!(await venueCan(req.user, venue, "venue.edit"))) {
     res.status(403);
     throw new Error("Không có quyền sửa cụm sân này");
   }
@@ -269,7 +271,7 @@ async function loadManageableVenue(req, res) {
     res.status(404);
     throw new Error("Không tìm thấy cụm sân");
   }
-  if (!(await canManageVenue(req.user, venue))) {
+  if (!(await venueCan(req.user, venue, "venue.edit"))) {
     res.status(403);
     throw new Error("Không có quyền với cụm sân này");
   }
