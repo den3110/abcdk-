@@ -631,6 +631,35 @@ export default function Header() {
                 <SearchIcon fontSize="small" />
               </IconButton>
             </Tooltip>
+            <Tooltip
+              title={
+                isDark
+                  ? t("header.actions.lightMode")
+                  : t("header.actions.darkMode")
+              }
+            >
+              <IconButton
+                onClick={toggleTheme}
+                size="small"
+                aria-label={
+                  isDark
+                    ? t("header.actions.lightMode")
+                    : t("header.actions.darkMode")
+                }
+                sx={{
+                  color: "text.primary",
+                  border: `1px solid ${alpha(theme.palette.text.primary, 0.1)}`,
+                  bgcolor: alpha(theme.palette.background.paper, 0.72),
+                  backdropFilter: "blur(10px)",
+                }}
+              >
+                {isDark ? (
+                  <LightModeIcon fontSize="small" />
+                ) : (
+                  <DarkModeIcon fontSize="small" />
+                )}
+              </IconButton>
+            </Tooltip>
             <LanguageSwitcher compact />
           </Box>
 

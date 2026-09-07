@@ -518,7 +518,10 @@ function MatchRow({ m, onOpen, eventType, translate, locale }) {
         : "primary.main";
 
   return (
-    <Card variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+    <Card
+      variant="outlined"
+      sx={{ borderRadius: 2, overflow: "hidden", width: "100%", flex: 1, minWidth: 0 }}
+    >
       <CardActionArea onClick={() => onOpen?.(m)}>
         <Box sx={{ display: "flex", gap: 1.5, p: 1.5 }}>
           <Box sx={{ width: 4, borderRadius: 999, bgcolor: accent }} />
@@ -726,7 +729,10 @@ function TournamentCard({ t, onOpenMatch, translate, locale }) {
     });
 
   return (
-    <Card variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
+    <Card
+      variant="outlined"
+      sx={{ borderRadius: 2, overflow: "hidden", width: "100%", flex: 1, minWidth: 0 }}
+    >
       <Banner
         t={t}
         collapsed={collapsed}
