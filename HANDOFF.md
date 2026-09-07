@@ -2,6 +2,9 @@
 >
 > **HEAD:** backend `abcdk-` master (nhiều commit: staff/permissions `e9848ef4`, hold-15' `40733b6a`, fix "Ngày không hợp lệ" `492c5939`) · mobile `pickletour-app` master (staff/POS/bank `7e2e61f`, home banner `91da93d`, keyboard fixes commit tiếp theo) · web frontend (staff page + bank picker commit tiếp theo). **Backend CHƯA chắc đã deploy — nhắc user chạy** `cd /abcdk- && git fetch origin master && git reset --hard origin/master && pm2 restart server --update-env`.
 >
+> ### 🔵 QUY ƯỚC BÀN PHÍM SỐ (2026-09-07)
+> Bàn phím số hệ thống lệ thuộc locale (dấu `,`/`.`), user yêu cầu keypad riêng. **Mọi ô nhập số/điện thoại trên mobile phải dùng `TextInput` từ `@/components/ui/i18nTextInput` (render qua `components/ui/PtInput.tsx` → mở `components/ui/NumericKeypad.tsx`) — KHÔNG dùng `TextInput` của react-native với `keyboardType` số.** PtInput tự chặn bàn phím hệ thống cho numeric/decimal-pad/number-pad/phone-pad; loại khác giữ nguyên. Prop `systemKeyboard` để ép bàn phím gốc khi thật cần.
+>
 > ### 🔴🔴 QUY TẮC BÀN PHÍM CHE INPUT — KHÔNG BAO GIỜ ĐƯỢC LẶP LẠI
 > **Lỗi kinh điển đã bị nhiều lần:** màn/modal có `TextInput` mà bàn phím bật lên che mất ô nhập (user không thấy đang gõ gì). **BẮT BUỘC khi tạo BẤT KỲ màn/modal nào có TextInput:**
 > - **Bottom-sheet Modal** (`justifyContent:"flex-end"`): bọc phần sheet bằng `<KeyboardAvoidingView style={styles.modalWrap} behavior={Platform.OS === "ios" ? "padding" : undefined}>` (thay cho `<View>`); nội dung dài để trong `ScrollView keyboardShouldPersistTaps="handled"` + `modal` có `maxHeight:"88%"`.
