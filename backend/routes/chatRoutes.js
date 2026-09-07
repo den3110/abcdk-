@@ -11,6 +11,7 @@ import {
   openDmConversation,
   openTournamentConversation,
   openClubConversation,
+  openVenueConversation,
   getConversation,
   patchConversation,
   listMessages,
@@ -149,6 +150,7 @@ router.post(
   openTournamentConversation
 );
 router.post("/conversations/club/:clubId", protect, openClubConversation);
+router.post("/conversations/venue/:venueId", protect, openVenueConversation);
 router.get("/conversations/:cid", protect, getConversation);
 router.patch("/conversations/:cid", protect, patchConversation);
 

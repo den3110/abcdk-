@@ -21,7 +21,7 @@ const chatConversationSchema = new Schema(
   {
     type: {
       type: String,
-      enum: ["dm", "tournament", "club"],
+      enum: ["dm", "tournament", "club", "venue"],
       required: true,
       index: true,
     },
@@ -43,6 +43,13 @@ const chatConversationSchema = new Schema(
     club: {
       type: Schema.Types.ObjectId,
       ref: "Club",
+      default: null,
+      index: true,
+    },
+    // Với type=venue: user ↔ quản lý cụm sân; participants = initiator + owner + managers/staff.
+    venue: {
+      type: Schema.Types.ObjectId,
+      ref: "Venue",
       default: null,
       index: true,
     },
@@ -89,6 +96,14 @@ chatConversationSchema.index(
   {
     unique: true,
     partialFilterExpression: { type: "club" },
+  }
+);
+// Venue chat: mỗi user chỉ có 1 hội thoại với 1 cụm sân.
+chatConversationSchema.index(
+  { type: 1, venue: 1, initiator: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { type: "venue" },
   }
 );
 

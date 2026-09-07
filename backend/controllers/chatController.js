@@ -8,6 +8,8 @@ import Tournament from "../models/tournamentModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
 import Club from "../models/clubModel.js";
 import ClubMember from "../models/clubMemberModel.js";
+import Venue from "../models/venueModel.js";
+import { venueStaffIds } from "../services/venueNotify.js";
 import User from "../models/userModel.js";
 import { encodeCursor, decodeCursor } from "../utils/cursor.js";
 import { getIO } from "../socket/index.js";
@@ -43,6 +45,7 @@ function toConvDTO(conv, viewerId) {
     type: c.type,
     tournament: c.tournament,
     club: c.club,
+    venue: c.venue,
     participants: c.participants,
     memberCount: (c.participants || []).length,
     otherParticipants: others,
@@ -206,7 +209,8 @@ export const listConversations = asyncHandler(async (req, res) => {
     .limit(limit + 1)
     .populate("participants", USER_FIELDS)
     .populate("tournament", "_id name image")
-    .populate("club", "_id name slug logoUrl");
+    .populate("club", "_id name slug logoUrl")
+    .populate("venue", "_id name images");
 
   const hasMore = docs.length > limit;
   const items = docs.slice(0, limit).map((d) => toConvDTO(d, viewer._id));
@@ -425,8 +429,63 @@ export const openClubConversation = asyncHandler(async (req, res) => {
 
   conv = await ChatConversation.findById(conv._id)
     .populate("participants", USER_FIELDS)
-    .populate("club", "_id name slug logoUrl");
+    .populate("club", "_id name slug logoUrl")
+    .populate("venue", "_id name images");
 
+  res.json(toConvDTO(conv, viewer._id));
+});
+
+// POST /api/chat/conversations/venue/:venueId — khách nhắn tin với quản lý cụm sân
+export const openVenueConversation = asyncHandler(async (req, res) => {
+  const viewer = req.user;
+  const venueId = req.params.venueId;
+  if (!mongoose.isValidObjectId(venueId)) {
+    res.status(400);
+    throw new Error("venueId không hợp lệ");
+  }
+  const venue = await Venue.findById(venueId).select("_id name images owner");
+  if (!venue) {
+    res.status(404);
+    throw new Error("Không tìm thấy cụm sân");
+  }
+
+  // participants = viewer + chủ sân + quản lý/nhân viên xem được lịch đặt
+  const mgmt = await venueStaffIds(venueId, "bookings.view");
+  const set = new Set([String(viewer._id), ...mgmt.map(String)]);
+  if (venue.owner) set.add(String(venue.owner));
+  const participants = Array.from(set);
+
+  const withPop = (id) =>
+    ChatConversation.findById(id)
+      .populate("participants", USER_FIELDS)
+      .populate("venue", "_id name images");
+
+  let conv = await ChatConversation.findOne({ type: "venue", venue: venueId, initiator: viewer._id });
+  if (!conv) {
+    try {
+      conv = await ChatConversation.create({ type: "venue", venue: venueId, initiator: viewer._id, participants });
+    } catch (e) {
+      if (e?.code === 11000) conv = await ChatConversation.findOne({ type: "venue", venue: venueId, initiator: viewer._id });
+      else throw e;
+    }
+    const welcome = `Bạn có thể nhắn tin với quản lý "${venue.name}" tại đây.`;
+    await ChatMessage.create({
+      conversation: conv._id,
+      sender: viewer._id,
+      content: welcome,
+      systemKind: "conversation_created",
+    });
+    conv.lastMessage = { text: welcome, sender: viewer._id, at: new Date(), hasAttachment: false };
+    conv.lastMessageAt = new Date();
+    await conv.save();
+  } else {
+    // Self-heal: đồng bộ quản lý/nhân viên mới + bỏ ẩn
+    const currentSet = new Set((conv.participants || []).map((p) => String(p?._id || p)));
+    const toAdd = participants.filter((p) => !currentSet.has(p));
+    if (toAdd.length) await ChatConversation.updateOne({ _id: conv._id }, { $addToSet: { participants: { $each: toAdd } } });
+    if (conv.hiddenFor?.length) await ChatConversation.updateOne({ _id: conv._id }, { $pull: { hiddenFor: viewer._id } });
+  }
+  conv = await withPop(conv._id);
   res.json(toConvDTO(conv, viewer._id));
 });
 
@@ -437,6 +496,7 @@ export const getConversation = asyncHandler(async (req, res) => {
     .populate("participants", USER_FIELDS)
     .populate("tournament", "_id name image")
     .populate("club", "_id name slug logoUrl")
+    .populate("venue", "_id name images")
     .populate({
       path: "pinnedMessages",
       select: "_id content attachments sender deletedAt createdAt",
