@@ -6,8 +6,7 @@ import VenuePackage from "../models/venuePackageModel.js";
 import PackagePurchase from "../models/packagePurchaseModel.js";
 import { canManageVenue, venueCan } from "../utils/venueAuth.js";
 import { bookingBankInfo } from "../utils/bankQr.js";
-import { publishNotification, EVENTS } from "../services/notifications/notificationHub.js";
-import { createInAppNotifications } from "../services/inAppNotify.js";
+import { notifyPackagePurchased, notifyPackageActivated } from "../services/venueNotify.js";
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
 
@@ -145,15 +144,8 @@ export const purchasePackage = expressAsyncHandler(async (req, res) => {
     price: pkg.price,
     status: "pending",
   });
-  // báo chủ sân
-  createInAppNotifications({
-    recipients: [venue.owner, ...(venue.managers || [])].filter(Boolean),
-    actorId: req.user._id,
-    type: "BOOKING",
-    title: "🎫 Khách mua gói giờ/thẻ",
-    body: `${pkg.name} · ${(pkg.price || 0).toLocaleString("vi-VN")}đ — vào kích hoạt sau khi nhận tiền`,
-    url: `/owner/venue/${id}/packages`,
-  }).catch(() => {});
+  // báo chủ sân + nhân viên có quyền quản lý gói
+  notifyPackagePurchased(venue, doc, req.user).catch(() => {});
   res.status(201).json({ ...doc.toObject(), bank: bookingBankInfo(venue, { totalPrice: pkg.price, code: `GOI${String(doc._id).slice(-6).toUpperCase()}` }) });
 });
 
@@ -201,7 +193,6 @@ export const activatePurchase = expressAsyncHandler(async (req, res) => {
   pur.expiresAt = new Date(Date.now() + (pkg?.validDays || 30) * 24 * 3600 * 1000);
   await pur.save();
 
-  createInAppNotifications({ recipients: pur.user, actorId: req.user._id, type: "BOOKING", title: "✅ Gói đã kích hoạt", body: `${pur.packageName} đã sẵn sàng dùng khi đặt sân.`, url: "/courts/my-bookings" }).catch(() => {});
-  publishNotification(EVENTS.USER_DIRECT_BROADCAST, { userId: String(pur.user), title: "✅ Gói đã kích hoạt", body: `${pur.packageName} đã sẵn sàng dùng.`, url: "/courts/my-bookings" }).catch(() => {});
+  notifyPackageActivated(pur, req.user._id).catch(() => {});
   res.json(pur);
 });

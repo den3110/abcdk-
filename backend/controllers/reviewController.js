@@ -4,7 +4,24 @@ import Review from "../models/reviewModel.js";
 import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
 import Booking from "../models/bookingModel.js";
+import Venue from "../models/venueModel.js";
 import { asId } from "../utils/ids.js";
+import { pushToUsers, venueStaffIds } from "../services/venueNotify.js";
+
+/** Báo chủ sân + nhân viên khi có đánh giá mới cho cụm sân. */
+async function notifyVenueReview(venueId, review, rating, actorId) {
+  const venue = await Venue.findById(venueId).select("name").lean();
+  if (!venue) return;
+  const who = review?.reviewer?.nickname || review?.reviewer?.name || "Một khách";
+  await pushToUsers({
+    recipients: await venueStaffIds(venueId, "bookings.view"),
+    actorId,
+    title: "⭐ Có đánh giá mới cho sân",
+    body: `${who} đánh giá ${rating}★${review?.comment ? ` — "${String(review.comment).slice(0, 60)}"` : ""}`,
+    url: `/owner/venues/${venueId}`,
+    data: { kind: "venue_review", venueId: String(venueId) },
+  });
+}
 
 const TARGET_TYPES = ["tournament", "venue"];
 
@@ -160,11 +177,18 @@ export async function upsertReview(req, res) {
       verified = cnt > 0;
     }
 
+    const existed = await Review.exists({ targetType, targetId: String(targetId), reviewer: userId });
+
     const doc = await Review.findOneAndUpdate(
       { targetType, targetId: String(targetId), reviewer: userId },
       { $set: { rating, comment, aspects, verified } },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     ).populate("reviewer", "name nickname avatar");
+
+    // Đánh giá MỚI cho cụm sân → báo chủ sân + nhân viên
+    if (!existed && targetType === "venue" && mongoose.Types.ObjectId.isValid(targetId)) {
+      notifyVenueReview(targetId, doc, rating, userId).catch(() => {});
+    }
 
     const summary = await buildSummary(targetType, targetId);
     res.json({ ok: true, review: doc, summary });

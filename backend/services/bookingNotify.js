@@ -1,9 +1,6 @@
 // services/bookingNotify.js — push + thông báo in-app cho các sự kiện đặt sân
-import Venue from "../models/venueModel.js";
-import { publishNotification, EVENTS } from "./notifications/notificationHub.js";
-import { createInAppNotifications } from "./inAppNotify.js";
+import { pushToUsers as send, venueStaffIds, fmtVND } from "./venueNotify.js";
 
-const fmtVND = (n) => `${(Number(n) || 0).toLocaleString("vi-VN")}đ`;
 const fmtTime = (d) =>
   new Intl.DateTimeFormat("vi-VN", {
     timeZone: "Asia/Ho_Chi_Minh",
@@ -12,39 +9,6 @@ const fmtTime = (d) =>
     day: "2-digit",
     month: "2-digit",
   }).format(new Date(d));
-
-async function venueStaffIds(venueId) {
-  const v = await Venue.findById(venueId).select("owner managers").lean();
-  if (!v) return [];
-  return [v.owner, ...(v.managers || [])].filter(Boolean).map(String);
-}
-
-async function send({ recipients, actorId, title, body, url, data }) {
-  const list = (Array.isArray(recipients) ? recipients : [recipients])
-    .filter(Boolean)
-    .map(String)
-    .filter((id) => id !== String(actorId || ""));
-  if (!list.length) return;
-  await Promise.allSettled([
-    createInAppNotifications({
-      recipients: list,
-      actorId: actorId || null,
-      type: "BOOKING",
-      title,
-      body,
-      url,
-      data,
-    }),
-    ...list.map((userId) =>
-      publishNotification(EVENTS.USER_DIRECT_BROADCAST, {
-        userId,
-        title,
-        body,
-        url,
-      }).catch(() => {}),
-    ),
-  ]);
-}
 
 /**
  * kind: created | proof_submitted | approved | rejected | cancelled_by_customer |
@@ -84,6 +48,15 @@ export async function notifyBooking(kind, booking, { actorId, venueName, courtNa
         actorId,
         title: "✅ Đặt sân đã được xác nhận",
         body: `${vName}${cName} · ${when}. Mở vé QR để check-in tại sân.`,
+        url: customerUrl,
+        data,
+      });
+    case "owner_created":
+      return send({
+        recipients: b.user,
+        actorId,
+        title: "🎾 Bạn có lượt đặt sân mới",
+        body: `${vName}${cName} · ${when} đã được đặt cho bạn. Mở vé QR để check-in.`,
         url: customerUrl,
         data,
       });

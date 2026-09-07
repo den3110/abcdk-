@@ -374,7 +374,13 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
       courtName: court.name,
     }).catch(() => {});
   } else if (booking.user) {
+    // Chủ sân/nhân viên đặt hộ cho 1 tài khoản có sẵn → báo cho khách
     scheduleBookingReminder(booking).catch(() => {});
+    notifyBooking("owner_created", booking, {
+      actorId: req.user._id,
+      venueName: venue.name,
+      courtName: court.name,
+    }).catch(() => {});
   }
 
   const out = booking.toObject();

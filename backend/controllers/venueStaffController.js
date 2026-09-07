@@ -6,6 +6,7 @@ import Venue from "../models/venueModel.js";
 import VenueStaff from "../models/venueStaffModel.js";
 import User from "../models/userModel.js";
 import { resolveVenueAccess, venueCan } from "../utils/venueAuth.js";
+import { notifyStaffAssigned } from "../services/venueNotify.js";
 import {
   VENUE_PERMISSIONS,
   VENUE_STAFF_ROLES,
@@ -111,6 +112,7 @@ export const addStaff = expressAsyncHandler(async (req, res) => {
     { new: true, upsert: true },
   );
   await syncManager(venue, userId, role === "manager");
+  notifyStaffAssigned(venue, userId, role, req.user._id).catch(() => {});
 
   res.status(201).json({
     ...doc.toObject(),
