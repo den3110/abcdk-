@@ -13,6 +13,8 @@ import Ranking from "../models/rankingModel.js";
 import { attachTournamentRegCounts } from "../utils/enrichTournament.js";
 import MarketListing from "../models/marketListingModel.js";
 import PlayInvite from "../models/playInviteModel.js";
+import VenueEvent from "../models/venueEventModel.js";
+import EventRegistration from "../models/eventRegistrationModel.js";
 import Subscription from "../models/subscriptionsModel.js";
 
 // Cập nhật ảnh/giá/trạng thái sản phẩm Chợ được share lên feed theo dữ liệu LIVE
@@ -287,6 +289,7 @@ function toPostDTO(post, viewerId) {
     sharedMatch: p.sharedMatch || null,
     sharedListing: p.sharedListing || null,
     sharedPlay: p.sharedPlay || null,
+    sharedEvent: p.sharedEvent || null,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -559,13 +562,44 @@ export const createPost = asyncHandler(async (req, res) => {
     };
   }
 
+  // Shared event snapshot (chia sẻ sự kiện xé vé / social) — server tự dựng snapshot từ eventId
+  let sharedEvent = null;
+  const rawSe = req.body?.sharedEvent;
+  if (rawSe && mongoose.isValidObjectId(rawSe.eventId)) {
+    const ev = await VenueEvent.findById(rawSe.eventId)
+      .populate("venue", "name address province images")
+      .populate("courts", "name")
+      .lean();
+    if (ev && ev.status !== "cancelled") {
+      const registered = await EventRegistration.countDocuments({ event: ev._id, status: "registered" });
+      sharedEvent = {
+        eventId: ev._id,
+        venueId: ev.venue?._id || null,
+        title: String(ev.title || "").slice(0, 200),
+        venueName: String(ev.venue?.name || "").slice(0, 200),
+        address: String([ev.venue?.address, ev.venue?.province].filter(Boolean).join(", ")).slice(0, 300),
+        coverImage: String(ev.coverImage || ev.venue?.images?.[0] || "").slice(0, 1000),
+        startAt: ev.startAt,
+        endAt: ev.endAt,
+        price: Number(ev.price) || 0,
+        capacity: Number(ev.capacity) || 0,
+        registered,
+        skillMin: Number(ev.skillMin) || 0,
+        skillMax: Number(ev.skillMax) || 0,
+        genderPolicy: String(ev.genderPolicy || "any"),
+        courts: (ev.courts || []).map((c) => c.name).filter(Boolean).join(", ").slice(0, 200),
+      };
+    }
+  }
+
   if (
     !content.trim() &&
     !media.length &&
     !poll &&
     !sharedMatch &&
     !sharedListing &&
-    !sharedPlay
+    !sharedPlay &&
+    !sharedEvent
   ) {
     res.status(400);
     throw new Error("Bài viết cần có nội dung hoặc media");
@@ -605,6 +639,7 @@ export const createPost = asyncHandler(async (req, res) => {
     sharedMatch,
     sharedListing,
     sharedPlay,
+    sharedEvent,
   });
   const populated = await FeedPost.findById(post._id)
     .populate("author", AUTHOR_FIELDS)

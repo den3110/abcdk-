@@ -102,6 +102,30 @@ const feedPostSchema = new Schema(
       ),
       default: null,
     },
+    // Snapshot sự kiện xé vé / social được chia sẻ lên Bảng tin để rủ người tham gia
+    sharedEvent: {
+      type: new Schema(
+        {
+          eventId: { type: Schema.Types.ObjectId, ref: "VenueEvent", default: null },
+          venueId: { type: Schema.Types.ObjectId, ref: "Venue", default: null },
+          title: { type: String, trim: true },
+          venueName: { type: String, trim: true },
+          address: { type: String, trim: true },
+          coverImage: { type: String, trim: true },
+          startAt: { type: Date, default: null },
+          endAt: { type: Date, default: null },
+          price: { type: Number, default: 0 },
+          capacity: { type: Number, default: 0 },
+          registered: { type: Number, default: 0 },
+          skillMin: { type: Number, default: 0 },
+          skillMax: { type: Number, default: 0 },
+          genderPolicy: { type: String, trim: true },
+          courts: { type: String, trim: true },
+        },
+        { _id: false }
+      ),
+      default: null,
+    },
     // Chia sẻ sản phẩm từ Chợ sang Bảng tin (snapshot để hiển thị nhanh)
     sharedListing: {
       type: new Schema(
