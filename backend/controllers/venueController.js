@@ -9,21 +9,13 @@ import {
   isCourtOwnerLike,
   venueCan,
 } from "../utils/venueAuth.js";
-import { geocodeTournamentLocation } from "../services/openaiGeocode.js";
+import { geocodeAddressVN } from "../utils/geocode.js";
 
 /** Geocode địa chỉ cụm sân → { lat, lon, displayName } (best-effort, null nếu không ra). */
 async function geocodeVenue(src) {
   const location = [src?.address, src?.province].map((s) => String(s || "").trim()).filter(Boolean).join(", ");
   if (!location) return null;
-  try {
-    const geo = await geocodeTournamentLocation({ location, countryHint: "VN" });
-    if (Number.isFinite(geo?.lat) && Number.isFinite(geo?.lon)) {
-      return { lat: geo.lat, lon: geo.lon, displayName: geo.formatted || location };
-    }
-  } catch (e) {
-    console.warn("[venue geocode] fail:", e?.message || e);
-  }
-  return null;
+  return geocodeAddressVN(location);
 }
 const hasCoords = (g) => Number.isFinite(g?.lat) && Number.isFinite(g?.lon);
 

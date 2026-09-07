@@ -5,7 +5,9 @@ dotenv.config();
 import mongoose from "mongoose";
 import connectDB from "../config/db.js";
 import Venue from "../models/venueModel.js";
-import { geocodeTournamentLocation } from "../services/openaiGeocode.js";
+import { geocodeAddressVN } from "../utils/geocode.js";
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const run = async () => {
   await connectDB();
@@ -21,19 +23,16 @@ const run = async () => {
   for (const v of venues) {
     const location = [v.address, v.province].map((s) => String(s || "").trim()).filter(Boolean).join(", ");
     if (!location) { console.log("- bỏ qua (thiếu địa chỉ):", v.name); continue; }
-    try {
-      const geo = await geocodeTournamentLocation({ location, countryHint: "VN" });
-      if (Number.isFinite(geo?.lat) && Number.isFinite(geo?.lon)) {
-        v.locationGeo = { lat: geo.lat, lon: geo.lon, displayName: geo.formatted || location };
-        await v.save();
-        ok += 1;
-        console.log(`✓ ${v.name} → ${geo.lat}, ${geo.lon}`);
-      } else {
-        console.log(`✗ không định vị được: ${v.name} (${location})`);
-      }
-    } catch (e) {
-      console.log(`✗ lỗi: ${v.name} — ${e?.message || e}`);
+    const geo = await geocodeAddressVN(location);
+    if (geo) {
+      v.locationGeo = geo;
+      await v.save();
+      ok += 1;
+      console.log(`✓ ${v.name} → ${geo.lat}, ${geo.lon}`);
+    } else {
+      console.log(`✗ không định vị được: ${v.name} (${location})`);
     }
+    await sleep(1100); // tôn trọng rate-limit Nominatim
   }
   console.log(`Xong. Cập nhật ${ok}/${venues.length}.`);
   await mongoose.disconnect();
