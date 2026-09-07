@@ -288,18 +288,18 @@ export const createRecurring = expressAsyncHandler(async (req, res) => {
     throw new Error("Không có buổi nào trong khoảng đã chọn");
   }
 
-  // Giá: tự set (custom) hoặc theo bảng giá (auto)
-  const priceMode = req.body?.priceMode === "custom" ? "custom" : "auto";
+  // Giá: "custom" tự set/buổi, "total" trọn gói cả kỳ (chia đều các buổi), "auto" theo bảng giá
+  const priceMode = ["custom", "total"].includes(req.body?.priceMode) ? req.body.priceMode : "auto";
   const customPrice = Math.max(0, Math.round(Number(req.body?.pricePerSession) || 0));
+  const packageTotal = Math.max(0, Math.round(Number(req.body?.totalPackagePrice) || 0));
   const markPaid = req.body?.markPaid === true;
   const payMethod = req.body?.paymentMethod === "transfer" ? "transfer" : "cash";
   const commissionPct = Number(venue.commissionPercent) || 0;
+  const hours = (endMin - startMin) / 60;
 
-  const group = crypto.randomBytes(6).toString("hex");
-  const created = [];
+  // Pha 1: lọc các buổi hợp lệ (đóng cửa / đã qua / trùng / khoá)
+  const valid = [];
   const skipped = [];
-  let revenue = 0;
-
   for (const date of dates) {
     const wd = weekdayOf(date);
     const day = getDayHours(venue, court, wd);
@@ -307,7 +307,6 @@ export const createRecurring = expressAsyncHandler(async (req, res) => {
     const startAt = buildInstant(date, start);
     const endAt = buildInstant(date, end);
     if (startAt.getTime() < Date.now()) { skipped.push({ date, reason: "đã qua" }); continue; }
-
     const clash = await Booking.findOne({
       court: courtId, status: { $in: ACTIVE_STATUSES },
       startAt: { $lt: endAt }, endAt: { $gt: startAt },
@@ -318,11 +317,31 @@ export const createRecurring = expressAsyncHandler(async (req, res) => {
       startAt: { $lt: endAt }, endAt: { $gt: startAt },
     }).lean();
     if (block) { skipped.push({ date, reason: "khoá sân" }); continue; }
+    valid.push({ date, wd, startAt, endAt });
+  }
 
-    const auto = computeBookingPrice(venue, court, wd, startMin, endMin);
-    const totalPrice = priceMode === "custom" ? customPrice : auto.totalPrice;
-    const hours = (endMin - startMin) / 60;
-    const pricePerHour = hours > 0 ? Math.round(totalPrice / hours) : auto.pricePerHour;
+  // Giá mỗi buổi: total → chia đều (buổi đầu gánh phần lẻ); custom → cố định; auto → theo bảng giá
+  const n = valid.length;
+  const perSessionShare = (idx) => {
+    if (priceMode === "total") {
+      if (n === 0) return 0;
+      const base = Math.floor(packageTotal / n);
+      const remainder = packageTotal - base * n;
+      return base + (idx < remainder ? 1 : 0);
+    }
+    if (priceMode === "custom") return customPrice;
+    return computeBookingPrice(venue, court, valid[idx].wd, startMin, endMin).totalPrice;
+  };
+
+  const group = crypto.randomBytes(6).toString("hex");
+  const created = [];
+  let revenue = 0;
+
+  // Pha 2: tạo booking
+  for (let i = 0; i < valid.length; i += 1) {
+    const { date, startAt, endAt } = valid[i];
+    const totalPrice = perSessionShare(i);
+    const pricePerHour = hours > 0 ? Math.round(totalPrice / hours) : totalPrice;
 
     const booking = new Booking({
       venue: venue._id,
