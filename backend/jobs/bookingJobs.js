@@ -8,7 +8,7 @@ export const BOOKING_REMIND_JOB = "booking.remind";
 export const BOOKING_EXPIRE_JOB = "booking.expire-pending";
 export const BOOKING_SETTLE_JOB = "booking.settle-past";
 export const REMIND_BEFORE_MIN = 60;
-export const PENDING_TTL_MIN = 30;
+export const PENDING_TTL_MIN = 15;
 export const NO_SHOW_GRACE_MIN = 30;
 
 /** Nhắc khách trước giờ chơi (lên lịch khi đơn được duyệt). */
@@ -40,11 +40,11 @@ export async function scheduleBookingReminder(booking) {
   await agenda.schedule(at, BOOKING_REMIND_JOB, { bookingId: String(booking._id) });
 }
 
-/** Huỷ đơn "pending" quá 30' chưa gửi bill → nhả slot cho người khác. */
+/** Huỷ đơn "pending" quá 15' chưa gửi bill → nhả slot cho người khác. */
 agenda.define(BOOKING_EXPIRE_JOB, async (_job, done) => {
   try {
     const cutoff = new Date(Date.now() - PENDING_TTL_MIN * 60 * 1000);
-    // Tính từ lần cập nhật cuối (bị từ chối bill thì có thêm 30' để gửi lại)
+    // Tính từ lần cập nhật cuối (bị từ chối bill thì có thêm 15' để gửi lại)
     const stale = await Booking.find({
       status: "pending",
       createdByRole: "customer",

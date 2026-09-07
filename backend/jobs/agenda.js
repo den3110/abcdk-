@@ -94,7 +94,7 @@ export async function startAgenda() {
   //    Job tự no-op nếu eventLive.autoNotify tắt. every() idempotent theo tên.
   try {
     await agenda.every("5 minutes", "event-live.auto-notify");
-    await agenda.every("5 minutes", "booking.expire-pending");
+    await agenda.every("1 minute", "booking.expire-pending");
     await agenda.every("10 minutes", "booking.settle-past");
     console.log("✅ event-live.auto-notify scheduled (5m)");
   } catch (e) {

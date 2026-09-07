@@ -140,6 +140,11 @@ export default function MyBookingsPage() {
                     {rejected && (
                       <Alert severity="error" sx={{ mt: 1, py: 0 }}>Bill bị từ chối: {b.payment.rejectReason}. Vui lòng gửi lại.</Alert>
                     )}
+                    {b.status === "pending" && b.holdExpiresAt && (
+                      <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
+                        Giữ chỗ đến {tLabel(b.holdExpiresAt)} — chưa gửi bill sẽ tự huỷ.
+                      </Alert>
+                    )}
                   </Box>
                   <Stack direction={{ xs: "row", sm: "column" }} spacing={1} justifyContent="center" alignItems={{ sm: "flex-end" }}>
                     {needPay && (
@@ -218,7 +223,7 @@ function PayDialog({ booking: b, onClose }) {
         {awaiting ? (
           <Alert severity="info" sx={{ mb: 1.5 }}>Bill đã gửi lúc {dtLabel(b?.payment?.proofAt)} — đang chờ chủ sân duyệt. Bạn có thể gửi lại ảnh khác nếu cần.</Alert>
         ) : (
-          <Alert severity="warning" sx={{ mb: 1.5 }}>Chuyển khoản đúng số tiền &amp; nội dung, sau đó chụp bill gửi lên. Đơn giữ chỗ trong 30 phút.</Alert>
+          <Alert severity="warning" sx={{ mb: 1.5 }}>Chuyển khoản đúng số tiền &amp; nội dung, sau đó chụp bill gửi lên trong 15 phút — quá hạn đơn tự huỷ.</Alert>
         )}
 
         <Stack spacing={1.5} alignItems="center">

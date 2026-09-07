@@ -137,7 +137,7 @@ export async function notifyBooking(kind, booking, { actorId, venueName, courtNa
       return send({
         recipients: b.user,
         title: "Lượt đặt đã hết hạn",
-        body: `${b.code} bị huỷ do chưa thanh toán trong 30 phút. Bạn có thể đặt lại.`,
+        body: `${b.code} bị huỷ do chưa thanh toán trong 15 phút. Bạn có thể đặt lại.`,
         url: customerUrl,
         data,
       });

@@ -12,7 +12,13 @@ import VenueSale from "../models/venueSaleModel.js";
 import { canManageVenue } from "../utils/venueAuth.js";
 import { bookingBankInfo } from "../utils/bankQr.js";
 import { notifyBooking } from "../services/bookingNotify.js";
-import { scheduleBookingReminder } from "../jobs/bookingJobs.js";
+import { scheduleBookingReminder, PENDING_TTL_MIN } from "../jobs/bookingJobs.js";
+
+/** Hạn giữ chỗ của đơn khách chưa thanh toán (null nếu không áp dụng). */
+const holdExpiresAt = (b) =>
+  b && b.status === "pending" && b.createdByRole === "customer"
+    ? new Date(new Date(b.updatedAt || b.createdAt || Date.now()).getTime() + PENDING_TTL_MIN * 60 * 1000)
+    : null;
 import {
   parseHHMM,
   minutesToHHMM,
@@ -288,7 +294,8 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
 
   const depositAmount = Math.round((totalPrice * (venue.depositPercent || 0)) / 100);
 
-  const manage = await canManageVenue(req.user, venue);
+  // Chỉ là "đặt hộ" khi chủ sân/quản lý CHỦ ĐỘNG chọn (asOwner) — admin/chủ sân tự đặt cho mình vẫn đi luồng khách
+  const manage = req.body?.asOwner === true && (await canManageVenue(req.user, venue));
   const doc = {
     venue: venueId,
     court: courtId,
@@ -370,7 +377,13 @@ export const createBooking = expressAsyncHandler(async (req, res) => {
     scheduleBookingReminder(booking).catch(() => {});
   }
 
-  res.status(201).json({ ...booking.toObject(), bank: usePackage ? null : bookingBankInfo(venue, booking) });
+  const out = booking.toObject();
+  res.status(201).json({
+    ...out,
+    bank: usePackage ? null : bookingBankInfo(venue, booking),
+    holdExpiresAt: holdExpiresAt(out),
+    holdMinutes: PENDING_TTL_MIN,
+  });
 });
 
 /* ===================== DANH SÁCH ===================== */
@@ -385,7 +398,7 @@ export const listMyBookings = expressAsyncHandler(async (req, res) => {
     .populate("venue", VENUE_PUBLIC_FIELDS)
     .populate("court", "name")
     .lean();
-  res.json(items.map((b) => ({ ...b, bank: bookingBankInfo(b.venue, b) })));
+  res.json(items.map((b) => ({ ...b, bank: bookingBankInfo(b.venue, b), holdExpiresAt: holdExpiresAt(b), holdMinutes: PENDING_TTL_MIN })));
 });
 
 /** GET /api/bookings/:id  (khách của đơn hoặc chủ sân) */
@@ -411,7 +424,7 @@ export const getBooking = expressAsyncHandler(async (req, res) => {
     throw new Error("Không có quyền xem lượt đặt này");
   }
   const { owner, managers, ...venue } = b.venue || {};
-  res.json({ ...b, venue, bank: bookingBankInfo(b.venue, b), canManage: manage });
+  res.json({ ...b, venue, bank: bookingBankInfo(b.venue, b), canManage: manage, holdExpiresAt: holdExpiresAt(b), holdMinutes: PENDING_TTL_MIN });
 });
 
 /** GET /api/venues/:id/bookings?date=&status=  (chủ sân) */

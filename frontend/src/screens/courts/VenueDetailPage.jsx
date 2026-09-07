@@ -220,7 +220,7 @@ export default function VenueDetailPage() {
               </Box>
               <Typography variant="h6" fontWeight={800}>Đã đặt sân!</Typography>
               <Typography variant="body2" color="text.secondary">
-                Mã đặt sân <b>{created.code}</b> — chuyển khoản rồi <b>gửi bill</b> để chủ sân duyệt (giữ chỗ 30 phút).
+                Mã đặt sân <b>{created.code}</b> — chuyển khoản rồi <b>gửi bill</b> để chủ sân duyệt. Đơn chỉ giữ chỗ <b>{created.holdMinutes || 15} phút</b>{created.holdExpiresAt ? ` (đến ${new Date(created.holdExpiresAt).toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit" })})` : ""}, quá hạn sẽ tự huỷ.
               </Typography>
               {qr ? (
                 <Box sx={{ p: 1.5, borderRadius: 4, border: `1px solid ${theme.palette.divider}`, bgcolor: "#fff" }}>
