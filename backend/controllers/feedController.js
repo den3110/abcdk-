@@ -76,6 +76,49 @@ async function enrichSharedPlays(items) {
   }
   return items;
 }
+
+// Cập nhật số suất/đăng ký/thời gian THỰC TẾ cho thẻ sự kiện xé vé (snapshot lúc
+// chia sẻ có thể cũ, ví dụ registered=0 dù đã có người đăng ký).
+async function enrichSharedEvents(items) {
+  const ids = [];
+  for (const it of items) {
+    const eid = it?.sharedEvent?.eventId;
+    if (eid) ids.push(String(eid));
+  }
+  if (!ids.length) return items;
+  const uniq = [...new Set(ids)];
+  const [events, regs] = await Promise.all([
+    VenueEvent.find({ _id: { $in: uniq } })
+      .select("title capacity price skillMin skillMax genderPolicy startAt endAt status")
+      .lean(),
+    EventRegistration.aggregate([
+      { $match: { event: { $in: uniq.map((x) => new mongoose.Types.ObjectId(x)) }, status: "registered" } },
+      { $group: { _id: "$event", count: { $sum: 1 } } },
+    ]),
+  ]);
+  const evMap = new Map(events.map((e) => [String(e._id), e]));
+  const regMap = new Map(regs.map((r) => [String(r._id), r.count]));
+  for (const it of items) {
+    const se = it?.sharedEvent;
+    if (!se?.eventId) continue;
+    const live = evMap.get(String(se.eventId));
+    if (live) {
+      se.title = live.title ?? se.title;
+      se.capacity = live.capacity ?? se.capacity;
+      se.registered = regMap.get(String(se.eventId)) || 0;
+      se.price = live.price ?? se.price;
+      se.skillMin = live.skillMin ?? se.skillMin;
+      se.skillMax = live.skillMax ?? se.skillMax;
+      se.genderPolicy = live.genderPolicy ?? se.genderPolicy;
+      se.startAt = live.startAt ?? se.startAt;
+      se.endAt = live.endAt ?? se.endAt;
+      se.cancelled = live.status === "cancelled";
+    } else {
+      se.deleted = true;
+    }
+  }
+  return items;
+}
 import { encodeCursor, decodeCursor } from "../utils/cursor.js";
 import { getIO } from "../socket/index.js";
 import {
@@ -426,6 +469,7 @@ export const listFeed = asyncHandler(async (req, res) => {
     attachRecentComments(items, viewer?._id),
     enrichSharedListings(items),
     enrichSharedPlays(items),
+    enrichSharedEvents(items),
   ]);
   const nextCursor = hasMore
     ? encodeCursor({ lastId: String(docs[limit - 1]._id) })
@@ -464,6 +508,7 @@ export const getPost = asyncHandler(async (req, res) => {
     attachRecentComments([dto], viewer?._id),
     enrichSharedListings([dto]),
     enrichSharedPlays([dto]),
+    enrichSharedEvents([dto]),
   ]);
   res.json(dto);
 });
