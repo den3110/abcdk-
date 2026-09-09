@@ -1,7 +1,25 @@
 // services/emailService.js
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
-dotenv.config();
+// pm2 có thể còn giữ biến SMTP cũ (Hostinger) từ lần start trước và ĐÈ .env
+// (dotenv không ghi đè biến đã tồn tại). Ép các biến email lấy đúng từ file .env
+// để cấu hình email luôn theo .env hiện tại (giá trị đọc thẳng từ file).
+const _envFromFile = dotenv.config().parsed || {};
+for (const _k of [
+  "SMTP_HOST",
+  "SMTP_PORT",
+  "SMTP_SECURE",
+  "SMTP_USER",
+  "SMTP_PASS",
+  "EMAIL_SENDER_ADDRESS",
+  "EMAIL_FROM",
+  "EMAIL_FROM_EMAIL",
+  "EMAIL_FROM_NAME",
+]) {
+  if (_envFromFile[_k] !== undefined && _envFromFile[_k] !== "") {
+    process.env[_k] = _envFromFile[_k];
+  }
+}
 
 const NODE_ENV = (process.env.NODE_ENV || "development").toLowerCase();
 const IS_PROD = NODE_ENV === "production";
