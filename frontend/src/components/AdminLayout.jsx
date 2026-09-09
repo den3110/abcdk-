@@ -10,6 +10,8 @@ import {
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  ListSubheader,
+  Divider,
   Tab,
   Tabs,
   Toolbar,
@@ -85,47 +87,66 @@ export default function AdminLayout({ children }) {
   const isAdmin = isAdminUser(userInfo);
   const isSuperAdmin = isSuperAdminUser(userInfo);
 
-  const navItems = [
+  // Gom nhóm menu admin theo phân loại cho dễ nhìn
+  const navGroups = [
     {
-      label: t("admin.layout.users"),
-      icon: <PeopleIcon />,
-      path: "/admin/users",
+      title: tx("admin.layout.groupUsers", "Người dùng & Bảo mật"),
+      items: [
+        {
+          label: t("admin.layout.users"),
+          icon: <PeopleIcon />,
+          path: "/admin/users",
+        },
+        {
+          label: tx("admin.layout.identitySecurity", "Identity Security"),
+          icon: <SecurityIcon />,
+          path: "/admin/identity-security",
+        },
+        {
+          label: tx("admin.layout.assessmentHistory", "Lịch sử chấm trình"),
+          icon: <HistoryIcon />,
+          path: "/admin/assessment-history",
+        },
+      ],
     },
     {
-      label: tx("admin.layout.identitySecurity", "Identity Security"),
-      icon: <SecurityIcon />,
-      path: "/admin/identity-security",
+      title: tx("admin.layout.groupContent", "Nội dung & Truyền thông"),
+      items: [
+        {
+          label: t("admin.layout.news"),
+          icon: <ArticleIcon />,
+          path: "/admin/news",
+        },
+        {
+          label: tx("admin.layout.broadcast", "Gửi thông báo"),
+          icon: <CampaignIcon />,
+          path: "/admin/broadcast",
+        },
+      ],
     },
     {
-      label: tx("admin.layout.assessmentHistory", "Lịch sử chấm trình"),
-      icon: <HistoryIcon />,
-      path: "/admin/assessment-history",
+      title: tx("admin.layout.groupSystem", "Hệ thống & Bot"),
+      items: [
+        {
+          label: tx("admin.layout.pikoraOps", "Pikora Bot Ops"),
+          icon: <SmartToyIcon />,
+          path: "/admin/pikora-ops",
+        },
+        ...(isSuperAdmin
+          ? [
+              {
+                label: tx("admin.layout.avatarOptimization", "Tối ưu Ảnh Đại Diện"),
+                icon: <AutoFixHighIcon />,
+                path: "/admin/avatar-optimization",
+              },
+            ]
+          : []),
+      ],
     },
-    {
-      label: t("admin.layout.news"),
-      icon: <ArticleIcon />,
-      path: "/admin/news",
-    },
-    {
-      label: tx("admin.layout.broadcast", "Gửi thông báo"),
-      icon: <CampaignIcon />,
-      path: "/admin/broadcast",
-    },
-    {
-      label: tx("admin.layout.pikoraOps", "Pikora Bot Ops"),
-      icon: <SmartToyIcon />,
-      path: "/admin/pikora-ops",
-    },
-    ...(isSuperAdmin
-      ? [
-          {
-            label: tx("admin.layout.avatarOptimization", "Tối ưu Ảnh Đại Diện"),
-            icon: <AutoFixHighIcon />,
-            path: "/admin/avatar-optimization",
-          },
-        ]
-      : []),
-  ];
+  ].filter((g) => g.items.length > 0);
+
+  // Danh sách phẳng dùng cho tabs mobile + xác định tab đang chọn
+  const navItems = navGroups.flatMap((g) => g.items);
 
   if (syncingProfile && !isAdmin) {
     return (
@@ -159,26 +180,53 @@ export default function AdminLayout({ children }) {
         </Typography>
       </Box>
 
-      <List sx={{ mt: 1 }}>
-        {navItems.map((item, idx) => (
-          <ListItemButton
-            key={item.path}
-            selected={current === idx}
-            onClick={() => {
-              navigate(item.path);
-              window.scrollTo(0, 0);
-            }}
+      <Box sx={{ mt: 0.5, overflowY: "auto", flexGrow: 1 }}>
+        {navGroups.map((group, gi) => (
+          <List
+            key={group.title}
+            subheader={
+              <ListSubheader
+                disableSticky
+                sx={{
+                  bgcolor: "transparent",
+                  lineHeight: "32px",
+                  fontSize: "0.7rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "text.secondary",
+                }}
+              >
+                {group.title}
+              </ListSubheader>
+            }
+            sx={{ pt: gi === 0 ? 0.5 : 0, pb: 0.5 }}
           >
-            <ListItemIcon>{item.icon}</ListItemIcon>
-            <ListItemText
-              primary={item.label}
-              primaryTypographyProps={{ noWrap: true }}
-            />
-          </ListItemButton>
+            {group.items.map((item) => (
+              <ListItemButton
+                key={item.path}
+                selected={
+                  location.pathname === item.path ||
+                  location.pathname.startsWith(`${item.path}/`)
+                }
+                onClick={() => {
+                  navigate(item.path);
+                  window.scrollTo(0, 0);
+                }}
+                sx={{ borderRadius: 1.5, mx: 1, my: 0.25 }}
+              >
+                <ListItemIcon sx={{ minWidth: 38 }}>{item.icon}</ListItemIcon>
+                <ListItemText
+                  primary={item.label}
+                  primaryTypographyProps={{ noWrap: true, fontSize: "0.9rem" }}
+                />
+              </ListItemButton>
+            ))}
+            {gi < navGroups.length - 1 && <Divider sx={{ mt: 1, mx: 2 }} />}
+          </List>
         ))}
-      </List>
+      </Box>
 
-      <Box sx={{ flexGrow: 1 }} />
       <Box sx={{ p: 2 }}>
         <Button
           fullWidth
