@@ -39,6 +39,15 @@ function parseFrom(raw, fallbackEmail, fallbackName) {
 }
 const FROM_OBJ = parseFrom(FROM, FROM_EMAIL_ENV, FROM_NAME_ENV);
 
+// Địa chỉ người gửi (From). PHẢI là địa chỉ đã xác minh ở nhà cung cấp SMTP.
+// Với Amazon SES, SMTP_USER là chuỗi khoá (AKIA...), KHÔNG phải email — nên
+// tuyệt đối không dùng SMTP_USER làm From. Ưu tiên EMAIL_SENDER_ADDRESS, rồi
+// EMAIL_FROM_EMAIL, rồi địa chỉ tách từ EMAIL_FROM.
+const SENDER_ADDRESS =
+  process.env.EMAIL_SENDER_ADDRESS ||
+  process.env.EMAIL_FROM_EMAIL ||
+  FROM_OBJ.email;
+
 // SMTP Config (Hostinger)
 // SMTP Config (Hostinger)
 const transporter = nodemailer.createTransport({
@@ -201,7 +210,7 @@ export async function sendPasswordResetEmail({ to, token }) {
     to,
     from: {
       name: FROM_OBJ.name,
-      address: process.env.SMTP_USER || FROM_OBJ.email,
+      address: SENDER_ADDRESS,
     }, // Using the auth user as sender address is safer for SMTP
     replyTo: FROM_OBJ.email,
     subject: `[${APP_NAME}] Đặt lại mật khẩu`,
@@ -403,7 +412,7 @@ export async function sendMarketingEmail({
 
   const msg = {
     to,
-    from: { name: FROM_OBJ.name, address: process.env.SMTP_USER || FROM_OBJ.email },
+    from: { name: FROM_OBJ.name, address: SENDER_ADDRESS },
     replyTo: FROM_OBJ.email,
     subject: subject || heading || APP_NAME,
     html,
@@ -464,7 +473,7 @@ export async function sendCheckpointReviewDecisionEmail({
 
   const msg = {
     to,
-    from: { name: FROM_OBJ.name, address: process.env.SMTP_USER || FROM_OBJ.email },
+    from: { name: FROM_OBJ.name, address: SENDER_ADDRESS },
     replyTo: FROM_OBJ.email,
     subject: approved
       ? `[${APP_NAME}] Checkpoint đã được duyệt`
