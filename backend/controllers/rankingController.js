@@ -2972,6 +2972,12 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
   if (Number.isFinite(maxScoreRaw)) scoreRange.$lte = maxScoreRaw;
   const scoreRangeActive = Object.keys(scoreRange).length > 0;
 
+  // ===== Lọc theo giới tính (Nam / Nữ) =====
+  const genderRaw = String(req.query.gender || "").trim().toLowerCase();
+  const genderFilter = ["male", "female"].includes(genderRaw)
+    ? genderRaw
+    : null;
+
   // ===== Check user roles =====
   const role = String(req.user?.role || "").toLowerCase();
   const isAdmin = role === "admin" || !!req.user?.isAdmin;
@@ -3159,10 +3165,11 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
         localField: "user",
         foreignField: "_id",
         as: "u_chk",
-        pipeline: [{ $project: { _id: 1 } }],
+        pipeline: [{ $project: { _id: 1, gender: 1 } }],
       },
     },
     { $match: { "u_chk.0": { $exists: true } } },
+    ...(genderFilter ? [{ $match: { "u_chk.gender": genderFilter } }] : []),
     { $project: { u_chk: 0 } },
     {
       $facet: {
