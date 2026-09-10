@@ -15,7 +15,7 @@ import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { Text } from "@astryxdesign/core/Text";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { BadgeCheck, Crown, Lock, MapPin, Search, TrendingUp } from "lucide-react";
+import { BadgeCheck, Crown, LayoutGrid, List, Lock, MapPin, Search, TrendingUp } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
 import ShadowFrame from "./ShadowFrame.jsx";
@@ -444,8 +444,98 @@ function TableSkeleton() {
   );
 }
 
+/* ----------------------------- card (kiểu v1) ---------------------------- */
+function RankCard({ r, rank }) {
+  const medal = rank >= 1 && rank <= 3 ? MEDAL[rank - 1] : null;
+  const tierDot = TIER_DOT[String(r?.tierColor || "").toLowerCase()];
+  return (
+    <A
+      href={r?.user?._id ? `/user/${r.user._id}` : "#"}
+      className="pk-tcard pk-reveal-card"
+      style={{
+        display: "block",
+        textDecoration: "none",
+        borderRadius: 18,
+        border: "1px solid var(--color-border)",
+        background: "var(--color-background-surface)",
+        padding: 16,
+        transition: "transform .15s, border-color .15s",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          <Avatar size="medium" src={imgUrl(r?.user?.avatar)} name={nameOf(r)} />
+          <span
+            style={{
+              position: "absolute",
+              right: -4,
+              bottom: -4,
+              minWidth: 22,
+              height: 22,
+              padding: "0 6px",
+              borderRadius: 999,
+              display: "grid",
+              placeItems: "center",
+              fontSize: 12,
+              fontWeight: 800,
+              color: medal ? "#1b1300" : "#fff",
+              background: medal ? medal.color : "rgba(120,130,140,.92)",
+              border: "2px solid var(--color-background-surface)",
+            }}
+          >
+            {rank || "—"}
+          </span>
+        </div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+            <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <PlayerName user={r?.user} name={nameOf(r)} />
+            </span>
+            {isVerified(r) && <BadgeCheck size={16} color="#3E9EFB" style={{ flexShrink: 0 }} />}
+            {tierDot && <span title={r?.tierLabel || ""} style={{ width: 8, height: 8, borderRadius: 99, background: tierDot, flexShrink: 0 }} />}
+          </div>
+          <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 5, color: "#9AA0A6", fontSize: 13 }}>
+            <MapPin size={13} /> {r?.user?.province || "—"}
+          </div>
+        </div>
+        <MessageIconBtn userId={r?.user?._id} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--color-border)" }}>
+        {[
+          ["Điểm đôi", fmtScore(r?.double), "var(--pk-text-strong)"],
+          ["Điểm đơn", fmtScore(r?.single), "var(--pk-text)"],
+          ["Giải", Number(r?.totalTours || 0), "#8F959C"],
+        ].map(([label, val, col]) => (
+          <div key={label} style={{ textAlign: "center" }}>
+            <div style={{ color: col, fontWeight: 800, fontSize: 17 }}>{val}</div>
+            <div style={{ color: "#8F959C", fontSize: 11.5, fontWeight: 600, marginTop: 2 }}>{label}</div>
+          </div>
+        ))}
+      </div>
+    </A>
+  );
+}
+
+function CardSkeleton() {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
+      {[...Array(8)].map((_, i) => (
+        <div key={i} style={{ borderRadius: 18, border: "1px solid var(--color-border)", padding: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <Skeleton width="48px" height="48px" borderRadius="50%" />
+            <div style={{ flex: 1 }}><Skeleton width="60%" height="16px" /></div>
+          </div>
+          <div style={{ height: 14 }} />
+          <Skeleton width="100%" height="36px" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ================================= PAGE ================================= */
 export default function RankingsPage() {
+  const [view, setView] = useState("card"); // "card" (kiểu v1) | "table"
   const [qInput, setQInput] = useState("");
   const [keyword, setKeyword] = useState("");
   const [filter, setFilter] = useState("");
@@ -537,57 +627,77 @@ export default function RankingsPage() {
 
             <Container>
               <div style={{ padding: "26px 0 84px" }}>
-                <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", overflow: "hidden" }}>
-                  <div
-                    className="pk-rankgrid"
-                    style={{
-                      height: 46,
-                      background: "color-mix(in srgb, var(--color-text-primary) 4%, transparent)",
-                    }}
-                  >
-                    {["#", "Vận động viên", "Tỉnh / Thành", "Điểm đôi", "Điểm đơn", "Giải", ""].map((h, i) => (
-                      <div
-                        key={h + i}
-                        className={i === 2 || i === 5 ? "pk-col-hide" : undefined}
-                        style={{
-                          padding: "0 16px",
-                          textAlign: i === 6 ? "right" : i >= 3 ? "right" : "left",
-                        }}
-                      >
-                        <Text type="supporting" color="secondary" weight="semibold">{h}</Text>
-                      </div>
-                    ))}
+                {/* Toggle hiển thị: Thẻ (kiểu v1) / Bảng */}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
+                  <div style={{ display: "inline-flex", padding: 3, borderRadius: 999, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", gap: 3 }}>
+                    {[["card", LayoutGrid, "Thẻ"], ["table", List, "Bảng"]].map(([key, Icon, label]) => {
+                      const active = view === key;
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setView(key)}
+                          style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 15px", borderRadius: 999, fontSize: 13, fontWeight: 700, color: active ? "#0b1220" : "var(--color-text-secondary)", background: active ? "#3E9EFB" : "transparent", transition: "background .15s" }}
+                        >
+                          <Icon size={15} /> {label}
+                        </button>
+                      );
+                    })}
                   </div>
-                  {initialLoading ? (
-                    <TableSkeleton />
-                  ) : limitMsg ? (
-                    <div style={{ padding: "58px 24px", textAlign: "center" }}>
-                      <div style={{ display: "flex", justifyContent: "center" }}>
-                        <span style={{ width: 44, height: 44, borderRadius: 999, display: "grid", placeItems: "center", background: "rgba(240,176,58,.12)", border: "1px solid rgba(240,176,58,.35)", color: "#F0B03A" }}>
-                          <Lock size={19} />
-                        </span>
-                      </div>
-                      <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 16.5, fontWeight: 700 }}>Hết lượt tra cứu hôm nay</div>
-                      <div style={{ marginTop: 8, maxWidth: 460, marginLeft: "auto", marginRight: "auto" }}>
-                        <Text type="supporting" color="secondary">{limitMsg}</Text>
-                      </div>
-                    </div>
-                  ) : tableRows.length ? (
-                    tableRows.map((r, i) => (
-                      <RankRow key={r._id || i} r={r} fallbackRank={(pureBoard ? 4 : 1) + i} showGlobal={!pureBoard} />
-                    ))
-                  ) : (
-                    <div style={{ padding: "64px 0", textAlign: "center" }}>
-                      <div style={{ display: "flex", justifyContent: "center", opacity: 0.55 }}>
-                        <PickleMark size={40} />
-                      </div>
-                      <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 17, fontWeight: 700 }}>Không tìm thấy vận động viên nào</div>
-                      <div style={{ marginTop: 6 }}>
-                        <Text type="supporting" color="secondary">Thử từ khoá khác hoặc bỏ bộ lọc.</Text>
-                      </div>
-                    </div>
-                  )}
                 </div>
+
+                {initialLoading ? (
+                  view === "card" ? (
+                    <CardSkeleton />
+                  ) : (
+                    <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", overflow: "hidden" }}>
+                      <TableSkeleton />
+                    </div>
+                  )
+                ) : limitMsg ? (
+                  <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: "58px 24px", textAlign: "center" }}>
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                      <span style={{ width: 44, height: 44, borderRadius: 999, display: "grid", placeItems: "center", background: "rgba(240,176,58,.12)", border: "1px solid rgba(240,176,58,.35)", color: "#F0B03A" }}>
+                        <Lock size={19} />
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 16.5, fontWeight: 700 }}>Hết lượt tra cứu hôm nay</div>
+                    <div style={{ marginTop: 8, maxWidth: 460, marginLeft: "auto", marginRight: "auto" }}>
+                      <Text type="supporting" color="secondary">{limitMsg}</Text>
+                    </div>
+                  </div>
+                ) : tableRows.length ? (
+                  view === "card" ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
+                      {tableRows.map((r, i) => (
+                        <RankCard key={r._id || i} r={r} rank={(pureBoard ? 4 : 1) + i} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", overflow: "hidden" }}>
+                      <div className="pk-rankgrid" style={{ height: 46, background: "color-mix(in srgb, var(--color-text-primary) 4%, transparent)" }}>
+                        {["#", "Vận động viên", "Tỉnh / Thành", "Điểm đôi", "Điểm đơn", "Giải", ""].map((h, i) => (
+                          <div key={h + i} className={i === 2 || i === 5 ? "pk-col-hide" : undefined} style={{ padding: "0 16px", textAlign: i === 6 ? "right" : i >= 3 ? "right" : "left" }}>
+                            <Text type="supporting" color="secondary" weight="semibold">{h}</Text>
+                          </div>
+                        ))}
+                      </div>
+                      {tableRows.map((r, i) => (
+                        <RankRow key={r._id || i} r={r} fallbackRank={(pureBoard ? 4 : 1) + i} showGlobal={!pureBoard} />
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: "64px 0", textAlign: "center" }}>
+                    <div style={{ display: "flex", justifyContent: "center", opacity: 0.55 }}>
+                      <PickleMark size={40} />
+                    </div>
+                    <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 17, fontWeight: 700 }}>Không tìm thấy vận động viên nào</div>
+                    <div style={{ marginTop: 6 }}>
+                      <Text type="supporting" color="secondary">Thử từ khoá khác hoặc bỏ bộ lọc.</Text>
+                    </div>
+                  </div>
+                )}
 
                 {hasMore && !initialLoading && (
                   <div style={{ display: "flex", justifyContent: "center", marginTop: 26 }}>

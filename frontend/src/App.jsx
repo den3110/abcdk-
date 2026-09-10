@@ -374,6 +374,7 @@ const App = () => {
       /^\/support\/[^/]+$/.test(astryxPath) ||
       /^\/marketplace(\/|$)/.test(astryxPath) ||
       /^\/play(\/|$)/.test(astryxPath) ||
+      /^\/clubs\/[^/]+/.test(astryxPath) ||
       /^\/feed(\/|$)/.test(astryxPath)) &&
     astryxUiOn;
   const isFullScreenLayout =
