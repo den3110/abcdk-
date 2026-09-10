@@ -16,17 +16,23 @@ import { useThemeMode } from "../../context/ThemeContext.jsx";
 import useFrontendUiVersion from "../../hook/useFrontendUiVersion.js";
 import "../../screens/v3/sport-v3-global.css";
 
-export default function AstryxContentShell({ children }) {
+export default function AstryxContentShell({ children, hideFooter = false, hideMobileNav = false, hideNav = false }) {
   // Đồng bộ theme MUI (theme-mode, mặc định light) theo theme Astryx (pk-theme,
   // mặc định dark) để nội dung MUI hợp tông với SiteNav/Footer. Nút đổi theme ở
   // SiteNav chỉ đổi pk-theme → effect này kéo theo theme-mode.
   const pk = usePkTheme();
-  const { mode, toggleTheme } = useThemeMode();
+  const { mode, setThemeMode } = useThemeMode();
   const { isV3Version } = useFrontendUiVersion();
   useEffect(() => {
-    if (mode !== pk) toggleTheme();
+    if (mode !== pk) setThemeMode(pk);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pk, mode]);
+
+  useEffect(() => {
+    if (!isV3Version || typeof document === "undefined") return undefined;
+    document.documentElement.dataset.pkPublicTheme = pk;
+    return () => delete document.documentElement.dataset.pkPublicTheme;
+  }, [isV3Version, pk]);
 
   return (
     <div
@@ -38,20 +44,24 @@ export default function AstryxContentShell({ children }) {
       style={{ minHeight: "100vh" }}
     >
       {/* Nav: host ShadowFrame đặt sticky để ghim đầu trang khi cuộn */}
-      <ShadowFrame style={{ position: "sticky", top: 0, zIndex: 1000 }}>
-        <Theme theme={neutralTheme}>
-          <SiteNav />
-        </Theme>
-      </ShadowFrame>
+      {!hideNav ? (
+        <ShadowFrame style={{ position: "sticky", top: 0, zIndex: 1000 }}>
+          <Theme theme={neutralTheme}>
+            <SiteNav hideMobileNav={hideMobileNav} />
+          </Theme>
+        </ShadowFrame>
+      ) : null}
 
       {/* Nội dung tính năng (MUI) — DOM thường */}
       <div className="astryx-content-host">{children}</div>
 
-      <ShadowFrame>
-        <Theme theme={neutralTheme}>
-          <SiteFooter />
-        </Theme>
-      </ShadowFrame>
+      {!hideFooter ? (
+        <ShadowFrame>
+          <Theme theme={neutralTheme}>
+            <SiteFooter />
+          </Theme>
+        </ShadowFrame>
+      ) : null}
     </div>
   );
 }
@@ -62,4 +72,12 @@ export function AstryxWrap({ children }) {
   const astryx = useAstryxUi();
   if (!astryx) return children;
   return <AstryxContentShell>{children}</AstryxContentShell>;
+}
+
+// Chỉ bọc V3 cho các route tiện ích nằm ngoài App shell (ví dụ tài liệu API),
+// không làm thay đổi cách hiển thị của V1/V2.
+export function V3Wrap({ children, hideNav = false, hideFooter = false }) {
+  const { isV3Version } = useFrontendUiVersion();
+  if (!isV3Version) return children;
+  return <AstryxContentShell hideNav={hideNav} hideFooter={hideFooter}>{children}</AstryxContentShell>;
 }

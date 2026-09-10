@@ -1,7 +1,7 @@
 import { Container } from "react-bootstrap";
 import Box from "@mui/material/Box";
 import CircularProgress from "@mui/material/CircularProgress";
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation, useMatches } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Header from "./components/Header";
@@ -30,12 +30,51 @@ import {
 } from "./utils/crossTabChannel";
 import useFrontendUiVersion from "./hook/useFrontendUiVersion.js";
 import useAstryxUi from "./hook/useAstryxUi.js";
+import AstryxContentShell from "./components/astryx/AstryxContentShell.jsx";
+import V3AuthSurface from "./screens/v3/V3AuthSurface.jsx";
+import "./screens/v3/sport-v3-global.css";
 
 import Clarity from "@microsoft/clarity";
 
 import ChatBotDrawer from "./components/ChatBotDrawer";
 import GlobalCommandPalette from "./components/GlobalCommandPalette";
 const loadGlobalCommandPalette = () => Promise.resolve();
+
+const V3_SHELL_PATHS = new Set([
+  "/messages",
+  "/levelpoint",
+  "/my-bookings",
+  "/status",
+  "/cookies",
+  "/privacy-and-policy",
+  "/terms-of-service",
+  "/404",
+  "/403",
+  "/live/event",
+  "/live/clusters",
+  "/settings/facebook",
+  "/settings/notifications",
+]);
+
+function needsV3ContentShell(pathname, search = "") {
+  const path = String(pathname || "/").replace(/\/+$/, "") || "/";
+  if (path === "/messages" && /(?:^|[?&])c=[^&]+/.test(search)) return false;
+  if (/\/draw\/live$/.test(path)) return false;
+  if (V3_SHELL_PATHS.has(path)) return true;
+
+  return [
+    /^\/(?:user|profile)\/[^/]+$/,
+    /^\/courts(?:\/|$)/,
+    /^\/events\/[^/]+$/,
+    /^\/matches\/[^/]+$/,
+    /^\/news(?:\/|$)/,
+    /^\/blog\/[^/]+$/,
+    /^\/owner\/venues(?:\/|$)/,
+    /^\/tournament\/[^/]+\/(?:register|checkin|reviews|bracket|schedule|queue|draw|manage|referee)(?:\/|$)/,
+    /^\/tournament\/[^/]+\/brackets\/[^/]+\/draw(?:\/|$)/,
+    /^\/tournament\/[^/]+\/mlp\/(?:teams|duals|standings)(?:\/|$)/,
+  ].some((pattern) => pattern.test(path));
+}
 
 function CommandPaletteFallback() {
   return (
@@ -276,9 +315,10 @@ function NativeWebViewAuthBridge() {
 
 const App = () => {
   const location = useLocation();
+  const routeMatches = useMatches();
   const { isDark } = useThemeMode();
   const { open: commandPaletteOpen } = useCommandPalette();
-  const { pikoraEnabled } = useFrontendUiVersion();
+  const { pikoraEnabled, isV3Version } = useFrontendUiVersion();
   const astryxUiOn = useAstryxUi();
 
   // Facebook Pixel: fire PageView mỗi lần SPA đổi route (script trong
@@ -287,7 +327,9 @@ const App = () => {
     if (typeof window !== "undefined" && typeof window.fbq === "function") {
       try {
         window.fbq("track", "PageView");
-      } catch {}
+      } catch {
+        // Analytics không được phép làm gián đoạn điều hướng ứng dụng.
+      }
     }
   }, [location.pathname, location.search]);
 
@@ -328,7 +370,7 @@ const App = () => {
   const astryxPath = location.pathname.replace(/\/+$/, "") || "/";
   const isAstryxHomeRoute =
     (ASTRYX_ROUTES.includes(astryxPath) ||
-      /^\/tournament\/[^/]+$/.test(astryxPath) ||
+      /^\/tournament\/[^/]+(?:\/overview)?$/.test(astryxPath) ||
       /^\/support\/[^/]+$/.test(astryxPath) ||
       /^\/marketplace(\/|$)/.test(astryxPath) ||
       /^\/play(\/|$)/.test(astryxPath) ||
@@ -348,17 +390,37 @@ const App = () => {
   const isMessagesConvView =
     location.pathname.startsWith("/messages") &&
     /(?:^|[?&])c=[^&]+/.test(location.search || "");
-  const hideMobileBottomNav = isAstryxHomeRoute || isMessagesConvView;
+  const isV3ContentShellRoute =
+    isV3Version &&
+    (needsV3ContentShell(location.pathname, location.search) ||
+      routeMatches.some((match) => match.id === "public-not-found"));
+  const isV3AuthPage = isV3Version && isAuthPage;
+  const isV3ImmersiveChromeRoute =
+    isV3Version && astryxPath === "/live/event";
+  const isV3FullScreenLayout = isV3ContentShellRoute || isV3AuthPage;
+  const hideMobileBottomNav =
+    isAstryxHomeRoute || isMessagesConvView || isV3ContentShellRoute;
   const shouldShowPikora =
     pikoraEnabled &&
     !isAuthPage &&
     !isImmersiveLiveFeedPage &&
     !isLiveWatchPage &&
-    !isAstryxHomeRoute &&
+    (!isAstryxHomeRoute || isV3Version) &&
     !isOverlayStudioPage;
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const root = document.documentElement;
+    if (isV3Version && !location.pathname.startsWith("/admin")) {
+      root.dataset.pkPublicUi = "v3";
+    } else {
+      delete root.dataset.pkPublicUi;
+    }
+    return () => delete root.dataset.pkPublicUi;
+  }, [isV3Version, location.pathname]);
 
   useEffect(() => {
     // Khởi tạo GA4 khi app load
@@ -435,7 +497,7 @@ const App = () => {
       <CheckpointRealtimeGate />
       <SentryRuntimeSync />
       <NativeWebViewAuthBridge />
-      {!isFullScreenLayout && (
+      {!isFullScreenLayout && !isV3FullScreenLayout && (
         <Box
           sx={
             isMessagesConvView
@@ -448,7 +510,7 @@ const App = () => {
       )}
       <ToastContainer theme={isDark ? "dark" : "light"} />
       <PhoneVerificationGate />
-      {/* Floating chat launcher (Messenger-style) — hiện ở cả V1 lẫn V2 (Astryx)
+      {/* Floating chat launcher (Messenger-style) — hiện ở V1, V2 và V3
           để tin nhắn là popup góc phải như V1. Ẩn ở /messages (full page), các
           layout fullscreen auth/live/overlay-studio. */}
       {!isAuthPage &&
@@ -457,7 +519,18 @@ const App = () => {
         !isOverlayStudioPage &&
         !location.pathname.startsWith("/messages") && <MessengerLauncher />}
 
-      {isFullScreenLayout ? (
+      {isV3ContentShellRoute ? (
+        <AstryxContentShell
+          hideFooter={isV3ImmersiveChromeRoute}
+          hideMobileNav={isV3ImmersiveChromeRoute}
+        >
+          <Outlet />
+        </AstryxContentShell>
+      ) : isV3AuthPage ? (
+        <V3AuthSurface>
+          <Outlet />
+        </V3AuthSurface>
+      ) : isFullScreenLayout || isV3FullScreenLayout ? (
         <Outlet />
       ) : (
         <Container

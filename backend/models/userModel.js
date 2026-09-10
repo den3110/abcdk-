@@ -183,6 +183,7 @@ const NameStyleSchema = new mongoose.Schema(
     animated: { type: Boolean, default: false }, // shimmer / cầu vồng động
     speed: { type: Number, default: 6 }, // thời lượng 1 vòng animation (giây)
     bold: { type: Boolean, default: false }, // in đậm
+    selfOnly: { type: Boolean, default: false }, // chỉ chủ nhân thấy màu, người khác thấy tên thường
   },
   { _id: false },
 );

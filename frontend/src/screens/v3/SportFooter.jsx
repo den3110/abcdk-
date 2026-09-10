@@ -4,9 +4,9 @@ import { A } from "../astryx/ui.jsx";
 import SportBrand from "./SportBrand.jsx";
 
 const groups = [
-  ["Thi đấu", [["Giải đấu", "/pickle-ball/tournaments"], ["Bảng xếp hạng", "/pickle-ball/rankings"], ["Trực tiếp", "/live"], ["Đặt sân", "/courts"]]],
-  ["Cộng đồng", [["Bảng tin", "/feed"], ["Câu lạc bộ", "/clubs"], ["Tìm bạn đánh", "/play"], ["Chợ PickleTour", "/marketplace"]]],
-  ["Hỗ trợ", [["Liên hệ", "/contact"], ["Trạng thái hệ thống", "/status"], ["Chính sách", "/privacy-and-policy"], ["Điều khoản", "/terms-of-service"]]],
+  ["Thi đấu", [["Giải đấu", "/pickle-ball/tournaments"], ["Bảng xếp hạng", "/pickle-ball/rankings"], ["Trực tiếp", "/live"], ["Đặt sân", "/courts"], ["Huấn luyện viên", "/coaches"]]],
+  ["Cộng đồng", [["Bảng tin", "/feed"], ["Câu lạc bộ", "/clubs"], ["Tìm bạn đánh", "/play"], ["Chợ PickleTour", "/marketplace"], ["Tin tức", "/news"]]],
+  ["Hỗ trợ", [["Liên hệ", "/contact"], ["Trạng thái hệ thống", "/status"], ["Tài liệu API", "/docs/api"], ["Chính sách", "/privacy-and-policy"], ["Điều khoản", "/terms-of-service"]]],
 ];
 
 export default function SportFooter() {

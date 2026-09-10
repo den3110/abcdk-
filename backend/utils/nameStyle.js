@@ -32,6 +32,7 @@ export function sanitizeNameStyle(input) {
     animated: false,
     speed: 6,
     bold: false,
+    selfOnly: false,
   };
   if (!input || typeof input !== "object") return out;
 
@@ -39,6 +40,8 @@ export function sanitizeNameStyle(input) {
   if (!NAME_STYLE_EFFECTS.includes(effect)) effect = "none";
 
   out.bold = Boolean(input.bold);
+  // Chỉ chủ nhân thấy màu tên (người khác thấy tên thường)
+  const selfOnly = Boolean(input.selfOnly);
 
   if (effect === "solid") {
     const color =
@@ -47,6 +50,7 @@ export function sanitizeNameStyle(input) {
     if (!color) return out; // không có màu hợp lệ -> none
     out.effect = "solid";
     out.color = color;
+    out.selfOnly = selfOnly;
     return out;
   }
 
@@ -68,6 +72,7 @@ export function sanitizeNameStyle(input) {
     out.angle = clampNum(input.angle, 0, 360, 90);
     out.animated = Boolean(input.animated);
     out.speed = clampNum(input.speed, 1, 30, 6);
+    out.selfOnly = selfOnly;
     return out;
   }
 

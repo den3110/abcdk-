@@ -1,12 +1,15 @@
 // src/context/ThemeContext.jsx
-import React, {
+/* eslint-disable react-refresh/only-export-components */
+import {
   createContext,
   useContext,
   useRef,
   useState,
   useEffect,
   useMemo,
+  useCallback,
 } from "react";
+import PropTypes from "prop-types";
 import { ThemeProvider as MuiThemeProvider, CssBaseline } from "@mui/material";
 import { lightTheme, darkTheme } from "../theme";
 import {
@@ -19,6 +22,7 @@ import {
 const ThemeContext = createContext({
   mode: "light",
   toggleTheme: () => {},
+  setThemeMode: () => {},
   isDark: false,
 });
 
@@ -95,9 +99,13 @@ export const ThemeContextProvider = ({ children }) => {
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setMode((prev) => (prev === "light" ? "dark" : "light"));
-  };
+  }, []);
+
+  const setThemeMode = useCallback((nextMode) => {
+    setMode(nextMode === "dark" ? "dark" : "light");
+  }, []);
 
   const theme = useMemo(
     () => (mode === "dark" ? darkTheme : lightTheme),
@@ -108,9 +116,10 @@ export const ThemeContextProvider = ({ children }) => {
     () => ({
       mode,
       toggleTheme,
+      setThemeMode,
       isDark: mode === "dark",
     }),
-    [mode],
+    [mode, setThemeMode, toggleTheme],
   );
 
   return (
@@ -121,6 +130,10 @@ export const ThemeContextProvider = ({ children }) => {
       </MuiThemeProvider>
     </ThemeContext.Provider>
   );
+};
+
+ThemeContextProvider.propTypes = {
+  children: PropTypes.node.isRequired,
 };
 
 export default ThemeContext;

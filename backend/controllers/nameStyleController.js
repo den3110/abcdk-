@@ -49,6 +49,7 @@ export const getNameStyles = asyncHandler(async (req, res) => {
         animated: Boolean(ns.animated),
         speed: typeof ns.speed === "number" ? ns.speed : 6,
         bold: Boolean(ns.bold),
+        selfOnly: Boolean(ns.selfOnly),
       },
     });
   }

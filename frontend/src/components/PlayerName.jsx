@@ -7,6 +7,7 @@
 //   <PlayerName user={u} name={computedName} />       // khi đã có sẵn chuỗi tên
 //   <PlayerName user={u} component="span" onClick={...} />
 import React, { useMemo } from "react";
+import { useSelector } from "react-redux";
 import { useGetNameStylesQuery } from "../slices/nameStyleApiSlice";
 import { buildNameStyleCss, resolveNameStyle } from "../utils/nameStyle";
 import { getPlayerDisplayName } from "../utils/matchDisplay";
@@ -43,10 +44,14 @@ export default function PlayerName({
   }
 
   // 2) Tra hiệu ứng
+  const myId = useSelector((s) => s.auth?.userInfo?._id);
   const css = useMemo(() => {
-    const ns = resolveNameStyle(map, target, { nickname: nickname || name });
+    const ns = resolveNameStyle(map, target, {
+      nickname: nickname || name,
+      viewerId: myId,
+    });
     return ns ? buildNameStyleCss(ns) : null;
-  }, [map, target, nickname, name]);
+  }, [map, target, nickname, name, myId]);
 
   const finalStyle = css?.style ? { ...css.style, ...(style || null) } : style;
 

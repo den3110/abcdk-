@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 /**
  * SiteNav — header DÙNG CHUNG cho các trang giao diện mới (Astryx, trong ShadowFrame).
  * Biết trạng thái đăng nhập:
@@ -217,12 +218,12 @@ function UserMenu({ userInfo }) {
   );
 }
 
-export default function SiteNav() {
+export default function SiteNav({ hideMobileNav = false }) {
   const { isV3Version } = useFrontendUiVersion();
   const userInfo = useSelector((s) => s.auth?.userInfo || null);
   const { pathname } = useLocation();
 
-  if (isV3Version) return <SportNav />;
+  if (isV3Version) return <SportNav hideMobileNav={hideMobileNav} />;
 
   return (
     <div

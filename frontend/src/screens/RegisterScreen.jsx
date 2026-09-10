@@ -1,4 +1,5 @@
 // src/screens/RegisterScreen.jsx
+/* eslint-disable react/prop-types */
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import PlaceholderAvatar from "../components/PlaceholderAvatar";
@@ -8,7 +9,6 @@ import {
   TextField,
   Typography,
   CircularProgress,
-  Avatar,
   Link,
   FormControl,
   InputLabel,
@@ -35,6 +35,7 @@ import LogoAnimationMorph from "../components/LogoAnimationMorph.jsx";
 import CapWidget from "../components/CapWidget.jsx";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import useCapEnabled from "../hook/useCapEnabled.js";
+import useFrontendUiVersion from "../hook/useFrontendUiVersion.js";
 import { addBusinessBreadcrumb } from "../utils/sentry";
 
 /* Icons */
@@ -202,7 +203,8 @@ export default function RegisterScreen() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isCompactMobile = useMediaQuery("(max-width:480px)");
-  const isDark = theme.palette.mode === "dark";
+  const { isV3Version } = useFrontendUiVersion();
+  const isDark = theme.palette.mode === "dark" || isV3Version;
   const { t, language } = useLanguage();
   const isCapEnabled = useCapEnabled();
 

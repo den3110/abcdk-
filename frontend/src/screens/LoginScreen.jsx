@@ -33,6 +33,7 @@ import CapWidget from "../components/CapWidget.jsx";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import useCapEnabled from "../hook/useCapEnabled.js";
+import useFrontendUiVersion from "../hook/useFrontendUiVersion.js";
 import { setCredentials } from "../slices/authSlice";
 import apiSlice from "../slices/apiSlice";
 import { useLoginMutation } from "../slices/usersApiSlice";
@@ -268,7 +269,8 @@ export default function LoginScreen() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isCompactMobile = useMediaQuery("(max-width:480px)");
-  const isDark = theme.palette.mode === "dark";
+  const { isV3Version } = useFrontendUiVersion();
+  const isDark = theme.palette.mode === "dark" || isV3Version;
   const { t, language } = useLanguage();
   const isCapEnabled = useCapEnabled();
 

@@ -22,7 +22,7 @@ export function normalizeNameStyle(ns) {
         ? ns.colors[0].trim()
         : "";
     if (!color) return null;
-    return { effect: "solid", color, bold: !!ns.bold };
+    return { effect: "solid", color, bold: !!ns.bold, selfOnly: !!ns.selfOnly };
   }
 
   if (effect === "gradient") {
@@ -32,7 +32,7 @@ export function normalizeNameStyle(ns) {
       .slice(0, 7);
     if (colors.length < 2) {
       return colors.length === 1
-        ? { effect: "solid", color: colors[0], bold: !!ns.bold }
+        ? { effect: "solid", color: colors[0], bold: !!ns.bold, selfOnly: !!ns.selfOnly }
         : null;
     }
     return {
@@ -42,6 +42,7 @@ export function normalizeNameStyle(ns) {
       animated: !!ns.animated,
       speed: Number.isFinite(+ns.speed) ? Math.min(30, Math.max(1, +ns.speed)) : 6,
       bold: !!ns.bold,
+      selfOnly: !!ns.selfOnly,
     };
   }
   return null;
@@ -95,7 +96,30 @@ const norm = (s) => String(s || "").trim().toLowerCase();
  * @param {{nickname?:string, name?:string}} [extra] tên chuỗi bổ sung để fallback
  * @returns object nameStyle đã chuẩn hoá hoặc null
  */
+function _pickTargetId(target) {
+  const c = [
+    target?._id,
+    target?.id,
+    typeof target?.user === "string" ? target.user : null,
+    target?.user?._id,
+    target?.user?.id,
+  ];
+  for (const id of c) if (id) return String(id);
+  return null;
+}
+
 export function resolveNameStyle(map, target, extra) {
+  const style = _lookupNameStyle(map, target, extra);
+  // selfOnly: chỉ chủ nhân thấy màu; người khác / khách -> tên thường
+  if (style && style.selfOnly) {
+    const viewerId = extra?.viewerId != null ? String(extra.viewerId) : null;
+    const targetId = _pickTargetId(target);
+    if (!viewerId || !targetId || viewerId !== targetId) return null;
+  }
+  return style;
+}
+
+function _lookupNameStyle(map, target, extra) {
   // 1) Ưu tiên nameStyle nhúng sẵn trên chính object (getMe / publicProfile)
   const inlineNs =
     normalizeNameStyle(target?.nameStyle) ||

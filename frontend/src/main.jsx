@@ -33,7 +33,7 @@ import SentryRootFallback from "./components/SentryRootFallback.jsx";
 import { initSentry } from "./utils/sentry.js";
 import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
 import EventLivePage from "./screens/EventLivePage.jsx";
-import { AstryxWrap } from "./components/astryx/AstryxContentShell.jsx";
+import { AstryxWrap, V3Wrap } from "./components/astryx/AstryxContentShell.jsx";
 // import VerifyOtpScreen from "./screens/VerifyOtpScreen.jsx";
 
 import HomeScreen from "./screens/HomeScreen";
@@ -256,7 +256,7 @@ const router = sentryCreateBrowserRouter(
 
         <Route path="/404" element={<NotFound />} />
         <Route path="/403" element={<Forbidden403 />} />
-        <Route path="*" element={<NotFound />} />
+        <Route id="public-not-found" path="*" element={<NotFound />} />
         <Route path="/forgot-password" element={<ForgotPasswordScreen />} />
         <Route
           path="/reset-password/:token"
@@ -318,10 +318,10 @@ const router = sentryCreateBrowserRouter(
         <Route path="/settings/facebook" element={<FacebookLiveSettings />} />
       </Route>
       <Route path="/docs" element={<Navigate to="/docs/api" replace />} />
-      <Route path="/docs/api" element={<ApiDocsPage />} />
+      <Route path="/docs/api" element={<V3Wrap hideNav hideFooter><ApiDocsPage /></V3Wrap>} />
       <Route path="/overlay/score" element={<ScoreOverlay />} />
       <Route path="/overlay/mlp/court/:courtStationId" element={<MlpOverlay />} />
-      <Route path="/503" element={<ServiceUnavailable />} />
+      <Route path="/503" element={<V3Wrap hideNav hideFooter><ServiceUnavailable /></V3Wrap>} />
       <Route path="/studio/live" element={<LiveStudioPage />} />
       <Route path="/streaming/:courtId" element={<CourtStreamingPage />} />
       <Route
