@@ -16,7 +16,6 @@ import CoachApplication from "../../models/coachApplicationModel.js";
 import CourtOwnerRequest from "../../models/courtOwnerRequestModel.js";
 import NicknameChangeRequest from "../../models/nicknameChangeRequestModel.js";
 import FeedReport from "../../models/feedReportModel.js";
-import Complaint from "../../models/complaintModel.js";
 import User from "../../models/userModel.js";
 
 import { getSystemSettingsRuntime } from "../systemSettingsRuntime.service.js";
@@ -557,34 +556,26 @@ async function checkPendingApprovals() {
 
 async function checkPendingModeration() {
   const KEY = "pending-moderation";
-  const LABEL = "Báo cáo & khiếu nại";
+  const LABEL = "Báo cáo nội dung";
   const thresholdHours = envNum("OPS_PENDING_MODERATION_HOURS", 6);
 
-  const [reports, complaints] = await Promise.all([
-    countPending(FeedReport, { status: "pending" }),
-    countPending(Complaint, { status: { $in: ["open", "in_progress"] } }),
-  ]);
+  // Chỉ theo dõi Báo cáo nội dung (có trang xử lý trong admin panel).
+  // Khiếu nại giải (Complaint) KHÔNG đưa vào đây vì được xử lý bởi BTC giải qua
+  // web quản lý giải / nút inline trên Telegram, không có mục trong admin panel.
+  const reports = await countPending(FeedReport, { status: "pending" });
 
-  const groups = [
-    { label: "Báo cáo nội dung", stat: reports },
-    { label: "Khiếu nại", stat: complaints },
-  ].filter((g) => g.stat.total > 0);
+  if (!reports.total) return check(KEY, LABEL, "ok", "Không có báo cáo nội dung chờ xử lý");
 
-  if (!groups.length) return check(KEY, LABEL, "ok", "Không có báo cáo/khiếu nại chờ xử lý");
+  const overdue =
+    reports.oldestHours != null && reports.oldestHours >= thresholdHours;
+  const message = `${reports.total} báo cáo chờ xử lý${
+    reports.oldestHours != null ? ` (cũ nhất ${Math.round(reports.oldestHours)}h)` : ""
+  }`;
 
-  const overdue = groups.filter(
-    (g) => g.stat.oldestHours != null && g.stat.oldestHours >= thresholdHours
-  );
-  const message = groups
-    .map(
-      (g) =>
-        `${g.label}: ${g.stat.total}${
-          g.stat.oldestHours != null ? ` (cũ nhất ${Math.round(g.stat.oldestHours)}h)` : ""
-        }`
-    )
-    .join(" · ");
-
-  return check(KEY, LABEL, overdue.length ? "warn" : "ok", message, { detail: groups });
+  return check(KEY, LABEL, overdue ? "warn" : "ok", message, {
+    detail: reports,
+    hint: overdue ? "Admin → Kiểm duyệt bài đăng: xử lý các báo cáo đang chờ." : "",
+  });
 }
 
 /* ═══════════════════════ Chạy toàn bộ ═══════════════════════ */
