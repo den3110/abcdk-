@@ -17,19 +17,21 @@ import { A, WhitePill, imgSrc } from "./ui.jsx";
 import { setPkTheme, usePkTheme } from "./theme.js";
 import { logout as logoutAction } from "../../slices/authSlice.js";
 import { useLogoutMutation } from "../../slices/usersApiSlice.js";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 import NotificationBell from "./NotificationBell.jsx";
 import PlayerName from "../../components/PlayerName";
 import useFrontendUiVersion from "../../hook/useFrontendUiVersion.js";
 import SportNav from "../v3/SportNav.jsx";
 
+// [labelKey, href] — labelKey resolved via t() at render time.
 const NAV_LINKS = [
-  ["Giải đấu", "/pickle-ball/tournaments"],
-  ["Bảng xếp hạng", "/pickle-ball/rankings"],
-  ["Bảng tin", "/feed"],
-  ["Chợ", "/marketplace"],
-  ["Tìm bạn đánh", "/play"],
-  ["Trực tiếp", "/live"],
-  ["Câu lạc bộ", "/clubs"],
+  ["v3.siteNav.navTournaments", "/pickle-ball/tournaments"],
+  ["v3.siteNav.navRankings", "/pickle-ball/rankings"],
+  ["v3.siteNav.navFeed", "/feed"],
+  ["v3.siteNav.navMarketplace", "/marketplace"],
+  ["v3.siteNav.navFindPartner", "/play"],
+  ["v3.siteNav.navLive", "/live"],
+  ["v3.siteNav.navClubs", "/clubs"],
 ];
 
 const normalizeRole = (r) => String(r || "").trim().toLowerCase();
@@ -44,7 +46,7 @@ const isAdminUser = (u) => {
 const displayName = (u) =>
   [u?.nickname, u?.name, u?.fullName, u?.email]
     .map((x) => String(x || "").trim())
-    .find(Boolean) || "Tài khoản";
+    .find(Boolean) || "";
 
 // Xác định link đang active theo pathname (prefix-aware, không "/" nuốt tất cả)
 const isActivePath = (pathname, href) => {
@@ -54,9 +56,10 @@ const isActivePath = (pathname, href) => {
 
 /* Nút gạt sáng/tối — dùng được cả khi chưa đăng nhập. Icon = chế độ SẼ chuyển sang. */
 function ThemeToggle() {
+  const { t } = useLanguage();
   const theme = usePkTheme();
   const dark = theme === "dark";
-  const label = dark ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối";
+  const label = dark ? t("v3.siteNav.themeToLight") : t("v3.siteNav.themeToDark");
   return (
     <button
       type="button"
@@ -121,11 +124,12 @@ function MenuItem({ icon: Ico, label, href, onClick, danger }) {
 }
 
 function UserMenu({ userInfo }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const [logoutApiCall] = useLogoutMutation();
-  const name = displayName(userInfo);
+  const name = displayName(userInfo) || t("v3.siteNav.accountFallback");
   const avatar = imgSrc(userInfo?.avatar || userInfo?.user?.avatar);
 
   const onLogout = async () => {
@@ -200,17 +204,17 @@ function UserMenu({ userInfo }) {
               boxShadow: "0 24px 60px -18px light-dark(rgba(0,0,0,.2), rgba(0,0,0,.65))",
             }}
           >
-            <MenuItem icon={User} label="Hồ sơ" href="/profile" onClick={() => setOpen(false)} />
-            <MenuItem icon={Trophy} label="Giải của tôi" href="/my-tournaments" onClick={() => setOpen(false)} />
-            <MenuItem icon={Users} label="Bạn bè" href="/friends" onClick={() => setOpen(false)} />
-            <MenuItem icon={MessageCircle} label="Nhắn tin" href="/messages" onClick={() => setOpen(false)} />
-            <MenuItem icon={GraduationCap} label="Huấn luyện viên" href="/coaches" onClick={() => setOpen(false)} />
-            <MenuItem icon={Mail} label="Liên hệ" href="/contact" onClick={() => setOpen(false)} />
+            <MenuItem icon={User} label={t("v3.siteNav.profile")} href="/profile" onClick={() => setOpen(false)} />
+            <MenuItem icon={Trophy} label={t("v3.siteNav.myTournaments")} href="/my-tournaments" onClick={() => setOpen(false)} />
+            <MenuItem icon={Users} label={t("v3.siteNav.friends")} href="/friends" onClick={() => setOpen(false)} />
+            <MenuItem icon={MessageCircle} label={t("v3.siteNav.messages")} href="/messages" onClick={() => setOpen(false)} />
+            <MenuItem icon={GraduationCap} label={t("v3.siteNav.coaches")} href="/coaches" onClick={() => setOpen(false)} />
+            <MenuItem icon={Mail} label={t("v3.siteNav.contact")} href="/contact" onClick={() => setOpen(false)} />
             {isAdminUser(userInfo) && (
-              <MenuItem icon={Shield} label="Quản trị" href="/admin" onClick={() => setOpen(false)} />
+              <MenuItem icon={Shield} label={t("v3.siteNav.admin")} href="/admin" onClick={() => setOpen(false)} />
             )}
             <div style={{ height: 1, margin: "6px 8px", background: "light-dark(rgba(0,0,0,.08), rgba(255,255,255,0.08))" }} />
-            <MenuItem icon={LogOut} label="Đăng xuất" onClick={onLogout} danger />
+            <MenuItem icon={LogOut} label={t("v3.siteNav.logout")} onClick={onLogout} danger />
           </div>
         </>
       )}
@@ -219,6 +223,7 @@ function UserMenu({ userInfo }) {
 }
 
 export default function SiteNav({ hideMobileNav = false }) {
+  const { t } = useLanguage();
   const { isV3Version } = useFrontendUiVersion();
   const userInfo = useSelector((s) => s.auth?.userInfo || null);
   const { pathname } = useLocation();
@@ -259,7 +264,7 @@ export default function SiteNav({ hideMobileNav = false }) {
                 className="pk-navitem"
                 aria-current={isActivePath(pathname, href) ? "page" : undefined}
               >
-                {label}
+                {t(label)}
               </A>
             ))}
           </nav>
@@ -272,9 +277,9 @@ export default function SiteNav({ hideMobileNav = false }) {
           ) : (
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
               <A href="/login" style={{ color: "light-dark(#3D4247, #C6CACF)", textDecoration: "none", fontSize: 14.5, fontWeight: 550 }}>
-                Đăng nhập
+                {t("v3.siteNav.login")}
               </A>
-              <WhitePill label="Bắt đầu" href="/register" />
+              <WhitePill label={t("v3.siteNav.getStarted")} href="/register" />
             </div>
           )}
         </div>

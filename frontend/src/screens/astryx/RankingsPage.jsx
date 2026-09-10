@@ -28,6 +28,7 @@ import PlayerName from "../../components/PlayerName";
 import { useOpenDmMutation } from "../../slices/messagesApiSlice.js";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 
 /* ------------------------------- helpers ------------------------------- */
 const Container = ({ children, style }) => (
@@ -41,8 +42,9 @@ const imgUrl = (u) => {
   if (!s) return undefined;
   return s;
 };
-const nameOf = (r) =>
-  String(r?.user?.nickname || r?.user?.name || "Ẩn danh").trim();
+// Fallback name khi VĐV ẩn danh — nhận t để dịch (gọi từ điểm render có hook).
+const nameOf = (r, t) =>
+  String(r?.user?.nickname || r?.user?.name || (t ? t("v3.rankings.anonymous") : "")).trim();
 const isVerified = (r) => String(r?.user?.verified || "") === "verified";
 const fmtScore = (n) => {
   const v = Number(n);
@@ -50,10 +52,11 @@ const fmtScore = (n) => {
   return v.toFixed(v % 1 === 0 ? 1 : 3).replace(/0+$/, "").replace(/\.$/, ".0");
 };
 
+// label: khoá i18n (giải qua t() nếu cần hiển thị) — hiện không render trực tiếp.
 const MEDAL = [
-  { color: "#F0B03A", soft: "rgba(240,176,58,.14)", ring: "rgba(240,176,58,.45)", label: "Hạng 1" },
-  { color: "#C3C9D1", soft: "rgba(195,201,209,.12)", ring: "rgba(195,201,209,.4)", label: "Hạng 2" },
-  { color: "#C77B42", soft: "rgba(199,123,66,.14)", ring: "rgba(199,123,66,.45)", label: "Hạng 3" },
+  { color: "#F0B03A", soft: "rgba(240,176,58,.14)", ring: "rgba(240,176,58,.45)", label: "v3.rankings.rank1" },
+  { color: "#C3C9D1", soft: "rgba(195,201,209,.12)", ring: "rgba(195,201,209,.4)", label: "v3.rankings.rank2" },
+  { color: "#C77B42", soft: "rgba(199,123,66,.14)", ring: "rgba(199,123,66,.45)", label: "v3.rankings.rank3" },
 ];
 
 const TIER_DOT = {
@@ -170,15 +173,17 @@ function AchievementChips({ achievements, size = "sm" }) {
   );
 }
 
+// [key, labelKey] — labelKey giải qua t() ở render (giống SportNav).
 const SCORE_FILTERS = [
-  ["three_tours", "Từ 3 giải"],
-  ["staff", "Admin chấm"],
-  ["needs_review", "Cần chấm lại"],
-  ["no_score", "Chưa có điểm"],
+  ["three_tours", "v3.rankings.filterThreeTours"],
+  ["staff", "v3.rankings.filterStaff"],
+  ["needs_review", "v3.rankings.filterNeedsReview"],
+  ["no_score", "v3.rankings.filterNoScore"],
 ];
 
 /* ------------------------------ page head ------------------------------ */
 function PageHead() {
+  const { t } = useLanguage();
   return (
     <div style={{ position: "relative", overflow: "hidden" }}>
       <div aria-hidden style={{ position: "absolute", inset: 0, background: "radial-gradient(46% 62% at 22% 4%, rgba(61,135,255,.12), transparent 62%)" }} />
@@ -207,7 +212,7 @@ function PageHead() {
             }}
           >
             <TrendingUp size={13} />
-            Điểm trình cập nhật sau mỗi trận
+            {t("v3.rankings.badge")}
           </span>
           <h1
             className="pk-rise"
@@ -221,13 +226,13 @@ function PageHead() {
               animationDelay: ".07s",
             }}
           >
-            Bảng xếp hạng
+            {t("v3.rankings.titleLine1")}
             <br />
-            <span style={{ color: "var(--color-brand, #3D87FF)" }}>toàn quốc.</span>
+            <span style={{ color: "var(--color-brand, #3D87FF)" }}>{t("v3.rankings.titleLine2")}</span>
           </h1>
           <div className="pk-rise" style={{ maxWidth: 640, marginTop: 22, animationDelay: ".16s" }}>
             <Text type="large" color="secondary">
-              Toàn bộ vận động viên trên PickleTour, xếp theo điểm trình từ kết quả thi đấu.
+              {t("v3.rankings.subtitle")}
             </Text>
           </div>
         </div>
@@ -238,6 +243,7 @@ function PageHead() {
 
 /* -------------------------------- podium ------------------------------- */
 function PodiumCard({ r, place }) {
+  const { t } = useLanguage();
   const m = MEDAL[place];
   const top1 = place === 0;
   return (
@@ -296,7 +302,7 @@ function PodiumCard({ r, place }) {
               background: `conic-gradient(from 210deg, ${m.color}, transparent 52%, ${m.color})`,
             }}
           >
-            <Avatar size="large" src={imgUrl(r?.user?.avatar)} name={nameOf(r)} />
+            <Avatar size="large" src={imgUrl(r?.user?.avatar)} name={nameOf(r, t)} />
           </span>
           <span
             style={{
@@ -322,7 +328,7 @@ function PodiumCard({ r, place }) {
 
       <div style={{ position: "relative", marginTop: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
         <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: top1 ? 17.5 : 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "85%" }}>
-          <PlayerName user={r?.user} name={nameOf(r)} />
+          <PlayerName user={r?.user} name={nameOf(r, t)} />
         </span>
         {isVerified(r) && <BadgeCheck size={16} color="#3E9EFB" style={{ flexShrink: 0 }} />}
       </div>
@@ -335,7 +341,7 @@ function PodiumCard({ r, place }) {
         <div style={{ fontSize: top1 ? 32 : 28, fontWeight: 800, color: m.color, lineHeight: 1, letterSpacing: "-.02em" }}>
           {fmtScore(r?.double)}
         </div>
-        <div style={{ marginTop: 6, fontSize: 11.5, fontWeight: 650, color: "#8F959C", letterSpacing: ".05em" }}>ĐIỂM ĐÔI</div>
+        <div style={{ marginTop: 6, fontSize: 11.5, fontWeight: 650, color: "#8F959C", letterSpacing: ".05em" }}>{t("v3.rankings.doubleCaps")}</div>
         <div
           style={{
             marginTop: 11,
@@ -351,7 +357,7 @@ function PodiumCard({ r, place }) {
             border: "1px solid rgba(255,255,255,.08)",
           }}
         >
-          Đơn {fmtScore(r?.single)}
+          {t("v3.rankings.singleShort", { score: fmtScore(r?.single) })}
         </div>
       </div>
     </A>
@@ -374,6 +380,7 @@ function Podium({ rows }) {
 
 /* ------------------------------- toolbar ------------------------------- */
 function Toolbar({ qInput, setQInput, filter, setFilter }) {
+  const { t } = useLanguage();
   return (
     <div
       style={{
@@ -413,7 +420,7 @@ function Toolbar({ qInput, setQInput, filter, setFilter }) {
                     border: active ? "1px solid transparent" : "1px solid rgba(255,255,255,.09)",
                   }}
                 >
-                  {label}
+                  {t(label)}
                 </button>
               );
             })}
@@ -437,12 +444,12 @@ function Toolbar({ qInput, setQInput, filter, setFilter }) {
             <input
               value={qInput}
               onChange={(e) => setQInput(e.target.value)}
-              placeholder="Tìm vận động viên…"
+              placeholder={t("v3.rankings.searchPlaceholder")}
               style={{ all: "unset", width: "100%", color: "var(--pk-text-strong)", fontSize: 14, fontFamily: "inherit" }}
             />
             {qInput && (
               <button type="button" onClick={() => setQInput("")} style={{ all: "unset", cursor: "pointer", color: "#9AA0A6", fontSize: 12.5, fontWeight: 700 }}>
-                Xoá
+                {t("v3.rankings.clear")}
               </button>
             )}
           </label>
@@ -454,6 +461,7 @@ function Toolbar({ qInput, setQInput, filter, setFilter }) {
 
 /* -------------------------------- table -------------------------------- */
 function MessageIconBtn({ userId }) {
+  const { t } = useLanguage();
   const me = useSelector((s) => s.auth?.userInfo);
   const navigate = useNavigate();
   const [openDm, { isLoading }] = useOpenDmMutation();
@@ -470,7 +478,7 @@ function MessageIconBtn({ userId }) {
     <button
       onClick={onClick}
       disabled={isLoading}
-      title="Nhắn tin"
+      title={t("v3.rankings.message")}
       style={{
         display: "inline-flex",
         alignItems: "center",
@@ -490,6 +498,7 @@ function MessageIconBtn({ userId }) {
 }
 
 function RankRow({ r, fallbackRank, showGlobal }) {
+  const { t } = useLanguage();
   // Bảng mặc định: số vị trí (liền mạch khi phân trang). Khi search/lọc: hạng chính thức.
   const rank = showGlobal ? Number(r?.globalRank) || null : fallbackRank;
   const medal = rank >= 1 && rank <= 3 ? MEDAL[rank - 1] : null;
@@ -509,10 +518,10 @@ function RankRow({ r, fallbackRank, showGlobal }) {
         <span style={{ fontWeight: 800, fontSize: 15, color: medal ? medal.color : "var(--color-text-secondary)" }}>{rank || "—"}</span>
       </div>
       <div style={{ padding: "0 16px", display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-        <Avatar size="small" src={imgUrl(r?.user?.avatar)} name={nameOf(r)} />
+        <Avatar size="small" src={imgUrl(r?.user?.avatar)} name={nameOf(r, t)} />
         <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
           <span style={{ color: "var(--pk-text-strong)", fontWeight: 650, fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            <PlayerName user={r?.user} name={nameOf(r)} />
+            <PlayerName user={r?.user} name={nameOf(r, t)} />
           </span>
           {isVerified(r) && <BadgeCheck size={15} color="#3E9EFB" style={{ flexShrink: 0 }} />}
           {tierDot && <span title={r?.tierLabel || ""} style={{ width: 7, height: 7, borderRadius: 99, background: tierDot, flexShrink: 0 }} />}
@@ -551,6 +560,7 @@ function TableSkeleton() {
 
 /* ----------------------------- card (kiểu v1) ---------------------------- */
 function RankCard({ r, rank }) {
+  const { t } = useLanguage();
   const medal = rank >= 1 && rank <= 3 ? MEDAL[rank - 1] : null;
   const tierDot = TIER_DOT[String(r?.tierColor || "").toLowerCase()];
   return (
@@ -569,7 +579,7 @@ function RankCard({ r, rank }) {
     >
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
         <div style={{ position: "relative", flexShrink: 0 }}>
-          <Avatar size="medium" src={imgUrl(r?.user?.avatar)} name={nameOf(r)} />
+          <Avatar size="medium" src={imgUrl(r?.user?.avatar)} name={nameOf(r, t)} />
           <span
             style={{
               position: "absolute",
@@ -594,7 +604,7 @@ function RankCard({ r, rank }) {
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
             <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              <PlayerName user={r?.user} name={nameOf(r)} />
+              <PlayerName user={r?.user} name={nameOf(r, t)} />
             </span>
             {isVerified(r) && <BadgeCheck size={16} color="#3E9EFB" style={{ flexShrink: 0 }} />}
             {tierDot && <span title={r?.tierLabel || ""} style={{ width: 8, height: 8, borderRadius: 99, background: tierDot, flexShrink: 0 }} />}
@@ -612,9 +622,9 @@ function RankCard({ r, rank }) {
       )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--color-border)" }}>
         {[
-          ["Điểm đôi", fmtScore(r?.double), "var(--pk-text-strong)"],
-          ["Điểm đơn", fmtScore(r?.single), "var(--pk-text)"],
-          ["Giải", Number(r?.totalTours || 0), "#8F959C"],
+          [t("v3.rankings.pointsDouble"), fmtScore(r?.double), "var(--pk-text-strong)"],
+          [t("v3.rankings.pointsSingle"), fmtScore(r?.single), "var(--pk-text)"],
+          [t("v3.rankings.toursCol"), Number(r?.totalTours || 0), "#8F959C"],
         ].map(([label, val, col]) => (
           <div key={label} style={{ textAlign: "center" }}>
             <div style={{ color: col, fontWeight: 800, fontSize: 17 }}>{val}</div>
@@ -645,6 +655,7 @@ function CardSkeleton() {
 
 /* ================================= PAGE ================================= */
 export default function RankingsPage() {
+  const { t } = useLanguage();
   const [view, setView] = useState("card"); // "card" (kiểu v1) | "table"
   const [qInput, setQInput] = useState("");
   const [keyword, setKeyword] = useState("");
@@ -678,9 +689,9 @@ export default function RankingsPage() {
     Number(data?.remainingTime) === 0;
   const limitMsg =
     error?.status === 429
-      ? String(error?.data?.message || "Bạn đã dùng hết lượt tìm kiếm hôm nay. Vui lòng thử lại sau.")
+      ? String(error?.data?.message || t("v3.rankings.limitReached429"))
       : softBlocked
-        ? "Bạn đã dùng hết lượt tra cứu hôm nay — lượt tìm kiếm sẽ được làm mới vào ngày mai."
+        ? t("v3.rankings.limitReachedSoft")
         : null;
 
   // gom trang: page 1 thay mới, page sau nối thêm (khử trùng lặp theo _id)
@@ -708,8 +719,8 @@ export default function RankingsPage() {
   return (
     <>
       <SEOHead
-        title="Bảng xếp hạng pickleball — PickleTour"
-        description="Bảng xếp hạng điểm trình pickleball toàn quốc, chuẩn hoá từ kết quả thi đấu thật trên PickleTour."
+        title={t("v3.rankings.seoTitle")}
+        description={t("v3.rankings.seoDesc")}
       />
       <ShadowFrame style={{ minHeight: "100vh" }}>
         <Theme theme={neutralTheme}>
@@ -740,7 +751,7 @@ export default function RankingsPage() {
                 {/* Toggle hiển thị: Thẻ (kiểu v1) / Bảng */}
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>
                   <div style={{ display: "inline-flex", padding: 3, borderRadius: 999, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", gap: 3 }}>
-                    {[["card", LayoutGrid, "Thẻ"], ["table", List, "Bảng"]].map(([key, Icon, label]) => {
+                    {[["card", LayoutGrid, t("v3.rankings.viewCard")], ["table", List, t("v3.rankings.viewTable")]].map(([key, Icon, label]) => {
                       const active = view === key;
                       return (
                         <button
@@ -771,7 +782,7 @@ export default function RankingsPage() {
                         <Lock size={19} />
                       </span>
                     </div>
-                    <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 16.5, fontWeight: 700 }}>Hết lượt tra cứu hôm nay</div>
+                    <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 16.5, fontWeight: 700 }}>{t("v3.rankings.limitReachedTitle")}</div>
                     <div style={{ marginTop: 8, maxWidth: 460, marginLeft: "auto", marginRight: "auto" }}>
                       <Text type="supporting" color="secondary">{limitMsg}</Text>
                     </div>
@@ -786,7 +797,7 @@ export default function RankingsPage() {
                   ) : (
                     <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", overflow: "hidden" }}>
                       <div className="pk-rankgrid" style={{ height: 46, background: "color-mix(in srgb, var(--color-text-primary) 4%, transparent)" }}>
-                        {["#", "Vận động viên", "Tỉnh / Thành", "Điểm đôi", "Điểm đơn", "Giải", ""].map((h, i) => (
+                        {["#", t("v3.rankings.colPlayer"), t("v3.rankings.colProvince"), t("v3.rankings.pointsDouble"), t("v3.rankings.pointsSingle"), t("v3.rankings.toursCol"), ""].map((h, i) => (
                           <div key={h + i} className={i === 2 || i === 5 ? "pk-col-hide" : undefined} style={{ padding: "0 16px", textAlign: i === 6 ? "right" : i >= 3 ? "right" : "left" }}>
                             <Text type="supporting" color="secondary" weight="semibold">{h}</Text>
                           </div>
@@ -802,9 +813,9 @@ export default function RankingsPage() {
                     <div style={{ display: "flex", justifyContent: "center", opacity: 0.55 }}>
                       <PickleMark size={40} />
                     </div>
-                    <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 17, fontWeight: 700 }}>Không tìm thấy vận động viên nào</div>
+                    <div style={{ marginTop: 14, color: "var(--pk-text)", fontSize: 17, fontWeight: 700 }}>{t("v3.rankings.emptyTitle")}</div>
                     <div style={{ marginTop: 6 }}>
-                      <Text type="supporting" color="secondary">Thử từ khoá khác hoặc bỏ bộ lọc.</Text>
+                      <Text type="supporting" color="secondary">{t("v3.rankings.emptyHint")}</Text>
                     </div>
                   </div>
                 )}
@@ -812,7 +823,7 @@ export default function RankingsPage() {
                 {hasMore && !initialLoading && (
                   <div style={{ display: "flex", justifyContent: "center", marginTop: 26 }}>
                     <GrayPill
-                      label={isFetching ? "Đang tải…" : "Xem thêm"}
+                      label={isFetching ? t("v3.rankings.loading") : t("v3.rankings.loadMore")}
                       href="#"
                       size="lg"
                       onClick={(e) => {

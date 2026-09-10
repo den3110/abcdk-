@@ -47,6 +47,7 @@ import PickleMark from "./PickleMark.jsx";
 import { A, WhitePill, GrayPill, Lightbox, imgSrc } from "./ui.jsx";
 import { useListMyTournamentsQuery } from "../../slices/tournamentsApiSlice.js";
 import ResponsiveMatchViewer from "../PickleBall/match/ResponsiveMatchViewer.jsx";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 import { useSocket } from "../../context/SocketContext.jsx";
 import { useSocketRoomSet } from "../../hook/useSocketRoomSet.js";
 import {
@@ -133,23 +134,29 @@ const teamLabel = (team, eventType) => {
   return `${nameWithNick(players[0])} & ${nameWithNick(players[1])}`;
 };
 
-/* nhãn vòng đấu (chuỗi tiếng Việt như i18n trang cũ) */
-function roundText(m) {
+/* nhãn vòng đấu — nhận t (i18n) để trả chuỗi đã dịch tại điểm render */
+function roundText(m, t) {
   if (m.roundName) return m.roundName;
   if (m.phase) return m.phase;
   if (m.format === "group") {
     const poolName = m.pool?.name || m.groupCode;
-    if (poolName) return `Bảng ${String(poolName).toUpperCase()}`;
-    if (Number.isFinite(m.rrRound)) return `Vòng bảng - Lượt ${m.rrRound + 1}`;
-    return "Vòng bảng";
+    if (poolName) return t("v3.myTournaments.roundPool", { name: String(poolName).toUpperCase() });
+    if (Number.isFinite(m.rrRound)) return t("v3.myTournaments.roundGroupLeg", { n: m.rrRound + 1 });
+    return t("v3.myTournaments.roundGroup");
   }
-  if (Number.isFinite(m.swissRound)) return `Swiss - Vòng ${m.swissRound + 1}`;
+  if (Number.isFinite(m.swissRound)) return t("v3.myTournaments.roundSwiss", { n: m.swissRound + 1 });
   if (Number.isFinite(m.round)) {
     if (m.format === "knockout" || m.format === "roundElim") {
-      const names = { 1: "Vòng 1/16", 2: "Vòng 1/8", 3: "Tứ kết", 4: "Bán kết", 5: "Chung kết" };
-      return names[m.round] || `Vòng ${m.round}`;
+      const keys = {
+        1: "v3.myTournaments.round1_16",
+        2: "v3.myTournaments.round1_8",
+        3: "v3.myTournaments.roundQuarter",
+        4: "v3.myTournaments.roundSemi",
+        5: "v3.myTournaments.roundFinal",
+      };
+      return keys[m.round] ? t(keys[m.round]) : t("v3.myTournaments.roundNum", { n: m.round });
     }
-    return `Vòng ${m.round}`;
+    return t("v3.myTournaments.roundNum", { n: m.round });
   }
   return "—";
 }
@@ -175,15 +182,15 @@ const matchBucket = (m) => {
 };
 
 const MSTATUS = {
-  live: { label: "Live", color: "#FF8A8E", bg: "rgba(229,72,77,.12)", border: "rgba(242,85,90,.35)", bar: "#F2555A" },
-  scheduled: { label: "Sắp diễn ra", color: "#9CC1FF", bg: "rgba(61,135,255,.14)", border: "rgba(61,135,255,.32)", bar: "#3D87FF" },
-  finished: { label: "Đã kết thúc", color: "#7CC7A2", bg: "rgba(59,165,93,.12)", border: "rgba(59,165,93,.3)", bar: "#3BA55D" },
+  live: { labelKey: "v3.myTournaments.mLive", color: "#FF8A8E", bg: "rgba(229,72,77,.12)", border: "rgba(242,85,90,.35)", bar: "#F2555A" },
+  scheduled: { labelKey: "v3.myTournaments.mScheduled", color: "#9CC1FF", bg: "rgba(61,135,255,.14)", border: "rgba(61,135,255,.32)", bar: "#3D87FF" },
+  finished: { labelKey: "v3.myTournaments.mFinished", color: "#7CC7A2", bg: "rgba(59,165,93,.12)", border: "rgba(59,165,93,.3)", bar: "#3BA55D" },
 };
 
 const STATUS_META = {
-  ongoing: { label: "Đang diễn ra", variant: "success" },
-  upcoming: { label: "Sắp diễn ra", variant: "info" },
-  finished: { label: "Đã kết thúc", variant: "neutral" },
+  ongoing: { labelKey: "v3.myTournaments.sOngoing", variant: "success" },
+  upcoming: { labelKey: "v3.myTournaments.sUpcoming", variant: "info" },
+  finished: { labelKey: "v3.myTournaments.sFinished", variant: "neutral" },
 };
 const statusOf = (t) => {
   const s = String(t?.status || "").toLowerCase();
@@ -248,6 +255,7 @@ const miniGhost = { ...miniBase, background: C.surface2, color: C.text, border: 
 
 /* pill trạng thái trận nhỏ (LIVE có nhịp đập) */
 function MatchStatusPill({ bucket }) {
+  const { t } = useLanguage();
   const ms = MSTATUS[bucket] || MSTATUS.scheduled;
   return (
     <span
@@ -268,13 +276,14 @@ function MatchStatusPill({ bucket }) {
       }}
     >
       {bucket === "live" && <span style={{ width: 5, height: 5, borderRadius: 99, background: "#F2555A" }} />}
-      {ms.label}
+      {t(ms.labelKey)}
     </span>
   );
 }
 
 /* 1 trận của tôi — dense=false: khối 2 dòng đội + tỷ số; dense=true: 1 dòng gọn */
 function MatchItem({ m, eventType, onOpen, dense = false }) {
+  const { t } = useLanguage();
   const bucket = matchBucket(m);
   const ms = MSTATUS[bucket] || MSTATUS.scheduled;
   const a = m.teamA || m.home || m.teams?.[0] || m.pairA;
@@ -320,7 +329,7 @@ function MatchItem({ m, eventType, onOpen, dense = false }) {
           </span>
         )}
         <span style={{ fontSize: 11.5, color: C.mute, whiteSpace: "nowrap", flexShrink: 0 }}>
-          {bucket === "live" ? roundText(m) : fmtDT(when) || roundText(m)}
+          {bucket === "live" ? roundText(m, t) : fmtDT(when) || roundText(m, t)}
         </span>
       </div>
     );
@@ -349,7 +358,7 @@ function MatchItem({ m, eventType, onOpen, dense = false }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, minWidth: 0 }}>
           <MatchStatusPill bucket={bucket} />
           <span style={{ fontSize: 11.5, fontWeight: 650, color: C.mute, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {roundText(m)}
+            {roundText(m, t)}
           </span>
           <span style={{ flex: 1 }} />
           {score && (
@@ -379,12 +388,12 @@ function MatchItem({ m, eventType, onOpen, dense = false }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 7, fontSize: 11.5, color: C.mute, flexWrap: "wrap" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
             <Clock3 size={11} />
-            {fmtDT(when) || "Chưa xếp lịch"}
+            {fmtDT(when) || t("v3.myTournaments.notScheduled")}
           </span>
           {!!court && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
               <Swords size={11} />
-              Sân {court}
+              {t("v3.myTournaments.court", { court })}
             </span>
           )}
         </div>
@@ -423,23 +432,24 @@ function StatusToggle({ label, dot, active, onClick }) {
 
 /* nút hành động nhanh theo trạng thái giải (check-in / lịch đấu / sơ đồ / chi tiết) */
 function QuickActions({ t, st }) {
+  const { t: tr } = useLanguage();
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       {st === "upcoming" && (
         <A href={`/tournament/${t._id}/checkin`} className="pk-pill" style={miniPrimary}>
           <CheckCheck size={13} strokeWidth={2.4} />
-          Check-in
+          {tr("v3.myTournaments.checkin")}
         </A>
       )}
       {st === "ongoing" && (
         <A href={`/tournament/${t._id}/schedule`} className="pk-pill" style={miniPrimary}>
           <CalendarRange size={13} strokeWidth={2.2} />
-          Lịch đấu
+          {tr("v3.myTournaments.schedule")}
         </A>
       )}
       <A href={`/tournament/${t._id}/bracket`} className="pk-pill" style={miniGhost}>
         <Network size={13} strokeWidth={2.2} />
-        Sơ đồ
+        {tr("v3.myTournaments.bracket")}
       </A>
       <A
         href={`/tournament/${t._id}`}
@@ -455,7 +465,7 @@ function QuickActions({ t, st }) {
           textDecoration: "none",
         }}
       >
-        Chi tiết
+        {tr("v3.myTournaments.details")}
         <ArrowUpRight size={14} />
       </A>
     </div>
@@ -464,29 +474,32 @@ function QuickActions({ t, st }) {
 
 /* chip phụ của giải: loại nội dung + số trận + thanh toán + check-in */
 function TourChips({ t }) {
+  const { t: tr } = useLanguage();
   const regs = Array.isArray(t.myRegistrationIds) ? t.myRegistrationIds.length : 0;
   return (
     <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
       <span style={chip}>
         <Swords size={11} />
-        {String(t.eventType || "").toLowerCase() === "single" ? "Đấu đơn" : "Đấu đôi"}
+        {String(t.eventType || "").toLowerCase() === "single"
+          ? tr("v3.myTournaments.single")
+          : tr("v3.myTournaments.doubles")}
       </span>
       {regs > 1 && (
         <span style={chip}>
           <Ticket size={11} />
-          {regs} đăng ký
+          {tr("v3.myTournaments.regs", { count: regs })}
         </span>
       )}
       {t.paidAny && (
         <span style={chipOk}>
           <CheckCheck size={11} />
-          Đã thanh toán
+          {tr("v3.myTournaments.paid")}
         </span>
       )}
       {t.checkedAny && (
         <span style={chipBlue}>
           <CheckCheck size={11} />
-          Đã check-in
+          {tr("v3.myTournaments.checkedIn")}
         </span>
       )}
     </div>
@@ -495,6 +508,7 @@ function TourChips({ t }) {
 
 /* --------------------------- CARD chế độ thẻ --------------------------- */
 function TourCard({ t, index, onOpenMatch, onZoom }) {
+  const { t: tr } = useLanguage();
   const st = statusOf(t);
   const meta = STATUS_META[st];
   const img = imgSrc(t.image || t.cover || t.bannerUrl);
@@ -523,11 +537,11 @@ function TourCard({ t, index, onOpenMatch, onZoom }) {
       const a = m.teamA || m.home || m.teams?.[0] || m.pairA;
       const b = m.teamB || m.away || m.teams?.[1] || m.pairB;
       const hay = fold(
-        [teamLabel(a, t.eventType), teamLabel(b, t.eventType), roundText(m), m.courtName || m.court || ""].join(" | "),
+        [teamLabel(a, t.eventType), teamLabel(b, t.eventType), roundText(m, tr), m.courtName || m.court || ""].join(" | "),
       );
       return hay.includes(needle);
     });
-  }, [matches, q, filter, t.eventType]);
+  }, [matches, q, filter, t.eventType, tr]);
 
   const shown = expanded ? filtered : filtered.slice(0, 5);
   const hasMore = filtered.length > shown.length;
@@ -571,7 +585,7 @@ function TourCard({ t, index, onOpenMatch, onZoom }) {
               LIVE
             </span>
           ) : (
-            meta && <Badge variant={meta.variant} label={meta.label} />
+            meta && <Badge variant={meta.variant} label={tr(meta.labelKey)} />
           )}
         </div>
         {!!fmtRange(t.startDate || t.startAt, t.endDate || t.endAt) && (
@@ -583,7 +597,7 @@ function TourCard({ t, index, onOpenMatch, onZoom }) {
         {liveCount > 0 && (
           <span style={{ position: "absolute", bottom: 12, left: 12, display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, background: "rgba(229,72,77,.2)", color: "#FF8A8E", border: "1px solid rgba(242,85,90,.4)", backdropFilter: "blur(6px)" }}>
             <span style={{ width: 5, height: 5, borderRadius: 99, background: "#F2555A" }} />
-            {liveCount} trận của bạn đang live
+            {tr("v3.myTournaments.liveMine", { count: liveCount })}
           </span>
         )}
       </div>
@@ -605,12 +619,12 @@ function TourCard({ t, index, onOpenMatch, onZoom }) {
             overflow: "hidden",
           }}
         >
-          {t.name || "Giải đấu"}
+          {t.name || tr("v3.myTournaments.tourNameFallback")}
         </A>
         <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 8, color: C.mute, fontSize: 13 }}>
           <MapPin size={13} style={{ flexShrink: 0 }} />
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {t.location || "Chưa xác định địa điểm"}
+            {t.location || tr("v3.myTournaments.locationUnknown")}
           </span>
         </div>
 
@@ -628,7 +642,7 @@ function TourCard({ t, index, onOpenMatch, onZoom }) {
               style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, width: "100%" }}
             >
               <span style={{ fontSize: 11.5, fontWeight: 750, letterSpacing: ".07em", textTransform: "uppercase", color: C.mute }}>
-                Trận của tôi
+                {tr("v3.myTournaments.myMatches")}
               </span>
               <span style={{ fontSize: 11, fontWeight: 750, padding: "1px 7px", borderRadius: 99, background: C.chipBg, color: C.text }}>
                 {matches.length}
@@ -658,21 +672,21 @@ function TourCard({ t, index, onOpenMatch, onZoom }) {
                     <input
                       value={q}
                       onChange={(e) => setQ(e.target.value)}
-                      placeholder="Tìm trận (VĐV, vòng, sân…)"
+                      placeholder={tr("v3.myTournaments.searchMatch")}
                       style={{ all: "unset", width: "100%", color: C.strong, fontSize: 13, fontFamily: "inherit" }}
                     />
                     {q && (
                       <button type="button" onClick={() => setQ("")} style={{ all: "unset", cursor: "pointer", color: C.mute, fontSize: 11.5, fontWeight: 700 }}>
-                        Xoá
+                        {tr("v3.myTournaments.clear")}
                       </button>
                     )}
                   </label>
                 )}
 
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
-                  <StatusToggle label="Sắp diễn ra" dot="#3D87FF" active={filter.has("scheduled")} onClick={() => toggleFilter("scheduled")} />
-                  <StatusToggle label="Live" dot="#F2555A" active={filter.has("live")} onClick={() => toggleFilter("live")} />
-                  <StatusToggle label="Kết thúc" dot="#3BA55D" active={filter.has("finished")} onClick={() => toggleFilter("finished")} />
+                  <StatusToggle label={tr("v3.myTournaments.sUpcoming")} dot="#3D87FF" active={filter.has("scheduled")} onClick={() => toggleFilter("scheduled")} />
+                  <StatusToggle label={tr("v3.myTournaments.mLive")} dot="#F2555A" active={filter.has("live")} onClick={() => toggleFilter("live")} />
+                  <StatusToggle label={tr("v3.myTournaments.toggleFinished")} dot="#3BA55D" active={filter.has("finished")} onClick={() => toggleFilter("finished")} />
                   {filterDirty && (
                     <button
                       type="button"
@@ -689,7 +703,7 @@ function TourCard({ t, index, onOpenMatch, onZoom }) {
 
                 {filtered.length === 0 ? (
                   <div style={{ border: `1px dashed ${C.border2}`, borderRadius: 12, padding: "16px 12px", textAlign: "center", color: C.mute, fontSize: 13 }}>
-                    Không có trận phù hợp bộ lọc.
+                    {tr("v3.myTournaments.noMatchFilter")}
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -703,7 +717,7 @@ function TourCard({ t, index, onOpenMatch, onZoom }) {
                         className="pk-pill"
                         style={{ ...miniGhost, alignSelf: "center", marginTop: 2 }}
                       >
-                        {expanded ? "Thu gọn" : `Xem tất cả ${filtered.length} trận`}
+                        {expanded ? tr("v3.myTournaments.collapse") : tr("v3.myTournaments.viewAllMatches", { count: filtered.length })}
                         <ChevronDown size={13} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
                       </button>
                     )}
@@ -715,7 +729,7 @@ function TourCard({ t, index, onOpenMatch, onZoom }) {
         ) : (
           <div style={{ marginTop: 13, border: `1px dashed ${C.border2}`, borderRadius: 12, padding: "13px 12px", display: "flex", alignItems: "center", gap: 8, color: C.mute, fontSize: 12.5 }}>
             <Clock3 size={13} style={{ flexShrink: 0 }} />
-            Chưa có trận đấu nào được lên lịch.
+            {tr("v3.myTournaments.noMatchScheduled")}
           </div>
         )}
 
@@ -729,6 +743,7 @@ function TourCard({ t, index, onOpenMatch, onZoom }) {
 
 /* --------------------------- ROW chế độ danh sách --------------------------- */
 function TourRow({ t, index, onOpenMatch }) {
+  const { t: tr } = useLanguage();
   const st = statusOf(t);
   const meta = STATUS_META[st];
   const img = imgSrc(t.image || t.cover || t.bannerUrl);
@@ -773,7 +788,7 @@ function TourRow({ t, index, onOpenMatch }) {
                 LIVE
               </span>
             ) : (
-              meta && <Badge variant={meta.variant} label={meta.label} />
+              meta && <Badge variant={meta.variant} label={tr(meta.labelKey)} />
             )}
             <TourChips t={t} />
           </div>
@@ -781,12 +796,12 @@ function TourRow({ t, index, onOpenMatch }) {
             href={`/tournament/${t._id}`}
             style={{ display: "block", marginTop: 7, color: C.strong, textDecoration: "none", fontWeight: 700, fontSize: 15.5, lineHeight: 1.3, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
           >
-            {t.name || "Giải đấu"}
+            {t.name || tr("v3.myTournaments.tourNameFallback")}
           </A>
           <div style={{ display: "flex", gap: 14, marginTop: 6, color: C.mute, fontSize: 12.5, flexWrap: "wrap" }}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, minWidth: 0 }}>
               <MapPin size={12} style={{ flexShrink: 0 }} />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.location || "Chưa xác định địa điểm"}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.location || tr("v3.myTournaments.locationUnknown")}</span>
             </span>
             {!!fmtRange(t.startDate || t.startAt, t.endDate || t.endAt) && (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
@@ -813,7 +828,7 @@ function TourRow({ t, index, onOpenMatch }) {
                   onClick={() => setExpanded((v) => !v)}
                   style={{ all: "unset", cursor: "pointer", alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 5, color: "var(--color-text-accent, #3E9EFB)", fontSize: 12.5, fontWeight: 650, padding: "3px 2px" }}
                 >
-                  {expanded ? "Thu gọn danh sách" : `Xem tất cả ${active.length} trận`}
+                  {expanded ? tr("v3.myTournaments.collapseList") : tr("v3.myTournaments.viewAllMatches", { count: active.length })}
                   <ChevronDown size={13} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
                 </button>
               )}
@@ -821,7 +836,7 @@ function TourRow({ t, index, onOpenMatch }) {
           ) : (
             <div style={{ border: `1px dashed ${C.border2}`, borderRadius: 12, padding: "13px 12px", display: "flex", alignItems: "center", gap: 8, color: C.mute, fontSize: 12.5 }}>
               <Clock3 size={13} style={{ flexShrink: 0 }} />
-              {matches.length > 0 ? "Các trận của bạn đã thi đấu xong." : "Chưa có trận đấu nào được lên lịch."}
+              {matches.length > 0 ? tr("v3.myTournaments.matchesDone") : tr("v3.myTournaments.noMatchScheduled")}
             </div>
           )}
         </div>
@@ -858,11 +873,12 @@ function CardSkeleton() {
 
 /* ------------------------------- hero gọn ------------------------------- */
 function PageHead({ counts, matchStats, loading }) {
+  const { t } = useLanguage();
   const stats = [
-    ["Tất cả giải", counts.all, C.strong],
-    ["Đang diễn ra", counts.ongoing, counts.ongoing > 0 ? "#FF8A8E" : C.strong],
-    ["Sắp diễn ra", counts.upcoming, C.strong],
-    ["Trận của tôi", matchStats.total, C.strong],
+    [t("v3.myTournaments.statAll"), counts.all, C.strong],
+    [t("v3.myTournaments.sOngoing"), counts.ongoing, counts.ongoing > 0 ? "#FF8A8E" : C.strong],
+    [t("v3.myTournaments.sUpcoming"), counts.upcoming, C.strong],
+    [t("v3.myTournaments.myMatches"), matchStats.total, C.strong],
   ];
   return (
     <div style={{ position: "relative", overflow: "hidden", borderBottom: "1px solid var(--color-border)" }}>
@@ -880,12 +896,12 @@ function PageHead({ counts, matchStats, loading }) {
             {!loading && matchStats.live > 0 ? (
               <span className="pk-rise pk-live" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "5px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: "rgba(229,72,77,.12)", color: "#FF8A8E", border: "1px solid rgba(242,85,90,.32)" }}>
                 <span style={{ width: 7, height: 7, borderRadius: 99, background: "#F2555A" }} />
-                {matchStats.live} trận của bạn đang live
+                {t("v3.myTournaments.liveMine", { count: matchStats.live })}
               </span>
             ) : !loading && counts.ongoing > 0 ? (
               <span className="pk-rise pk-live" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "5px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: "rgba(229,72,77,.12)", color: "#FF8A8E", border: "1px solid rgba(242,85,90,.32)" }}>
                 <span style={{ width: 7, height: 7, borderRadius: 99, background: "#F2555A" }} />
-                {counts.ongoing} giải của bạn đang diễn ra
+                {t("v3.myTournaments.ongoingMine", { count: counts.ongoing })}
               </span>
             ) : null}
           </div>
@@ -893,13 +909,13 @@ function PageHead({ counts, matchStats, loading }) {
             className="pk-rise"
             style={{ margin: "12px 0 0", fontWeight: 750, fontSize: "clamp(36px, 5.4vw, 64px)", lineHeight: 1.04, letterSpacing: "-0.027em", color: C.strong, animationDelay: ".07s" }}
           >
-            Giải của tôi.
+            {t("v3.myTournaments.heroTitle1")}
             <br />
-            <span style={{ color: "var(--color-brand, #3D87FF)" }}>Theo nhịp từng trận.</span>
+            <span style={{ color: "var(--color-brand, #3D87FF)" }}>{t("v3.myTournaments.heroTitle2")}</span>
           </h1>
           <div className="pk-rise" style={{ maxWidth: 600, marginTop: 18, animationDelay: ".15s" }}>
             <Text type="large" color="secondary">
-              Mọi giải bạn tham gia — lịch thi đấu, tỷ số trực tiếp và kết quả cá nhân, cập nhật theo thời gian thực.
+              {t("v3.myTournaments.heroDesc")}
             </Text>
           </div>
           <div className="pk-rise" style={{ display: "flex", gap: 0, marginTop: 26, flexWrap: "wrap", animationDelay: ".22s", minHeight: 58 }}>
@@ -925,14 +941,16 @@ function PageHead({ counts, matchStats, loading }) {
 }
 
 /* ------------------------------- toolbar ------------------------------- */
+// [key, labelKey] — labelKey resolved via t() at render time.
 const TABS = [
-  ["all", "Tất cả"],
-  ["ongoing", "Đang diễn ra"],
-  ["upcoming", "Sắp diễn ra"],
-  ["finished", "Đã kết thúc"],
+  ["all", "v3.myTournaments.tabAll"],
+  ["ongoing", "v3.myTournaments.sOngoing"],
+  ["upcoming", "v3.myTournaments.sUpcoming"],
+  ["finished", "v3.myTournaments.sFinished"],
 ];
 
 function Toolbar({ tab, setTab, q, setQ, counts, viewMode, setViewMode, wide, onRefresh, refreshing }) {
+  const { t } = useLanguage();
   return (
     <div
       style={{
@@ -947,7 +965,7 @@ function Toolbar({ tab, setTab, q, setQ, counts, viewMode, setViewMode, wide, on
       <Container>
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", flexWrap: "wrap" }}>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {TABS.map(([key, label]) => {
+            {TABS.map(([key, labelKey]) => {
               const active = tab === key;
               const n = counts[key] || 0;
               return (
@@ -972,7 +990,7 @@ function Toolbar({ tab, setTab, q, setQ, counts, viewMode, setViewMode, wide, on
                     border: active ? "1px solid transparent" : `1px solid ${C.border2}`,
                   }}
                 >
-                  {label}
+                  {t(labelKey)}
                   <span style={{ fontSize: 11.5, fontWeight: 700, padding: "1px 7px", borderRadius: 99, background: active ? "rgba(16,17,20,.10)" : C.chipBg, color: active ? "#3A3D44" : C.mute }}>
                     {n}
                   </span>
@@ -999,12 +1017,12 @@ function Toolbar({ tab, setTab, q, setQ, counts, viewMode, setViewMode, wide, on
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Tìm giải (tên, địa điểm)…"
+              placeholder={t("v3.myTournaments.searchTour")}
               style={{ all: "unset", width: "100%", color: C.strong, fontSize: 14, fontFamily: "inherit" }}
             />
             {q && (
               <button type="button" onClick={() => setQ("")} style={{ all: "unset", cursor: "pointer", color: C.mute, fontSize: 12.5, fontWeight: 700 }}>
-                Xoá
+                {t("v3.myTournaments.clear")}
               </button>
             )}
           </label>
@@ -1013,8 +1031,8 @@ function Toolbar({ tab, setTab, q, setQ, counts, viewMode, setViewMode, wide, on
           {wide && (
             <div style={{ display: "inline-flex", padding: 3, borderRadius: 999, background: C.chipBg, border: `1px solid ${C.border2}` }}>
               {[
-                ["card", "Chế độ thẻ", LayoutGrid],
-                ["list", "Chế độ danh sách", Rows3],
+                ["card", t("v3.myTournaments.viewCard"), LayoutGrid],
+                ["list", t("v3.myTournaments.viewList"), Rows3],
               ].map(([key, title, Ico]) => {
                 const active = viewMode === key;
                 return (
@@ -1038,8 +1056,8 @@ function Toolbar({ tab, setTab, q, setQ, counts, viewMode, setViewMode, wide, on
             type="button"
             onClick={onRefresh}
             disabled={refreshing}
-            title={refreshing ? "Đang làm mới…" : "Làm mới"}
-            aria-label="Làm mới danh sách"
+            title={refreshing ? t("v3.myTournaments.refreshing") : t("v3.myTournaments.refresh")}
+            aria-label={t("v3.myTournaments.refreshList")}
             className="pk-pill"
             style={{ all: "unset", display: "grid", placeItems: "center", width: 38, height: 38, borderRadius: 999, cursor: refreshing ? "default" : "pointer", background: C.chipBg, border: `1px solid ${C.border2}`, color: refreshing ? C.faint : C.text, opacity: refreshing ? 0.7 : 1 }}
           >
@@ -1053,6 +1071,7 @@ function Toolbar({ tab, setTab, q, setQ, counts, viewMode, setViewMode, wide, on
 
 /* --------------------------- panel yêu cầu đăng nhập --------------------------- */
 function LoginPanel() {
+  const { t } = useLanguage();
   return (
     <Container>
       <div style={{ minHeight: "56vh", display: "grid", placeItems: "center", padding: "70px 0" }}>
@@ -1061,16 +1080,16 @@ function LoginPanel() {
             <Lock size={22} />
           </span>
           <div style={{ marginTop: 16, color: C.strong, fontSize: 19, fontWeight: 750 }}>
-            Hãy đăng nhập để xem Giải của tôi
+            {t("v3.myTournaments.loginTitle")}
           </div>
           <div style={{ marginTop: 9 }}>
             <Text type="body" color="secondary">
-              Sau khi đăng nhập, bạn sẽ thấy danh sách các giải mình đã tham gia, lịch thi đấu và kết quả cá nhân.
+              {t("v3.myTournaments.loginDesc")}
             </Text>
           </div>
           <div style={{ marginTop: 22, display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-            <WhitePill label="Đăng nhập" href="/login" />
-            <GrayPill label="Tạo tài khoản" href="/register" />
+            <WhitePill label={t("v3.myTournaments.login")} href="/login" />
+            <GrayPill label={t("v3.myTournaments.register")} href="/register" />
           </div>
         </div>
       </div>
@@ -1082,6 +1101,7 @@ function LoginPanel() {
 const LS_VIEW_MODE_KEY = "myTournamentsViewMode"; // giữ nguyên key trang cũ
 
 export default function MyTournamentsPage() {
+  const { t } = useLanguage();
   const { userInfo } = useSelector((s) => s?.auth || {});
   const isAuthed = !!(userInfo?.token || userInfo?._id || userInfo?.email);
 
@@ -1331,7 +1351,7 @@ export default function MyTournamentsPage() {
 
   return (
     <>
-      <SEOHead title="Giải của tôi — PickleTour" noIndex={true} />
+      <SEOHead title={t("v3.myTournaments.seoTitle")} noIndex={true} />
       <ShadowFrame style={{ minHeight: "100vh" }}>
         <Theme theme={neutralTheme}>
           <div style={{ minHeight: "100vh", background: "var(--color-background-body)" }}>
@@ -1369,22 +1389,22 @@ export default function MyTournamentsPage() {
                           <CircleAlert size={22} />
                         </span>
                         <div style={{ marginTop: 16, color: C.strong, fontSize: 19, fontWeight: 700 }}>
-                          Có lỗi khi tải dữ liệu
+                          {t("v3.myTournaments.errTitle")}
                         </div>
                         <div style={{ marginTop: 8 }}>
                           <Text type="body" color="secondary">
-                            Vui lòng thử lại — nếu vẫn lỗi, chờ vài phút rồi tải lại trang.
+                            {t("v3.myTournaments.errDesc")}
                           </Text>
                         </div>
                         <div style={{ marginTop: 22, display: "flex", justifyContent: "center" }}>
-                          <GrayPill label={isFetching ? "Đang làm mới…" : "Thử lại"} onClick={() => refetch()} disabled={isFetching} />
+                          <GrayPill label={isFetching ? t("v3.myTournaments.refreshing") : t("v3.myTournaments.retry")} onClick={() => refetch()} disabled={isFetching} />
                         </div>
                       </div>
                     ) : shown.length ? (
                       <>
                         {filterDirty && (
                           <div style={{ marginBottom: 14, color: C.mute, fontSize: 13 }}>
-                            {shown.length} giải phù hợp
+                            {t("v3.myTournaments.matchCount", { count: shown.length })}
                           </div>
                         )}
                         {effectiveMode === "list" ? (
@@ -1407,16 +1427,16 @@ export default function MyTournamentsPage() {
                           <PickleMark size={44} />
                         </div>
                         <div style={{ marginTop: 18, color: C.strong, fontSize: 19, fontWeight: 700 }}>
-                          Không tìm thấy giải nào
+                          {t("v3.myTournaments.noneFoundTitle")}
                         </div>
                         <div style={{ marginTop: 8 }}>
                           <Text type="body" color="secondary">
-                            Thử đổi bộ lọc hoặc từ khoá khác xem sao.
+                            {t("v3.myTournaments.noneFoundDesc")}
                           </Text>
                         </div>
                         <div style={{ marginTop: 22, display: "flex", justifyContent: "center" }}>
                           <GrayPill
-                            label="Xoá bộ lọc"
+                            label={t("v3.myTournaments.clearFilters")}
                             onClick={() => {
                               setTab("all");
                               setQ("");
@@ -1430,16 +1450,16 @@ export default function MyTournamentsPage() {
                           <PickleMark size={48} />
                         </div>
                         <div style={{ marginTop: 18, color: C.strong, fontSize: 20, fontWeight: 750 }}>
-                          Chưa có giải nào
+                          {t("v3.myTournaments.emptyTitle")}
                         </div>
                         <div style={{ marginTop: 8, maxWidth: 420, marginLeft: "auto", marginRight: "auto" }}>
                           <Text type="body" color="secondary">
-                            Tham gia giải để theo dõi lịch đấu và kết quả của bạn tại đây.
+                            {t("v3.myTournaments.emptyDesc")}
                           </Text>
                         </div>
                         <div style={{ marginTop: 24, display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-                          <WhitePill label="Khám phá giải đấu" href="/pickle-ball/tournaments" />
-                          <GrayPill label="Xem bảng xếp hạng" href="/pickle-ball/rankings" />
+                          <WhitePill label={t("v3.myTournaments.exploreTours")} href="/pickle-ball/tournaments" />
+                          <GrayPill label={t("v3.myTournaments.viewRankings")} href="/pickle-ball/rankings" />
                         </div>
                       </div>
                     )}

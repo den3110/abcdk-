@@ -68,6 +68,7 @@ import SiteNav from "./SiteNav.jsx";
 import SiteFooter from "./SiteFooter.jsx";
 import PickleMark from "./PickleMark.jsx";
 import { A, Lightbox } from "./ui.jsx";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 import ClubCreateDialog from "../../components/ClubCreateDialog.jsx";
 import JoinRequestsDialog from "../../components/JoinRequestsDialog.jsx";
 import { useUploadAvatarMutation } from "../../slices/uploadApiSlice.js";
@@ -157,9 +158,30 @@ const Container = ({ children, style }) => (
 
 const fmtInt = (n) => Number(n || 0).toLocaleString("vi-VN");
 const fmtVnd = (n) => `${Number(n || 0).toLocaleString("vi-VN")} ₫`;
-const INCOME_CATS = ["Phí thành viên", "Tài trợ", "Bán đồ", "Ủng hộ", "Khác"];
-const EXPENSE_CATS = ["Thuê sân", "Mua bóng", "Mua dụng cụ", "Giải thưởng", "Ăn uống", "Di chuyển", "Sự kiện", "Khác"];
-const METHOD_LABELS = { cash: "Tiền mặt", bank: "Ngân hàng", transfer: "Chuyển khoản", momo: "MoMo", other: "Khác" };
+const incomeCats = (t) => [
+  t("v3.clubDetail.finance.catMembership"),
+  t("v3.clubDetail.finance.catSponsor"),
+  t("v3.clubDetail.finance.catSales"),
+  t("v3.clubDetail.finance.catDonation"),
+  t("v3.clubDetail.finance.catOther"),
+];
+const expenseCats = (t) => [
+  t("v3.clubDetail.finance.catCourt"),
+  t("v3.clubDetail.finance.catBalls"),
+  t("v3.clubDetail.finance.catGear"),
+  t("v3.clubDetail.finance.catPrizes"),
+  t("v3.clubDetail.finance.catFood"),
+  t("v3.clubDetail.finance.catTravel"),
+  t("v3.clubDetail.finance.catEvent"),
+  t("v3.clubDetail.finance.catOther"),
+];
+const methodLabels = (t) => ({
+  cash: t("v3.clubDetail.finance.methodCash"),
+  bank: t("v3.clubDetail.finance.methodBank"),
+  transfer: t("v3.clubDetail.finance.methodTransfer"),
+  momo: t("v3.clubDetail.finance.methodMomo"),
+  other: t("v3.clubDetail.finance.methodOther"),
+});
 const toDateInput = (d) => {
   try {
     const dt = new Date(d);
@@ -171,18 +193,22 @@ const toDateInput = (d) => {
 };
 const placeOf = (c) =>
   String(c?.locationText || [c?.city, c?.province].filter(Boolean).join(", ") || "").trim();
-const getApiErrMsg = (err) =>
+const getApiErrMsg = (err, t) =>
   err?.data?.message ||
   err?.error ||
-  (typeof err?.data === "string" ? err.data : "Có lỗi xảy ra, vui lòng thử lại.");
+  (typeof err?.data === "string"
+    ? err.data
+    : t
+    ? t("v3.clubDetail.common.errGeneric")
+    : "Có lỗi xảy ra, vui lòng thử lại.");
 
 // Chia sẻ CLB: navigator.share (mobile) → clipboard → prompt
-async function shareClub(club) {
+async function shareClub(club, t) {
   const url = `https://pickletour.vn/clubs/${club?._id}`;
-  const title = club?.name || "Câu lạc bộ";
+  const title = club?.name || t("v3.clubDetail.common.clubFallback");
   try {
     if (navigator.share) {
-      await navigator.share({ title, text: `Tham gia CLB ${title} trên PickleTour`, url });
+      await navigator.share({ title, text: t("v3.clubDetail.share.text", { name: title }), url });
       return;
     }
   } catch {
@@ -191,9 +217,9 @@ async function shareClub(club) {
   }
   try {
     await navigator.clipboard.writeText(url);
-    toast.success("Đã sao chép liên kết CLB.");
+    toast.success(t("v3.clubDetail.share.copied"));
   } catch {
-    window.prompt("Sao chép liên kết:", url);
+    window.prompt(t("v3.clubDetail.share.copyPrompt"), url);
   }
 }
 
@@ -357,11 +383,17 @@ const labelStyle = { color: C.body, fontSize: 12.5, fontWeight: 650, marginBotto
 
 const visIcon = (v) =>
   v === "hidden" ? <EyeOff size={12} /> : v === "private" || v === "members" ? <Lock size={12} /> : <Globe size={12} />;
-const visLabel = (v) =>
-  ({ public: "Công khai", private: "Riêng tư", hidden: "Ẩn", members: "Thành viên" }[v] || "Công khai");
+const visLabel = (v, t) =>
+  ({
+    public: t("v3.clubDetail.vis.public"),
+    private: t("v3.clubDetail.vis.private"),
+    hidden: t("v3.clubDetail.vis.hidden"),
+    members: t("v3.clubDetail.vis.members"),
+  }[v] || t("v3.clubDetail.vis.public"));
 
 /* ================================ HERO ================================ */
 function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [openClubChat, { isLoading: openingChat }] = useOpenClubChatMutation();
   const openChat = async () => {
@@ -369,7 +401,7 @@ function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
       const conv = await openClubChat(club._id).unwrap();
       navigate(`/messages?c=${conv._id}`);
     } catch (e) {
-      toast.error(e?.data?.message || "Không mở được chat nhóm");
+      toast.error(e?.data?.message || t("v3.clubDetail.hero.chatOpenError"));
     }
   };
   const place = placeOf(club);
@@ -425,7 +457,7 @@ function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
                 background: C.surface,
               }}
             >
-              <Avatar size="large" src={club?.logoUrl || undefined} name={club?.name || "CLB"} />
+              <Avatar size="large" src={club?.logoUrl || undefined} name={club?.name || t("v3.clubDetail.common.clubFallback")} />
             </div>
           </span>
           <div style={{ flex: 1, minWidth: 240, paddingBottom: 4 }}>
@@ -440,7 +472,7 @@ function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
                   lineHeight: 1.1,
                 }}
               >
-                {club?.name || "Câu lạc bộ"}
+                {club?.name || t("v3.clubDetail.common.clubFallback")}
               </h1>
               {club?.isVerified && <BadgeCheck size={22} color="#3E9EFB" />}
             </div>
@@ -457,21 +489,21 @@ function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
         <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
           <span style={chip}>
             <Users size={12} />
-            {fmtInt(members)} thành viên
+            {t("v3.clubDetail.hero.membersCount", { count: fmtInt(members) })}
           </span>
           {wins > 0 && (
             <span style={{ ...chip, color: "#F0C24B", borderColor: "rgba(240,194,75,.3)", background: "rgba(240,194,75,.08)" }}>
               <Trophy size={12} />
-              {fmtInt(wins)} cúp
+              {t("v3.clubDetail.hero.cupsCount", { count: fmtInt(wins) })}
             </span>
           )}
           <span style={open ? { ...chip, color: "#7CC7A2", borderColor: "rgba(59,165,93,.32)", background: "rgba(59,165,93,.10)" } : chip}>
             <UserPlus size={12} />
-            {open ? "Tham gia tự do" : "Duyệt tham gia"}
+            {open ? t("v3.clubDetail.hero.openJoin") : t("v3.clubDetail.hero.approvalJoin")}
           </span>
           <span style={chip}>
             {visIcon(club?.visibility)}
-            {visLabel(club?.visibility)}
+            {visLabel(club?.visibility, t)}
           </span>
           {(club?.sportTypes || []).slice(0, 3).map((s) => (
             <span key={s} style={chip}>
@@ -491,11 +523,11 @@ function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
           {joinCtl}
           {my?.isMember && (
             <Btn variant="primary" onClick={openChat} disabled={openingChat}>
-              <MessageCircle size={15} /> Chat nhóm
+              <MessageCircle size={15} /> {t("v3.clubDetail.hero.groupChat")}
             </Btn>
           )}
-          <Btn variant="ghost" onClick={() => shareClub(club)}>
-            <Share2 size={15} /> Chia sẻ
+          <Btn variant="ghost" onClick={() => shareClub(club, t)}>
+            <Share2 size={15} /> {t("v3.clubDetail.hero.share")}
           </Btn>
           {club?.website && (
             <Btn as="a" href={club.website} variant="ghost">
@@ -505,10 +537,10 @@ function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
           {canManage && (
             <>
               <Btn variant="ghost" onClick={onEdit}>
-                <Pencil size={15} /> Sửa CLB
+                <Pencil size={15} /> {t("v3.clubDetail.hero.editClub")}
               </Btn>
               <Btn variant="ghost" onClick={onReview}>
-                <Inbox size={15} /> Duyệt yêu cầu
+                <Inbox size={15} /> {t("v3.clubDetail.hero.reviewRequests")}
                 {pendingCount > 0 && (
                   <span
                     style={{
@@ -535,6 +567,7 @@ function Hero({ club, my, joinCtl, onEdit, onReview, pendingCount }) {
 
 /* --------------------------- Join control --------------------------- */
 function JoinControl({ club, my }) {
+  const { t } = useLanguage();
   const state = my?.isMember ? "member" : my?.pendingRequest ? "pending" : "not_member";
   const [requestJoin, { isLoading: joining }] = useRequestJoinMutation();
   const [cancelJoin, { isLoading: canceling }] = useCancelJoinMutation();
@@ -543,42 +576,42 @@ function JoinControl({ club, my }) {
   const doJoin = async () => {
     try {
       const res = await requestJoin({ id: club._id }).unwrap();
-      if (res?.joined) toast.success("Bạn đã tham gia CLB!");
-      else toast.success("Đã gửi yêu cầu gia nhập.");
+      if (res?.joined) toast.success(t("v3.clubDetail.join.joined"));
+      else toast.success(t("v3.clubDetail.join.requestSent"));
     } catch (err) {
-      if (err?.status === 401) toast.warn("Bạn cần đăng nhập để xin gia nhập CLB.");
-      else toast.error(getApiErrMsg(err));
+      if (err?.status === 401) toast.warn(t("v3.clubDetail.join.needLoginJoin"));
+      else toast.error(getApiErrMsg(err, t));
     }
   };
   const doCancel = async () => {
     try {
       await cancelJoin({ id: club._id }).unwrap();
-      toast.success("Đã huỷ yêu cầu gia nhập.");
+      toast.success(t("v3.clubDetail.join.requestCanceled"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const doLeave = async () => {
-    if (!window.confirm("Bạn chắc chắn muốn rời CLB?")) return;
+    if (!window.confirm(t("v3.clubDetail.join.confirmLeave"))) return;
     try {
       await leaveClub({ id: club._id }).unwrap();
-      toast.success("Đã rời CLB.");
+      toast.success(t("v3.clubDetail.join.left"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
   if (state === "member") {
     if (my?.isOwner) {
       return (
-        <Btn variant="ghost" disabled title="Chủ CLB cần chuyển quyền trước khi rời">
-          <ShieldCheck size={15} /> Chủ câu lạc bộ
+        <Btn variant="ghost" disabled title={t("v3.clubDetail.join.ownerTransferHint")}>
+          <ShieldCheck size={15} /> {t("v3.clubDetail.join.owner")}
         </Btn>
       );
     }
     return (
       <Btn variant="danger" disabled={leaving} onClick={doLeave}>
-        <X size={15} /> Rời CLB
+        <X size={15} /> {t("v3.clubDetail.join.leave")}
       </Btn>
     );
   }
@@ -586,23 +619,24 @@ function JoinControl({ club, my }) {
     return (
       <>
         <Btn variant="ghost" disabled>
-          <Clock size={15} /> Đã gửi yêu cầu
+          <Clock size={15} /> {t("v3.clubDetail.join.requested")}
         </Btn>
         <Btn variant="ghost" disabled={canceling} onClick={doCancel}>
-          Huỷ yêu cầu
+          {t("v3.clubDetail.join.cancelRequest")}
         </Btn>
       </>
     );
   }
   return (
     <Btn variant="primary" disabled={joining} onClick={doJoin}>
-      <UserPlus size={15} /> Xin gia nhập
+      <UserPlus size={15} /> {t("v3.clubDetail.join.requestJoin")}
     </Btn>
   );
 }
 
 /* ============================ ANNOUNCEMENTS ============================ */
 function AnnouncementsTab({ club, canManage }) {
+  const { t } = useLanguage();
   const id = club._id;
   const { data, isLoading } = useListAnnouncementsQuery({ id, page: 1, limit: 50 });
   const [createAnn, { isLoading: creating }] = useCreateAnnouncementMutation();
@@ -627,18 +661,18 @@ function AnnouncementsTab({ club, canManage }) {
 
   const submit = async () => {
     const tt = title.trim();
-    if (!tt) return toast.info("Nhập tiêu đề thông báo.");
+    if (!tt) return toast.info(t("v3.clubDetail.news.needTitle"));
     try {
       if (editId) {
         await updateAnn({ id, postId: editId, title: tt, content, pinned }).unwrap();
-        toast.success("Đã cập nhật thông báo.");
+        toast.success(t("v3.clubDetail.news.updated"));
       } else {
         await createAnn({ id, title: tt, content, pinned }).unwrap();
-        toast.success("Đã đăng thông báo.");
+        toast.success(t("v3.clubDetail.news.posted"));
       }
       resetForm();
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
@@ -653,16 +687,16 @@ function AnnouncementsTab({ club, canManage }) {
     try {
       await updateAnn({ id, postId: a._id, pinned: !a.pinned }).unwrap();
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const remove = async (a) => {
-    if (!window.confirm("Xoá thông báo này?")) return;
+    if (!window.confirm(t("v3.clubDetail.news.confirmDelete"))) return;
     try {
       await deleteAnn({ id, postId: a._id }).unwrap();
-      toast.success("Đã xoá thông báo.");
+      toast.success(t("v3.clubDetail.news.deleted"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
@@ -672,33 +706,33 @@ function AnnouncementsTab({ club, canManage }) {
         <Card style={{ padding: 16 }}>
           {!showForm ? (
             <Btn variant="ghost" onClick={() => setShowForm(true)}>
-              <Plus size={16} /> Đăng thông báo
+              <Plus size={16} /> {t("v3.clubDetail.news.postBtn")}
             </Btn>
           ) : (
             <div style={{ display: "grid", gap: 12 }}>
               <div>
-                <label style={labelStyle}>Tiêu đề</label>
-                <input style={fieldStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Tiêu đề thông báo" />
+                <label style={labelStyle}>{t("v3.clubDetail.news.title")}</label>
+                <input style={fieldStyle} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t("v3.clubDetail.news.titlePlaceholder")} />
               </div>
               <div>
-                <label style={labelStyle}>Nội dung</label>
+                <label style={labelStyle}>{t("v3.clubDetail.news.content")}</label>
                 <textarea
                   style={{ ...fieldStyle, minHeight: 96, resize: "vertical" }}
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
-                  placeholder="Nội dung…"
+                  placeholder={t("v3.clubDetail.news.contentPlaceholder")}
                 />
               </div>
               <label style={{ display: "inline-flex", alignItems: "center", gap: 8, color: C.body2, fontSize: 13.5, cursor: "pointer" }}>
                 <input type="checkbox" checked={pinned} onChange={(e) => setPinned(e.target.checked)} />
-                Ghim lên đầu
+                {t("v3.clubDetail.news.pinTop")}
               </label>
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn variant="primary" size="sm" onClick={submit} disabled={creating}>
-                  {editId ? "Lưu" : "Đăng"}
+                  {editId ? t("v3.clubDetail.common.save") : t("v3.clubDetail.news.publish")}
                 </Btn>
                 <Btn variant="ghost" size="sm" onClick={resetForm}>
-                  Huỷ
+                  {t("v3.clubDetail.common.cancel")}
                 </Btn>
               </div>
             </div>
@@ -713,7 +747,7 @@ function AnnouncementsTab({ club, canManage }) {
           <Skeleton width="90%" height="13px" />
         </Card>
       ) : items.length === 0 ? (
-        <SectionEmpty icon={<Megaphone size={40} />} title="Chưa có thông báo nào" hint={canManage ? "Đăng thông báo đầu tiên cho CLB." : undefined} />
+        <SectionEmpty icon={<Megaphone size={40} />} title={t("v3.clubDetail.news.emptyTitle")} hint={canManage ? t("v3.clubDetail.news.emptyHint") : undefined} />
       ) : (
         items.map((a) => (
           <Card key={a._id} style={{ padding: 16 }}>
@@ -722,7 +756,7 @@ function AnnouncementsTab({ club, canManage }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   {a.pinned && (
                     <span style={{ ...chip, color: "#F0C24B", borderColor: "rgba(240,194,75,.3)", background: "rgba(240,194,75,.08)" }}>
-                      <Pin size={11} /> Ghim
+                      <Pin size={11} /> {t("v3.clubDetail.common.pin")}
                     </span>
                   )}
                   <span style={{ color: C.head, fontWeight: 720, fontSize: 16 }}>{a.title}</span>
@@ -731,20 +765,20 @@ function AnnouncementsTab({ club, canManage }) {
                   <div style={{ marginTop: 8, color: C.body, fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{a.content}</div>
                 )}
                 <div style={{ marginTop: 10, color: C.muted, fontSize: 12.5, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span>{a.author?.fullName || a.author?.nickname || "Ban quản trị"}</span>
+                  <span>{a.author?.fullName || a.author?.nickname || t("v3.clubDetail.news.adminFallback")}</span>
                   <span>•</span>
                   <span>{fmtDate(a.createdAt)}</span>
                 </div>
               </div>
               {canManage && (
                 <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                  <Btn variant="ghost" size="sm" onClick={() => togglePin(a)} title={a.pinned ? "Bỏ ghim" : "Ghim"}>
+                  <Btn variant="ghost" size="sm" onClick={() => togglePin(a)} title={a.pinned ? t("v3.clubDetail.common.unpin") : t("v3.clubDetail.common.pin")}>
                     {a.pinned ? <PinOff size={15} /> : <Pin size={15} />}
                   </Btn>
-                  <Btn variant="ghost" size="sm" onClick={() => startEdit(a)} title="Sửa">
+                  <Btn variant="ghost" size="sm" onClick={() => startEdit(a)} title={t("v3.clubDetail.common.edit")}>
                     <Pencil size={15} />
                   </Btn>
-                  <Btn variant="danger" size="sm" onClick={() => remove(a)} title="Xoá">
+                  <Btn variant="danger" size="sm" onClick={() => remove(a)} title={t("v3.clubDetail.common.delete")}>
                     <Trash2 size={15} />
                   </Btn>
                 </div>
@@ -771,6 +805,7 @@ const emptyEventForm = {
 
 // Danh sách người tham gia sự kiện (mở/đóng, fetch khi mở)
 function EventAttendees({ clubId, event }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const { data, isFetching } = useListEventAttendeesQuery(
     { id: clubId, eventId: event._id },
@@ -786,14 +821,14 @@ function EventAttendees({ clubId, event }) {
         onClick={() => setOpen((v) => !v)}
         style={{ all: "unset", cursor: "pointer", color: C.body2, fontSize: 12.5, fontWeight: 650, display: "inline-flex", alignItems: "center", gap: 5 }}
       >
-        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Người tham gia ({fmtInt(count)})
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {t("v3.clubDetail.common.attendeesToggle", { count: fmtInt(count) })}
       </button>
       {open && (
         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
           {isFetching ? (
-            <span style={{ color: C.muted, fontSize: 12 }}>Đang tải…</span>
+            <span style={{ color: C.muted, fontSize: 12 }}>{t("v3.clubDetail.common.loading")}</span>
           ) : attendees.length === 0 ? (
-            <span style={{ color: C.muted, fontSize: 12 }}>Chưa có ai.</span>
+            <span style={{ color: C.muted, fontSize: 12 }}>{t("v3.clubDetail.common.noOneYet")}</span>
           ) : (
             attendees.map((u) => (
               <A
@@ -802,7 +837,7 @@ function EventAttendees({ clubId, event }) {
                 style={{ ...chip, textDecoration: "none", paddingLeft: 4 }}
               >
                 <Avatar size="small" src={u.avatar || undefined} name={u.fullName || "?"} />
-                <span style={{ color: C.body2 }}>{u.nickname || u.fullName || "Người dùng"}</span>
+                <span style={{ color: C.body2 }}>{u.nickname || u.fullName || t("v3.clubDetail.common.userFallback")}</span>
               </A>
             ))
           )}
@@ -813,6 +848,7 @@ function EventAttendees({ clubId, event }) {
 }
 
 function EventsTab({ club, canManage }) {
+  const { t } = useLanguage();
   const id = club._id;
   const { data, isLoading } = useListEventsQuery({ id, page: 1, limit: 50 });
   const [createEvent, { isLoading: creating }] = useCreateEventMutation();
@@ -853,9 +889,9 @@ function EventsTab({ club, canManage }) {
   };
 
   const submit = async () => {
-    if (!form.title.trim()) return toast.info("Nhập tên sự kiện.");
-    if (!form.startAt || !form.endAt) return toast.info("Chọn thời gian bắt đầu và kết thúc.");
-    if (new Date(form.endAt) < new Date(form.startAt)) return toast.info("Thời gian kết thúc phải sau thời gian bắt đầu.");
+    if (!form.title.trim()) return toast.info(t("v3.clubDetail.events.needName"));
+    if (!form.startAt || !form.endAt) return toast.info(t("v3.clubDetail.events.needTime"));
+    if (new Date(form.endAt) < new Date(form.startAt)) return toast.info(t("v3.clubDetail.events.endAfterStart"));
     const body = {
       title: form.title.trim(),
       description: form.description,
@@ -869,24 +905,24 @@ function EventsTab({ club, canManage }) {
     try {
       if (editId) {
         await updateEvent({ id, eventId: editId, ...body }).unwrap();
-        toast.success("Đã cập nhật sự kiện.");
+        toast.success(t("v3.clubDetail.events.updated"));
       } else {
         await createEvent({ id, ...body }).unwrap();
-        toast.success("Đã tạo sự kiện.");
+        toast.success(t("v3.clubDetail.events.created"));
       }
       resetForm();
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
   const remove = async (e) => {
-    if (!window.confirm(`Xoá sự kiện "${e.title}"?`)) return;
+    if (!window.confirm(t("v3.clubDetail.events.confirmDelete", { title: e.title }))) return;
     try {
       await deleteEvent({ id, eventId: e._id }).unwrap();
-      toast.success("Đã xoá sự kiện.");
+      toast.success(t("v3.clubDetail.events.deleted"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
@@ -896,8 +932,8 @@ function EventsTab({ club, canManage }) {
     try {
       await rsvpEvent({ id, eventId: e._id, status: next }).unwrap();
     } catch (err) {
-      if (err?.status === 401) toast.warn("Bạn cần đăng nhập để phản hồi sự kiện.");
-      else toast.error(getApiErrMsg(err));
+      if (err?.status === 401) toast.warn(t("v3.clubDetail.events.needLoginRsvp"));
+      else toast.error(getApiErrMsg(err, t));
     }
   };
 
@@ -907,49 +943,49 @@ function EventsTab({ club, canManage }) {
         <Card style={{ padding: 16 }}>
           {!showForm ? (
             <Btn variant="ghost" onClick={openCreate}>
-              <Plus size={16} /> Tạo sự kiện
+              <Plus size={16} /> {t("v3.clubDetail.events.createBtn")}
             </Btn>
           ) : (
             <div style={{ display: "grid", gap: 12 }}>
               <div>
-                <label style={labelStyle}>Tên sự kiện</label>
-                <input style={fieldStyle} value={form.title} onChange={(e) => setF("title", e.target.value)} placeholder="VD: Giao lưu cuối tuần" />
+                <label style={labelStyle}>{t("v3.clubDetail.events.name")}</label>
+                <input style={fieldStyle} value={form.title} onChange={(e) => setF("title", e.target.value)} placeholder={t("v3.clubDetail.events.namePlaceholder")} />
               </div>
               <div>
-                <label style={labelStyle}>Mô tả</label>
+                <label style={labelStyle}>{t("v3.clubDetail.events.description")}</label>
                 <textarea style={{ ...fieldStyle, minHeight: 72, resize: "vertical" }} value={form.description} onChange={(e) => setF("description", e.target.value)} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
-                  <label style={labelStyle}>Bắt đầu</label>
+                  <label style={labelStyle}>{t("v3.clubDetail.events.start")}</label>
                   <input type="datetime-local" style={fieldStyle} value={form.startAt} onChange={(e) => setF("startAt", e.target.value)} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Kết thúc</label>
+                  <label style={labelStyle}>{t("v3.clubDetail.events.end")}</label>
                   <input type="datetime-local" style={fieldStyle} value={form.endAt} onChange={(e) => setF("endAt", e.target.value)} />
                 </div>
               </div>
               <div>
-                <label style={labelStyle}>Địa điểm</label>
-                <input style={fieldStyle} value={form.location} onChange={(e) => setF("location", e.target.value)} placeholder="VD: Sân ABC, Quận 1" />
+                <label style={labelStyle}>{t("v3.clubDetail.events.location")}</label>
+                <input style={fieldStyle} value={form.location} onChange={(e) => setF("location", e.target.value)} placeholder={t("v3.clubDetail.events.locationPlaceholder")} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
                 <div>
-                  <label style={labelStyle}>Hiển thị</label>
+                  <label style={labelStyle}>{t("v3.clubDetail.events.visibility")}</label>
                   <select style={fieldStyle} value={form.visibility} onChange={(e) => setF("visibility", e.target.value)}>
-                    <option value="public">Công khai</option>
-                    <option value="members">Chỉ thành viên</option>
+                    <option value="public">{t("v3.clubDetail.vis.public")}</option>
+                    <option value="members">{t("v3.clubDetail.common.membersOnly")}</option>
                   </select>
                 </div>
                 <div>
-                  <label style={labelStyle}>Đăng ký</label>
+                  <label style={labelStyle}>{t("v3.clubDetail.events.rsvp")}</label>
                   <select style={fieldStyle} value={form.rsvp} onChange={(e) => setF("rsvp", e.target.value)}>
-                    <option value="open">Không giới hạn</option>
-                    <option value="limit">Giới hạn chỗ</option>
+                    <option value="open">{t("v3.clubDetail.events.unlimited")}</option>
+                    <option value="limit">{t("v3.clubDetail.events.limited")}</option>
                   </select>
                 </div>
                 <div>
-                  <label style={labelStyle}>Sức chứa</label>
+                  <label style={labelStyle}>{t("v3.clubDetail.events.capacity")}</label>
                   <input
                     type="number"
                     min={0}
@@ -962,10 +998,10 @@ function EventsTab({ club, canManage }) {
               </div>
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn variant="primary" size="sm" onClick={submit} disabled={creating || updating}>
-                  {editId ? "Lưu" : "Tạo"}
+                  {editId ? t("v3.clubDetail.common.save") : t("v3.clubDetail.common.create")}
                 </Btn>
                 <Btn variant="ghost" size="sm" onClick={resetForm}>
-                  Huỷ
+                  {t("v3.clubDetail.common.cancel")}
                 </Btn>
               </div>
             </div>
@@ -980,7 +1016,7 @@ function EventsTab({ club, canManage }) {
           <Skeleton width="70%" height="13px" />
         </Card>
       ) : items.length === 0 ? (
-        <SectionEmpty icon={<CalendarDays size={40} />} title="Chưa có sự kiện nào" hint={canManage ? "Tạo sự kiện đầu tiên cho CLB." : undefined} />
+        <SectionEmpty icon={<CalendarDays size={40} />} title={t("v3.clubDetail.events.emptyTitle")} hint={canManage ? t("v3.clubDetail.events.emptyHint") : undefined} />
       ) : (
         items.map((e) => {
           const full = e.rsvp === "limit" && e.capacity > 0 && e.attendeesCount >= e.capacity;
@@ -993,9 +1029,9 @@ function EventsTab({ club, canManage }) {
                     <span style={{ color: C.head, fontWeight: 720, fontSize: 16 }}>{e.title}</span>
                     <span style={chip}>
                       {visIcon(e.visibility)}
-                      {visLabel(e.visibility)}
+                      {visLabel(e.visibility, t)}
                     </span>
-                    {past && <span style={chip}>Đã kết thúc</span>}
+                    {past && <span style={chip}>{t("v3.clubDetail.events.ended")}</span>}
                   </div>
                   <div style={{ marginTop: 8, color: C.body2, fontSize: 13.5, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <CalendarDays size={13} />
@@ -1013,15 +1049,15 @@ function EventsTab({ club, canManage }) {
                   )}
                   <div style={{ marginTop: 8, color: C.muted, fontSize: 12.5 }}>
                     <Users size={12} style={{ verticalAlign: "-2px" }} /> {fmtInt(e.attendeesCount || 0)}
-                    {e.rsvp === "limit" && e.capacity > 0 ? ` / ${fmtInt(e.capacity)}` : ""} tham gia
+                    {e.rsvp === "limit" && e.capacity > 0 ? ` / ${fmtInt(e.capacity)}` : ""} {t("v3.clubDetail.events.attendSuffix")}
                   </div>
                 </div>
                 {canManage && (
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                    <Btn variant="ghost" size="sm" onClick={() => startEdit(e)} title="Sửa">
+                    <Btn variant="ghost" size="sm" onClick={() => startEdit(e)} title={t("v3.clubDetail.common.edit")}>
                       <Pencil size={15} />
                     </Btn>
-                    <Btn variant="danger" size="sm" onClick={() => remove(e)} title="Xoá">
+                    <Btn variant="danger" size="sm" onClick={() => remove(e)} title={t("v3.clubDetail.common.delete")}>
                       <Trash2 size={15} />
                     </Btn>
                   </div>
@@ -1036,15 +1072,15 @@ function EventsTab({ club, canManage }) {
                     size="sm"
                     onClick={() => doRsvp(e, "going")}
                     disabled={full && e.myStatus !== "going"}
-                    title={full && e.myStatus !== "going" ? "Sự kiện đã đủ chỗ" : undefined}
+                    title={full && e.myStatus !== "going" ? t("v3.clubDetail.events.full") : undefined}
                   >
-                    <Check size={14} /> {e.myStatus === "going" ? "Sẽ tham gia ✓" : "Tham gia"}
+                    <Check size={14} /> {e.myStatus === "going" ? t("v3.clubDetail.events.going") : t("v3.clubDetail.events.attend")}
                   </Btn>
                   <Btn variant={e.myStatus === "not_going" ? "danger" : "ghost"} size="sm" onClick={() => doRsvp(e, "not_going")}>
-                    <X size={14} /> Không tham gia
+                    <X size={14} /> {t("v3.clubDetail.events.notGoing")}
                   </Btn>
-                  <Btn as="a" href={`/api/clubs/${id}/events/${e._id}/ics`} variant="ghost" size="sm" title="Thêm vào lịch">
-                    <CalendarPlus size={14} /> Thêm vào lịch
+                  <Btn as="a" href={`/api/clubs/${id}/events/${e._id}/ics`} variant="ghost" size="sm" title={t("v3.clubDetail.events.addToCalendar")}>
+                    <CalendarPlus size={14} /> {t("v3.clubDetail.events.addToCalendar")}
                   </Btn>
                 </div>
               )}
@@ -1060,6 +1096,7 @@ function EventsTab({ club, canManage }) {
 
 /* =============================== POLLS =============================== */
 function PollCard({ club, poll, canManage }) {
+  const { t } = useLanguage();
   const id = club._id;
   const [votePoll, { isLoading: voting }] = useVotePollMutation();
   const [closePoll] = useClosePollMutation();
@@ -1088,32 +1125,32 @@ function PollCard({ club, poll, canManage }) {
 
   const submitVote = async () => {
     const optionIds = [...sel];
-    if (!optionIds.length) return toast.info("Chọn ít nhất một phương án.");
+    if (!optionIds.length) return toast.info(t("v3.clubDetail.polls.needOption"));
     try {
       await votePoll({ id, pollId: poll._id, optionIds }).unwrap();
-      toast.success("Đã ghi nhận bình chọn.");
+      toast.success(t("v3.clubDetail.polls.voteRecorded"));
     } catch (err) {
-      if (err?.status === 401) toast.warn("Bạn cần đăng nhập để bình chọn.");
-      else toast.error(getApiErrMsg(err));
+      if (err?.status === 401) toast.warn(t("v3.clubDetail.polls.needLoginVote"));
+      else toast.error(getApiErrMsg(err, t));
     }
   };
 
   const doClose = async () => {
-    if (!window.confirm("Đóng bình chọn này? Sau khi đóng sẽ không nhận thêm phiếu.")) return;
+    if (!window.confirm(t("v3.clubDetail.polls.confirmClose"))) return;
     try {
       await closePoll({ id, pollId: poll._id }).unwrap();
-      toast.success("Đã đóng bình chọn.");
+      toast.success(t("v3.clubDetail.polls.closed"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const doDelete = async () => {
-    if (!window.confirm("Xoá bình chọn này? Toàn bộ phiếu sẽ bị xoá.")) return;
+    if (!window.confirm(t("v3.clubDetail.polls.confirmDelete"))) return;
     try {
       await deletePoll({ id, pollId: poll._id }).unwrap();
-      toast.success("Đã xoá bình chọn.");
+      toast.success(t("v3.clubDetail.polls.deleted"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
@@ -1130,22 +1167,22 @@ function PollCard({ club, poll, canManage }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ color: C.head, fontWeight: 720, fontSize: 16 }}>{poll.question}</span>
-            {poll.multiple && <span style={chip}>Nhiều lựa chọn</span>}
-            {closed && <span style={{ ...chip, color: "#F1948A", borderColor: "rgba(233,84,84,.28)", background: "rgba(233,84,84,.10)" }}>Đã đóng</span>}
+            {poll.multiple && <span style={chip}>{t("v3.clubDetail.polls.multiple")}</span>}
+            {closed && <span style={{ ...chip, color: "#F1948A", borderColor: "rgba(233,84,84,.28)", background: "rgba(233,84,84,.10)" }}>{t("v3.clubDetail.polls.closedChip")}</span>}
           </div>
           <div style={{ marginTop: 6, color: C.muted, fontSize: 12.5, display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <span>{fmtInt(totalPeople)} người đã bình chọn</span>
-            {poll.closesAt && !closed && <span>• Đóng lúc {fmtDateTime(poll.closesAt)}</span>}
+            <span>{t("v3.clubDetail.polls.voterCount", { count: fmtInt(totalPeople) })}</span>
+            {poll.closesAt && !closed && <span>• {t("v3.clubDetail.polls.closesAt", { time: fmtDateTime(poll.closesAt) })}</span>}
           </div>
         </div>
         {canManage && (
           <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
             {!closed && (
-              <Btn variant="ghost" size="sm" onClick={doClose} title="Đóng">
+              <Btn variant="ghost" size="sm" onClick={doClose} title={t("v3.clubDetail.polls.close")}>
                 <Lock size={15} />
               </Btn>
             )}
-            <Btn variant="danger" size="sm" onClick={doDelete} title="Xoá">
+            <Btn variant="danger" size="sm" onClick={doDelete} title={t("v3.clubDetail.common.delete")}>
               <Trash2 size={15} />
             </Btn>
           </div>
@@ -1216,9 +1253,9 @@ function PollCard({ club, poll, canManage }) {
       {!closed && (
         <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center" }}>
           <Btn variant="primary" size="sm" onClick={submitVote} disabled={voting || (voted && !selChanged)}>
-            {voted ? "Đổi phiếu" : "Bình chọn"}
+            {voted ? t("v3.clubDetail.polls.changeVote") : t("v3.clubDetail.polls.vote")}
           </Btn>
-          {voted && <span style={{ color: C.muted, fontSize: 12.5 }}>Bạn đã bình chọn</span>}
+          {voted && <span style={{ color: C.muted, fontSize: 12.5 }}>{t("v3.clubDetail.polls.alreadyVoted")}</span>}
         </div>
       )}
     </Card>
@@ -1226,6 +1263,7 @@ function PollCard({ club, poll, canManage }) {
 }
 
 function PollsTab({ club, canManage }) {
+  const { t } = useLanguage();
   const id = club._id;
   const { data, isLoading } = useListPollsQuery({ id, page: 1, limit: 50 });
   const [createPoll, { isLoading: creating }] = useCreatePollMutation();
@@ -1250,12 +1288,12 @@ function PollsTab({ club, canManage }) {
 
   const submit = async () => {
     const q = question.trim();
-    if (!q) return toast.info("Nhập câu hỏi bình chọn.");
+    if (!q) return toast.info(t("v3.clubDetail.polls.needQuestion"));
     const options = optionsText
       .split(/\r?\n/)
       .map((s) => s.trim())
       .filter(Boolean);
-    if (options.length < 2) return toast.info("Cần ít nhất 2 phương án (mỗi dòng một phương án).");
+    if (options.length < 2) return toast.info(t("v3.clubDetail.polls.needTwoOptions"));
     try {
       await createPoll({
         id,
@@ -1265,10 +1303,10 @@ function PollsTab({ club, canManage }) {
         visibility,
         ...(closesAt ? { closesAt: new Date(closesAt).toISOString() } : {}),
       }).unwrap();
-      toast.success("Đã tạo bình chọn.");
+      toast.success(t("v3.clubDetail.polls.created"));
       reset();
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
@@ -1278,41 +1316,41 @@ function PollsTab({ club, canManage }) {
         <Card style={{ padding: 16 }}>
           {!showForm ? (
             <Btn variant="ghost" onClick={() => setShowForm(true)}>
-              <Plus size={16} /> Tạo bình chọn
+              <Plus size={16} /> {t("v3.clubDetail.polls.createBtn")}
             </Btn>
           ) : (
             <div style={{ display: "grid", gap: 12 }}>
               <div>
-                <label style={labelStyle}>Câu hỏi</label>
-                <input style={fieldStyle} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="VD: Chọn lịch giao lưu tuần tới?" />
+                <label style={labelStyle}>{t("v3.clubDetail.polls.question")}</label>
+                <input style={fieldStyle} value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t("v3.clubDetail.polls.questionPlaceholder")} />
               </div>
               <div>
-                <label style={labelStyle}>Các phương án (mỗi dòng một phương án)</label>
-                <textarea style={{ ...fieldStyle, minHeight: 90, resize: "vertical" }} value={optionsText} onChange={(e) => setOptionsText(e.target.value)} placeholder={"Thứ 7\nChủ nhật\nCả hai ngày"} />
+                <label style={labelStyle}>{t("v3.clubDetail.polls.optionsLabel")}</label>
+                <textarea style={{ ...fieldStyle, minHeight: 90, resize: "vertical" }} value={optionsText} onChange={(e) => setOptionsText(e.target.value)} placeholder={t("v3.clubDetail.polls.optionsPlaceholder")} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
-                  <label style={labelStyle}>Hiển thị</label>
+                  <label style={labelStyle}>{t("v3.clubDetail.events.visibility")}</label>
                   <select style={fieldStyle} value={visibility} onChange={(e) => setVisibility(e.target.value)}>
-                    <option value="members">Chỉ thành viên</option>
-                    <option value="public">Công khai</option>
+                    <option value="members">{t("v3.clubDetail.common.membersOnly")}</option>
+                    <option value="public">{t("v3.clubDetail.vis.public")}</option>
                   </select>
                 </div>
                 <div>
-                  <label style={labelStyle}>Đóng lúc (tuỳ chọn)</label>
+                  <label style={labelStyle}>{t("v3.clubDetail.polls.closesOptional")}</label>
                   <input type="datetime-local" style={fieldStyle} value={closesAt} onChange={(e) => setClosesAt(e.target.value)} />
                 </div>
               </div>
               <label style={{ display: "inline-flex", alignItems: "center", gap: 8, color: C.body2, fontSize: 13.5, cursor: "pointer" }}>
                 <input type="checkbox" checked={multiple} onChange={(e) => setMultiple(e.target.checked)} />
-                Cho phép chọn nhiều phương án
+                {t("v3.clubDetail.polls.allowMultiple")}
               </label>
               <div style={{ display: "flex", gap: 8 }}>
                 <Btn variant="primary" size="sm" onClick={submit} disabled={creating}>
-                  Tạo
+                  {t("v3.clubDetail.common.create")}
                 </Btn>
                 <Btn variant="ghost" size="sm" onClick={reset}>
-                  Huỷ
+                  {t("v3.clubDetail.common.cancel")}
                 </Btn>
               </div>
             </div>
@@ -1327,7 +1365,7 @@ function PollsTab({ club, canManage }) {
           <Skeleton width="100%" height="40px" />
         </Card>
       ) : items.length === 0 ? (
-        <SectionEmpty icon={<BarChart3 size={40} />} title="Chưa có bình chọn nào" hint={canManage ? "Tạo bình chọn đầu tiên." : undefined} />
+        <SectionEmpty icon={<BarChart3 size={40} />} title={t("v3.clubDetail.polls.emptyTitle")} hint={canManage ? t("v3.clubDetail.polls.emptyHint") : undefined} />
       ) : (
         items.map((p) => <PollCard key={p._id} club={club} poll={p} canManage={canManage} />)
       )}
@@ -1337,6 +1375,7 @@ function PollsTab({ club, canManage }) {
 
 /* ============================= DISCUSSION ============================= */
 function PostComments({ club, postId, isMember, canManage, authUserId }) {
+  const { t } = useLanguage();
   const id = club._id;
   const { data, isFetching } = useListPostCommentsQuery({ id, postId });
   const [createComment, { isLoading }] = useCreatePostCommentMutation();
@@ -1345,27 +1384,27 @@ function PostComments({ club, postId, isMember, canManage, authUserId }) {
   const comments = data?.items || [];
 
   const submit = async () => {
-    const t = text.trim();
-    if (!t) return;
+    const val = text.trim();
+    if (!val) return;
     try {
-      await createComment({ id, postId, content: t }).unwrap();
+      await createComment({ id, postId, content: val }).unwrap();
       setText("");
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const remove = async (c) => {
     try {
       await delComment({ id, postId, commentId: c._id }).unwrap();
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
   return (
     <div style={{ marginTop: 12, borderTop: `1px solid ${C.border}`, paddingTop: 12, display: "grid", gap: 10 }}>
       {isFetching && comments.length === 0 ? (
-        <span style={{ color: C.muted, fontSize: 12.5 }}>Đang tải bình luận…</span>
+        <span style={{ color: C.muted, fontSize: 12.5 }}>{t("v3.clubDetail.discussion.loadingComments")}</span>
       ) : (
         comments.map((c) => {
           const canDel = String(c.author?._id) === String(authUserId) || canManage;
@@ -1377,11 +1416,11 @@ function PostComments({ club, postId, isMember, canManage, authUserId }) {
               <div style={{ flex: 1, minWidth: 0, background: "rgba(255,255,255,.04)", borderRadius: 12, padding: "8px 11px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ color: C.head, fontWeight: 700, fontSize: 13 }}>
-                    {c.author?.nickname || c.author?.fullName || "Người dùng"}
+                    {c.author?.nickname || c.author?.fullName || t("v3.clubDetail.common.userFallback")}
                   </span>
                   <span style={{ color: C.muted, fontSize: 11 }}>{fmtDateTime(c.createdAt)}</span>
                   {canDel && (
-                    <button type="button" onClick={() => remove(c)} style={{ all: "unset", cursor: "pointer", color: C.muted, marginLeft: "auto" }} title="Xoá">
+                    <button type="button" onClick={() => remove(c)} style={{ all: "unset", cursor: "pointer", color: C.muted, marginLeft: "auto" }} title={t("v3.clubDetail.common.delete")}>
                       <Trash2 size={13} />
                     </button>
                   )}
@@ -1398,7 +1437,7 @@ function PostComments({ club, postId, isMember, canManage, authUserId }) {
             style={{ ...fieldStyle, flex: 1 }}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Viết bình luận…"
+            placeholder={t("v3.clubDetail.discussion.commentPlaceholder")}
             onKeyDown={(e) => e.key === "Enter" && submit()}
           />
           <Btn variant="primary" size="sm" onClick={submit} disabled={isLoading}>
@@ -1411,6 +1450,7 @@ function PostComments({ club, postId, isMember, canManage, authUserId }) {
 }
 
 function PostCard({ club, post, isMember, canManage, authUserId }) {
+  const { t } = useLanguage();
   const id = club._id;
   const [react] = useReactPostMutation();
   const [delPost] = useDeletePostMutation();
@@ -1426,33 +1466,33 @@ function PostCard({ club, post, isMember, canManage, authUserId }) {
     try {
       await react({ id, postId: post._id }).unwrap();
     } catch (err) {
-      if (err?.status === 401) toast.warn("Bạn cần đăng nhập.");
-      else toast.error(getApiErrMsg(err));
+      if (err?.status === 401) toast.warn(t("v3.clubDetail.common.needLogin"));
+      else toast.error(getApiErrMsg(err, t));
     }
   };
   const doDelete = async () => {
-    if (!window.confirm("Xoá bài viết này?")) return;
+    if (!window.confirm(t("v3.clubDetail.discussion.confirmDeletePost"))) return;
     try {
       await delPost({ id, postId: post._id }).unwrap();
-      toast.success("Đã xoá bài viết.");
+      toast.success(t("v3.clubDetail.discussion.postDeleted"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const doPin = async () => {
     try {
       await updatePost({ id, postId: post._id, pinned: !post.pinned }).unwrap();
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const saveEdit = async () => {
     try {
       await updatePost({ id, postId: post._id, content: editText }).unwrap();
       setEditing(false);
-      toast.success("Đã lưu.");
+      toast.success(t("v3.clubDetail.discussion.saved"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
@@ -1464,30 +1504,30 @@ function PostCard({ club, post, isMember, canManage, authUserId }) {
         </A>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ color: C.head, fontWeight: 700, fontSize: 14.5, display: "flex", alignItems: "center", gap: 6 }}>
-            {post.author?.nickname || post.author?.fullName || "Người dùng"}
+            {post.author?.nickname || post.author?.fullName || t("v3.clubDetail.common.userFallback")}
             {post.pinned && (
               <span style={{ ...chip, color: "#F0C24B", borderColor: "rgba(240,194,75,.3)", background: "rgba(240,194,75,.08)", fontSize: 10.5, padding: "1px 7px" }}>
-                <Pin size={10} /> Ghim
+                <Pin size={10} /> {t("v3.clubDetail.common.pin")}
               </span>
             )}
           </div>
           <div style={{ color: C.muted, fontSize: 12 }}>
             {fmtDateTime(post.createdAt)}
-            {post.visibility === "members" ? " · Chỉ thành viên" : ""}
+            {post.visibility === "members" ? ` · ${t("v3.clubDetail.common.membersOnly")}` : ""}
           </div>
         </div>
         {canManage && (
-          <Btn variant="ghost" size="sm" onClick={doPin} title={post.pinned ? "Bỏ ghim" : "Ghim"}>
+          <Btn variant="ghost" size="sm" onClick={doPin} title={post.pinned ? t("v3.clubDetail.common.unpin") : t("v3.clubDetail.common.pin")}>
             {post.pinned ? <PinOff size={15} /> : <Pin size={15} />}
           </Btn>
         )}
         {canEdit && !editing && (
-          <Btn variant="ghost" size="sm" onClick={() => { setEditText(post.content || ""); setEditing(true); }} title="Sửa">
+          <Btn variant="ghost" size="sm" onClick={() => { setEditText(post.content || ""); setEditing(true); }} title={t("v3.clubDetail.common.edit")}>
             <Pencil size={15} />
           </Btn>
         )}
         {canDelete && (
-          <Btn variant="ghost" size="sm" onClick={doDelete} title="Xoá">
+          <Btn variant="ghost" size="sm" onClick={doDelete} title={t("v3.clubDetail.common.delete")}>
             <Trash2 size={15} />
           </Btn>
         )}
@@ -1501,8 +1541,8 @@ function PostCard({ club, post, isMember, canManage, authUserId }) {
             onChange={(e) => setEditText(e.target.value)}
           />
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-            <Btn variant="primary" size="sm" onClick={saveEdit}>Lưu</Btn>
-            <Btn variant="ghost" size="sm" onClick={() => setEditing(false)}>Huỷ</Btn>
+            <Btn variant="primary" size="sm" onClick={saveEdit}>{t("v3.clubDetail.common.save")}</Btn>
+            <Btn variant="ghost" size="sm" onClick={() => setEditing(false)}>{t("v3.clubDetail.common.cancel")}</Btn>
           </div>
         </div>
       ) : (
@@ -1522,7 +1562,7 @@ function PostCard({ club, post, isMember, canManage, authUserId }) {
           onClick={doReact}
           disabled={!isMember}
           style={{ all: "unset", cursor: isMember ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 6, color: post.myReaction ? "#F26D6D" : C.body2, fontWeight: 650, fontSize: 13.5 }}
-          title={isMember ? "Thích" : "Tham gia CLB để thích"}
+          title={isMember ? t("v3.clubDetail.discussion.like") : t("v3.clubDetail.discussion.likeJoinHint")}
         >
           <Heart size={16} fill={post.myReaction ? "#F26D6D" : "none"} /> {fmtInt(post.reactionCount || 0)}
         </button>
@@ -1543,6 +1583,7 @@ function PostCard({ club, post, isMember, canManage, authUserId }) {
 }
 
 function DiscussionTab({ club, my }) {
+  const { t } = useLanguage();
   const id = club._id;
   const isMember = !!my?.isMember;
   const canManage = !!my?.canManage;
@@ -1565,21 +1606,21 @@ function DiscussionTab({ club, my }) {
       const res = await uploadAvatar(file).unwrap();
       const url = res?.url || res?.secure_url || res?.data?.url || res?.Location || "";
       if (url) setImageUrl(url);
-      else toast.error("Tải ảnh thất bại.");
+      else toast.error(t("v3.clubDetail.discussion.uploadFailed"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
   const submit = async () => {
-    if (!content.trim() && !imageUrl.trim()) return toast.info("Nhập nội dung hoặc thêm ảnh.");
+    if (!content.trim() && !imageUrl.trim()) return toast.info(t("v3.clubDetail.discussion.needContent"));
     try {
       await createPost({ id, content, imageUrl: imageUrl.trim() || undefined }).unwrap();
       setContent("");
       setImageUrl("");
-      toast.success("Đã đăng bài.");
+      toast.success(t("v3.clubDetail.discussion.posted"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
@@ -1591,7 +1632,7 @@ function DiscussionTab({ club, my }) {
             style={{ ...fieldStyle, minHeight: 70, resize: "vertical" }}
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            placeholder="Chia sẻ điều gì đó với câu lạc bộ…"
+            placeholder={t("v3.clubDetail.discussion.composerPlaceholder")}
           />
           {imageUrl && (
             <div style={{ position: "relative", marginTop: 10, display: "inline-block" }}>
@@ -1599,7 +1640,7 @@ function DiscussionTab({ club, my }) {
               <button
                 type="button"
                 onClick={() => setImageUrl("")}
-                title="Bỏ ảnh"
+                title={t("v3.clubDetail.discussion.removeImage")}
                 style={{ position: "absolute", top: 8, right: 8, width: 28, height: 28, borderRadius: 999, border: "none", cursor: "pointer", background: "rgba(0,0,0,.6)", color: "#fff", display: "grid", placeItems: "center" }}
               >
                 <XIcon size={15} />
@@ -1608,7 +1649,7 @@ function DiscussionTab({ club, my }) {
           )}
           <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
             <Btn variant="primary" size="sm" onClick={submit} disabled={posting || uploadingImg}>
-              <Send size={14} /> Đăng bài
+              <Send size={14} /> {t("v3.clubDetail.discussion.postBtn")}
             </Btn>
             <label
               style={{
@@ -1627,14 +1668,14 @@ function DiscussionTab({ club, my }) {
               }}
             >
               <input type="file" accept="image/*" onChange={onPickImage} style={{ display: "none" }} disabled={uploadingImg} />
-              <ImagePlus size={15} /> {uploadingImg ? "Đang tải…" : "Ảnh"}
+              <ImagePlus size={15} /> {uploadingImg ? t("v3.clubDetail.common.loading") : t("v3.clubDetail.discussion.image")}
             </label>
           </div>
         </Card>
       ) : (
         <Card style={{ padding: 14 }}>
           <div style={{ color: C.muted, fontSize: 13.5 }}>
-            Tham gia câu lạc bộ để đăng bài và bình luận.
+            {t("v3.clubDetail.discussion.joinToPost")}
           </div>
         </Card>
       )}
@@ -1646,7 +1687,7 @@ function DiscussionTab({ club, my }) {
           <Skeleton width="80%" height="13px" />
         </Card>
       ) : items.length === 0 ? (
-        <SectionEmpty icon={<MessagesSquare size={40} />} title="Chưa có bài viết nào" hint={isMember ? "Hãy là người đăng bài đầu tiên." : undefined} />
+        <SectionEmpty icon={<MessagesSquare size={40} />} title={t("v3.clubDetail.discussion.emptyTitle")} hint={isMember ? t("v3.clubDetail.discussion.emptyHint") : undefined} />
       ) : (
         items.map((p) => (
           <PostCard key={p._id} club={club} post={p} isMember={isMember} canManage={canManage} authUserId={authUserId} />
@@ -1658,6 +1699,7 @@ function DiscussionTab({ club, my }) {
 
 /* =============================== GALLERY =============================== */
 function GalleryTab({ club, my }) {
+  const { t } = useLanguage();
   const id = club._id;
   const isMember = !!my?.isMember;
   const canManage = !!my?.canManage;
@@ -1685,18 +1727,18 @@ function GalleryTab({ club, my }) {
       }
       if (urls.length) {
         await addPhotos({ id, photos: urls.map((u) => ({ url: u })) }).unwrap();
-        toast.success(`Đã thêm ${urls.length} ảnh.`);
-      } else toast.error("Tải ảnh thất bại.");
+        toast.success(t("v3.clubDetail.gallery.added", { count: urls.length }));
+      } else toast.error(t("v3.clubDetail.discussion.uploadFailed"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const remove = async (p) => {
-    if (!window.confirm("Xoá ảnh này?")) return;
+    if (!window.confirm(t("v3.clubDetail.gallery.confirmDelete"))) return;
     try {
       await deletePhoto({ id, photoId: p._id }).unwrap();
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
@@ -1720,7 +1762,7 @@ function GalleryTab({ club, my }) {
             }}
           >
             <input type="file" accept="image/*" multiple onChange={onPick} style={{ display: "none" }} disabled={uploading} />
-            <ImagePlus size={16} /> {uploading ? "Đang tải…" : "Thêm ảnh"}
+            <ImagePlus size={16} /> {uploading ? t("v3.clubDetail.common.loading") : t("v3.clubDetail.gallery.addPhotos")}
           </label>
         </Card>
       )}
@@ -1732,7 +1774,7 @@ function GalleryTab({ club, my }) {
           ))}
         </div>
       ) : items.length === 0 ? (
-        <SectionEmpty icon={<Images size={40} />} title="Chưa có ảnh nào" hint={isMember ? "Thêm ảnh đầu tiên cho CLB." : undefined} />
+        <SectionEmpty icon={<Images size={40} />} title={t("v3.clubDetail.gallery.emptyTitle")} hint={isMember ? t("v3.clubDetail.gallery.emptyHint") : undefined} />
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(110px, 1fr))", gap: 8 }}>
           {items.map((p) => {
@@ -1747,7 +1789,7 @@ function GalleryTab({ club, my }) {
                   <button
                     type="button"
                     onClick={() => remove(p)}
-                    title="Xoá"
+                    title={t("v3.clubDetail.common.delete")}
                     style={{ position: "absolute", top: 6, right: 6, width: 26, height: 26, borderRadius: 999, border: "none", cursor: "pointer", background: "rgba(0,0,0,.55)", color: "#fff", display: "grid", placeItems: "center" }}
                   >
                     <Trash2 size={13} />
@@ -1777,6 +1819,7 @@ function StatCard({ label, value, color, icon }) {
 }
 
 function BookView({ club, my }) {
+  const { t } = useLanguage();
   const id = club._id;
   const isMember = !!my?.isMember;
   const canManage = !!my?.canManage;
@@ -1797,7 +1840,7 @@ function BookView({ club, my }) {
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const setF = (k, v) => setForm((s) => ({ ...s, [k]: v }));
-  const cats = form.type === "income" ? INCOME_CATS : EXPENSE_CATS;
+  const cats = form.type === "income" ? incomeCats(t) : expenseCats(t);
 
   const items = txData?.items || [];
 
@@ -1806,22 +1849,22 @@ function BookView({ club, my }) {
     setEditId(null);
     setShowForm(false);
   };
-  const startEdit = (t) => {
-    setEditId(t._id);
+  const startEdit = (tx) => {
+    setEditId(tx._id);
     setForm({
-      type: t.type,
-      amount: String(t.amount || ""),
-      category: t.category || "",
-      description: t.description || "",
-      occurredAt: toDateInput(t.occurredAt),
-      method: t.method || "cash",
+      type: tx.type,
+      amount: String(tx.amount || ""),
+      category: tx.category || "",
+      description: tx.description || "",
+      occurredAt: toDateInput(tx.occurredAt),
+      method: tx.method || "cash",
     });
     setShowForm(true);
   };
 
   const submit = async () => {
     const amt = Number(String(form.amount).replace(/[^\d]/g, ""));
-    if (!amt || amt <= 0) return toast.info("Nhập số tiền hợp lệ.");
+    if (!amt || amt <= 0) return toast.info(t("v3.clubDetail.finance.amountInvalid"));
     const body = {
       type: form.type,
       amount: amt,
@@ -1833,23 +1876,23 @@ function BookView({ club, my }) {
     try {
       if (editId) {
         await updateTx({ id, txId: editId, ...body }).unwrap();
-        toast.success("Đã cập nhật giao dịch.");
+        toast.success(t("v3.clubDetail.finance.txUpdated"));
       } else {
         await createTx({ id, ...body }).unwrap();
-        toast.success("Đã ghi giao dịch.");
+        toast.success(t("v3.clubDetail.finance.txCreated"));
       }
       resetForm();
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
-  const remove = async (t) => {
-    if (!window.confirm("Xoá giao dịch này?")) return;
+  const remove = async (tx) => {
+    if (!window.confirm(t("v3.clubDetail.finance.confirmDeleteTx"))) return;
     try {
-      await deleteTx({ id, txId: t._id }).unwrap();
-      toast.success("Đã xoá.");
+      await deleteTx({ id, txId: tx._id }).unwrap();
+      toast.success(t("v3.clubDetail.finance.txDeleted"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const doExport = async () => {
@@ -1864,12 +1907,12 @@ function BookView({ club, my }) {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
   if (!isMember) {
-    return <SectionEmpty icon={<Wallet size={40} />} title="Quỹ CLB dành cho thành viên" hint="Tham gia câu lạc bộ để xem thu chi quỹ." />;
+    return <SectionEmpty icon={<Wallet size={40} />} title={t("v3.clubDetail.finance.memberOnlyTitle")} hint={t("v3.clubDetail.finance.memberOnlyHint")} />;
   }
 
   const byCat = sum?.byCategory || [];
@@ -1881,14 +1924,14 @@ function BookView({ club, my }) {
     <div style={{ display: "grid", gap: 14 }}>
       {/* Tổng quan */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <StatCard label="Số dư quỹ" value={fmtVnd(sum?.balance)} color={Number(sum?.balance) < 0 ? "#F1948A" : C.head2} icon={<Wallet size={13} />} />
-        <StatCard label="Tổng thu" value={fmtVnd(sum?.totalIncome)} color="#7CC7A2" icon={<ArrowUpRight size={13} />} />
-        <StatCard label="Tổng chi" value={fmtVnd(sum?.totalExpense)} color="#F1948A" icon={<ArrowDownRight size={13} />} />
+        <StatCard label={t("v3.clubDetail.finance.balance")} value={fmtVnd(sum?.balance)} color={Number(sum?.balance) < 0 ? "#F1948A" : C.head2} icon={<Wallet size={13} />} />
+        <StatCard label={t("v3.clubDetail.finance.totalIncome")} value={fmtVnd(sum?.totalIncome)} color="#7CC7A2" icon={<ArrowUpRight size={13} />} />
+        <StatCard label={t("v3.clubDetail.finance.totalExpense")} value={fmtVnd(sum?.totalExpense)} color="#F1948A" icon={<ArrowDownRight size={13} />} />
       </div>
 
       {/* Toolbar */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        {[{ k: "", l: "Tất cả" }, { k: "income", l: "Thu" }, { k: "expense", l: "Chi" }].map((f) => (
+        {[{ k: "", l: t("v3.clubDetail.finance.all") }, { k: "income", l: t("v3.clubDetail.finance.income") }, { k: "expense", l: t("v3.clubDetail.finance.expense") }].map((f) => (
           <button
             key={f.k}
             type="button"
@@ -1900,11 +1943,11 @@ function BookView({ club, my }) {
         ))}
         <div style={{ flex: 1 }} />
         <Btn variant="ghost" size="sm" onClick={doExport} disabled={exporting}>
-          <Download size={14} /> {exporting ? "…" : "Xuất CSV"}
+          <Download size={14} /> {exporting ? "…" : t("v3.clubDetail.finance.exportCsv")}
         </Btn>
         {canManage && !showForm && (
           <Btn variant="primary" size="sm" onClick={() => { setForm(emptyForm); setEditId(null); setShowForm(true); }}>
-            <PlusIcon size={15} /> Ghi thu/chi
+            <PlusIcon size={15} /> {t("v3.clubDetail.finance.recordTx")}
           </Btn>
         )}
       </div>
@@ -1914,27 +1957,27 @@ function BookView({ club, my }) {
         <Card style={{ padding: 16 }}>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
             <button type="button" onClick={() => setF("type", "income")} style={{ all: "unset", flex: 1, textAlign: "center", cursor: "pointer", padding: "9px 0", borderRadius: 10, fontWeight: 700, color: form.type === "income" ? "#fff" : C.body2, background: form.type === "income" ? "#3BA55D" : "rgba(255,255,255,.06)", border: `1px solid ${form.type === "income" ? "transparent" : "rgba(255,255,255,.12)"}` }}>
-              + Khoản thu
+              {t("v3.clubDetail.finance.addIncome")}
             </button>
             <button type="button" onClick={() => setF("type", "expense")} style={{ all: "unset", flex: 1, textAlign: "center", cursor: "pointer", padding: "9px 0", borderRadius: 10, fontWeight: 700, color: form.type === "expense" ? "#fff" : C.body2, background: form.type === "expense" ? "#E05353" : "rgba(255,255,255,.06)", border: `1px solid ${form.type === "expense" ? "transparent" : "rgba(255,255,255,.12)"}` }}>
-              − Khoản chi
+              {t("v3.clubDetail.finance.addExpense")}
             </button>
           </div>
           <div style={{ display: "grid", gap: 12 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
-                <label style={labelStyle}>Số tiền (₫)</label>
-                <input style={fieldStyle} inputMode="numeric" value={form.amount} onChange={(e) => setF("amount", e.target.value.replace(/[^\d]/g, ""))} placeholder="VD: 200000" />
+                <label style={labelStyle}>{t("v3.clubDetail.finance.amount")}</label>
+                <input style={fieldStyle} inputMode="numeric" value={form.amount} onChange={(e) => setF("amount", e.target.value.replace(/[^\d]/g, ""))} placeholder={t("v3.clubDetail.finance.amountPlaceholder")} />
               </div>
               <div>
-                <label style={labelStyle}>Ngày</label>
+                <label style={labelStyle}>{t("v3.clubDetail.finance.date")}</label>
                 <input type="date" style={fieldStyle} value={form.occurredAt} onChange={(e) => setF("occurredAt", e.target.value)} />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
-                <label style={labelStyle}>Danh mục</label>
-                <input style={fieldStyle} value={form.category} onChange={(e) => setF("category", e.target.value)} placeholder="Chọn hoặc nhập…" list="fin-cats" />
+                <label style={labelStyle}>{t("v3.clubDetail.finance.category")}</label>
+                <input style={fieldStyle} value={form.category} onChange={(e) => setF("category", e.target.value)} placeholder={t("v3.clubDetail.finance.categoryPlaceholder")} list="fin-cats" />
                 <datalist id="fin-cats">
                   {cats.map((c) => (
                     <option key={c} value={c} />
@@ -1942,9 +1985,9 @@ function BookView({ club, my }) {
                 </datalist>
               </div>
               <div>
-                <label style={labelStyle}>Phương thức</label>
+                <label style={labelStyle}>{t("v3.clubDetail.finance.method")}</label>
                 <select style={fieldStyle} value={form.method} onChange={(e) => setF("method", e.target.value)}>
-                  {Object.entries(METHOD_LABELS).map(([k, v]) => (
+                  {Object.entries(methodLabels(t)).map(([k, v]) => (
                     <option key={k} value={k}>{v}</option>
                   ))}
                 </select>
@@ -1958,12 +2001,12 @@ function BookView({ club, my }) {
               ))}
             </div>
             <div>
-              <label style={labelStyle}>Mô tả</label>
-              <textarea style={{ ...fieldStyle, minHeight: 54, resize: "vertical" }} value={form.description} onChange={(e) => setF("description", e.target.value)} placeholder="Ghi chú…" />
+              <label style={labelStyle}>{t("v3.clubDetail.finance.note")}</label>
+              <textarea style={{ ...fieldStyle, minHeight: 54, resize: "vertical" }} value={form.description} onChange={(e) => setF("description", e.target.value)} placeholder={t("v3.clubDetail.finance.notePlaceholder")} />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <Btn variant="primary" size="sm" onClick={submit} disabled={creating || updating}>{editId ? "Lưu" : "Ghi"}</Btn>
-              <Btn variant="ghost" size="sm" onClick={resetForm}>Huỷ</Btn>
+              <Btn variant="primary" size="sm" onClick={submit} disabled={creating || updating}>{editId ? t("v3.clubDetail.common.save") : t("v3.clubDetail.finance.record")}</Btn>
+              <Btn variant="ghost" size="sm" onClick={resetForm}>{t("v3.clubDetail.common.cancel")}</Btn>
             </div>
           </div>
         </Card>
@@ -1975,33 +2018,33 @@ function BookView({ club, my }) {
           <Skeleton width="60%" height="16px" />
         </Card>
       ) : items.length === 0 ? (
-        <SectionEmpty icon={<Wallet size={40} />} title="Chưa có giao dịch nào" hint={canManage ? "Ghi khoản thu/chi đầu tiên." : undefined} />
+        <SectionEmpty icon={<Wallet size={40} />} title={t("v3.clubDetail.finance.emptyTxTitle")} hint={canManage ? t("v3.clubDetail.finance.emptyTxHint") : undefined} />
       ) : (
         <Card style={{ padding: 0, overflow: "hidden" }}>
-          {items.map((t, i) => {
-            const inc = t.type === "income";
+          {items.map((tx, i) => {
+            const inc = tx.type === "income";
             return (
-              <div key={t._id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
+              <div key={tx._id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
                 <div style={{ width: 34, height: 34, borderRadius: 999, flexShrink: 0, display: "grid", placeItems: "center", background: inc ? "rgba(59,165,93,.14)" : "rgba(224,83,83,.14)", color: inc ? "#7CC7A2" : "#F1948A" }}>
                   {inc ? <ArrowUpRight size={17} /> : <ArrowDownRight size={17} />}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ color: C.head, fontWeight: 700, fontSize: 14 }}>{t.category || "Khác"}</span>
-                    <span style={{ ...chip, fontSize: 10.5, padding: "1px 7px" }}>{METHOD_LABELS[t.method] || t.method}</span>
+                    <span style={{ color: C.head, fontWeight: 700, fontSize: 14 }}>{tx.category || t("v3.clubDetail.finance.catOther")}</span>
+                    <span style={{ ...chip, fontSize: 10.5, padding: "1px 7px" }}>{methodLabels(t)[tx.method] || tx.method}</span>
                   </div>
                   <div style={{ color: C.muted, fontSize: 12, marginTop: 2 }}>
-                    {fmtDate(t.occurredAt)}
-                    {t.description ? ` · ${t.description}` : ""}
+                    {fmtDate(tx.occurredAt)}
+                    {tx.description ? ` · ${tx.description}` : ""}
                   </div>
                 </div>
                 <div style={{ color: inc ? "#7CC7A2" : "#F1948A", fontWeight: 800, fontSize: 14.5, whiteSpace: "nowrap" }}>
-                  {inc ? "+" : "−"}{fmtVnd(t.amount)}
+                  {inc ? "+" : "−"}{fmtVnd(tx.amount)}
                 </div>
                 {canManage && (
                   <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                    <Btn variant="ghost" size="sm" onClick={() => startEdit(t)} title="Sửa"><Pencil size={14} /></Btn>
-                    <Btn variant="danger" size="sm" onClick={() => remove(t)} title="Xoá"><Trash2 size={14} /></Btn>
+                    <Btn variant="ghost" size="sm" onClick={() => startEdit(tx)} title={t("v3.clubDetail.common.edit")}><Pencil size={14} /></Btn>
+                    <Btn variant="danger" size="sm" onClick={() => remove(tx)} title={t("v3.clubDetail.common.delete")}><Trash2 size={14} /></Btn>
                   </div>
                 )}
               </div>
@@ -2013,7 +2056,7 @@ function BookView({ club, my }) {
       {/* Báo cáo */}
       {byCat.length > 0 && (
         <Card style={{ padding: 16 }}>
-          <div style={{ color: C.head, fontWeight: 720, fontSize: 15, marginBottom: 12 }}>Theo danh mục</div>
+          <div style={{ color: C.head, fontWeight: 720, fontSize: 15, marginBottom: 12 }}>{t("v3.clubDetail.finance.byCategory")}</div>
           <div style={{ display: "grid", gap: 8 }}>
             {byCat.slice(0, 10).map((c, i) => {
               const inc = c.type === "income";
@@ -2021,7 +2064,7 @@ function BookView({ club, my }) {
                 <div key={i}>
                   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, marginBottom: 3 }}>
                     <span style={{ color: C.body2 }}>
-                      <span style={{ color: inc ? "#7CC7A2" : "#F1948A" }}>{inc ? "Thu" : "Chi"}</span> · {c.category}
+                      <span style={{ color: inc ? "#7CC7A2" : "#F1948A" }}>{inc ? t("v3.clubDetail.finance.income") : t("v3.clubDetail.finance.expense")}</span> · {c.category}
                     </span>
                     <span style={{ color: C.body2, fontWeight: 700 }}>{fmtVnd(c.sum)}</span>
                   </div>
@@ -2037,21 +2080,21 @@ function BookView({ club, my }) {
 
       {byMonth.length > 0 && (
         <Card style={{ padding: 16 }}>
-          <div style={{ color: C.head, fontWeight: 720, fontSize: 15, marginBottom: 12 }}>Theo tháng</div>
+          <div style={{ color: C.head, fontWeight: 720, fontSize: 15, marginBottom: 12 }}>{t("v3.clubDetail.finance.byMonth")}</div>
           <div style={{ display: "flex", gap: 10, alignItems: "flex-end", overflowX: "auto", paddingBottom: 4 }}>
             {byMonth.map((m) => (
               <div key={m.month} style={{ textAlign: "center", minWidth: 44 }}>
                 <div style={{ display: "flex", gap: 3, alignItems: "flex-end", height: 80, justifyContent: "center" }}>
-                  <div title={`Thu ${fmtVnd(m.income)}`} style={{ width: 10, borderRadius: 4, background: "#3BA55D", height: `${Math.max(2, (m.income / maxMonth) * 80)}px` }} />
-                  <div title={`Chi ${fmtVnd(m.expense)}`} style={{ width: 10, borderRadius: 4, background: "#E05353", height: `${Math.max(2, (m.expense / maxMonth) * 80)}px` }} />
+                  <div title={t("v3.clubDetail.finance.incomeTitle", { amount: fmtVnd(m.income) })} style={{ width: 10, borderRadius: 4, background: "#3BA55D", height: `${Math.max(2, (m.income / maxMonth) * 80)}px` }} />
+                  <div title={t("v3.clubDetail.finance.expenseTitle", { amount: fmtVnd(m.expense) })} style={{ width: 10, borderRadius: 4, background: "#E05353", height: `${Math.max(2, (m.expense / maxMonth) * 80)}px` }} />
                 </div>
                 <div style={{ color: C.muted, fontSize: 10.5, marginTop: 5 }}>{m.month.slice(5)}/{m.month.slice(2, 4)}</div>
               </div>
             ))}
           </div>
           <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 12, color: C.muted }}>
-            <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: "#3BA55D", marginRight: 5 }} />Thu</span>
-            <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: "#E05353", marginRight: 5 }} />Chi</span>
+            <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: "#3BA55D", marginRight: 5 }} />{t("v3.clubDetail.finance.income")}</span>
+            <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: 2, background: "#E05353", marginRight: 5 }} />{t("v3.clubDetail.finance.expense")}</span>
           </div>
         </Card>
       )}
@@ -2066,11 +2109,15 @@ function duesPeriodKey(date, period) {
   if (period === "quarterly") return `${y}-Q${Math.floor(date.getMonth() / 3) + 1}`;
   return `${y}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 }
-function duesPeriodLabel(date, period) {
+function duesPeriodLabel(date, period, t) {
   const y = date.getFullYear();
-  if (period === "yearly") return `Năm ${y}`;
-  if (period === "quarterly") return `Quý ${Math.floor(date.getMonth() / 3) + 1}/${y}`;
-  return `Tháng ${String(date.getMonth() + 1).padStart(2, "0")}/${y}`;
+  if (period === "yearly") return t("v3.clubDetail.dues.labelYear", { y });
+  if (period === "quarterly")
+    return t("v3.clubDetail.dues.labelQuarter", { q: Math.floor(date.getMonth() / 3) + 1, y });
+  return t("v3.clubDetail.dues.labelMonth", {
+    m: String(date.getMonth() + 1).padStart(2, "0"),
+    y,
+  });
 }
 function duesStep(date, period, dir) {
   const d = new Date(date);
@@ -2080,12 +2127,21 @@ function duesStep(date, period, dir) {
   return d;
 }
 const PERIOD_OPTS = [
-  { k: "monthly", l: "Theo tháng" },
-  { k: "quarterly", l: "Theo quý" },
-  { k: "yearly", l: "Theo năm" },
+  { k: "monthly", labelKey: "v3.clubDetail.dues.periodMonthly" },
+  { k: "quarterly", labelKey: "v3.clubDetail.dues.periodQuarterly" },
+  { k: "yearly", labelKey: "v3.clubDetail.dues.periodYearly" },
 ];
+const periodNoun = (period, t) =>
+  t(
+    period === "yearly"
+      ? "v3.clubDetail.dues.nounYearly"
+      : period === "quarterly"
+      ? "v3.clubDetail.dues.nounQuarterly"
+      : "v3.clubDetail.dues.nounMonthly"
+  );
 
 function DuesConfigCard({ club, cfg }) {
+  const { t } = useLanguage();
   const id = club._id;
   const [setCfg, { isLoading }] = useSetDuesConfigMutation();
   const [open, setOpen] = useState(false);
@@ -2102,10 +2158,10 @@ function DuesConfigCard({ club, cfg }) {
   const save = async () => {
     try {
       await setCfg({ id, amount: Number(String(amount).replace(/[^\d]/g, "")) || 0, period, active }).unwrap();
-      toast.success("Đã lưu cấu hình phí.");
+      toast.success(t("v3.clubDetail.dues.configSaved"));
       setOpen(false);
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
@@ -2114,29 +2170,29 @@ function DuesConfigCard({ club, cfg }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ color: C.body2, fontSize: 13.5 }}>
           {cfg?.active
-            ? <>Phí: <b style={{ color: C.head }}>{fmtVnd(cfg.amount)}</b> / {PERIOD_OPTS.find((p) => p.k === cfg.period)?.l.replace("Theo ", "")}</>
-            : "Chưa bật thu phí hội viên"}
+            ? <>{t("v3.clubDetail.dues.feePrefix")} <b style={{ color: C.head }}>{fmtVnd(cfg.amount)}</b> / {periodNoun(cfg.period, t)}</>
+            : t("v3.clubDetail.dues.notEnabled")}
         </div>
-        <Btn variant="ghost" size="sm" onClick={() => setOpen((v) => !v)}>{open ? "Đóng" : "Cấu hình"}</Btn>
+        <Btn variant="ghost" size="sm" onClick={() => setOpen((v) => !v)}>{open ? t("v3.clubDetail.dues.hideConfig") : t("v3.clubDetail.dues.config")}</Btn>
       </div>
       {open && (
         <div style={{ display: "grid", gap: 12, marginTop: 12 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>
-              <label style={labelStyle}>Mức phí (₫)</label>
+              <label style={labelStyle}>{t("v3.clubDetail.dues.feeAmount")}</label>
               <input style={fieldStyle} inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ""))} />
             </div>
             <div>
-              <label style={labelStyle}>Chu kỳ</label>
+              <label style={labelStyle}>{t("v3.clubDetail.dues.cycle")}</label>
               <select style={fieldStyle} value={period} onChange={(e) => setPeriod(e.target.value)}>
-                {PERIOD_OPTS.map((p) => <option key={p.k} value={p.k}>{p.l}</option>)}
+                {PERIOD_OPTS.map((p) => <option key={p.k} value={p.k}>{t(p.labelKey)}</option>)}
               </select>
             </div>
           </div>
           <label style={{ display: "inline-flex", alignItems: "center", gap: 8, color: C.body2, fontSize: 13.5, cursor: "pointer" }}>
-            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> Bật thu phí hội viên
+            <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {t("v3.clubDetail.dues.enableDues")}
           </label>
-          <div><Btn variant="primary" size="sm" onClick={save} disabled={isLoading}>Lưu</Btn></div>
+          <div><Btn variant="primary" size="sm" onClick={save} disabled={isLoading}>{t("v3.clubDetail.common.save")}</Btn></div>
         </div>
       )}
     </Card>
@@ -2144,6 +2200,7 @@ function DuesConfigCard({ club, cfg }) {
 }
 
 function DuesView({ club, my }) {
+  const { t } = useLanguage();
   const id = club._id;
   const canManage = !!my?.canManage;
   const { data: cfg } = useGetDuesConfigQuery({ id });
@@ -2163,21 +2220,21 @@ function DuesView({ club, my }) {
     try {
       await payDues({ id, member: u._id, periodKey: key, amount: cfg?.amount || 0, method: "cash" }).unwrap();
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const doUnpay = async (u) => {
     try {
       await unpayDues({ id, member: u._id, periodKey: key }).unwrap();
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
   const nav = (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14 }}>
       <Btn variant="ghost" size="sm" onClick={() => setCursor((c) => duesStep(c, period, -1))}>‹</Btn>
-      <span style={{ color: C.head, fontWeight: 700, fontSize: 14.5, minWidth: 130, textAlign: "center" }}>{duesPeriodLabel(cursor, period)}</span>
+      <span style={{ color: C.head, fontWeight: 700, fontSize: 14.5, minWidth: 130, textAlign: "center" }}>{duesPeriodLabel(cursor, period, t)}</span>
       <Btn variant="ghost" size="sm" onClick={() => setCursor((c) => duesStep(c, period, 1))}>›</Btn>
     </div>
   );
@@ -2190,7 +2247,7 @@ function DuesView({ club, my }) {
       <div style={{ display: "grid", gap: 14 }}>
         <Card style={{ padding: 16 }}>
           <div style={{ color: C.body2, fontSize: 13.5 }}>
-            {cfg?.active ? <>Phí hội viên: <b style={{ color: C.head }}>{fmtVnd(cfg.amount)}</b> / {PERIOD_OPTS.find((p) => p.k === cfg.period)?.l.replace("Theo ", "")}</> : "CLB chưa thu phí hội viên."}
+            {cfg?.active ? <>{t("v3.clubDetail.dues.feePrefixMember")} <b style={{ color: C.head }}>{fmtVnd(cfg.amount)}</b> / {periodNoun(cfg.period, t)}</> : t("v3.clubDetail.dues.notCollecting")}
           </div>
         </Card>
         {cfg?.active && (
@@ -2198,14 +2255,14 @@ function DuesView({ club, my }) {
             {nav}
             <Card style={{ padding: 18, textAlign: "center" }}>
               {myPaid ? (
-                <div style={{ color: "#7CC7A2", fontWeight: 700 }}>✓ Bạn đã đóng phí {duesPeriodLabel(cursor, period)}</div>
+                <div style={{ color: "#7CC7A2", fontWeight: 700 }}>{t("v3.clubDetail.dues.paidFor", { period: duesPeriodLabel(cursor, period, t) })}</div>
               ) : (
-                <div style={{ color: "#F1948A", fontWeight: 700 }}>Bạn chưa đóng phí {duesPeriodLabel(cursor, period)}</div>
+                <div style={{ color: "#F1948A", fontWeight: 700 }}>{t("v3.clubDetail.dues.notPaidFor", { period: duesPeriodLabel(cursor, period, t) })}</div>
               )}
             </Card>
-            <div style={{ color: C.head, fontWeight: 700, fontSize: 14, marginTop: 4 }}>Lịch sử đóng phí</div>
+            <div style={{ color: C.head, fontWeight: 700, fontSize: 14, marginTop: 4 }}>{t("v3.clubDetail.dues.history")}</div>
             {(mine?.payments || []).length === 0 ? (
-              <div style={{ color: C.muted, fontSize: 13 }}>Chưa có.</div>
+              <div style={{ color: C.muted, fontSize: 13 }}>{t("v3.clubDetail.dues.none")}</div>
             ) : (
               <Card style={{ padding: 0, overflow: "hidden" }}>
                 {(mine?.payments || []).map((p, i) => (
@@ -2226,15 +2283,15 @@ function DuesView({ club, my }) {
     <div style={{ display: "grid", gap: 14 }}>
       <DuesConfigCard club={club} cfg={cfg} />
       {!cfg?.active ? (
-        <SectionEmpty icon={<Wallet size={40} />} title="Chưa bật thu phí hội viên" hint="Bấm Cấu hình để đặt mức phí và bật thu." />
+        <SectionEmpty icon={<Wallet size={40} />} title={t("v3.clubDetail.dues.notEnabled")} hint={t("v3.clubDetail.dues.enableHint")} />
       ) : (
         <>
           {nav}
           {s && (
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <StatCard label="Đã đóng" value={`${s.paidCount}/${s.memberCount}`} color="#7CC7A2" icon={<Check size={13} />} />
-              <StatCard label="Còn nợ" value={`${s.unpaidCount}`} color="#F1948A" icon={<XIcon size={13} />} />
-              <StatCard label="Thu được" value={fmtVnd(s.total)} color={C.head2} icon={<Wallet size={13} />} />
+              <StatCard label={t("v3.clubDetail.dues.paid")} value={`${s.paidCount}/${s.memberCount}`} color="#7CC7A2" icon={<Check size={13} />} />
+              <StatCard label={t("v3.clubDetail.dues.unpaid")} value={`${s.unpaidCount}`} color="#F1948A" icon={<XIcon size={13} />} />
+              <StatCard label={t("v3.clubDetail.dues.collected")} value={fmtVnd(s.total)} color={C.head2} icon={<Wallet size={13} />} />
             </div>
           )}
           {isLoading ? (
@@ -2246,21 +2303,21 @@ function DuesView({ club, my }) {
                   <Avatar size="small" src={it.user.avatar || undefined} name={it.user.fullName || "?"} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ color: C.head, fontWeight: 650, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {it.user.nickname || it.user.fullName || "Người dùng"}
+                      {it.user.nickname || it.user.fullName || t("v3.clubDetail.common.userFallback")}
                     </div>
                     {it.paid && it.payment && (
                       <div style={{ color: C.muted, fontSize: 11.5 }}>{fmtVnd(it.payment.amount)} · {fmtDate(it.payment.paidAt)}</div>
                     )}
                   </div>
                   {it.paid ? (
-                    <Btn variant="success" size="sm" onClick={() => doUnpay(it.user)}>✓ Đã đóng</Btn>
+                    <Btn variant="success" size="sm" onClick={() => doUnpay(it.user)}>{t("v3.clubDetail.dues.paidBtn")}</Btn>
                   ) : (
-                    <Btn variant="ghost" size="sm" onClick={() => doPay(it.user)}>Đánh dấu đóng</Btn>
+                    <Btn variant="ghost" size="sm" onClick={() => doPay(it.user)}>{t("v3.clubDetail.dues.markPaidBtn")}</Btn>
                   )}
                 </div>
               ))}
               {items.length === 0 && (
-                <div style={{ padding: 16, color: C.muted, fontSize: 13 }}>Chưa có thành viên.</div>
+                <div style={{ padding: 16, color: C.muted, fontSize: 13 }}>{t("v3.clubDetail.dues.noMembers")}</div>
               )}
             </Card>
           )}
@@ -2271,11 +2328,12 @@ function DuesView({ club, my }) {
 }
 
 function FinanceTab({ club, my }) {
+  const { t } = useLanguage();
   const [view, setView] = useState("book");
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", gap: 8 }}>
-        {[{ k: "book", l: "Sổ quỹ" }, { k: "dues", l: "Phí hội viên" }].map((v) => (
+        {[{ k: "book", l: t("v3.clubDetail.finance.book") }, { k: "dues", l: t("v3.clubDetail.finance.dues") }].map((v) => (
           <button
             key={v.k}
             type="button"
@@ -2293,6 +2351,7 @@ function FinanceTab({ club, my }) {
 
 /* =============================== SESSIONS =============================== */
 function SessionAttendees({ clubId, session }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const { data, isFetching } = useListSessionAttendanceQuery(
     { id: clubId, sessionId: session._id },
@@ -2304,17 +2363,17 @@ function SessionAttendees({ clubId, session }) {
   return (
     <div style={{ marginTop: 10 }}>
       <button type="button" onClick={() => setOpen((v) => !v)} style={{ all: "unset", cursor: "pointer", color: C.body2, fontSize: 12.5, fontWeight: 650, display: "inline-flex", alignItems: "center", gap: 5 }}>
-        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Người tham gia ({fmtInt(count)})
+        {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {t("v3.clubDetail.common.attendeesToggle", { count: fmtInt(count) })}
       </button>
       {open && (
         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
           {isFetching ? (
-            <span style={{ color: C.muted, fontSize: 12 }}>Đang tải…</span>
+            <span style={{ color: C.muted, fontSize: 12 }}>{t("v3.clubDetail.common.loading")}</span>
           ) : (
             people.map((u) => (
               <A key={u._id} href={`/user/${u._id}`} style={{ ...chip, textDecoration: "none", paddingLeft: 4 }}>
                 <Avatar size="small" src={u.avatar || undefined} name={u.fullName || "?"} />
-                <span style={{ color: C.body2 }}>{u.nickname || u.fullName || "Người dùng"}</span>
+                <span style={{ color: C.body2 }}>{u.nickname || u.fullName || t("v3.clubDetail.common.userFallback")}</span>
               </A>
             ))
           )}
@@ -2324,9 +2383,10 @@ function SessionAttendees({ clubId, session }) {
   );
 }
 
-const emptySessionForm = { title: "Buổi tập", startAt: toLocalInput(new Date()), location: "", note: "", repeatWeeks: "1" };
+const emptySessionForm = (t) => ({ title: t("v3.clubDetail.sessions.defaultTitle"), startAt: toLocalInput(new Date()), location: "", note: "", repeatWeeks: "1" });
 
 function SessionsTab({ club, my }) {
+  const { t } = useLanguage();
   const id = club._id;
   const canManage = !!my?.canManage;
   const [view, setView] = useState("list");
@@ -2340,20 +2400,20 @@ function SessionsTab({ club, my }) {
 
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [form, setForm] = useState(emptySessionForm);
+  const [form, setForm] = useState(() => emptySessionForm(t));
   const setF = (k, v) => setForm((s) => ({ ...s, [k]: v }));
   const items = data?.items || [];
 
-  const resetForm = () => { setForm(emptySessionForm); setEditId(null); setShowForm(false); };
+  const resetForm = () => { setForm(emptySessionForm(t)); setEditId(null); setShowForm(false); };
   const startEdit = (s) => {
     setEditId(s._id);
-    setForm({ title: s.title || "Buổi tập", startAt: toLocalInput(s.startAt), location: s.location || "", note: s.note || "", repeatWeeks: "1" });
+    setForm({ title: s.title || t("v3.clubDetail.sessions.defaultTitle"), startAt: toLocalInput(s.startAt), location: s.location || "", note: s.note || "", repeatWeeks: "1" });
     setShowForm(true);
   };
   const submit = async () => {
-    if (!form.startAt) return toast.info("Chọn thời gian.");
+    if (!form.startAt) return toast.info(t("v3.clubDetail.sessions.needTime"));
     const body = {
-      title: form.title.trim() || "Buổi tập",
+      title: form.title.trim() || t("v3.clubDetail.sessions.defaultTitle"),
       startAt: new Date(form.startAt).toISOString(),
       location: form.location.trim(),
       note: form.note.trim(),
@@ -2361,30 +2421,30 @@ function SessionsTab({ club, my }) {
     try {
       if (editId) {
         await updateSession({ id, sessionId: editId, ...body }).unwrap();
-        toast.success("Đã cập nhật.");
+        toast.success(t("v3.clubDetail.sessions.updated"));
       } else {
         const n = Math.max(1, parseInt(form.repeatWeeks, 10) || 1);
         await createSession({ id, ...body, repeatWeeks: n }).unwrap();
-        toast.success(n > 1 ? `Đã tạo ${n} buổi.` : "Đã tạo buổi tập.");
+        toast.success(n > 1 ? t("v3.clubDetail.sessions.createdMany", { count: n }) : t("v3.clubDetail.sessions.created"));
       }
       resetForm();
-    } catch (err) { toast.error(getApiErrMsg(err)); }
+    } catch (err) { toast.error(getApiErrMsg(err, t)); }
   };
   const remove = async (s) => {
-    if (!window.confirm("Xoá buổi tập này?")) return;
-    try { await deleteSession({ id, sessionId: s._id }).unwrap(); } catch (err) { toast.error(getApiErrMsg(err)); }
+    if (!window.confirm(t("v3.clubDetail.sessions.confirmDelete"))) return;
+    try { await deleteSession({ id, sessionId: s._id }).unwrap(); } catch (err) { toast.error(getApiErrMsg(err, t)); }
   };
   const doCheckin = async (s) => {
     try { await checkin({ id, sessionId: s._id }).unwrap(); } catch (err) {
-      if (err?.status === 401) toast.warn("Bạn cần đăng nhập.");
-      else toast.error(getApiErrMsg(err));
+      if (err?.status === 401) toast.warn(t("v3.clubDetail.common.needLogin"));
+      else toast.error(getApiErrMsg(err, t));
     }
   };
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", gap: 8 }}>
-        {[{ k: "list", l: "Buổi tập" }, { k: "stats", l: "Chuyên cần" }].map((v) => (
+        {[{ k: "list", l: t("v3.clubDetail.sessions.listTab") }, { k: "stats", l: t("v3.clubDetail.sessions.statsTab") }].map((v) => (
           <button key={v.k} type="button" onClick={() => setView(v.k)} style={{ all: "unset", cursor: "pointer", flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 10, fontWeight: 700, fontSize: 13.5, color: view === v.k ? "#fff" : C.body2, background: view === v.k ? C.brand : "rgba(255,255,255,.06)", border: `1px solid ${view === v.k ? "transparent" : "rgba(255,255,255,.12)"}` }}>
             {v.l}
           </button>
@@ -2393,17 +2453,17 @@ function SessionsTab({ club, my }) {
 
       {view === "stats" ? (
         <>
-          <div style={{ color: C.muted, fontSize: 12.5 }}>Tổng số buổi: {fmtInt(stats?.totalSessions || 0)}</div>
+          <div style={{ color: C.muted, fontSize: 12.5 }}>{t("v3.clubDetail.sessions.totalSessions", { count: fmtInt(stats?.totalSessions || 0) })}</div>
           {(stats?.items || []).length === 0 ? (
-            <SectionEmpty icon={<CalendarCheck size={40} />} title="Chưa có dữ liệu chuyên cần" />
+            <SectionEmpty icon={<CalendarCheck size={40} />} title={t("v3.clubDetail.sessions.emptyStats")} />
           ) : (
             <Card style={{ padding: 0, overflow: "hidden" }}>
               {(stats?.items || []).map((it, i) => (
                 <div key={it.user._id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderTop: i === 0 ? "none" : `1px solid ${C.border}` }}>
                   <span style={{ width: 22, textAlign: "center", color: i < 3 ? "#F0C24B" : C.muted, fontWeight: 800 }}>{i + 1}</span>
                   <Avatar size="small" src={it.user.avatar || undefined} name={it.user.fullName || "?"} />
-                  <span style={{ flex: 1, color: C.head, fontSize: 13.5, fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.user.nickname || it.user.fullName || "Người dùng"}</span>
-                  <span style={{ color: C.body2, fontWeight: 700, fontSize: 13.5 }}>{it.count} buổi</span>
+                  <span style={{ flex: 1, color: C.head, fontSize: 13.5, fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.user.nickname || it.user.fullName || t("v3.clubDetail.common.userFallback")}</span>
+                  <span style={{ color: C.body2, fontWeight: 700, fontSize: 13.5 }}>{t("v3.clubDetail.sessions.sessionCount", { count: it.count })}</span>
                 </div>
               ))}
             </Card>
@@ -2414,38 +2474,38 @@ function SessionsTab({ club, my }) {
           {canManage && (
             <Card style={{ padding: 16 }}>
               {!showForm ? (
-                <Btn variant="ghost" onClick={() => { setForm(emptySessionForm); setEditId(null); setShowForm(true); }}>
-                  <PlusIcon size={16} /> Tạo buổi tập
+                <Btn variant="ghost" onClick={() => { setForm(emptySessionForm(t)); setEditId(null); setShowForm(true); }}>
+                  <PlusIcon size={16} /> {t("v3.clubDetail.sessions.createBtn")}
                 </Btn>
               ) : (
                 <div style={{ display: "grid", gap: 12 }}>
                   <div>
-                    <label style={labelStyle}>Tên buổi</label>
-                    <input style={fieldStyle} value={form.title} onChange={(e) => setF("title", e.target.value)} placeholder="VD: Tập luyện tối thứ 3" />
+                    <label style={labelStyle}>{t("v3.clubDetail.sessions.nameLabel")}</label>
+                    <input style={fieldStyle} value={form.title} onChange={(e) => setF("title", e.target.value)} placeholder={t("v3.clubDetail.sessions.namePlaceholder")} />
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                     <div>
-                      <label style={labelStyle}>Thời gian</label>
+                      <label style={labelStyle}>{t("v3.clubDetail.sessions.time")}</label>
                       <input type="datetime-local" style={fieldStyle} value={form.startAt} onChange={(e) => setF("startAt", e.target.value)} />
                     </div>
                     <div>
-                      <label style={labelStyle}>Địa điểm</label>
-                      <input style={fieldStyle} value={form.location} onChange={(e) => setF("location", e.target.value)} placeholder="Sân…" />
+                      <label style={labelStyle}>{t("v3.clubDetail.sessions.location")}</label>
+                      <input style={fieldStyle} value={form.location} onChange={(e) => setF("location", e.target.value)} placeholder={t("v3.clubDetail.sessions.locationPlaceholder")} />
                     </div>
                   </div>
                   {!editId && (
                     <div>
-                      <label style={labelStyle}>Lặp lại hàng tuần (số tuần)</label>
+                      <label style={labelStyle}>{t("v3.clubDetail.sessions.repeatWeeks")}</label>
                       <input type="number" min={1} max={52} style={fieldStyle} value={form.repeatWeeks} onChange={(e) => setF("repeatWeeks", e.target.value)} />
                     </div>
                   )}
                   <div>
-                    <label style={labelStyle}>Ghi chú</label>
+                    <label style={labelStyle}>{t("v3.clubDetail.sessions.note")}</label>
                     <textarea style={{ ...fieldStyle, minHeight: 50, resize: "vertical" }} value={form.note} onChange={(e) => setF("note", e.target.value)} />
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <Btn variant="primary" size="sm" onClick={submit} disabled={creating || updating}>{editId ? "Lưu" : "Tạo"}</Btn>
-                    <Btn variant="ghost" size="sm" onClick={resetForm}>Huỷ</Btn>
+                    <Btn variant="primary" size="sm" onClick={submit} disabled={creating || updating}>{editId ? t("v3.clubDetail.common.save") : t("v3.clubDetail.common.create")}</Btn>
+                    <Btn variant="ghost" size="sm" onClick={resetForm}>{t("v3.clubDetail.common.cancel")}</Btn>
                   </div>
                 </div>
               )}
@@ -2455,7 +2515,7 @@ function SessionsTab({ club, my }) {
           {isLoading ? (
             <Card style={{ padding: 16 }}><Skeleton width="50%" height="16px" /></Card>
           ) : items.length === 0 ? (
-            <SectionEmpty icon={<CalendarCheck size={40} />} title="Chưa có buổi tập nào" hint={canManage ? "Tạo lịch sinh hoạt đầu tiên." : undefined} />
+            <SectionEmpty icon={<CalendarCheck size={40} />} title={t("v3.clubDetail.sessions.emptyTitle")} hint={canManage ? t("v3.clubDetail.sessions.emptyHint") : undefined} />
           ) : (
             items.map((s) => {
               const past = new Date(s.startAt) < new Date(Date.now() - 6 * 3600 * 1000);
@@ -2472,16 +2532,16 @@ function SessionsTab({ club, my }) {
                     </div>
                     {canManage && (
                       <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                        <Btn variant="ghost" size="sm" onClick={() => startEdit(s)} title="Sửa"><Pencil size={15} /></Btn>
-                        <Btn variant="danger" size="sm" onClick={() => remove(s)} title="Xoá"><Trash2 size={15} /></Btn>
+                        <Btn variant="ghost" size="sm" onClick={() => startEdit(s)} title={t("v3.clubDetail.common.edit")}><Pencil size={15} /></Btn>
+                        <Btn variant="danger" size="sm" onClick={() => remove(s)} title={t("v3.clubDetail.common.delete")}><Trash2 size={15} /></Btn>
                       </div>
                     )}
                   </div>
                   <div style={{ display: "flex", gap: 8, marginTop: 12, alignItems: "center", flexWrap: "wrap" }}>
                     <Btn variant={s.myCheckedIn ? "success" : "ghost"} size="sm" onClick={() => doCheckin(s)}>
-                      <Check size={14} /> {s.myCheckedIn ? "Đã điểm danh ✓" : "Điểm danh"}
+                      <Check size={14} /> {s.myCheckedIn ? t("v3.clubDetail.sessions.checkedIn") : t("v3.clubDetail.sessions.checkin")}
                     </Btn>
-                    <span style={{ color: C.muted, fontSize: 12.5 }}>{fmtInt(s.attendeeCount || 0)} người tham gia</span>
+                    <span style={{ color: C.muted, fontSize: 12.5 }}>{t("v3.clubDetail.sessions.attendeeCount", { count: fmtInt(s.attendeeCount || 0) })}</span>
                   </div>
                   <SessionAttendees clubId={id} session={s} />
                 </Card>
@@ -2499,6 +2559,7 @@ const teamNames = (team) =>
   (team || []).map((u) => u?.nickname || u?.fullName || "?").join(" & ") || "?";
 
 function MatchRecordForm({ club, onDone }) {
+  const { t } = useLanguage();
   const id = club._id;
   const { data: mem } = useListMembersQuery({ id });
   const members = mem?.items || [];
@@ -2513,11 +2574,11 @@ function MatchRecordForm({ club, onDone }) {
 
   const opt = (val, setVal, exclude) => (
     <select style={fieldStyle} value={val} onChange={(e) => setVal(e.target.value)}>
-      <option value="">— chọn —</option>
+      <option value="">{t("v3.clubDetail.matches.selectPlaceholder")}</option>
       {members
         .filter((m) => m.user && (!exclude.includes(String(m.user._id)) || String(m.user._id) === val))
         .map((m) => (
-          <option key={m.user._id} value={m.user._id}>{m.user.nickname || m.user.fullName || "Người dùng"}</option>
+          <option key={m.user._id} value={m.user._id}>{m.user.nickname || m.user.fullName || t("v3.clubDetail.common.userFallback")}</option>
         ))}
     </select>
   );
@@ -2525,13 +2586,13 @@ function MatchRecordForm({ club, onDone }) {
   const submit = async () => {
     const teamA = [a1, a2].filter(Boolean);
     const teamB = [b1, b2].filter(Boolean);
-    if (!teamA.length || !teamB.length) return toast.info("Chọn người cho cả 2 bên.");
-    if (sa === "" || sb === "" || Number(sa) === Number(sb)) return toast.info("Nhập tỉ số hợp lệ (không hoà).");
+    if (!teamA.length || !teamB.length) return toast.info(t("v3.clubDetail.matches.needBothTeams"));
+    if (sa === "" || sb === "" || Number(sa) === Number(sb)) return toast.info(t("v3.clubDetail.matches.invalidScore"));
     try {
       await createMatch({ id, teamA, teamB, scoreA: Number(sa), scoreB: Number(sb), note }).unwrap();
-      toast.success("Đã ghi kết quả.");
+      toast.success(t("v3.clubDetail.matches.resultRecorded"));
       onDone();
-    } catch (err) { toast.error(getApiErrMsg(err)); }
+    } catch (err) { toast.error(getApiErrMsg(err, t)); }
   };
 
   const chosen = [a1, a2, b1, b2].filter(Boolean).map(String);
@@ -2539,13 +2600,13 @@ function MatchRecordForm({ club, onDone }) {
     <Card style={{ padding: 16 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "center" }}>
         <div style={{ display: "grid", gap: 8 }}>
-          <div style={{ color: "#7CC7A2", fontWeight: 700, fontSize: 12.5 }}>Bên A</div>
+          <div style={{ color: "#7CC7A2", fontWeight: 700, fontSize: 12.5 }}>{t("v3.clubDetail.matches.teamA")}</div>
           {opt(a1, setA1, chosen.filter((x) => x !== a1))}
           {opt(a2, setA2, chosen.filter((x) => x !== a2))}
         </div>
         <div style={{ color: C.muted, fontWeight: 800 }}>VS</div>
         <div style={{ display: "grid", gap: 8 }}>
-          <div style={{ color: "#F1948A", fontWeight: 700, fontSize: 12.5 }}>Bên B</div>
+          <div style={{ color: "#F1948A", fontWeight: 700, fontSize: 12.5 }}>{t("v3.clubDetail.matches.teamB")}</div>
           {opt(b1, setB1, chosen.filter((x) => x !== b1))}
           {opt(b2, setB2, chosen.filter((x) => x !== b2))}
         </div>
@@ -2555,16 +2616,17 @@ function MatchRecordForm({ club, onDone }) {
         <span style={{ color: C.muted }}>-</span>
         <input style={{ ...fieldStyle, textAlign: "center" }} inputMode="numeric" value={sb} onChange={(e) => setSb(e.target.value.replace(/[^\d]/g, ""))} placeholder="0" />
       </div>
-      <input style={{ ...fieldStyle, marginTop: 10 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ghi chú (tuỳ chọn)" />
+      <input style={{ ...fieldStyle, marginTop: 10 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("v3.clubDetail.matches.notePlaceholder")} />
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <Btn variant="primary" size="sm" onClick={submit} disabled={isLoading}>Ghi kết quả</Btn>
-        <Btn variant="ghost" size="sm" onClick={onDone}>Huỷ</Btn>
+        <Btn variant="primary" size="sm" onClick={submit} disabled={isLoading}>{t("v3.clubDetail.matches.recordResult")}</Btn>
+        <Btn variant="ghost" size="sm" onClick={onDone}>{t("v3.clubDetail.common.cancel")}</Btn>
       </div>
     </Card>
   );
 }
 
 function MatchesTab({ club, my }) {
+  const { t } = useLanguage();
   const id = club._id;
   const isMember = !!my?.isMember;
   const canManage = !!my?.canManage;
@@ -2582,14 +2644,14 @@ function MatchesTab({ club, my }) {
   const matches = matchData?.items || [];
 
   const removeMatch = async (m) => {
-    if (!window.confirm("Xoá trận này?")) return;
-    try { await deleteMatch({ id, matchId: m._id }).unwrap(); } catch (err) { toast.error(getApiErrMsg(err)); }
+    if (!window.confirm(t("v3.clubDetail.matches.confirmDelete"))) return;
+    try { await deleteMatch({ id, matchId: m._id }).unwrap(); } catch (err) { toast.error(getApiErrMsg(err, t)); }
   };
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
       <div style={{ display: "flex", gap: 8 }}>
-        {[{ k: "board", l: "Bảng xếp hạng" }, { k: "matches", l: "Trận đấu" }].map((v) => (
+        {[{ k: "board", l: t("v3.clubDetail.matches.boardTab") }, { k: "matches", l: t("v3.clubDetail.matches.matchesTab") }].map((v) => (
           <button key={v.k} type="button" onClick={() => setView(v.k)} style={{ all: "unset", cursor: "pointer", flex: 1, textAlign: "center", padding: "9px 0", borderRadius: 10, fontWeight: 700, fontSize: 13.5, color: view === v.k ? "#fff" : C.body2, background: view === v.k ? C.brand : "rgba(255,255,255,.06)", border: `1px solid ${view === v.k ? "transparent" : "rgba(255,255,255,.12)"}` }}>
             {v.l}
           </button>
@@ -2598,9 +2660,9 @@ function MatchesTab({ club, my }) {
 
       {view === "board" ? (
         <>
-          <div style={{ color: C.muted, fontSize: 12.5 }}>Tổng số trận: {fmtInt(lb?.totalMatches || 0)} · 3 điểm/trận thắng</div>
+          <div style={{ color: C.muted, fontSize: 12.5 }}>{t("v3.clubDetail.matches.totalMatches", { count: fmtInt(lb?.totalMatches || 0) })}</div>
           {board.length === 0 ? (
-            <SectionEmpty icon={<Trophy size={40} />} title="Chưa có dữ liệu xếp hạng" hint="Ghi kết quả trận giao hữu ở tab Trận đấu." />
+            <SectionEmpty icon={<Trophy size={40} />} title={t("v3.clubDetail.matches.emptyBoardTitle")} hint={t("v3.clubDetail.matches.emptyBoardHint")} />
           ) : (
             <Card style={{ padding: 0, overflow: "hidden" }}>
               {board.map((it, i) => (
@@ -2608,10 +2670,10 @@ function MatchesTab({ club, my }) {
                   <span style={{ width: 22, textAlign: "center", color: i < 3 ? "#F0C24B" : C.muted, fontWeight: 800 }}>{i + 1}</span>
                   <Avatar size="small" src={it.user.avatar || undefined} name={it.user.fullName || "?"} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: C.head, fontWeight: 650, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.user.nickname || it.user.fullName || "Người dùng"}</div>
-                    <div style={{ color: C.muted, fontSize: 11.5 }}>{it.won}T-{it.lost}B · {it.winRate}%</div>
+                    <div style={{ color: C.head, fontWeight: 650, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.user.nickname || it.user.fullName || t("v3.clubDetail.common.userFallback")}</div>
+                    <div style={{ color: C.muted, fontSize: 11.5 }}>{t("v3.clubDetail.matches.winLoss", { won: it.won, lost: it.lost, rate: it.winRate })}</div>
                   </div>
-                  <span style={{ color: "#9CC1FF", fontWeight: 800, fontSize: 14 }}>{it.points} đ</span>
+                  <span style={{ color: "#9CC1FF", fontWeight: 800, fontSize: 14 }}>{t("v3.clubDetail.matches.points", { points: it.points })}</span>
                 </div>
               ))}
             </Card>
@@ -2624,14 +2686,14 @@ function MatchesTab({ club, my }) {
               <MatchRecordForm club={club} onDone={() => setShowForm(false)} />
             ) : (
               <Card style={{ padding: 16 }}>
-                <Btn variant="ghost" onClick={() => setShowForm(true)}><PlusIcon size={16} /> Ghi kết quả trận</Btn>
+                <Btn variant="ghost" onClick={() => setShowForm(true)}><PlusIcon size={16} /> {t("v3.clubDetail.matches.recordMatchBtn")}</Btn>
               </Card>
             )
           )}
           {isLoading ? (
             <Card style={{ padding: 16 }}><Skeleton width="50%" height="16px" /></Card>
           ) : matches.length === 0 ? (
-            <SectionEmpty icon={<Trophy size={40} />} title="Chưa có trận nào" />
+            <SectionEmpty icon={<Trophy size={40} />} title={t("v3.clubDetail.matches.emptyTitle")} />
           ) : (
             matches.map((m) => {
               const aWin = (m.scoreA || 0) > (m.scoreB || 0);
@@ -2649,7 +2711,7 @@ function MatchesTab({ club, my }) {
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
                     <span style={{ color: C.muted, fontSize: 11.5 }}>{fmtDate(m.playedAt)}{m.note ? ` · ${m.note}` : ""}</span>
-                    {canDel && <Btn variant="ghost" size="sm" onClick={() => removeMatch(m)} title="Xoá"><Trash2 size={13} /></Btn>}
+                    {canDel && <Btn variant="ghost" size="sm" onClick={() => removeMatch(m)} title={t("v3.clubDetail.common.delete")}><Trash2 size={13} /></Btn>}
                   </div>
                 </Card>
               );
@@ -2662,14 +2724,15 @@ function MatchesTab({ club, my }) {
 }
 
 /* =============================== MEMBERS =============================== */
-const roleBadge = (role) => {
-  if (role === "owner") return { label: "Chủ CLB", color: "#F0C24B", bg: "rgba(240,194,75,.10)", bd: "rgba(240,194,75,.3)", icon: <Star size={11} /> };
-  if (role === "admin") return { label: "Quản trị", color: "#9CC1FF", bg: "rgba(61,135,255,.12)", bd: "rgba(61,135,255,.3)", icon: <ShieldCheck size={11} /> };
-  return { label: "Thành viên", color: C.body2, bg: "rgba(255,255,255,.06)", bd: "rgba(255,255,255,.08)", icon: null };
+const roleBadge = (role, t) => {
+  if (role === "owner") return { label: t("v3.clubDetail.members.roleOwner"), color: "#F0C24B", bg: "rgba(240,194,75,.10)", bd: "rgba(240,194,75,.3)", icon: <Star size={11} /> };
+  if (role === "admin") return { label: t("v3.clubDetail.members.roleAdmin"), color: "#9CC1FF", bg: "rgba(61,135,255,.12)", bd: "rgba(61,135,255,.3)", icon: <ShieldCheck size={11} /> };
+  return { label: t("v3.clubDetail.members.roleMember"), color: C.body2, bg: "rgba(255,255,255,.06)", bd: "rgba(255,255,255,.08)", icon: null };
 };
 
 // chip điểm trình (đôi/đơn) từ user.score
 function ScoreChips({ user }) {
+  const { t } = useLanguage();
   const s = user?.score;
   const dbl = Number(s?.double || 0);
   const sgl = Number(s?.single || 0);
@@ -2678,12 +2741,12 @@ function ScoreChips({ user }) {
     <div style={{ display: "flex", gap: 5, marginTop: 8, flexWrap: "wrap" }}>
       {dbl > 0 && (
         <span style={{ ...chip, fontSize: 11, padding: "2px 8px", color: "#9CC1FF", background: "rgba(61,135,255,.12)", borderColor: "rgba(61,135,255,.3)" }}>
-          Đôi {dbl.toFixed(3)}
+          {t("v3.clubDetail.members.scoreDouble", { score: dbl.toFixed(3) })}
         </span>
       )}
       {sgl > 0 && (
         <span style={{ ...chip, fontSize: 11, padding: "2px 8px", color: "#7CC7A2", background: "rgba(59,165,93,.10)", borderColor: "rgba(59,165,93,.32)" }}>
-          Đơn {sgl.toFixed(3)}
+          {t("v3.clubDetail.members.scoreSingle", { score: sgl.toFixed(3) })}
         </span>
       )}
     </div>
@@ -2691,6 +2754,7 @@ function ScoreChips({ user }) {
 }
 
 function MembersTab({ club, canSeeMembers, guardMsg }) {
+  const { t } = useLanguage();
   const id = club._id;
   const my = club?._my || {};
   const canManage = !!my.canManage;
@@ -2731,54 +2795,54 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
 
   const doAdd = async () => {
     const key = addKey.trim();
-    if (!key) return toast.info("Nhập nickname hoặc email để thêm thành viên.");
+    if (!key) return toast.info(t("v3.clubDetail.members.needKey"));
     try {
       await addMember({ id, nickname: key, role: "member" }).unwrap();
-      toast.success("Đã thêm thành viên.");
+      toast.success(t("v3.clubDetail.members.added"));
       setAddKey("");
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const doToggle = async (m) => {
     const newRole = m.role === "admin" ? "member" : "admin";
     try {
       await setRole({ id, userId: m.user?._id, role: newRole }).unwrap();
-      toast.success(newRole === "admin" ? "Đã phong quản trị." : "Đã bỏ quyền quản trị.");
+      toast.success(newRole === "admin" ? t("v3.clubDetail.members.promoted") : t("v3.clubDetail.members.demoted"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const doKick = async (m) => {
-    if (!window.confirm(`Xoá "${m.user?.fullName || m.user?.nickname || m.user?.email}" khỏi CLB?`)) return;
+    if (!window.confirm(t("v3.clubDetail.members.confirmKick", { name: m.user?.fullName || m.user?.nickname || m.user?.email }))) return;
     try {
       await kickMember({ id, userId: m.user?._id }).unwrap();
-      toast.success("Đã xoá thành viên.");
+      toast.success(t("v3.clubDetail.members.kicked"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const doBan = async (m) => {
-    if (!window.confirm(`Cấm "${m.user?.fullName || m.user?.nickname || m.user?.email}" khỏi CLB? Người này sẽ không thể tự tham gia lại.`)) return;
+    if (!window.confirm(t("v3.clubDetail.members.confirmBan", { name: m.user?.fullName || m.user?.nickname || m.user?.email }))) return;
     try {
       await banMember({ id, userId: m.user?._id }).unwrap();
-      toast.success("Đã cấm thành viên.");
+      toast.success(t("v3.clubDetail.members.banned"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
   const doUnban = async (m) => {
     try {
       await unbanMember({ id, userId: m.user?._id }).unwrap();
-      toast.success("Đã bỏ cấm.");
+      toast.success(t("v3.clubDetail.members.unbanned"));
     } catch (err) {
-      toast.error(getApiErrMsg(err));
+      toast.error(getApiErrMsg(err, t));
     }
   };
 
   const memberCard = (m) => {
-    const rb = roleBadge(m.role);
-    const primary = m.user?.nickname || m.user?.fullName || m.user?.email || "Người dùng";
+    const rb = roleBadge(m.role, t);
+    const primary = m.user?.nickname || m.user?.fullName || m.user?.email || t("v3.clubDetail.common.userFallback");
     const secondary = m.user?.nickname && m.user?.fullName ? m.user.fullName : null;
     const showToggle = canToggleRole(m.role);
     const showMod = canModerate(m.role, m.user?._id);
@@ -2805,7 +2869,7 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
               {primary}
             </A>
             <div style={{ color: C.muted, fontSize: 12, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {secondary || `Tham gia ${fmtDate(m.joinedAt)}`}
+              {secondary || t("v3.clubDetail.members.joinedOn", { date: fmtDate(m.joinedAt) })}
             </div>
           </div>
           <span style={{ ...chip, color: rb.color, background: rb.bg, borderColor: rb.bd, flexShrink: 0 }}>
@@ -2818,16 +2882,16 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
           <div style={{ display: "flex", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
             {showToggle && (
               <Btn variant="ghost" size="sm" onClick={() => doToggle(m)}>
-                {m.role === "admin" ? "Bỏ quản trị" : "Phong quản trị"}
+                {m.role === "admin" ? t("v3.clubDetail.members.demote") : t("v3.clubDetail.members.promote")}
               </Btn>
             )}
             {showMod && (
               <>
                 <Btn variant="ghost" size="sm" onClick={() => doBan(m)}>
-                  <Ban size={14} /> Cấm
+                  <Ban size={14} /> {t("v3.clubDetail.members.ban")}
                 </Btn>
                 <Btn variant="danger" size="sm" onClick={() => doKick(m)}>
-                  <Trash2 size={14} /> Xoá
+                  <Trash2 size={14} /> {t("v3.clubDetail.common.delete")}
                 </Btn>
               </>
             )}
@@ -2838,32 +2902,32 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
   };
 
   if (!canSeeMembers) {
-    return <SectionEmpty icon={<Users size={40} />} title="Danh sách thành viên bị ẩn" hint={guardMsg} />;
+    return <SectionEmpty icon={<Users size={40} />} title={t("v3.clubDetail.members.hiddenTitle")} hint={guardMsg} />;
   }
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
       {canManage && (
         <Card style={{ padding: 16 }}>
-          <label style={labelStyle}>Thêm thành viên (nickname hoặc email)</label>
+          <label style={labelStyle}>{t("v3.clubDetail.members.addLabel")}</label>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <input
               style={{ ...fieldStyle, flex: 1, minWidth: 200 }}
               value={addKey}
               onChange={(e) => setAddKey(e.target.value)}
-              placeholder="vd: giangng hoặc giang@example.com"
+              placeholder={t("v3.clubDetail.members.addPlaceholder")}
               onKeyDown={(e) => e.key === "Enter" && doAdd()}
             />
             <Btn variant="primary" onClick={doAdd} disabled={adding}>
-              <UserPlus size={15} /> Thêm
+              <UserPlus size={15} /> {t("v3.clubDetail.members.add")}
             </Btn>
           </div>
           <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ color: C.muted, fontSize: 12 }}>
-              Chủ CLB thao tác được với tất cả; quản trị chỉ thao tác với thành viên thường.
+              {t("v3.clubDetail.members.modHint")}
             </span>
             <Btn variant="ghost" size="sm" onClick={() => setShowBanned((v) => !v)}>
-              {showBanned ? "Ẩn danh sách bị cấm" : "Danh sách bị cấm"}
+              {showBanned ? t("v3.clubDetail.members.hideBanned") : t("v3.clubDetail.members.showBanned")}
             </Btn>
           </div>
         </Card>
@@ -2872,20 +2936,20 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
       {canManage && showBanned && (
         <Card style={{ padding: 16, borderColor: "rgba(233,84,84,.28)" }}>
           <div style={{ color: "#F1948A", fontWeight: 700, fontSize: 14, marginBottom: 10 }}>
-            Thành viên bị cấm ({banned.length})
+            {t("v3.clubDetail.members.bannedTitle", { count: banned.length })}
           </div>
           {banned.length === 0 ? (
-            <div style={{ color: C.muted, fontSize: 13 }}>Không có thành viên nào bị cấm.</div>
+            <div style={{ color: C.muted, fontSize: 13 }}>{t("v3.clubDetail.members.noBanned")}</div>
           ) : (
             <div style={{ display: "grid", gap: 8 }}>
               {banned.map((m) => (
                 <div key={m._id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <Avatar size="small" src={m.user?.avatar || undefined} name={m.user?.fullName || "?"} />
                   <span style={{ flex: 1, color: C.body, fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {m.user?.nickname || m.user?.fullName || m.user?.email || "Người dùng"}
+                    {m.user?.nickname || m.user?.fullName || m.user?.email || t("v3.clubDetail.common.userFallback")}
                   </span>
                   <Btn variant="success" size="sm" onClick={() => doUnban(m)}>
-                    <UserCheck size={14} /> Bỏ cấm
+                    <UserCheck size={14} /> {t("v3.clubDetail.members.unban")}
                   </Btn>
                 </div>
               ))}
@@ -2903,7 +2967,7 @@ function MembersTab({ club, canSeeMembers, guardMsg }) {
           ))}
         </div>
       ) : members.length === 0 ? (
-        <SectionEmpty icon={<Users size={40} />} title="Chưa có thành viên nào" />
+        <SectionEmpty icon={<Users size={40} />} title={t("v3.clubDetail.members.emptyTitle")} />
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
           {members.map((m) => memberCard(m))}
@@ -2923,28 +2987,29 @@ function calcCanSeeMembers(club, my) {
   if (vis === "public") return true;
   return false;
 }
-function memberGuardMessage(club) {
+function memberGuardMessage(club, t) {
   const vis = club?.memberVisibility || "admins";
-  if (vis === "admins") return "Chỉ ban quản trị mới xem được danh sách thành viên.";
-  if (vis === "members") return "Chỉ thành viên CLB mới xem được danh sách thành viên.";
-  return "Danh sách thành viên hiện không khả dụng.";
+  if (vis === "admins") return t("v3.clubDetail.members.guardAdmins");
+  if (vis === "members") return t("v3.clubDetail.members.guardMembers");
+  return t("v3.clubDetail.members.guardUnavailable");
 }
 
 /* ================================ TABS bar ================================ */
 const TABS = [
-  { key: "news", label: "Bảng tin", icon: Megaphone },
-  { key: "discussion", label: "Thảo luận", icon: MessagesSquare },
-  { key: "events", label: "Sự kiện", icon: CalendarDays },
-  { key: "polls", label: "Bình chọn", icon: BarChart3 },
-  { key: "gallery", label: "Ảnh", icon: Images },
-  { key: "sessions", label: "Buổi tập", icon: CalendarCheck },
-  { key: "matches", label: "BXH", icon: Trophy },
-  { key: "finance", label: "Quỹ", icon: Wallet },
-  { key: "members", label: "Thành viên", icon: Users },
+  { key: "news", labelKey: "v3.clubDetail.tabs.news", icon: Megaphone },
+  { key: "discussion", labelKey: "v3.clubDetail.tabs.discussion", icon: MessagesSquare },
+  { key: "events", labelKey: "v3.clubDetail.tabs.events", icon: CalendarDays },
+  { key: "polls", labelKey: "v3.clubDetail.tabs.polls", icon: BarChart3 },
+  { key: "gallery", labelKey: "v3.clubDetail.tabs.gallery", icon: Images },
+  { key: "sessions", labelKey: "v3.clubDetail.tabs.sessions", icon: CalendarCheck },
+  { key: "matches", labelKey: "v3.clubDetail.tabs.matches", icon: Trophy },
+  { key: "finance", labelKey: "v3.clubDetail.tabs.finance", icon: Wallet },
+  { key: "members", labelKey: "v3.clubDetail.tabs.members", icon: Users },
 ];
 
 /* ================================= PAGE ================================= */
 export default function ClubDetailPageAstryx() {
+  const { t } = useLanguage();
   const { id } = useParams();
   const { data: club, isLoading, isError, error, refetch } = useGetClubQuery(id);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -2972,16 +3037,16 @@ export default function ClubDetailPageAstryx() {
     useMemo(
       () => ({
         pageType: "club_detail",
-        entityTitle: club?.name || "Câu lạc bộ",
-        sectionTitle: TABS.find((tt) => tt.key === tab)?.label || "Bảng tin",
-        pageSummary: club?.description || `Câu lạc bộ ${club?.name || ""}`.trim(),
+        entityTitle: club?.name || t("v3.clubDetail.common.clubFallback"),
+        sectionTitle: t(TABS.find((tt) => tt.key === tab)?.labelKey || "v3.clubDetail.tabs.news"),
+        pageSummary: club?.description || t("v3.clubDetail.page.clubSummary", { name: club?.name || "" }).trim(),
         activeLabels: [
-          TABS.find((tt) => tt.key === tab)?.label || "",
-          my?.membershipRole ? `Vai trò: ${my.membershipRole}` : "Khách xem",
-          canManage ? "Có quyền quản lý" : "",
+          t(TABS.find((tt) => tt.key === tab)?.labelKey || "v3.clubDetail.tabs.news"),
+          my?.membershipRole ? t("v3.clubDetail.page.roleLabel", { role: my.membershipRole }) : t("v3.clubDetail.page.guestViewer"),
+          canManage ? t("v3.clubDetail.page.canManage") : "",
         ].filter(Boolean),
       }),
-      [club?.name, club?.description, tab, my?.membershipRole, canManage]
+      [club?.name, club?.description, tab, my?.membershipRole, canManage, t]
     )
   );
 
@@ -2990,8 +3055,8 @@ export default function ClubDetailPageAstryx() {
   return (
     <>
       <SEOHead
-        title={club?.name || "Câu lạc bộ"}
-        description={club?.description || `Câu lạc bộ pickleball ${club?.name || ""} trên PickleTour.`.trim()}
+        title={club?.name || t("v3.clubDetail.common.clubFallback")}
+        description={club?.description || t("v3.clubDetail.page.seoDesc", { name: club?.name || "" }).trim()}
         ogImage={club?.coverUrl || club?.logoUrl}
         path={`/clubs/${club?._id || id}`}
         structuredData={
@@ -3002,7 +3067,7 @@ export default function ClubDetailPageAstryx() {
                   "@type": "SportsTeam",
                   name: club?.name,
                   sport: "Pickleball",
-                  description: club?.description || `Câu lạc bộ ${club?.name || ""}`.trim(),
+                  description: club?.description || t("v3.clubDetail.page.clubSummary", { name: club?.name || "" }).trim(),
                   logo: club?.logoUrl || "https://pickletour.vn/icon-192.png",
                   url: `https://pickletour.vn/clubs/${club?._id}`,
                 },
@@ -3010,9 +3075,9 @@ export default function ClubDetailPageAstryx() {
                   "@context": "https://schema.org",
                   "@type": "BreadcrumbList",
                   itemListElement: [
-                    { "@type": "ListItem", position: 1, name: "Trang chủ", item: "https://pickletour.vn" },
-                    { "@type": "ListItem", position: 2, name: "Câu lạc bộ", item: "https://pickletour.vn/clubs" },
-                    { "@type": "ListItem", position: 3, name: club?.name || "Chi tiết", item: `https://pickletour.vn/clubs/${club?._id}` },
+                    { "@type": "ListItem", position: 1, name: t("v3.clubDetail.page.breadcrumbHome"), item: "https://pickletour.vn" },
+                    { "@type": "ListItem", position: 2, name: t("v3.clubDetail.page.breadcrumbClubs"), item: "https://pickletour.vn/clubs" },
+                    { "@type": "ListItem", position: 3, name: club?.name || t("v3.clubDetail.page.breadcrumbDetail"), item: `https://pickletour.vn/clubs/${club?._id}` },
                   ],
                 },
               ]
@@ -3036,12 +3101,12 @@ export default function ClubDetailPageAstryx() {
               <Container style={{ padding: "90px 24px" }}>
                 <SectionEmpty
                   icon={<PickleMark size={44} />}
-                  title="Không tìm thấy câu lạc bộ"
-                  hint="CLB có thể đã bị xoá hoặc bạn không có quyền xem."
+                  title={t("v3.clubDetail.page.notFoundTitle")}
+                  hint={t("v3.clubDetail.page.notFoundHint")}
                 />
                 <div style={{ display: "flex", justifyContent: "center", marginTop: 18 }}>
                   <Btn href="/clubs" variant="ghost">
-                    ← Về danh sách CLB
+                    {t("v3.clubDetail.page.backToClubs")}
                   </Btn>
                 </div>
               </Container>
@@ -3094,7 +3159,7 @@ export default function ClubDetailPageAstryx() {
                             }}
                           >
                             <Icon size={15} />
-                            {tt.label}
+                            {t(tt.labelKey)}
                           </button>
                         );
                       })}
@@ -3112,7 +3177,7 @@ export default function ClubDetailPageAstryx() {
                   {tab === "matches" && <MatchesTab club={club} my={my} />}
                   {tab === "finance" && <FinanceTab club={club} my={my} />}
                   {tab === "members" && (
-                    <MembersTab club={club} canSeeMembers={canSeeMembers} guardMsg={memberGuardMessage(club)} />
+                    <MembersTab club={club} canSeeMembers={canSeeMembers} guardMsg={memberGuardMessage(club, t)} />
                   )}
                 </Container>
               </>
@@ -3131,7 +3196,7 @@ export default function ClubDetailPageAstryx() {
             onClose={(ok) => {
               setOpenEdit(false);
               if (ok) {
-                toast.success("Đã lưu thay đổi.");
+                toast.success(t("v3.clubDetail.page.changesSaved"));
                 refetch();
               }
             }}

@@ -18,6 +18,7 @@ import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { BadgeCheck, MapPin, Plus, Search, Trophy, UserPlus, Users } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 import ShadowFrame from "./ShadowFrame.jsx";
 import SiteNav from "./SiteNav.jsx";
 import SiteFooter from "./SiteFooter.jsx";
@@ -39,6 +40,7 @@ const placeOf = (c) =>
 
 /* ------------------------------ page head ------------------------------ */
 function PageHead({ total }) {
+  const { t } = useLanguage();
   return (
     <div style={{ position: "relative", overflow: "hidden" }}>
       <div aria-hidden style={{ position: "absolute", inset: 0, background: "radial-gradient(46% 62% at 24% 4%, rgba(61,135,255,.12), transparent 62%)" }} />
@@ -58,7 +60,7 @@ function PageHead({ total }) {
                 style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 13px", borderRadius: 999, fontSize: 13, fontWeight: 700, background: "rgba(61,135,255,.12)", color: "#9CC1FF", border: "1px solid rgba(61,135,255,.3)" }}
               >
                 <Users size={13} />
-                {fmtInt(total)} câu lạc bộ đang hoạt động
+                {t("v3.clubs.activeCount", { count: fmtInt(total) })}
               </span>
             )}
           </div>
@@ -66,13 +68,13 @@ function PageHead({ total }) {
             className="pk-rise"
             style={{ margin: "14px 0 0", fontWeight: 750, fontSize: "clamp(42px, 6.4vw, 84px)", lineHeight: 1.02, letterSpacing: "-0.028em", color: "var(--pk-text-strong)", animationDelay: ".07s" }}
           >
-            Câu lạc bộ
+            {t("v3.clubs.heroTitle")}
             <br />
-            <span style={{ color: "var(--color-brand, #3D87FF)" }}>khắp cả nước.</span>
+            <span style={{ color: "var(--color-brand, #3D87FF)" }}>{t("v3.clubs.heroTitleAccent")}</span>
           </h1>
           <div className="pk-rise" style={{ maxWidth: 620, marginTop: 22, animationDelay: ".16s" }}>
             <Text type="large" color="secondary">
-              Tìm hội chơi gần bạn, xem thành viên và gia nhập ngay trên PickleTour.
+              {t("v3.clubs.heroSubtitle")}
             </Text>
           </div>
         </div>
@@ -83,6 +85,7 @@ function PageHead({ total }) {
 
 /* --------------------------------- card -------------------------------- */
 function ClubCard({ c, index }) {
+  const { t } = useLanguage();
   const place = placeOf(c);
   const members = Number(c?.stats?.memberCount || 0);
   const wins = Number(c?.stats?.tournamentWins || 0);
@@ -114,12 +117,12 @@ function ClubCard({ c, index }) {
         {/* logo chồng lên bìa kiểu fanpage */}
         <div style={{ display: "flex", alignItems: "flex-end", gap: 12, marginTop: -26 }}>
           <span style={{ display: "inline-block", borderRadius: 18, padding: 3, background: "var(--color-background-surface)" }}>
-            <Avatar size="large" src={c?.logoUrl || undefined} name={c?.name || "CLB"} />
+            <Avatar size="large" src={c?.logoUrl || undefined} name={c?.name || t("v3.clubs.clubFallback")} />
           </span>
           <div style={{ minWidth: 0, paddingBottom: 4, flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
               <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {c?.name || "Câu lạc bộ"}
+                {c?.name || t("v3.clubs.clubFallback")}
               </span>
               {c?.isVerified && <BadgeCheck size={16} color="#3E9EFB" style={{ flexShrink: 0 }} />}
             </div>
@@ -153,17 +156,17 @@ function ClubCard({ c, index }) {
         <div style={{ display: "flex", gap: 7, marginTop: 13, flexWrap: "wrap" }}>
           <span style={chip}>
             <Users size={11} />
-            {fmtInt(members)} thành viên
+            {t("v3.clubs.membersCount", { count: fmtInt(members) })}
           </span>
           {wins > 0 && (
             <span style={{ ...chip, color: "#F0C24B", borderColor: "rgba(240,194,75,.3)", background: "rgba(240,194,75,.08)" }}>
               <Trophy size={11} />
-              {fmtInt(wins)} cúp
+              {t("v3.clubs.trophiesCount", { count: fmtInt(wins) })}
             </span>
           )}
           <span style={open ? { ...chip, color: "#7CC7A2", borderColor: "rgba(59,165,93,.32)", background: "rgba(59,165,93,.10)" } : chip}>
             <UserPlus size={11} />
-            {open ? "Tham gia tự do" : "Duyệt tham gia"}
+            {open ? t("v3.clubs.joinOpen") : t("v3.clubs.joinApproval")}
           </span>
         </div>
       </div>
@@ -201,6 +204,7 @@ function CardSkeleton() {
 
 /* ================================= PAGE ================================= */
 export default function ClubsPage() {
+  const { t } = useLanguage();
   const [qInput, setQInput] = useState("");
   const [keyword, setKeyword] = useState("");
   const [page, setPage] = useState(1);
@@ -240,8 +244,8 @@ export default function ClubsPage() {
   return (
     <>
       <SEOHead
-        title="Câu lạc bộ pickleball — PickleTour"
-        description="Danh sách câu lạc bộ pickleball trên toàn quốc — tìm hội chơi gần bạn và gia nhập trên PickleTour."
+        title={t("v3.clubs.seoTitle")}
+        description={t("v3.clubs.seoDesc")}
       />
       <ShadowFrame style={{ minHeight: "100vh" }}>
         <Theme theme={neutralTheme}>
@@ -269,18 +273,18 @@ export default function ClubsPage() {
                     <input
                       value={qInput}
                       onChange={(e) => setQInput(e.target.value)}
-                      placeholder="Tìm câu lạc bộ, tỉnh thành…"
+                      placeholder={t("v3.clubs.searchPlaceholder")}
                       style={{ all: "unset", width: "100%", color: "var(--pk-text-strong)", fontSize: 14, fontFamily: "inherit" }}
                     />
                     {qInput && (
                       <button type="button" onClick={() => setQInput("")} style={{ all: "unset", cursor: "pointer", color: "#9AA0A6", fontSize: 12.5, fontWeight: 700 }}>
-                        Xoá
+                        {t("v3.clubs.clear")}
                       </button>
                     )}
                   </label>
                   <div style={{ flex: 1 }} />
                   {total > 0 && (
-                    <Text type="supporting" color="secondary">{fmtInt(total)} câu lạc bộ</Text>
+                    <Text type="supporting" color="secondary">{t("v3.clubs.clubsCount", { count: fmtInt(total) })}</Text>
                   )}
                   <button
                     type="button"
@@ -301,7 +305,7 @@ export default function ClubsPage() {
                       whiteSpace: "nowrap",
                     }}
                   >
-                    <Plus size={15} /> Tạo CLB
+                    <Plus size={15} /> {t("v3.clubs.createClub")}
                   </button>
                 </div>
               </Container>
@@ -327,10 +331,10 @@ export default function ClubsPage() {
                       <PickleMark size={44} />
                     </div>
                     <div style={{ marginTop: 18, color: "var(--pk-text)", fontSize: 19, fontWeight: 700 }}>
-                      Không tìm thấy câu lạc bộ nào
+                      {t("v3.clubs.emptyTitle")}
                     </div>
                     <div style={{ marginTop: 8 }}>
-                      <Text type="body" color="secondary">Thử từ khoá khác xem sao.</Text>
+                      <Text type="body" color="secondary">{t("v3.clubs.emptyHint")}</Text>
                     </div>
                   </div>
                 )}
@@ -338,7 +342,7 @@ export default function ClubsPage() {
                 {hasMore && !initialLoading && (
                   <div style={{ display: "flex", justifyContent: "center", marginTop: 28 }}>
                     <GrayPill
-                      label={isFetching ? "Đang tải…" : "Xem thêm"}
+                      label={isFetching ? t("v3.clubs.loading") : t("v3.clubs.seeMore")}
                       href="#"
                       size="lg"
                       onClick={(e) => {

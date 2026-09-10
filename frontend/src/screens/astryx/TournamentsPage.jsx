@@ -35,6 +35,7 @@ import SiteFooter from "./SiteFooter.jsx";
 import PickleMark from "./PickleMark.jsx";
 import { A, WhitePill, GrayPill, Lightbox } from "./ui.jsx";
 import { useListTournamentsQuery } from "../../slices/tournamentsApiSlice.js";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 
 /* ------------------------------- helpers ------------------------------- */
 const Container = ({ children, style }) => (
@@ -82,10 +83,11 @@ const fold = (s) =>
     .replace(/[̀-ͯ]/g, "")
     .replace(/đ/g, "d");
 
+// label: khoá i18n — giải qua t() ở render.
 const STATUS_META = {
-  ongoing: { label: "Đang diễn ra", variant: "success" },
-  upcoming: { label: "Sắp diễn ra", variant: "info" },
-  finished: { label: "Đã kết thúc", variant: "neutral" },
+  ongoing: { label: "v3.tournaments.statusOngoing", variant: "success" },
+  upcoming: { label: "v3.tournaments.statusUpcoming", variant: "info" },
+  finished: { label: "v3.tournaments.statusFinished", variant: "neutral" },
 };
 const statusOf = (t) => {
   const s = String(t?.status || "").toLowerCase();
@@ -105,6 +107,7 @@ const regCount = (t) => {
 
 /* ------------------------------ page head ------------------------------ */
 function PageHead({ counts, loading }) {
+  const { t } = useLanguage();
   return (
     <div style={{ position: "relative", overflow: "hidden", borderBottom: "1px solid var(--color-border)" }}>
       <div aria-hidden style={{ position: "absolute", inset: 0, background: "radial-gradient(46% 62% at 78% 6%, rgba(61,135,255,.13), transparent 62%)" }} />
@@ -135,7 +138,7 @@ function PageHead({ counts, loading }) {
                 }}
               >
                 <span style={{ width: 7, height: 7, borderRadius: 99, background: "#F2555A" }} />
-                {counts.ongoing} giải đang diễn ra
+                {t("v3.tournaments.liveCount", { count: counts.ongoing })}
               </span>
             )}
           </div>
@@ -151,13 +154,13 @@ function PageHead({ counts, loading }) {
               animationDelay: ".07s",
             }}
           >
-            Chọn giải đấu.
+            {t("v3.tournaments.titleLine1")}
             <br />
-            <span style={{ color: "var(--color-brand, #3D87FF)" }}>Vào trận.</span>
+            <span style={{ color: "var(--color-brand, #3D87FF)" }}>{t("v3.tournaments.titleLine2")}</span>
           </h1>
           <div className="pk-rise" style={{ maxWidth: 640, marginTop: 22, animationDelay: ".16s" }}>
             <Text type="large" color="secondary">
-              Đăng ký một chạm, sơ đồ tự động, tỷ số trực tiếp — mọi giải pickleball trên toàn quốc, trong một đấu trường.
+              {t("v3.tournaments.subtitle")}
             </Text>
           </div>
         </div>
@@ -168,14 +171,16 @@ function PageHead({ counts, loading }) {
 
 
 /* ------------------------------- toolbar ------------------------------- */
+// [key, labelKey] — labelKey giải qua t() ở render (giống SportNav).
 const TABS = [
-  ["all", "Tất cả"],
-  ["ongoing", "Đang diễn ra"],
-  ["upcoming", "Sắp diễn ra"],
-  ["finished", "Đã kết thúc"],
+  ["all", "v3.tournaments.tabAll"],
+  ["ongoing", "v3.tournaments.statusOngoing"],
+  ["upcoming", "v3.tournaments.statusUpcoming"],
+  ["finished", "v3.tournaments.statusFinished"],
 ];
 
 function Toolbar({ tab, setTab, q, setQ, counts }) {
+  const { t } = useLanguage();
   return (
     <div
       style={{
@@ -215,7 +220,7 @@ function Toolbar({ tab, setTab, q, setQ, counts }) {
                     border: active ? "1px solid transparent" : "1px solid light-dark(rgba(0,0,0,.10), rgba(255,255,255,.09))",
                   }}
                 >
-                  {label}
+                  {t(label)}
                   <span
                     style={{
                       fontSize: 11.5,
@@ -252,7 +257,7 @@ function Toolbar({ tab, setTab, q, setQ, counts }) {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Tìm giải, địa điểm…"
+              placeholder={t("v3.tournaments.searchPlaceholder")}
               style={{
                 all: "unset",
                 width: "100%",
@@ -263,7 +268,7 @@ function Toolbar({ tab, setTab, q, setQ, counts }) {
             />
             {q && (
               <button type="button" onClick={() => setQ("")} style={{ all: "unset", cursor: "pointer", color: "light-dark(#6B7075, #9AA0A6)", fontSize: 12.5, fontWeight: 700 }}>
-                Xoá
+                {t("v3.tournaments.clear")}
               </button>
             )}
           </label>
@@ -275,6 +280,8 @@ function Toolbar({ tab, setTab, q, setQ, counts }) {
 
 /* --------------------------------- card -------------------------------- */
 function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
+  // `t` ở đây là tournament (dữ liệu) — dùng `tr` cho hàm dịch i18n.
+  const { t: tr } = useLanguage();
   const st = statusOf(t);
   const meta = STATUS_META[st];
   const img = imgUrl(t.image);
@@ -282,7 +289,7 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
   const cap = Number(t.maxPairs || 0);
   const pct = cap ? Math.min(100, Math.round((reg / cap) * 100)) : 0;
   const dLeft = st === "upcoming" ? daysUntil(t.registrationDeadline || t.startDate) : null;
-  const fee = t.isFreeRegistration ? "Miễn phí" : fmtMoney(t.registrationFee);
+  const fee = t.isFreeRegistration ? tr("v3.tournaments.free") : fmtMoney(t.registrationFee);
 
   return (
     <div
@@ -332,7 +339,7 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
               LIVE
             </span>
           ) : (
-            meta && <Badge variant={meta.variant} label={meta.label} />
+            meta && <Badge variant={meta.variant} label={tr(meta.label)} />
           )}
         </div>
         <span style={{ position: "absolute", top: 12, right: 12, display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 650, background: "rgba(20,21,24,.72)", color: "var(--pk-text)", border: "1px solid rgba(255,255,255,.12)", backdropFilter: "blur(6px)" }}>
@@ -342,7 +349,7 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
         {dLeft != null && dLeft >= 0 && dLeft <= 14 && (
           <span style={{ position: "absolute", bottom: 12, left: 12, display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, background: "rgba(61,135,255,.18)", color: "#9CC1FF", border: "1px solid rgba(61,135,255,.35)", backdropFilter: "blur(6px)" }}>
             <Clock3 size={11} />
-            {dLeft === 0 ? "Chốt ĐK hôm nay" : `Chốt ĐK sau ${dLeft} ngày`}
+            {dLeft === 0 ? tr("v3.tournaments.deadlineToday") : tr("v3.tournaments.deadlineInDays", { days: dLeft })}
           </span>
         )}
       </div>
@@ -374,7 +381,7 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
         <div style={{ display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap" }}>
           <span style={chip}>
             <Swords size={11} />
-            {String(t.eventType || "").toLowerCase() === "single" ? "Đấu đơn" : "Đấu đôi"}
+            {String(t.eventType || "").toLowerCase() === "single" ? tr("v3.tournaments.eventSingle") : tr("v3.tournaments.eventDouble")}
           </span>
           {fee && (
             <span style={chip}>
@@ -383,15 +390,15 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
             </span>
           )}
           {t.code && <span style={chip}>{t.code}</span>}
-          {Number(t.matchesCount || 0) > 0 && <span style={chip}>{t.matchesCount} trận</span>}
+          {Number(t.matchesCount || 0) > 0 && <span style={chip}>{tr("v3.tournaments.matchesCount", { count: t.matchesCount })}</span>}
         </div>
 
         {cap > 0 && (
           <div style={{ marginTop: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-              <Text type="supporting" color="secondary">Đăng ký</Text>
+              <Text type="supporting" color="secondary">{tr("v3.tournaments.registration")}</Text>
               <Text type="supporting" color={t.isFull ? "primary" : "secondary"} weight="semibold">
-                {t.isFull ? "Đã đầy" : `${reg}/${cap} đội`}
+                {t.isFull ? tr("v3.tournaments.full") : tr("v3.tournaments.teamsCount", { reg, cap })}
               </Text>
             </div>
             <div style={{ height: 5, borderRadius: 99, background: "light-dark(rgba(0,0,0,.08), rgba(255,255,255,.08))", overflow: "hidden" }}>
@@ -417,25 +424,25 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
           {(manage || st === "upcoming") && (
             <A href={`/tournament/${t._id}/register`} style={miniPrimary}>
               <UserPlus size={13} strokeWidth={2.4} />
-              Đăng ký
+              {tr("v3.tournaments.register")}
             </A>
           )}
           {(manage || st === "ongoing") && (
             <A href={`/tournament/${t._id}/schedule`} style={manage ? miniGhost : miniPrimary}>
               <CalendarRange size={13} strokeWidth={2.2} />
-              Lịch đấu
+              {tr("v3.tournaments.schedule")}
             </A>
           )}
           <A href={`/tournament/${t._id}/bracket`} style={miniGhost}>
             <Network size={13} strokeWidth={2.2} />
-            Sơ đồ
+            {tr("v3.tournaments.bracket")}
           </A>
           <A
             href={`/tournament/${t._id}`}
             className="pk-link"
             style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 5, color: "var(--color-text-accent, #3E9EFB)", fontSize: 13, fontWeight: 650, textDecoration: "none" }}
           >
-            Chi tiết
+            {tr("v3.tournaments.details")}
             <ArrowUpRight size={14} />
           </A>
         </div>
@@ -500,6 +507,8 @@ function CardSkeleton() {
 
 /* ================================= PAGE ================================= */
 export default function TournamentsPage() {
+  // `t` được dùng làm biến tournament trong các callback bên dưới → dịch qua `tr`.
+  const { t: tr } = useLanguage();
   const { data, isLoading } = useListTournamentsQuery({ limit: 100, sort: "-startDate" });
   const [tab, setTab] = useState("all");
 
@@ -555,8 +564,8 @@ export default function TournamentsPage() {
   return (
     <>
       <SEOHead
-        title="Giải đấu pickleball — PickleTour"
-        description="Khám phá các giải đấu pickleball đang diễn ra, sắp khởi tranh và đã kết thúc trên PickleTour. Đăng ký thi đấu và theo dõi trực tiếp."
+        title={tr("v3.tournaments.seoTitle")}
+        description={tr("v3.tournaments.seoDesc")}
       />
       <ShadowFrame style={{ minHeight: "100vh" }}>
         <Theme theme={neutralTheme}>
@@ -585,16 +594,16 @@ export default function TournamentsPage() {
                       <PickleMark size={44} />
                     </div>
                     <div style={{ marginTop: 18, color: "light-dark(#33373B, #DFE2E5)", fontSize: 19, fontWeight: 700 }}>
-                      Không tìm thấy giải nào
+                      {tr("v3.tournaments.emptyTitle")}
                     </div>
                     <div style={{ marginTop: 8 }}>
                       <Text type="body" color="secondary">
-                        Thử đổi bộ lọc hoặc từ khoá khác xem sao.
+                        {tr("v3.tournaments.emptyHint")}
                       </Text>
                     </div>
                     <div style={{ marginTop: 22, display: "flex", justifyContent: "center", gap: 10 }}>
                       <GrayPill
-                        label="Xoá bộ lọc"
+                        label={tr("v3.tournaments.clearFilters")}
                         href="#"
                         onClick={(e) => {
                           e.preventDefault();

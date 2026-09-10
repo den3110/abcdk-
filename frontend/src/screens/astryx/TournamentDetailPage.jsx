@@ -50,6 +50,7 @@ import {
 import { useGetReviewSummaryQuery } from "../../slices/reviewApiSlice.js";
 import { useSelector } from "react-redux";
 import { Star, Bell } from "lucide-react";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 
 /* ------------------------------- helpers ------------------------------- */
 const Container = ({ children, style }) => (
@@ -81,10 +82,11 @@ const daysUntil = (d) => {
   return Number.isFinite(diff) ? diff : null;
 };
 
+// labelKey resolved via t() at render time.
 const STATUS_META = {
-  ongoing: { label: "Đang diễn ra", variant: "success" },
-  upcoming: { label: "Sắp diễn ra", variant: "info" },
-  finished: { label: "Đã kết thúc", variant: "neutral" },
+  ongoing: { labelKey: "v3.tournamentDetail.statusOngoing", variant: "success" },
+  upcoming: { labelKey: "v3.tournamentDetail.statusUpcoming", variant: "info" },
+  finished: { labelKey: "v3.tournamentDetail.statusFinished", variant: "neutral" },
 };
 const statusOf = (t) => {
   const s = String(t?.status || "").toLowerCase();
@@ -108,6 +110,7 @@ function StatCard({ label, value, accent }) {
 
 /* thẻ một ĐỘI đăng ký */
 function TeamCard({ r, single }) {
+  const { t } = useLanguage();
   const paid = String(r?.payment?.status || "").toLowerCase() === "paid";
   const p1 = r?.player1 || {};
   const p2 = r?.player2 || {};
@@ -132,13 +135,15 @@ function TeamCard({ r, single }) {
           {r?.createdAt && <span>{fmtD(r.createdAt)}</span>}
         </div>
       </div>
-      <Badge variant={paid ? "success" : "neutral"} label={paid ? "Đã thanh toán" : "Chờ thanh toán"} />
+      <Badge variant={paid ? "success" : "neutral"} label={paid ? t("v3.tournamentDetail.paid") : t("v3.tournamentDetail.awaitingPayment")} />
     </div>
   );
 }
 
 /* ================================= PAGE ================================= */
 export default function TournamentDetailPage() {
+  // `t` = dữ liệu giải; hàm dịch dùng alias `tr` để tránh shadow.
+  const { t: tr } = useLanguage();
   const { id } = useParams();
   const { data: t, isLoading } = useGetTournamentQuery(id);
   const { data: regsRaw } = useGetRegistrationsQuery(id);
@@ -154,7 +159,7 @@ export default function TournamentDetailPage() {
   const regCount = Number(t?.stats?.registrationsCount ?? regs.length);
   const pct = cap ? Math.min(100, Math.round((regCount / cap) * 100)) : 0;
   const dLeft = st === "upcoming" ? daysUntil(t?.registrationDeadline || t?.startDate) : null;
-  const fee = t?.isFreeRegistration ? "Miễn phí" : fmtMoney(t?.registrationFee ?? t?.entryFee);
+  const fee = t?.isFreeRegistration ? tr("v3.tournamentDetail.free") : fmtMoney(t?.registrationFee ?? t?.entryFee);
   const canManage = Boolean(t?.amOwner || t?.amManager);
 
   // Theo dõi giải + tổng hợp đánh giá
@@ -190,13 +195,13 @@ export default function TournamentDetailPage() {
 
   // ==== SEO: canonical + OG image thật + JSON-LD SportsEvent ====
   const seoTitle = t?.name
-    ? `${t.name} — Giải đấu Pickleball`
-    : "Giải đấu Pickleball";
+    ? tr("v3.tournamentDetail.seoTitleNamed", { name: t.name })
+    : tr("v3.tournamentDetail.seoTitle");
   const seoDesc = t?.description
     ? String(t.description).replace(/\s+/g, " ").slice(0, 240)
     : t?.name
-      ? `Thông tin, điều lệ và danh sách đăng ký giải ${t.name} trên PickleTour.`
-      : "Thông tin, điều lệ và danh sách đăng ký giải đấu Pickleball trên PickleTour.";
+      ? tr("v3.tournamentDetail.seoDescNamed", { name: t.name })
+      : tr("v3.tournamentDetail.seoDesc");
   const seoImage =
     t?.image || t?.coverUrl || t?.poster || "https://pickletour.vn/icon-512.png";
   const seoPath = `/tournament/${id}`;
@@ -288,14 +293,14 @@ export default function TournamentDetailPage() {
                         {st === "ongoing" ? (
                           <span className="pk-live" style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 750, background: "rgba(229,72,77,.16)", color: "#FF8A8E", border: "1px solid rgba(242,85,90,.4)" }}>
                             <span style={{ width: 7, height: 7, borderRadius: 99, background: "#F2555A" }} />
-                            ĐANG DIỄN RA
+                            {tr("v3.tournamentDetail.ongoingBadge")}
                           </span>
                         ) : (
-                          meta && <Badge variant={meta.variant} label={meta.label} />
+                          meta && <Badge variant={meta.variant} label={tr(meta.labelKey)} />
                         )}
                         {t?.code && <span style={{ fontSize: 12, fontWeight: 700, color: "#9AA0A6", letterSpacing: ".03em" }}>{t.code}</span>}
                         {dLeft != null && dLeft >= 0 && (
-                          <Badge variant="info" label={dLeft === 0 ? "Chốt đăng ký hôm nay" : `Chốt đăng ký sau ${dLeft} ngày`} />
+                          <Badge variant="info" label={dLeft === 0 ? tr("v3.tournamentDetail.deadlineToday") : tr("v3.tournamentDetail.deadlineInDays", { days: dLeft })} />
                         )}
                       </div>
 
@@ -317,7 +322,7 @@ export default function TournamentDetailPage() {
                         <span style={{ ...metaRow, gap: 16, flexWrap: "wrap" }}>
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                             <Swords size={14} style={{ opacity: 0.75 }} />
-                            {single ? "Đấu đơn" : "Đấu đôi"}
+                            {single ? tr("v3.tournamentDetail.singles") : tr("v3.tournamentDetail.doubles")}
                           </span>
                           {fee && (
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
@@ -328,7 +333,7 @@ export default function TournamentDetailPage() {
                           {t?.requireKyc && (
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 7, color: "#9CC1FF" }}>
                               <ShieldCheck size={14} />
-                              Yêu cầu xác minh CCCD
+                              {tr("v3.tournamentDetail.requireKyc")}
                             </span>
                           )}
                         </span>
@@ -337,8 +342,8 @@ export default function TournamentDetailPage() {
                       {cap > 0 && (
                         <div className="pk-rise" style={{ marginTop: 20, maxWidth: 420, animationDelay: ".2s" }}>
                           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 7 }}>
-                            <Text type="supporting" color="secondary">Đăng ký</Text>
-                            <Text type="supporting" weight="semibold">{regCount}/{cap} đội</Text>
+                            <Text type="supporting" color="secondary">{tr("v3.tournamentDetail.registered")}</Text>
+                            <Text type="supporting" weight="semibold">{tr("v3.tournamentDetail.teamsCount", { count: regCount, cap })}</Text>
                           </div>
                           <div style={{ height: 6, borderRadius: 99, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
                             <div style={{ height: "100%", width: `${pct}%`, borderRadius: 99, background: pct >= 100 ? "linear-gradient(90deg,#F2555A,#FF8A5C)" : "linear-gradient(90deg,#2694FE,#3D87FF)" }} />
@@ -348,11 +353,11 @@ export default function TournamentDetailPage() {
 
                       <div className="pk-rise" style={{ display: "flex", gap: 11, marginTop: 26, flexWrap: "wrap", animationDelay: ".26s" }}>
                         {st === "upcoming" && (
-                          <WhitePill label={pct >= 100 ? "Đã đủ đội" : "Đăng ký thi đấu"} href={`/tournament/${id}/register`} size="lg" />
+                          <WhitePill label={pct >= 100 ? tr("v3.tournamentDetail.full") : tr("v3.tournamentDetail.register")} href={`/tournament/${id}/register`} size="lg" />
                         )}
-                        <GrayPill label={st === "finished" ? "Kết quả & sơ đồ" : "Sơ đồ thi đấu"} href={`/tournament/${id}/bracket`} size="lg" />
-                        {st !== "finished" && <GrayPill label="Check-in" href={`/tournament/${id}/checkin`} size="lg" />}
-                        {canManage && <GrayPill label="Quản lý giải" href={`/tournament/${id}/manage`} size="lg" />}
+                        <GrayPill label={st === "finished" ? tr("v3.tournamentDetail.resultsBracket") : tr("v3.tournamentDetail.bracket")} href={`/tournament/${id}/bracket`} size="lg" />
+                        {st !== "finished" && <GrayPill label={tr("v3.tournamentDetail.checkin")} href={`/tournament/${id}/checkin`} size="lg" />}
+                        {canManage && <GrayPill label={tr("v3.tournamentDetail.manage")} href={`/tournament/${id}/manage`} size="lg" />}
                         {t?.zaloGroupUrl && (
                           <a
                             href={t.zaloGroupUrl}
@@ -361,7 +366,7 @@ export default function TournamentDetailPage() {
                             style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "0 22px", height: 48, borderRadius: 999, background: "#0068FF", color: "#fff", fontWeight: 750, fontSize: 15, textDecoration: "none", whiteSpace: "nowrap" }}
                           >
                             <MessageCircle size={18} />
-                            Nhóm Zalo
+                            {tr("v3.tournamentDetail.zaloGroup")}
                           </a>
                         )}
 
@@ -371,7 +376,7 @@ export default function TournamentDetailPage() {
                           style={{ all: "unset", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 9, padding: "0 22px", height: 48, borderRadius: 999, background: isFollowing ? "#16a34a" : "rgba(255,255,255,.1)", color: "#fff", fontWeight: 750, fontSize: 15, whiteSpace: "nowrap", border: isFollowing ? "none" : "1px solid rgba(255,255,255,.16)" }}
                         >
                           <Bell size={18} />
-                          {isFollowing ? "Đang theo dõi" : "Theo dõi"}
+                          {isFollowing ? tr("v3.tournamentDetail.following") : tr("v3.tournamentDetail.follow")}
                         </button>
 
                         <a
@@ -379,7 +384,7 @@ export default function TournamentDetailPage() {
                           style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "0 22px", height: 48, borderRadius: 999, background: "rgba(245,158,11,.16)", color: "#F0C24B", fontWeight: 750, fontSize: 15, textDecoration: "none", whiteSpace: "nowrap", border: "1px solid rgba(245,158,11,.3)" }}
                         >
                           <Star size={18} />
-                          {reviewCount ? `Đánh giá ${reviewAvg?.toFixed(1)}★ (${reviewCount})` : "Đánh giá"}
+                          {reviewCount ? tr("v3.tournamentDetail.reviewsRated", { avg: reviewAvg?.toFixed(1), count: reviewCount }) : tr("v3.tournamentDetail.reviews")}
                         </a>
                       </div>
                     </div>
@@ -392,10 +397,10 @@ export default function TournamentDetailPage() {
                           className="pk-tcard"
                           style={{ borderRadius: 18, overflow: "hidden", border: "1px solid var(--color-border)", cursor: "zoom-in", background: "#141518" }}
                         >
-                          <img src={t.image} alt={t?.name || "Poster giải"} style={{ display: "block", width: "100%", maxHeight: 400, objectFit: "cover" }} />
+                          <img src={t.image} alt={t?.name || tr("v3.tournamentDetail.posterAlt")} style={{ display: "block", width: "100%", maxHeight: 400, objectFit: "cover" }} />
                         </div>
                         <div style={{ marginTop: 8, textAlign: "center" }}>
-                          <Text type="supporting" color="tertiary">Bấm vào poster để phóng to</Text>
+                          <Text type="supporting" color="tertiary">{tr("v3.tournamentDetail.clickPoster")}</Text>
                         </div>
                       </div>
                     )}
@@ -408,10 +413,10 @@ export default function TournamentDetailPage() {
             {t && (
               <Container>
                 <div className="pk-3col" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginTop: 26 }}>
-                  <StatCard label="Đội đăng ký" value={regCount} accent="#7FB3FF" />
-                  <StatCard label="Đã thanh toán" value={Number(t?.stats?.paidCount || 0)} accent="#7CC7A2" />
-                  <StatCard label="Đã check-in" value={Number(t?.stats?.checkedInCount || 0)} />
-                  <StatCard label="Số trận" value={Number(t?.matchesCount || 0)} />
+                  <StatCard label={tr("v3.tournamentDetail.statTeams")} value={regCount} accent="#7FB3FF" />
+                  <StatCard label={tr("v3.tournamentDetail.statPaid")} value={Number(t?.stats?.paidCount || 0)} accent="#7CC7A2" />
+                  <StatCard label={tr("v3.tournamentDetail.statCheckedIn")} value={Number(t?.stats?.checkedInCount || 0)} />
+                  <StatCard label={tr("v3.tournamentDetail.statMatches")} value={Number(t?.matchesCount || 0)} />
                 </div>
               </Container>
             )}
@@ -421,7 +426,7 @@ export default function TournamentDetailPage() {
               <div className="pk-2col" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1.6fr) minmax(280px, 1fr)", gap: 20, marginTop: 20, alignItems: "start" }}>
                 {/* điều lệ */}
                 <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: "22px 24px" }}>
-                  <div style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 18 }}>Điều lệ giải đấu</div>
+                  <div style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 18 }}>{tr("v3.tournamentDetail.rulesHeading")}</div>
                   {t?.contentHtml ? (
                     <>
                       <div
@@ -438,12 +443,12 @@ export default function TournamentDetailPage() {
                         onClick={() => setRuleOpen((v) => !v)}
                         style={{ all: "unset", marginTop: 12, cursor: "pointer", color: "var(--color-text-accent, #3E9EFB)", fontSize: 13.5, fontWeight: 650 }}
                       >
-                        {ruleOpen ? "Thu gọn" : "Xem toàn bộ điều lệ"}
+                        {ruleOpen ? tr("v3.tournamentDetail.collapse") : tr("v3.tournamentDetail.viewAllRules")}
                       </button>
                     </>
                   ) : (
                     <div style={{ marginTop: 14 }}>
-                      <Text type="body" color="secondary">Ban tổ chức chưa đăng điều lệ.</Text>
+                      <Text type="body" color="secondary">{tr("v3.tournamentDetail.noRules")}</Text>
                     </div>
                   )}
                 </div>
@@ -454,7 +459,7 @@ export default function TournamentDetailPage() {
                     <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: "20px 22px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16 }}>
                         <Landmark size={17} style={{ opacity: 0.8 }} />
-                        Lệ phí & chuyển khoản
+                        {tr("v3.tournamentDetail.feeTransfer")}
                       </div>
                       {fee && (
                         <div style={{ marginTop: 12, fontSize: 24, fontWeight: 800, color: "#F0C24B", letterSpacing: "-.01em" }}>{fee}</div>
@@ -467,7 +472,7 @@ export default function TournamentDetailPage() {
                             <button
                               type="button"
                               onClick={copyAccount}
-                              aria-label="Sao chép số tài khoản"
+                              aria-label={tr("v3.tournamentDetail.copyAccount")}
                               style={{ all: "unset", width: 28, height: 28, borderRadius: 8, display: "grid", placeItems: "center", cursor: "pointer", background: "rgba(255,255,255,.07)", color: copied ? "#3BA55D" : "#C9CDD2", border: "1px solid rgba(255,255,255,.1)" }}
                             >
                               {copied ? <Check size={14} /> : <Copy size={14} />}
@@ -482,13 +487,13 @@ export default function TournamentDetailPage() {
                   <div style={{ borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: "20px 22px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 9, color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 16 }}>
                       <ClipboardCheck size={17} style={{ opacity: 0.8 }} />
-                      Liên hệ ban tổ chức
+                      {tr("v3.tournamentDetail.contactOrganizer")}
                     </div>
                     {t?.contactHtml ? (
                       <div className="pk-prose" style={{ marginTop: 12 }} dangerouslySetInnerHTML={{ __html: t.contactHtml }} />
                     ) : (
                       <div style={{ marginTop: 12 }}>
-                        <Text type="supporting" color="secondary">Chưa có thông tin liên hệ.</Text>
+                        <Text type="supporting" color="secondary">{tr("v3.tournamentDetail.noContact")}</Text>
                       </div>
                     )}
                   </div>
@@ -500,7 +505,7 @@ export default function TournamentDetailPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <Users size={18} color="#9AA0A6" />
                   <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 20 }}>
-                    {single ? "Vận động viên đăng ký" : "Đội đăng ký"}
+                    {single ? tr("v3.tournamentDetail.playersHeading") : tr("v3.tournamentDetail.teamsHeading")}
                   </span>
                   {regCount > 0 && (
                     <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: "rgba(255,255,255,.07)", color: "var(--pk-text)" }}>{regCount}</span>
@@ -518,7 +523,7 @@ export default function TournamentDetailPage() {
                       <PickleMark size={34} />
                     </div>
                     <div style={{ marginTop: 12 }}>
-                      <Text type="body" color="secondary">Chưa có đội nào đăng ký{st === "upcoming" ? " — hãy là đội đầu tiên!" : "."}</Text>
+                      <Text type="body" color="secondary">{st === "upcoming" ? tr("v3.tournamentDetail.noTeamsBeFirst") : tr("v3.tournamentDetail.noTeams")}</Text>
                     </div>
                   </div>
                 )}

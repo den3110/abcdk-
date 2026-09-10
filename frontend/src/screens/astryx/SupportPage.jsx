@@ -55,6 +55,7 @@ import {
   useReplyMySupportTicketMutation,
 } from "../../slices/supportApiSlice.js";
 import { useUploadImageToFolderMutation } from "../../slices/uploadApiSlice.js";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 
 /* ------------------------- token màu (theme-ready) ------------------------- */
 /* Không hardcode hex trần cho chữ/nền/viền tuỳ chỉnh — dùng var + fallback dark. */
@@ -68,33 +69,35 @@ const CHIP_BG = "var(--pk-chip-bg, rgba(255,255,255,.06))";
 
 /* ------------------------------ meta dữ liệu ------------------------------ */
 /* Trạng thái/ưu tiên giữ nguyên value backend; màu trạng thái được phép hex. */
+/* labelKey giữ chỗ khoá i18n — resolve bằng t() tại điểm render (TonePill, option…). */
 const STATUS_META = {
-  open: { label: "Đang mở", color: "#F0C24B", text: "#F0C24B", bg: "rgba(240,194,75,.12)", border: "rgba(240,194,75,.32)" },
-  pending: { label: "Đã phản hồi", color: "#3D87FF", text: "#7FB3FF", bg: "rgba(61,135,255,.12)", border: "rgba(61,135,255,.32)" },
-  closed: { label: "Đã đóng", color: "#3BA55D", text: "#7CC7A2", bg: "rgba(59,165,93,.13)", border: "rgba(59,165,93,.34)" },
+  open: { labelKey: "v3.support.st_open", color: "#F0C24B", text: "#F0C24B", bg: "rgba(240,194,75,.12)", border: "rgba(240,194,75,.32)" },
+  pending: { labelKey: "v3.support.st_pending", color: "#3D87FF", text: "#7FB3FF", bg: "rgba(61,135,255,.12)", border: "rgba(61,135,255,.32)" },
+  closed: { labelKey: "v3.support.st_closed", color: "#3BA55D", text: "#7CC7A2", bg: "rgba(59,165,93,.13)", border: "rgba(59,165,93,.34)" },
 };
 
 const CATEGORY_OPTIONS = [
-  { value: "account", label: "Tài khoản" },
-  { value: "tournament", label: "Giải đấu" },
-  { value: "payment", label: "Thanh toán" },
-  { value: "technical", label: "Kỹ thuật" },
-  { value: "report", label: "Báo lỗi" },
-  { value: "other", label: "Khác" },
+  { value: "account", labelKey: "v3.support.cat_account" },
+  { value: "tournament", labelKey: "v3.support.cat_tournament" },
+  { value: "payment", labelKey: "v3.support.cat_payment" },
+  { value: "technical", labelKey: "v3.support.cat_technical" },
+  { value: "report", labelKey: "v3.support.cat_report" },
+  { value: "other", labelKey: "v3.support.cat_other" },
 ];
 
 const PRIORITY_OPTIONS = [
-  { value: "low", label: "Thấp", text: T_MUTE, bg: CHIP_BG, border: BORDER_2 },
-  { value: "normal", label: "Bình thường", text: "#7FB3FF", bg: "rgba(61,135,255,.10)", border: "rgba(61,135,255,.26)" },
-  { value: "high", label: "Cao", text: "#F0C24B", bg: "rgba(240,194,75,.10)", border: "rgba(240,194,75,.28)" },
-  { value: "urgent", label: "Khẩn cấp", text: "#FF8A8E", bg: "rgba(242,85,90,.12)", border: "rgba(242,85,90,.32)" },
+  { value: "low", labelKey: "v3.support.pri_low", text: T_MUTE, bg: CHIP_BG, border: BORDER_2 },
+  { value: "normal", labelKey: "v3.support.pri_normal", text: "#7FB3FF", bg: "rgba(61,135,255,.10)", border: "rgba(61,135,255,.26)" },
+  { value: "high", labelKey: "v3.support.pri_high", text: "#F0C24B", bg: "rgba(240,194,75,.10)", border: "rgba(240,194,75,.28)" },
+  { value: "urgent", labelKey: "v3.support.pri_urgent", text: "#FF8A8E", bg: "rgba(242,85,90,.12)", border: "rgba(242,85,90,.32)" },
 ];
 
 const getStatusMeta = (status) => STATUS_META[status] || STATUS_META.open;
 const priorityMeta = (value) =>
   PRIORITY_OPTIONS.find((item) => item.value === value) || PRIORITY_OPTIONS[1];
-const optionLabel = (options, value, fallback = "Khác") =>
-  options.find((item) => item.value === value)?.label || fallback;
+/* trả về khoá i18n; caller bọc t() tại điểm render */
+const optionLabel = (options, value, fallbackKey = "v3.support.cat_other") =>
+  options.find((item) => item.value === value)?.labelKey || fallbackKey;
 
 function formatDate(value) {
   if (!value) return "";
@@ -177,6 +180,7 @@ function SelectBox({ value, onChange, children, disabled }) {
 
 /* pill trạng thái / ưu tiên: chấm màu + nhãn */
 function TonePill({ tone, small = false, dot = true }) {
+  const { t } = useLanguage();
   return (
     <span
       style={{
@@ -194,7 +198,7 @@ function TonePill({ tone, small = false, dot = true }) {
       }}
     >
       {dot && <span style={{ width: 6, height: 6, borderRadius: 999, background: "currentColor", flexShrink: 0 }} />}
-      {tone.label}
+      {t(tone.labelKey)}
     </span>
   );
 }
@@ -240,6 +244,7 @@ function StatTile({ label, value, dot, active, onClick, delay }) {
 
 /* card 1 yêu cầu trong danh sách trái */
 function TicketCard({ ticket, active, onClick }) {
+  const { t } = useLanguage();
   const meta = getStatusMeta(ticket?.status);
   const prio = priorityMeta(ticket?.priority);
   const unread = isUnreadForUser(ticket);
@@ -264,11 +269,11 @@ function TicketCard({ ticket, active, onClick }) {
       <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
         <span style={{ width: 8, height: 8, borderRadius: 999, background: meta.color, flexShrink: 0 }} />
         <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 14.5, fontWeight: unread ? 800 : 700, color: T_STRONG }}>
-          {ticket?.title || "Hỗ trợ"}
+          {ticket?.title || t("v3.support.supportFallback")}
         </span>
         {unread && (
           <span style={{ flexShrink: 0, padding: "1.5px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 800, letterSpacing: ".04em", color: "#FF8A8E", background: "rgba(242,85,90,.14)", border: "1px solid rgba(242,85,90,.36)" }}>
-            MỚI
+            {t("v3.support.newBadge")}
           </span>
         )}
       </span>
@@ -285,7 +290,7 @@ function TicketCard({ ticket, active, onClick }) {
           minHeight: 39,
         }}
       >
-        {ticket?.lastMessagePreview || "Chưa có nội dung"}
+        {ticket?.lastMessagePreview || t("v3.support.noContent")}
       </span>
       <span style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10, flexWrap: "wrap" }}>
         <TonePill tone={meta} small />
@@ -300,6 +305,7 @@ function TicketCard({ ticket, active, onClick }) {
 
 /* chip file đã chọn (trước khi upload) */
 function FileChips({ files, onRemove, disabled }) {
+  const { t } = useLanguage();
   if (!files.length) return null;
   return (
     <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
@@ -312,7 +318,7 @@ function FileChips({ files, onRemove, disabled }) {
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.name}</span>
           <button
             type="button"
-            aria-label={`Bỏ ${file.name}`}
+            aria-label={t("v3.support.removeFile", { name: file.name })}
             onClick={() => onRemove(file)}
             disabled={disabled}
             style={{ all: "unset", display: "grid", placeItems: "center", width: 16, height: 16, borderRadius: 999, cursor: disabled ? "not-allowed" : "pointer", color: T_MUTE, flexShrink: 0 }}
@@ -326,7 +332,9 @@ function FileChips({ files, onRemove, disabled }) {
 }
 
 /* nút "chọn ảnh" dạng pill xám có input file ẩn */
-function AttachButton({ onPick, disabled, label = "Ảnh" }) {
+function AttachButton({ onPick, disabled, label }) {
+  const { t } = useLanguage();
+  const text = label || t("v3.support.attachShort");
   return (
     <label
       className="pk-pill"
@@ -349,7 +357,7 @@ function AttachButton({ onPick, disabled, label = "Ảnh" }) {
       }}
     >
       <ImagePlus size={15} />
-      {label}
+      {text}
       <input hidden type="file" accept="image/*" multiple disabled={disabled} onChange={onPick} />
     </label>
   );
@@ -357,6 +365,7 @@ function AttachButton({ onPick, disabled, label = "Ảnh" }) {
 
 /* đính kèm trong bong bóng chat: ảnh -> thumbnail bấm phóng to, khác -> link */
 function AttachmentRow({ attachments = [], onZoom }) {
+  const { t } = useLanguage();
   if (!Array.isArray(attachments) || !attachments.length) return null;
   return (
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
@@ -369,7 +378,7 @@ function AttachmentRow({ attachments = [], onZoom }) {
             <img
               key={`${attachment.url}-${index}`}
               src={url}
-              alt={attachment?.name || `Ảnh ${index + 1}`}
+              alt={attachment?.name || t("v3.support.imageAlt", { n: index + 1 })}
               loading="lazy"
               onClick={() => onZoom(url)}
               style={{ width: 96, height: 72, objectFit: "cover", borderRadius: 10, cursor: "zoom-in", border: `1px solid ${BORDER_2}`, display: "block" }}
@@ -385,7 +394,7 @@ function AttachmentRow({ attachments = [], onZoom }) {
             style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 11px", borderRadius: 999, fontSize: 12, fontWeight: 650, textDecoration: "none", color: "var(--color-text-accent, #3E9EFB)", background: CHIP_BG, border: `1px solid ${BORDER_2}` }}
           >
             <Paperclip size={11.5} />
-            {attachment?.name || `Tệp ${index + 1}`}
+            {attachment?.name || t("v3.support.fileAlt", { n: index + 1 })}
           </a>
         );
       })}
@@ -395,11 +404,12 @@ function AttachmentRow({ attachments = [], onZoom }) {
 
 /* bong bóng hội thoại: support bên trái (xanh dương), mình bên phải (xanh lục) */
 function MessageBubble({ message, onZoom }) {
+  const { t } = useLanguage();
   const fromStaff = message?.senderRole === "staff";
   const senderName =
     message?.senderUser?.nickname ||
     message?.senderUser?.name ||
-    (fromStaff ? "Support" : "Bạn");
+    (fromStaff ? "Support" : t("v3.support.you"));
 
   return (
     <div className="pk-fade" style={{ display: "flex", flexDirection: "column", alignItems: fromStaff ? "flex-start" : "flex-end", width: "100%" }}>
@@ -424,7 +434,7 @@ function MessageBubble({ message, onZoom }) {
           color: T_TEXT,
         }}
       >
-        {message?.text || "[Đính kèm]"}
+        {message?.text || t("v3.support.attachmentPlaceholder")}
         <AttachmentRow attachments={message?.attachments} onZoom={onZoom} />
       </div>
     </div>
@@ -433,6 +443,7 @@ function MessageBubble({ message, onZoom }) {
 
 /* chấm điểm 1–5 sao */
 function Stars({ value, onChange, disabled }) {
+  const { t } = useLanguage();
   const [hover, setHover] = useState(0);
   return (
     <div style={{ display: "inline-flex", gap: 3 }} onMouseLeave={() => setHover(0)}>
@@ -442,7 +453,7 @@ function Stars({ value, onChange, disabled }) {
           <button
             key={i}
             type="button"
-            aria-label={`${i} sao`}
+            aria-label={t("v3.support.starAria", { n: i })}
             disabled={disabled}
             onClick={() => onChange(i)}
             onMouseEnter={() => !disabled && setHover(i)}
@@ -472,19 +483,21 @@ function EmptyState({ title, desc, action, compact = false }) {
 
 /* hộp cảnh báo lỗi + nút thử lại */
 function ErrorBox({ message, onRetry }) {
+  const { t } = useLanguage();
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, textAlign: "center", padding: "30px 18px", borderRadius: 14, border: "1px solid rgba(242,85,90,.32)", background: "rgba(242,85,90,.08)" }}>
       <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "#FF8A8E", fontSize: 13.5, fontWeight: 650 }}>
         <CircleAlert size={15} />
         {message}
       </span>
-      {onRetry && <GrayPill label="Thử lại" onClick={onRetry} />}
+      {onRetry && <GrayPill label={t("v3.support.retry")} onClick={onRetry} />}
     </div>
   );
 }
 
 /* ================================= PAGE ================================= */
 export default function SupportPage() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const { id: routeTicketId } = useParams();
   const isDesktop = useMedia("(min-width: 900px)");
@@ -675,13 +688,13 @@ export default function SupportPage() {
   const handleCreateTicket = async () => {
     const text = newText.trim();
     if (!text && !newFiles.length) {
-      showToast("error", "Vui lòng nhập nội dung hoặc đính kèm ảnh.");
+      showToast("error", t("v3.support.needContent"));
       return;
     }
     try {
       const attachments = await uploadFiles(newFiles);
       const ticket = await createTicket({
-        title: newTitle.trim() || "Hỗ trợ",
+        title: newTitle.trim() || t("v3.support.supportFallback"),
         text,
         attachments,
         category: newCategory,
@@ -691,10 +704,10 @@ export default function SupportPage() {
         source: "web",
       }).unwrap();
       closeNewModal(true);
-      showToast("success", "Đã gửi yêu cầu hỗ trợ.");
+      showToast("success", t("v3.support.createdOk"));
       if (ticket?._id) navigate(`/support/${ticket._id}`);
     } catch (error) {
-      showToast("error", error?.data?.message || "Không thể tạo yêu cầu hỗ trợ.");
+      showToast("error", error?.data?.message || t("v3.support.createErr"));
     }
   };
 
@@ -707,9 +720,9 @@ export default function SupportPage() {
       await replyTicket({ id: selectedId, text, attachments }).unwrap();
       setReplyText("");
       setReplyFiles([]);
-      showToast("success", "Đã gửi phản hồi.");
+      showToast("success", t("v3.support.replyOk"));
     } catch (error) {
-      showToast("error", error?.data?.message || "Không thể gửi phản hồi.");
+      showToast("error", error?.data?.message || t("v3.support.replyErr"));
     }
   };
 
@@ -718,9 +731,9 @@ export default function SupportPage() {
     if (!selectedId || !ratingScore) return;
     try {
       await rateTicket({ id: selectedId, score: ratingScore, comment: ratingComment }).unwrap();
-      showToast("success", "Đã lưu đánh giá.");
+      showToast("success", t("v3.support.rateOk"));
     } catch (error) {
-      showToast("error", error?.data?.message || "Không thể lưu đánh giá.");
+      showToast("error", error?.data?.message || t("v3.support.rateErr"));
     }
   };
 
@@ -739,11 +752,11 @@ export default function SupportPage() {
 
   /* thẻ thống kê: bấm để lọc trạng thái nhanh; "Chưa đọc" bật lọc riêng */
   const statTiles = [
-    { key: "", label: "Tất cả", value: stats.total, dot: null, active: !statusFilter && !unreadOnly },
-    { key: "unread", label: "Chưa đọc", value: stats.unread, dot: "#F2555A", active: unreadOnly },
-    { key: "open", label: "Đang mở", value: stats.open, dot: "#F0C24B", active: statusFilter === "open" },
-    { key: "pending", label: "Đã phản hồi", value: stats.pending, dot: "#3D87FF", active: statusFilter === "pending" },
-    { key: "closed", label: "Đã đóng", value: stats.closed, dot: "#3BA55D", active: statusFilter === "closed" },
+    { key: "", label: t("v3.support.tileAll"), value: stats.total, dot: null, active: !statusFilter && !unreadOnly },
+    { key: "unread", label: t("v3.support.tileUnread"), value: stats.unread, dot: "#F2555A", active: unreadOnly },
+    { key: "open", label: t("v3.support.st_open"), value: stats.open, dot: "#F0C24B", active: statusFilter === "open" },
+    { key: "pending", label: t("v3.support.st_pending"), value: stats.pending, dot: "#3D87FF", active: statusFilter === "pending" },
+    { key: "closed", label: t("v3.support.st_closed"), value: stats.closed, dot: "#3BA55D", active: statusFilter === "closed" },
   ];
   const onStatTile = (key) => {
     if (key === "unread") {
@@ -766,7 +779,7 @@ export default function SupportPage() {
 
   return (
     <>
-      <SEOHead title="Trung tâm hỗ trợ — PickleTour" noIndex />
+      <SEOHead title={t("v3.support.seoTitle")} noIndex />
       <ShadowFrame style={{ minHeight: "100vh" }}>
         <Theme theme={neutralTheme}>
           <div style={{ minHeight: "100vh", background: "var(--color-background-body)" }}>
@@ -782,12 +795,12 @@ export default function SupportPage() {
                 <div className="pk-2col" style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 22, alignItems: "end", padding: "58px 0 30px" }}>
                   <div style={{ minWidth: 0 }}>
                     <h1 className="pk-rise" style={{ margin: 0, fontWeight: 750, fontSize: "clamp(34px, 4.8vw, 60px)", lineHeight: 1.04, letterSpacing: "-0.026em", color: T_STRONG }}>
-                      Trung tâm{" "}
-                      <span style={{ color: "var(--color-brand, #3D87FF)" }}>hỗ trợ.</span>
+                      {t("v3.support.heroTitle1")}{" "}
+                      <span style={{ color: "var(--color-brand, #3D87FF)" }}>{t("v3.support.heroTitle2")}</span>
                     </h1>
                     <div className="pk-rise" style={{ maxWidth: 560, marginTop: 14, animationDelay: ".12s" }}>
                       <Text type="large" color="secondary">
-                        Gửi yêu cầu, theo dõi phản hồi của đội ngũ PickleTour và nhận thông báo ngay khi support trả lời.
+                        {t("v3.support.heroDesc")}
                       </Text>
                     </div>
                   </div>
@@ -798,7 +811,7 @@ export default function SupportPage() {
                       label={
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                           <RefreshCw size={14} className={ticketsFetching || detailFetching ? "pk-spinning" : undefined} />
-                          Tải lại
+                          {t("v3.support.reload")}
                         </span>
                       }
                     />
@@ -807,7 +820,7 @@ export default function SupportPage() {
                       label={
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                           <Plus size={15} />
-                          Tạo yêu cầu
+                          {t("v3.support.createTicket")}
                         </span>
                       }
                     />
@@ -849,13 +862,13 @@ export default function SupportPage() {
                         className="pk-input"
                         value={keyword}
                         onChange={(event) => setKeyword(event.target.value)}
-                        placeholder="Tìm yêu cầu hỗ trợ…"
+                        placeholder={t("v3.support.searchTickets")}
                         style={{ paddingLeft: 38, paddingRight: keyword ? 38 : 14 }}
                       />
                       {keyword && (
                         <button
                           type="button"
-                          aria-label="Xoá từ khoá"
+                          aria-label={t("v3.support.clearKeyword")}
                           onClick={() => setKeyword("")}
                           style={{ all: "unset", position: "absolute", right: 11, top: "50%", transform: "translateY(-50%)", display: "grid", placeItems: "center", width: 20, height: 20, cursor: "pointer", color: T_MUTE }}
                         >
@@ -865,15 +878,15 @@ export default function SupportPage() {
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                       <SelectBox value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}>
-                        <option value="">Loại: tất cả</option>
+                        <option value="">{t("v3.support.catAll")}</option>
                         {CATEGORY_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
+                          <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
                         ))}
                       </SelectBox>
                       <SelectBox value={priorityFilter} onChange={(event) => setPriorityFilter(event.target.value)}>
-                        <option value="">Ưu tiên: tất cả</option>
+                        <option value="">{t("v3.support.priAll")}</option>
                         {PRIORITY_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
+                          <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
                         ))}
                       </SelectBox>
                     </div>
@@ -885,7 +898,7 @@ export default function SupportPage() {
                         <Skeleton key={index} width="100%" height="112px" borderRadius="14px" />
                       ))
                     ) : ticketsError ? (
-                      <ErrorBox message="Không thể tải danh sách yêu cầu." onRetry={refetchTickets} />
+                      <ErrorBox message={t("v3.support.listErr")} onRetry={refetchTickets} />
                     ) : filteredTickets.length ? (
                       filteredTickets.map((ticket) => (
                         <TicketCard
@@ -898,22 +911,22 @@ export default function SupportPage() {
                     ) : tickets.length ? (
                       <EmptyState
                         compact
-                        title="Không có yêu cầu khớp bộ lọc"
-                        desc="Thử đổi từ khoá hoặc xoá bộ lọc hiện tại."
-                        action={hasActiveFilter && <GrayPill label="Xoá bộ lọc" onClick={clearFilters} />}
+                        title={t("v3.support.noMatchTitle")}
+                        desc={t("v3.support.noMatchDesc")}
+                        action={hasActiveFilter && <GrayPill label={t("v3.support.clearFilters")} onClick={clearFilters} />}
                       />
                     ) : (
                       <EmptyState
                         compact
-                        title="Chưa có yêu cầu hỗ trợ nào"
-                        desc="Gặp vấn đề về tài khoản, giải đấu hay thanh toán? Gửi yêu cầu để đội ngũ hỗ trợ xử lý."
+                        title={t("v3.support.emptyTitle")}
+                        desc={t("v3.support.emptyDesc")}
                         action={
                           <WhitePill
                             onClick={() => setNewOpen(true)}
                             label={
                               <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                                 <Plus size={15} />
-                                Tạo yêu cầu đầu tiên
+                                {t("v3.support.createFirst")}
                               </span>
                             }
                           />
@@ -943,15 +956,15 @@ export default function SupportPage() {
                       </div>
                     ) : (
                       <EmptyState
-                        title="Chưa chọn yêu cầu hỗ trợ"
-                        desc="Chọn một yêu cầu trong danh sách hoặc tạo yêu cầu mới để trao đổi với đội ngũ hỗ trợ."
+                        title={t("v3.support.noneSelectedTitle")}
+                        desc={t("v3.support.noneSelectedDesc")}
                         action={
                           <WhitePill
                             onClick={() => setNewOpen(true)}
                             label={
                               <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                                 <Plus size={15} />
-                                Tạo yêu cầu mới
+                                {t("v3.support.createNew")}
                               </span>
                             }
                           />
@@ -960,7 +973,7 @@ export default function SupportPage() {
                     )
                   ) : detailError ? (
                     <div style={{ padding: 20 }}>
-                      <ErrorBox message="Không thể tải chi tiết yêu cầu." onRetry={refetchDetail} />
+                      <ErrorBox message={t("v3.support.detailErr")} onRetry={refetchDetail} />
                     </div>
                   ) : (
                     <>
@@ -970,23 +983,23 @@ export default function SupportPage() {
                           <>
                             <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                               <h2 style={{ margin: 0, flex: 1, minWidth: 180, fontSize: 18, fontWeight: 800, letterSpacing: "-.01em", color: T_STRONG, overflowWrap: "anywhere" }}>
-                                {selectedTicket.title || "Hỗ trợ"}
+                                {selectedTicket.title || t("v3.support.supportFallback")}
                               </h2>
                               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                                 <TonePill tone={selectedStatus} />
-                                <NeutralChip>{optionLabel(CATEGORY_OPTIONS, selectedTicket.category)}</NeutralChip>
+                                <NeutralChip>{t(optionLabel(CATEGORY_OPTIONS, selectedTicket.category))}</NeutralChip>
                                 <TonePill tone={selectedPriority} dot={false} />
                               </div>
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginTop: 9, fontSize: 12.5, color: T_MUTE }}>
                               <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                                 <Clock size={12.5} />
-                                Cập nhật {formatDate(selectedTicket.lastMessageAt || selectedTicket.updatedAt)}
+                                {t("v3.support.updatedAt", { date: formatDate(selectedTicket.lastMessageAt || selectedTicket.updatedAt) })}
                               </span>
                               {selectedTicket.assignedTo && (
                                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                                   <Headset size={12.5} />
-                                  Phụ trách:{" "}
+                                  {t("v3.support.assignedTo")}{" "}
                                   <span style={{ color: T_TEXT, fontWeight: 650 }}>
                                     {selectedTicket.assignedTo.nickname ||
                                       selectedTicket.assignedTo.name ||
@@ -998,7 +1011,7 @@ export default function SupportPage() {
                             {selectedTicket.closeReason && (
                               <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 10, fontSize: 13, color: "#7CC7A2", background: "rgba(59,165,93,.10)", border: "1px solid rgba(59,165,93,.28)" }}>
                                 <Check size={14} style={{ flexShrink: 0 }} />
-                                Lý do đóng: {selectedTicket.closeReason}
+                                {t("v3.support.closeReason", { reason: selectedTicket.closeReason })}
                               </div>
                             )}
                           </>
@@ -1038,8 +1051,8 @@ export default function SupportPage() {
                         ) : (
                           <EmptyState
                             compact
-                            title="Chưa có phản hồi trong yêu cầu này"
-                            desc="Đội ngũ hỗ trợ sẽ trả lời sớm nhất trong giờ hành chính."
+                            title={t("v3.support.noRepliesTitle")}
+                            desc={t("v3.support.noRepliesDesc")}
                           />
                         )}
                       </div>
@@ -1048,7 +1061,7 @@ export default function SupportPage() {
                       {selectedTicket?.status === "closed" && (
                         <div style={{ padding: "14px 20px", borderTop: `1px solid ${BORDER_2}` }}>
                           <div style={{ fontSize: 11.5, fontWeight: 750, letterSpacing: ".07em", textTransform: "uppercase", color: T_MUTE, marginBottom: 8 }}>
-                            Đánh giá hỗ trợ
+                            {t("v3.support.rateTitle")}
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                             <Stars value={ratingScore} onChange={setRatingScore} disabled={rating} />
@@ -1056,11 +1069,11 @@ export default function SupportPage() {
                               className="pk-input"
                               value={ratingComment}
                               onChange={(event) => setRatingComment(event.target.value)}
-                              placeholder="Góp ý thêm cho support…"
+                              placeholder={t("v3.support.ratePlaceholder")}
                               style={{ flex: 1, minWidth: 180 }}
                             />
                             <GrayPill
-                              label={rating ? "Đang lưu…" : "Lưu đánh giá"}
+                              label={rating ? t("v3.support.rateSaving") : t("v3.support.rateSave")}
                               onClick={handleRateTicket}
                               disabled={!ratingScore || rating}
                             />
@@ -1079,8 +1092,8 @@ export default function SupportPage() {
                             onChange={(event) => setReplyText(event.target.value)}
                             placeholder={
                               selectedTicket?.status === "closed"
-                                ? "Gửi phản hồi để mở lại yêu cầu…"
-                                : "Nhập phản hồi…"
+                                ? t("v3.support.replyReopenPlaceholder")
+                                : t("v3.support.replyPlaceholder")
                             }
                             disabled={!selectedTicket || busy}
                             style={{ flex: 1, minWidth: 200, resize: "none", minHeight: 48, maxHeight: 140, lineHeight: 1.5 }}
@@ -1093,7 +1106,7 @@ export default function SupportPage() {
                               label={
                                 <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                                   <Send size={14} />
-                                  {replying || uploading ? "Đang gửi…" : "Gửi"}
+                                  {replying || uploading ? t("v3.support.sending") : t("v3.support.send")}
                                 </span>
                               }
                             />
@@ -1113,7 +1126,7 @@ export default function SupportPage() {
               <div
                 role="dialog"
                 aria-modal="true"
-                aria-label="Tạo yêu cầu hỗ trợ"
+                aria-label={t("v3.support.modalTitle")}
                 className="pk-fade"
                 onClick={() => closeNewModal()}
                 style={{ position: "fixed", inset: 0, zIndex: 65, background: "rgba(8,9,11,.7)", backdropFilter: "blur(8px)", display: "grid", placeItems: "center", padding: 18 }}
@@ -1128,12 +1141,12 @@ export default function SupportPage() {
                       <LifeBuoy size={17} />
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ color: T_STRONG, fontWeight: 800, fontSize: 17.5, letterSpacing: "-.01em" }}>Tạo yêu cầu hỗ trợ</div>
-                      <div style={{ color: T_MUTE, fontSize: 12.5, marginTop: 2 }}>Mô tả càng chi tiết, xử lý càng nhanh.</div>
+                      <div style={{ color: T_STRONG, fontWeight: 800, fontSize: 17.5, letterSpacing: "-.01em" }}>{t("v3.support.modalTitle")}</div>
+                      <div style={{ color: T_MUTE, fontSize: 12.5, marginTop: 2 }}>{t("v3.support.modalSubtitle")}</div>
                     </div>
                     <button
                       type="button"
-                      aria-label="Đóng"
+                      aria-label={t("v3.support.close")}
                       onClick={() => closeNewModal()}
                       disabled={busy}
                       style={{ all: "unset", display: "grid", placeItems: "center", width: 32, height: 32, borderRadius: 999, cursor: busy ? "not-allowed" : "pointer", color: T_MUTE, background: CHIP_BG, border: `1px solid ${BORDER_2}`, flexShrink: 0 }}
@@ -1143,43 +1156,43 @@ export default function SupportPage() {
                   </div>
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                    <Field label="Tiêu đề">
+                    <Field label={t("v3.support.fieldTitle")}>
                       <input
                         className="pk-input"
                         value={newTitle}
                         onChange={(event) => setNewTitle(event.target.value)}
-                        placeholder="Ví dụ: Cần hỗ trợ đăng ký giải"
+                        placeholder={t("v3.support.titlePlaceholder")}
                         autoFocus
                       />
                     </Field>
                     <div className="pk-3col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                      <Field label="Loại vấn đề">
+                      <Field label={t("v3.support.fieldCategory")}>
                         <SelectBox value={newCategory} onChange={(event) => setNewCategory(event.target.value)}>
                           {CATEGORY_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
+                            <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
                           ))}
                         </SelectBox>
                       </Field>
-                      <Field label="Mức ưu tiên">
+                      <Field label={t("v3.support.fieldPriority")}>
                         <SelectBox value={newPriority} onChange={(event) => setNewPriority(event.target.value)}>
                           {PRIORITY_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
+                            <option key={option.value} value={option.value}>{t(option.labelKey)}</option>
                           ))}
                         </SelectBox>
                       </Field>
                     </div>
-                    <Field label="Nội dung" hint="Bắt buộc có nội dung hoặc ít nhất một ảnh đính kèm.">
+                    <Field label={t("v3.support.fieldContent")} hint={t("v3.support.contentHint")}>
                       <textarea
                         className="pk-input"
                         rows={5}
                         value={newText}
                         onChange={(event) => setNewText(event.target.value)}
-                        placeholder="Mô tả vấn đề, bước tái hiện, mã đơn hoặc thông tin liên quan…"
+                        placeholder={t("v3.support.contentPlaceholder")}
                         style={{ resize: "vertical", minHeight: 110, lineHeight: 1.55 }}
                       />
                     </Field>
                     <div className="pk-3col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                      <Field label="Email liên hệ">
+                      <Field label={t("v3.support.fieldEmail")}>
                         <input
                           className="pk-input"
                           type="email"
@@ -1188,7 +1201,7 @@ export default function SupportPage() {
                           placeholder="ban@email.com"
                         />
                       </Field>
-                      <Field label="Số điện thoại">
+                      <Field label={t("v3.support.fieldPhone")}>
                         <input
                           className="pk-input"
                           value={newContactPhone}
@@ -1200,19 +1213,19 @@ export default function SupportPage() {
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                        <AttachButton label="Đính kèm ảnh" onPick={(event) => onPickFiles(event, setNewFiles)} disabled={busy || newFiles.length >= 5} />
-                        <span style={{ fontSize: 12, color: T_FAINT }}>Tối đa 5 ảnh — {newFiles.length}/5</span>
+                        <AttachButton label={t("v3.support.attachPhoto")} onPick={(event) => onPickFiles(event, setNewFiles)} disabled={busy || newFiles.length >= 5} />
+                        <span style={{ fontSize: 12, color: T_FAINT }}>{t("v3.support.attachMax", { count: newFiles.length })}</span>
                       </div>
                       <FileChips files={newFiles} onRemove={(file) => removeFile(file, setNewFiles)} disabled={busy} />
                     </div>
                   </div>
 
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20, paddingTop: 16, borderTop: `1px solid ${BORDER_2}` }}>
-                    <GrayPill label="Huỷ" onClick={() => closeNewModal()} disabled={busy} />
+                    <GrayPill label={t("v3.support.cancel")} onClick={() => closeNewModal()} disabled={busy} />
                     <WhitePill
                       onClick={handleCreateTicket}
                       disabled={(!newText.trim() && !newFiles.length) || busy}
-                      label={busy ? "Đang gửi…" : "Gửi yêu cầu"}
+                      label={busy ? t("v3.support.sending") : t("v3.support.submit")}
                     />
                   </div>
                 </div>

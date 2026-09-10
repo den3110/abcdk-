@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 import ShadowFrame from "./ShadowFrame.jsx";
 import SiteNav from "./SiteNav.jsx";
 import SiteFooter from "./SiteFooter.jsx";
@@ -93,10 +94,10 @@ const formFromUser = (u) => ({
 });
 
 const KYC_META = {
-  verified: { label: "Đã xác minh", variant: "success" },
-  pending: { label: "Chờ duyệt", variant: "info" },
-  rejected: { label: "Bị từ chối", variant: "critical" },
-  unverified: { label: "Chưa xác minh", variant: "neutral" },
+  verified: { labelKey: "v3.profile.kycVerified", variant: "success" },
+  pending: { labelKey: "v3.profile.kycPending", variant: "info" },
+  rejected: { labelKey: "v3.profile.kycRejected", variant: "critical" },
+  unverified: { labelKey: "v3.profile.kycUnverified", variant: "neutral" },
 };
 
 /* ------------------------------ tiểu phần ------------------------------ */
@@ -128,6 +129,7 @@ function Panel({ icon, title, children, style }) {
 
 /* card điểm trình trong hero */
 function RatingCard({ label, value, reliability, delay }) {
+  const { t } = useLanguage();
   const pct = Math.max(0, Math.min(100, Math.round(Number(reliability || 0) * 100)));
   return (
     <div className="pk-rise" style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.12)", background: "rgba(20,21,24,.66)", backdropFilter: "blur(10px)", padding: "16px 20px", minWidth: 148, animationDelay: delay }}>
@@ -137,7 +139,7 @@ function RatingCard({ label, value, reliability, delay }) {
       </div>
       <div style={{ marginTop: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#8F959C", marginBottom: 4 }}>
-          <span>Độ tin cậy</span>
+          <span>{t("v3.profile.reliability")}</span>
           <span>{pct}%</span>
         </div>
         <div style={{ height: 4, borderRadius: 99, background: "rgba(255,255,255,.09)", overflow: "hidden" }}>
@@ -150,6 +152,7 @@ function RatingCard({ label, value, reliability, delay }) {
 
 /* vòng tròn % hoàn thiện hồ sơ */
 function CompletionRing({ pct, done, total }) {
+  const { t } = useLanguage();
   const R = 30;
   const C = 2 * Math.PI * R;
   return (
@@ -171,8 +174,8 @@ function CompletionRing({ pct, done, total }) {
         </div>
       </div>
       <div>
-        <div style={{ color: "var(--pk-text-strong)", fontWeight: 700, fontSize: 13.5 }}>Hoàn thiện hồ sơ</div>
-        <div style={{ color: "#8F959C", fontSize: 12.5, marginTop: 2 }}>{done}/{total} mục</div>
+        <div style={{ color: "var(--pk-text-strong)", fontWeight: 700, fontSize: 13.5 }}>{t("v3.profile.completionTitle")}</div>
+        <div style={{ color: "#8F959C", fontSize: 12.5, marginTop: 2 }}>{t("v3.profile.itemsCount", { done, total })}</div>
       </div>
     </div>
   );
@@ -180,6 +183,7 @@ function CompletionRing({ pct, done, total }) {
 
 /* ================================= PAGE ================================= */
 export default function ProfilePage() {
+  const { t } = useLanguage();
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { data: user, isLoading, refetch } = useGetProfileQuery();
@@ -218,14 +222,14 @@ export default function ProfilePage() {
 
   const errors = useMemo(() => {
     const e = {};
-    if (!f.name.trim()) e.name = "Chưa nhập họ tên";
-    if (f.phone && !/^0\d{9}$/.test(f.phone.trim())) e.phone = "SĐT phải 10 số, bắt đầu bằng 0";
-    if (f.email && !/^\S+@\S+\.\S+$/.test(f.email.trim())) e.email = "Email không hợp lệ";
-    if (f.cccd && !/^\d{12}$/.test(f.cccd.trim())) e.cccd = "CCCD phải đủ 12 số";
-    if (passwordOpen && pw.password && pw.password.length < 6) e.password = "Mật khẩu tối thiểu 6 ký tự";
-    if (passwordOpen && pw.password && pw.password !== pw.confirm) e.confirm = "Mật khẩu nhập lại chưa khớp";
+    if (!f.name.trim()) e.name = t("v3.profile.errName");
+    if (f.phone && !/^0\d{9}$/.test(f.phone.trim())) e.phone = t("v3.profile.errPhone");
+    if (f.email && !/^\S+@\S+\.\S+$/.test(f.email.trim())) e.email = t("v3.profile.errEmail");
+    if (f.cccd && !/^\d{12}$/.test(f.cccd.trim())) e.cccd = t("v3.profile.errCccd");
+    if (passwordOpen && pw.password && pw.password.length < 6) e.password = t("v3.profile.errPassword");
+    if (passwordOpen && pw.password && pw.password !== pw.confirm) e.confirm = t("v3.profile.errConfirm");
     return e;
-  }, [f, passwordOpen, pw]);
+  }, [f, passwordOpen, pw, t]);
   const canSave = isDirty && Object.keys(errors).length === 0 && pwValid && !saving;
 
   const showToast = (type, msg) => {
@@ -238,7 +242,7 @@ export default function ProfilePage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > MAX_AVATAR_SIZE) {
-      showToast("error", "Ảnh quá lớn (tối đa 5MB)");
+      showToast("error", t("v3.profile.avatarTooLarge"));
       return;
     }
     setAvatarFile(file);
@@ -262,9 +266,9 @@ export default function ProfilePage() {
       setAvatarPreview("");
       setPw({ password: "", confirm: "" });
       setPasswordOpen(false);
-      showToast("success", "Đã lưu thay đổi");
+      showToast("success", t("v3.profile.saved"));
     } catch (err) {
-      showToast("error", err?.data?.message || err?.error || "Lưu thất bại, thử lại nhé");
+      showToast("error", err?.data?.message || err?.error || t("v3.profile.saveFailed"));
     }
   };
   const onReset = () => {
@@ -277,7 +281,7 @@ export default function ProfilePage() {
   /* ---- KYC upload (chỉ khi chưa verified) ---- */
   const onKycSubmit = async () => {
     if (!kycFront || !kycBack) {
-      showToast("error", "Chọn đủ ảnh 2 mặt CCCD nhé");
+      showToast("error", t("v3.profile.kycPickBoth"));
       return;
     }
     try {
@@ -288,9 +292,9 @@ export default function ProfilePage() {
       await refetch();
       setKycFront(null);
       setKycBack(null);
-      showToast("success", "Đã gửi ảnh CCCD, chờ duyệt");
+      showToast("success", t("v3.profile.kycSent"));
     } catch (err) {
-      showToast("error", err?.data?.message || "Gửi ảnh thất bại");
+      showToast("error", err?.data?.message || t("v3.profile.kycSendFailed"));
     }
   };
 
@@ -308,17 +312,17 @@ export default function ProfilePage() {
   /* ---- hoàn thiện hồ sơ (11 mục như trang cũ) ---- */
   const completion = useMemo(() => {
     const items = [
-      ["Họ tên", !!user?.name],
-      ["Nickname", !!user?.nickname],
-      ["Số điện thoại", !!user?.phone],
-      ["Email", !!user?.email],
-      ["Ngày sinh", !!user?.dob],
-      ["Giới tính", !!user?.gender],
-      ["Tỉnh/thành", !!user?.province],
-      ["Ảnh đại diện", !!user?.avatar],
-      ["Số CCCD", !!user?.cccd],
-      ["Ảnh CCCD 2 mặt", !!(user?.cccdImages?.front && user?.cccdImages?.back)],
-      ["Gửi xác minh", ["pending", "verified"].includes(user?.cccdStatus)],
+      ["v3.profile.compName", !!user?.name],
+      ["v3.profile.compNickname", !!user?.nickname],
+      ["v3.profile.compPhone", !!user?.phone],
+      ["v3.profile.compEmail", !!user?.email],
+      ["v3.profile.compDob", !!user?.dob],
+      ["v3.profile.compGender", !!user?.gender],
+      ["v3.profile.compProvince", !!user?.province],
+      ["v3.profile.compAvatar", !!user?.avatar],
+      ["v3.profile.compCccd", !!user?.cccd],
+      ["v3.profile.compCccdImages", !!(user?.cccdImages?.front && user?.cccdImages?.back)],
+      ["v3.profile.compSubmitKyc", ["pending", "verified"].includes(user?.cccdStatus)],
     ];
     const done = items.filter(([, ok]) => ok).length;
     return { items, done, total: items.length, pct: Math.round((done / items.length) * 100), missing: items.filter(([, ok]) => !ok).map(([l]) => l) };
@@ -327,11 +331,11 @@ export default function ProfilePage() {
   const kyc = KYC_META[user?.cccdStatus] || KYC_META.unverified;
   const isVerified = user?.cccdStatus === "verified";
   const avatarUrl = avatarPreview || imgSrc(user?.avatar);
-  const roleLabel = user?.role === "admin" ? "Quản trị viên" : user?.role === "referee" ? "Trọng tài" : null;
+  const roleLabel = user?.role === "admin" ? t("v3.profile.roleAdmin") : user?.role === "referee" ? t("v3.profile.roleReferee") : null;
 
   return (
     <>
-      <SEOHead title="Hồ sơ của tôi — PickleTour" description="Quản lý thông tin cá nhân, điểm trình và xác minh KYC trên PickleTour." />
+      <SEOHead title={t("v3.profile.seoTitle")} description={t("v3.profile.seoDesc")} />
       <ShadowFrame style={{ minHeight: "100vh" }}>
         <Theme theme={neutralTheme}>
           <div style={{ minHeight: "100vh", background: "var(--color-background-body)", paddingBottom: isDirty ? 86 : 0 }}>
@@ -365,12 +369,12 @@ export default function ProfilePage() {
                           )}
                         </div>
                         {isVerified && (
-                          <span title="Đã xác minh KYC" style={{ position: "absolute", bottom: 4, right: 4, width: 28, height: 28, borderRadius: 999, display: "grid", placeItems: "center", background: "#3BA55D", border: "3px solid #101114", color: "#fff" }}>
+                          <span title={t("v3.profile.kycVerifiedTitle")} style={{ position: "absolute", bottom: 4, right: 4, width: 28, height: 28, borderRadius: 999, display: "grid", placeItems: "center", background: "#3BA55D", border: "3px solid #101114", color: "#fff" }}>
                             <BadgeCheck size={15} />
                           </span>
                         )}
                         {/* hover: đổi ảnh */}
-                        <div className="pk-avatar-edit" onClick={() => avatarInputRef.current?.click()} title="Đổi ảnh đại diện">
+                        <div className="pk-avatar-edit" onClick={() => avatarInputRef.current?.click()} title={t("v3.profile.changeAvatarTitle")}>
                           <Camera size={22} color="#E6E8EA" />
                         </div>
                         <input ref={avatarInputRef} type="file" accept="image/*" onChange={pickAvatar} style={{ display: "none" }} />
@@ -387,7 +391,7 @@ export default function ProfilePage() {
                         )}
                         <div className="pk-rise" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 13, animationDelay: ".16s" }}>
                           {roleLabel && <Badge variant="info" label={roleLabel} />}
-                          <Badge variant={kyc.variant} label={kyc.label} />
+                          <Badge variant={kyc.variant} label={t(kyc.labelKey)} />
                           {user?.province && (
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 650, background: "rgba(255,255,255,.06)", color: "var(--pk-text)", border: "1px solid rgba(255,255,255,.09)" }}>
                               <MapPin size={11} />
@@ -397,7 +401,7 @@ export default function ProfilePage() {
                           {user?.createdAt && (
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 650, background: "rgba(255,255,255,.06)", color: "var(--pk-text)", border: "1px solid rgba(255,255,255,.09)" }}>
                               <CalendarDays size={11} />
-                              Tham gia {fmtJoined(user.createdAt)}
+                              {t("v3.profile.joinedAt", { date: fmtJoined(user.createdAt) })}
                             </span>
                           )}
                         </div>
@@ -409,8 +413,8 @@ export default function ProfilePage() {
 
                     {/* phải: điểm trình */}
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-                      <RatingCard label="Điểm đôi" value={user?.localRatings?.doubles ?? user?.ratingDouble} reliability={user?.localRatings?.reliabilityDoubles} delay=".18s" />
-                      <RatingCard label="Điểm đơn" value={user?.localRatings?.singles ?? user?.ratingSingle} reliability={user?.localRatings?.reliabilitySingles} delay=".24s" />
+                      <RatingCard label={t("v3.profile.ratingDoubles")} value={user?.localRatings?.doubles ?? user?.ratingDouble} reliability={user?.localRatings?.reliabilityDoubles} delay=".18s" />
+                      <RatingCard label={t("v3.profile.ratingSingles")} value={user?.localRatings?.singles ?? user?.ratingSingle} reliability={user?.localRatings?.reliabilitySingles} delay=".24s" />
                     </div>
                   </div>
                 )}
@@ -422,41 +426,41 @@ export default function ProfilePage() {
               <div className="pk-2col" style={{ display: "grid", gridTemplateColumns: "minmax(0,1.55fr) minmax(300px,1fr)", gap: 20, margin: "26px 0 80px", alignItems: "start" }}>
                 {/* -------- cột trái -------- */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-                  <Panel icon={<User size={16} />} title="Thông tin cá nhân">
+                  <Panel icon={<User size={16} />} title={t("v3.profile.personalInfo")}>
                     <div className="pk-3col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                      <Field label="Họ và tên">
-                        <input className="pk-input" value={f.name} onChange={setField("name")} placeholder="Nguyễn Văn A" />
+                      <Field label={t("v3.profile.fieldName")}>
+                        <input className="pk-input" value={f.name} onChange={setField("name")} placeholder={t("v3.profile.namePlaceholder")} />
                         {errors.name && <div style={{ marginTop: 5, fontSize: 12, color: "#FF8A8E" }}>{errors.name}</div>}
                       </Field>
-                      <Field label="Nickname">
-                        <input className="pk-input" value={f.nickname} onChange={setField("nickname")} placeholder="Tên hiển thị trên BXH" />
+                      <Field label={t("v3.profile.fieldNickname")}>
+                        <input className="pk-input" value={f.nickname} onChange={setField("nickname")} placeholder={t("v3.profile.nicknamePlaceholder")} />
                       </Field>
-                      <Field label="Email" hint="Dùng để đăng nhập và nhận thông báo">
+                      <Field label={t("v3.profile.fieldEmail")} hint={t("v3.profile.emailHint")}>
                         <input className="pk-input" type="email" value={f.email} onChange={setField("email")} placeholder="ban@email.com" />
                         {errors.email && <div style={{ marginTop: 5, fontSize: 12, color: "#FF8A8E" }}>{errors.email}</div>}
                       </Field>
-                      <Field label="Số điện thoại">
+                      <Field label={t("v3.profile.fieldPhone")}>
                         <input className="pk-input" value={f.phone} onChange={setField("phone")} placeholder="09xxxxxxxx" inputMode="numeric" />
                         {errors.phone && <div style={{ marginTop: 5, fontSize: 12, color: "#FF8A8E" }}>{errors.phone}</div>}
                       </Field>
-                      <Field label="Ngày sinh">
+                      <Field label={t("v3.profile.fieldDob")}>
                         <input className="pk-input" type="date" value={f.dob} onChange={setField("dob")} />
                       </Field>
-                      <Field label="Giới tính">
+                      <Field label={t("v3.profile.fieldGender")}>
                         <div style={{ position: "relative" }}>
                           <select className="pk-input" value={f.gender} onChange={setField("gender")}>
-                            <option value="">— Chọn —</option>
-                            <option value="male">Nam</option>
-                            <option value="female">Nữ</option>
-                            <option value="other">Khác</option>
+                            <option value="">{t("v3.profile.selectPlaceholder")}</option>
+                            <option value="male">{t("v3.profile.genderMale")}</option>
+                            <option value="female">{t("v3.profile.genderFemale")}</option>
+                            <option value="other">{t("v3.profile.genderOther")}</option>
                           </select>
                           <ChevronDown size={15} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "#8F959C" }} />
                         </div>
                       </Field>
-                      <Field label="Tỉnh / Thành phố">
+                      <Field label={t("v3.profile.fieldProvince")}>
                         <div style={{ position: "relative" }}>
                           <select className="pk-input" value={f.province} onChange={setField("province")}>
-                            <option value="">— Chọn —</option>
+                            <option value="">{t("v3.profile.selectPlaceholder")}</option>
                             {PROVINCES.map((p) => (
                               <option key={p} value={p}>{p}</option>
                             ))}
@@ -464,7 +468,7 @@ export default function ProfilePage() {
                           <ChevronDown size={15} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", color: "#8F959C" }} />
                         </div>
                       </Field>
-                      <Field label="Số CCCD" hint={isVerified ? "Đã xác minh — không thể chỉnh sửa" : "12 chữ số trên thẻ căn cước"}>
+                      <Field label={t("v3.profile.fieldCccd")} hint={isVerified ? t("v3.profile.cccdHintVerified") : t("v3.profile.cccdHint")}>
                         <input className="pk-input" value={f.cccd} onChange={setField("cccd")} disabled={isVerified} placeholder="0855xxxxxxxx" inputMode="numeric" />
                         {errors.cccd && <div style={{ marginTop: 5, fontSize: 12, color: "#FF8A8E" }}>{errors.cccd}</div>}
                       </Field>
@@ -472,28 +476,28 @@ export default function ProfilePage() {
                   </Panel>
 
                   {/* đổi mật khẩu */}
-                  <Panel icon={<KeyRound size={16} />} title="Bảo mật" style={{ paddingBottom: passwordOpen ? 22 : 16 }}>
+                  <Panel icon={<KeyRound size={16} />} title={t("v3.profile.security")} style={{ paddingBottom: passwordOpen ? 22 : 16 }}>
                     <button
                       type="button"
                       onClick={() => setPasswordOpen((v) => !v)}
                       style={{ all: "unset", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", color: "var(--pk-text)", fontSize: 14 }}
                     >
-                      <span>Đổi mật khẩu đăng nhập</span>
+                      <span>{t("v3.profile.changePassword")}</span>
                       <ChevronDown size={16} style={{ transform: passwordOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
                     </button>
                     {passwordOpen && (
                       <div className="pk-fade pk-3col" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 16 }}>
-                        <Field label="Mật khẩu mới">
+                        <Field label={t("v3.profile.newPassword")}>
                           <div style={{ position: "relative" }}>
-                            <input className="pk-input" type={showPw ? "text" : "password"} value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} placeholder="Tối thiểu 6 ký tự" style={{ paddingRight: 40 }} />
-                            <button type="button" onClick={() => setShowPw((v) => !v)} aria-label="Hiện mật khẩu" style={{ all: "unset", position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: "#8F959C", display: "grid" }}>
+                            <input className="pk-input" type={showPw ? "text" : "password"} value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} placeholder={t("v3.profile.newPasswordPlaceholder")} style={{ paddingRight: 40 }} />
+                            <button type="button" onClick={() => setShowPw((v) => !v)} aria-label={t("v3.profile.showPassword")} style={{ all: "unset", position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: "#8F959C", display: "grid" }}>
                               {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
                             </button>
                           </div>
                           {errors.password && <div style={{ marginTop: 5, fontSize: 12, color: "#FF8A8E" }}>{errors.password}</div>}
                         </Field>
-                        <Field label="Nhập lại mật khẩu">
-                          <input className="pk-input" type={showPw ? "text" : "password"} value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} placeholder="Nhập lại để xác nhận" />
+                        <Field label={t("v3.profile.confirmPassword")}>
+                          <input className="pk-input" type={showPw ? "text" : "password"} value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} placeholder={t("v3.profile.confirmPasswordPlaceholder")} />
                           {errors.confirm && <div style={{ marginTop: 5, fontSize: 12, color: "#FF8A8E" }}>{errors.confirm}</div>}
                         </Field>
                       </div>
@@ -504,7 +508,7 @@ export default function ProfilePage() {
                 {/* -------- cột phải -------- */}
                 <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                   {/* KYC */}
-                  <Panel icon={<ShieldCheck size={16} />} title="Xác minh danh tính">
+                  <Panel icon={<ShieldCheck size={16} />} title={t("v3.profile.kycTitle")}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                       <Badge variant={kyc.variant} label={kyc.label} />
                       {user?.cccd && <span style={{ color: "var(--pk-text)", fontSize: 14, fontWeight: 650, letterSpacing: ".04em" }}>{maskCccd(user.cccd)}</span>}
@@ -515,9 +519,9 @@ export default function ProfilePage() {
                         {["front", "back"].map((side) =>
                           user?.cccdImages?.[side] ? (
                             <div key={side} onClick={() => setZoomSrc(imgSrc(user.cccdImages[side]))} style={{ borderRadius: 12, overflow: "hidden", border: "1px solid rgba(255,255,255,.1)", cursor: "zoom-in", position: "relative" }}>
-                              <img src={imgSrc(user.cccdImages[side])} alt={side === "front" ? "CCCD mặt trước" : "CCCD mặt sau"} style={{ display: "block", width: "100%", height: 86, objectFit: "cover" }} />
+                              <img src={imgSrc(user.cccdImages[side])} alt={side === "front" ? t("v3.profile.cccdFrontAlt") : t("v3.profile.cccdBackAlt")} style={{ display: "block", width: "100%", height: 86, objectFit: "cover" }} />
                               <span style={{ position: "absolute", bottom: 6, left: 6, padding: "2px 8px", borderRadius: 999, fontSize: 10.5, fontWeight: 700, background: "rgba(8,9,11,.72)", color: "var(--pk-text)" }}>
-                                {side === "front" ? "Mặt trước" : "Mặt sau"}
+                                {side === "front" ? t("v3.profile.sideFront") : t("v3.profile.sideBack")}
                               </span>
                             </div>
                           ) : null,
@@ -527,28 +531,28 @@ export default function ProfilePage() {
 
                     {!isVerified && user?.cccdStatus !== "pending" && (
                       <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>
-                        {[["front", "Ảnh mặt trước", kycFront, setKycFront], ["back", "Ảnh mặt sau", kycBack, setKycBack]].map(([key, label, val, set]) => (
+                        {[["front", t("v3.profile.frontImage"), kycFront, setKycFront], ["back", t("v3.profile.backImage"), kycBack, setKycBack]].map(([key, label, val, set]) => (
                           <label key={key} style={{ display: "flex", alignItems: "center", gap: 10, borderRadius: 12, border: "1px dashed rgba(255,255,255,.18)", padding: "10px 12px", cursor: "pointer", color: val ? "#7CC7A2" : "#9AA0A6", fontSize: 13 }}>
                             <IdCard size={15} />
-                            {val ? `${label}: ${val.name.slice(0, 22)}` : `Chọn ${label.toLowerCase()}`}
+                            {val ? `${label}: ${val.name.slice(0, 22)}` : t("v3.profile.chooseImage", { label: label.toLowerCase() })}
                             <input type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => set(e.target.files?.[0] || null)} />
                           </label>
                         ))}
-                        <WhitePill label={kycUploading ? "Đang gửi…" : "Gửi xác minh"} onClick={onKycSubmit} />
+                        <WhitePill label={kycUploading ? t("v3.profile.sending") : t("v3.profile.submitKyc")} onClick={onKycSubmit} />
                       </div>
                     )}
                     {user?.cccdStatus === "pending" && (
                       <div style={{ marginTop: 12, color: "#9CC1FF", fontSize: 13, display: "flex", gap: 8, alignItems: "center" }}>
                         <CircleAlert size={14} />
-                        Ảnh đã gửi, ban quản trị đang duyệt.
+                        {t("v3.profile.kycPending2")}
                       </div>
                     )}
                   </Panel>
 
                   {/* hoàn thiện hồ sơ */}
-                  <Panel icon={<Sparkles size={16} />} title="Hoàn thiện hồ sơ">
+                  <Panel icon={<Sparkles size={16} />} title={t("v3.profile.completionTitle")}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 7 }}>
-                      <Text type="supporting" color="secondary">{completion.done}/{completion.total} mục</Text>
+                      <Text type="supporting" color="secondary">{t("v3.profile.itemsCount", { done: completion.done, total: completion.total })}</Text>
                       <Text type="supporting" weight="semibold">{completion.pct}%</Text>
                     </div>
                     <div style={{ height: 6, borderRadius: 99, background: "rgba(255,255,255,.08)", overflow: "hidden" }}>
@@ -559,22 +563,22 @@ export default function ProfilePage() {
                         {completion.missing.map((m) => (
                           <div key={m} style={{ display: "flex", alignItems: "center", gap: 8, color: "#9AA0A6", fontSize: 13 }}>
                             <span style={{ width: 16, height: 16, borderRadius: 999, border: "1.5px solid rgba(255,255,255,.22)", flexShrink: 0 }} />
-                            Còn thiếu: {m}
+                            {t("v3.profile.missingPrefix", { item: t(m) })}
                           </div>
                         ))}
                       </div>
                     ) : (
                       <div style={{ marginTop: 13, display: "flex", alignItems: "center", gap: 8, color: "#7CC7A2", fontSize: 13.5, fontWeight: 650 }}>
                         <Check size={15} />
-                        Hồ sơ đã hoàn hảo!
+                        {t("v3.profile.profilePerfect")}
                       </div>
                     )}
                   </Panel>
 
                   {/* tài khoản */}
-                  <Panel icon={<LogOut size={16} />} title="Tài khoản">
+                  <Panel icon={<LogOut size={16} />} title={t("v3.profile.accountTitle")}>
                     <div style={{ color: "#8F959C", fontSize: 13, marginBottom: 13 }}>
-                      Đăng nhập với email <span style={{ color: "var(--pk-text)" }}>{user?.email}</span>
+                      {t("v3.profile.loggedInWith")} <span style={{ color: "var(--pk-text)" }}>{user?.email}</span>
                     </div>
                     <button
                       type="button"
@@ -582,7 +586,7 @@ export default function ProfilePage() {
                       disabled={loggingOut}
                       style={{ all: "unset", boxSizing: "border-box", width: "100%", textAlign: "center", padding: "11px 0", borderRadius: 999, cursor: "pointer", fontSize: 14, fontWeight: 700, color: "#FF8A8E", background: "rgba(229,72,77,.1)", border: "1px solid rgba(242,85,90,.32)" }}
                     >
-                      {loggingOut ? "Đang đăng xuất…" : "Đăng xuất"}
+                      {loggingOut ? t("v3.profile.loggingOut") : t("v3.profile.logout")}
                     </button>
                   </Panel>
                 </div>
@@ -594,9 +598,9 @@ export default function ProfilePage() {
             {/* ============ thanh lưu nổi khi có thay đổi ============ */}
             {isDirty && (
               <div className="pk-savebar" style={{ position: "fixed", left: "50%", bottom: 22, zIndex: 50, display: "flex", alignItems: "center", gap: 14, padding: "12px 14px 12px 20px", borderRadius: 999, background: "rgba(18,19,22,.92)", border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(14px)", boxShadow: "0 24px 60px -18px rgba(0,0,0,.7)" }}>
-                <span style={{ color: "var(--pk-text)", fontSize: 13.5, whiteSpace: "nowrap" }}>Bạn có thay đổi chưa lưu</span>
-                <GrayPill label="Hoàn tác" onClick={onReset} />
-                <WhitePill label={saving ? "Đang lưu…" : "Lưu thay đổi"} onClick={onSave} disabled={!canSave} />
+                <span style={{ color: "var(--pk-text)", fontSize: 13.5, whiteSpace: "nowrap" }}>{t("v3.profile.unsavedChanges")}</span>
+                <GrayPill label={t("v3.profile.undo")} onClick={onReset} />
+                <WhitePill label={saving ? t("v3.profile.saving") : t("v3.profile.saveChanges")} onClick={onSave} disabled={!canSave} />
               </div>
             )}
 

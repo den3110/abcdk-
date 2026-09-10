@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 import { useGetHomeSummaryQuery, useGetHomePulseQuery } from "../../slices/homeApiSlice.js";
 import { useListTournamentsQuery } from "../../slices/tournamentsApiSlice.js";
 import { useGetRankingsListQuery } from "../../slices/rankingsApiSlice.js";
@@ -45,18 +46,22 @@ const imageUrl = (value) => {
 };
 
 const formatNumber = (value) => Number(value || 0).toLocaleString("vi-VN");
-const formatDate = (value) => {
-  if (!value) return "Chưa cập nhật";
+const formatDate = (value, t) => {
+  if (!value) return t("v3.home.notUpdated");
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Chưa cập nhật";
+  if (Number.isNaN(date.getTime())) return t("v3.home.notUpdated");
   return date.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
 };
 
-const statusLabel = (status) =>
-  ({ ongoing: "Đang diễn ra", upcoming: "Sắp diễn ra", finished: "Đã kết thúc" })[status] || "Giải đấu";
+const statusLabel = (status, t) =>
+  ({
+    ongoing: t("v3.home.statusOngoing"),
+    upcoming: t("v3.home.statusUpcoming"),
+    finished: t("v3.home.statusFinished"),
+  })[status] || t("v3.home.statusDefault");
 
-const playerName = (item) =>
-  firstText(item?.nickname, item?.user?.nickname, item?.fullName, item?.name, item?.user?.name, "Vận động viên");
+const playerName = (item, t) =>
+  firstText(item?.nickname, item?.user?.nickname, item?.fullName, item?.name, item?.user?.name, t("v3.home.playerFallback"));
 
 const playerScore = (item) => {
   const value = Number(item?.double ?? item?.scoreDouble ?? item?.points ?? item?.single ?? 0);
@@ -85,6 +90,7 @@ function SectionHeading({ eyebrow, title, description, actionHref, actionLabel }
 }
 
 function TournamentCard({ tournament }) {
+  const { t } = useLanguage();
   const id = tournament?._id || tournament?.id;
   const cover = imageUrl(firstText(tournament?.image, tournament?.coverUrl, tournament?.banner));
   return (
@@ -92,28 +98,29 @@ function TournamentCard({ tournament }) {
       <div className="v3-tournament-cover">
         {cover ? <img src={cover} alt="" /> : <div className="v3-cover-fallback"><Trophy size={42} /></div>}
         <span className={`v3-status v3-status-${tournament?.status || "upcoming"}`}>
-          <i /> {statusLabel(tournament?.status)}
+          <i /> {statusLabel(tournament?.status, t)}
         </span>
       </div>
       <div className="v3-tournament-body">
-        <h3>{firstText(tournament?.name, "Giải đấu PickleTour")}</h3>
+        <h3>{firstText(tournament?.name, t("v3.home.tournamentNameFallback"))}</h3>
         <div className="v3-tournament-meta">
-          <span><CalendarDays size={16} /> {formatDate(tournament?.startDate || tournament?.startAt)}</span>
-          <span><MapPin size={16} /> {firstText(tournament?.location, tournament?.venue?.name, tournament?.province, "Việt Nam")}</span>
+          <span><CalendarDays size={16} /> {formatDate(tournament?.startDate || tournament?.startAt, t)}</span>
+          <span><MapPin size={16} /> {firstText(tournament?.location, tournament?.venue?.name, tournament?.province, t("v3.home.countryFallback"))}</span>
         </div>
-        <span className="v3-card-link">Xem giải đấu <ArrowRight size={16} /></span>
+        <span className="v3-card-link">{t("v3.home.viewTournament")} <ArrowRight size={16} /></span>
       </div>
     </A>
   );
 }
 
 function RankingPanel({ rankings, loading }) {
+  const { t } = useLanguage();
   const players = asArray(rankings).slice(0, 5);
   return (
     <div className="v3-ranking-panel">
       <div className="v3-panel-head">
-        <div><span>TOP VẬN ĐỘNG VIÊN</span><h3>Bảng xếp hạng quốc gia</h3></div>
-        <A href="/pickle-ball/rankings">Xem tất cả</A>
+        <div><span>{t("v3.home.topPlayers")}</span><h3>{t("v3.home.nationalRankings")}</h3></div>
+        <A href="/pickle-ball/rankings">{t("v3.home.viewAll")}</A>
       </div>
       <div className="v3-ranking-list">
         {loading && !players.length
@@ -123,9 +130,9 @@ function RankingPanel({ rankings, loading }) {
               return (
                 <A href={`/user/${player?.user?._id || player?._id}`} className="v3-ranking-row" key={player?._id || index}>
                   <strong className={`v3-rank v3-rank-${index + 1}`}>{index + 1}</strong>
-                  <span className="v3-player-avatar">{avatar ? <img src={avatar} alt="" /> : playerName(player).slice(0, 1)}</span>
-                  <span className="v3-player-copy"><b>{playerName(player)}</b><small>{firstText(player?.province, player?.user?.province, "Việt Nam")}</small></span>
-                  <span className="v3-player-score"><small>ĐIỂM ĐÔI</small><b>{playerScore(player)}</b></span>
+                  <span className="v3-player-avatar">{avatar ? <img src={avatar} alt="" /> : playerName(player, t).slice(0, 1)}</span>
+                  <span className="v3-player-copy"><b>{playerName(player, t)}</b><small>{firstText(player?.province, player?.user?.province, t("v3.home.countryFallback"))}</small></span>
+                  <span className="v3-player-score"><small>{t("v3.home.doublesScore")}</small><b>{playerScore(player)}</b></span>
                 </A>
               );
             })}
@@ -135,22 +142,24 @@ function RankingPanel({ rankings, loading }) {
 }
 
 function BroadcastPanel({ liveNow }) {
+  const { t } = useLanguage();
   return (
     <div className="v3-broadcast-panel">
       <div className="v3-broadcast-grid" aria-hidden="true" />
       <div className="v3-live-chip"><i /> LIVE CENTER</div>
       <div className="v3-scoreboard">
-        <div className="v3-score-head"><span>CHUNG KẾT ĐÔI NAM</span><span>SÂN TRUNG TÂM</span></div>
-        <div className="v3-score-row is-serving"><span>Minh / Phong</span><strong>11</strong></div>
-        <div className="v3-score-row"><span>Hùng / Nam</span><strong>09</strong></div>
+        <div className="v3-score-head"><span>{t("v3.home.scoreboardTitle")}</span><span>{t("v3.home.scoreboardCourt")}</span></div>
+        <div className="v3-score-row is-serving"><span>{t("v3.home.scoreboardTeamServe")}</span><strong>11</strong></div>
+        <div className="v3-score-row"><span>{t("v3.home.scoreboardTeamB")}</span><strong>09</strong></div>
       </div>
-      <div className="v3-live-count"><Radio size={18} /><b>{formatNumber(liveNow)}</b><span>trận đang phát trực tiếp</span></div>
-      <A href="/live" className="v3-watch-link"><Play size={17} fill="currentColor" /> Mở trung tâm trực tiếp</A>
+      <div className="v3-live-count"><Radio size={18} /><b>{formatNumber(liveNow)}</b><span>{t("v3.home.liveMatches")}</span></div>
+      <A href="/live" className="v3-watch-link"><Play size={17} fill="currentColor" /> {t("v3.home.openLiveCenter")}</A>
     </div>
   );
 }
 
 export default function SportHomePage() {
+  const { t } = useLanguage();
   const user = useSelector((state) => state.auth?.userInfo || null);
   const { data: summary } = useGetHomeSummaryQuery({ clubsLimit: 6 });
   const { data: pulse } = useGetHomePulseQuery();
@@ -162,8 +171,8 @@ export default function SportHomePage() {
   return (
     <>
       <SEOHead
-        title="PickleTour — Nền tảng thể thao pickleball Việt Nam"
-        description="Thi đấu, xếp hạng, đặt sân và kết nối cộng đồng pickleball trên nền tảng PickleTour."
+        title={t("v3.home.seoTitle")}
+        description={t("v3.home.seoDescription")}
       />
       <ShadowFrame style={{ minHeight: "100vh" }}>
         <Theme theme={neutralTheme}>
@@ -177,19 +186,19 @@ export default function SportHomePage() {
                 <div className="v3-hero-orb v3-hero-orb-two" aria-hidden="true" />
                 <div className="v3-container v3-hero-grid">
                   <div className="v3-hero-copy">
-                    <span className="v3-kicker"><Sparkles size={15} /> NỀN TẢNG PICKLEBALL VIỆT NAM</span>
+                    <span className="v3-kicker"><Sparkles size={15} /> {t("v3.home.heroKicker")}</span>
                     <h1>
-                      Chơi hết mình.<br />
-                      <span>Vươn tầm thứ hạng.</span>
+                      {t("v3.home.heroTitleLine1")}<br />
+                      <span>{t("v3.home.heroTitleLine2")}</span>
                     </h1>
-                    <p>Từ một trận giao lưu đến sân khấu giải đấu chuyên nghiệp — PickleTour kết nối toàn bộ hành trình của bạn.</p>
+                    <p>{t("v3.home.heroSubtitle")}</p>
                     <div className="v3-hero-actions">
-                      <SportButton href={user ? "/my-tournaments" : "/register"}>{user ? "Giải của tôi" : "Tham gia PickleTour"}<ArrowRight size={18} /></SportButton>
-                      <SportButton href="/pickle-ball/tournaments" secondary><Trophy size={18} /> Khám phá giải đấu</SportButton>
+                      <SportButton href={user ? "/my-tournaments" : "/register"}>{user ? t("v3.home.heroCtaMember") : t("v3.home.heroCtaGuest")}<ArrowRight size={18} /></SportButton>
+                      <SportButton href="/pickle-ball/tournaments" secondary><Trophy size={18} /> {t("v3.home.exploreTournaments")}</SportButton>
                     </div>
                     <div className="v3-trust-row">
-                      <span><CheckCircle2 size={16} /> Điểm trình minh bạch</span>
-                      <span><CheckCircle2 size={16} /> Realtime toàn hệ thống</span>
+                      <span><CheckCircle2 size={16} /> {t("v3.home.trustTransparent")}</span>
+                      <span><CheckCircle2 size={16} /> {t("v3.home.trustRealtime")}</span>
                     </div>
                   </div>
 
@@ -198,8 +207,8 @@ export default function SportHomePage() {
                       <img src="/pickletour-v3-logo.png" alt="PickleTour" />
                       <span className="v3-hero-monogram" aria-hidden="true"><b>P</b><small>PICKLETOUR</small></span>
                     </div>
-                    <div className="v3-floating-stat v3-floating-stat-left"><Target size={19} /><span><small>VẬN ĐỘNG VIÊN</small><b>{formatNumber(stats?.players)}</b></span></div>
-                    <div className="v3-floating-stat v3-floating-stat-right"><Zap size={19} /><span><small>TRẬN ĐÃ ĐẤU</small><b>{formatNumber(stats?.matches)}</b></span></div>
+                    <div className="v3-floating-stat v3-floating-stat-left"><Target size={19} /><span><small>{t("v3.home.statPlayers")}</small><b>{formatNumber(stats?.players)}</b></span></div>
+                    <div className="v3-floating-stat v3-floating-stat-right"><Zap size={19} /><span><small>{t("v3.home.statMatches")}</small><b>{formatNumber(stats?.matches)}</b></span></div>
                     <div className="v3-pickle-ball" aria-hidden="true">••<br />•••</div>
                   </div>
                 </div>
@@ -208,12 +217,12 @@ export default function SportHomePage() {
               <section className="v3-quick-section">
                 <div className="v3-container v3-quick-grid">
                   {[
-                    [Trophy, "Khám phá giải đấu", "Đăng ký và theo dõi lịch thi đấu", "/pickle-ball/tournaments"],
-                    [Target, "Theo dõi thứ hạng", "Điểm trình cập nhật sau mỗi trận", "/pickle-ball/rankings"],
-                    [Swords, "Tìm bạn đánh", "Kết nối người chơi phù hợp quanh bạn", "/play"],
-                    [CalendarDays, "Đặt sân nhanh", "Tìm sân và chọn khung giờ trống", "/courts"],
+                    [Trophy, t("v3.home.quick1Title"), t("v3.home.quick1Text"), "/pickle-ball/tournaments"],
+                    [Target, t("v3.home.quick2Title"), t("v3.home.quick2Text"), "/pickle-ball/rankings"],
+                    [Swords, t("v3.home.quick3Title"), t("v3.home.quick3Text"), "/play"],
+                    [CalendarDays, t("v3.home.quick4Title"), t("v3.home.quick4Text"), "/courts"],
                   ].map(([Icon, title, text, href]) => (
-                    <A href={href} className="v3-quick-card" key={title}>
+                    <A href={href} className="v3-quick-card" key={href}>
                       <span><Icon size={22} /></span><div><b>{title}</b><small>{text}</small></div><ArrowRight size={17} />
                     </A>
                   ))}
@@ -222,7 +231,7 @@ export default function SportHomePage() {
 
               <section className="v3-section">
                 <div className="v3-container">
-                  <SectionHeading eyebrow="GIẢI ĐẤU NỔI BẬT" title="Sân chơi đang nóng lên" description="Theo dõi những giải đấu mới nhất từ cộng đồng PickleTour trên toàn quốc." actionHref="/pickle-ball/tournaments" actionLabel="Tất cả giải đấu" />
+                  <SectionHeading eyebrow={t("v3.home.featTournEyebrow")} title={t("v3.home.featTournTitle")} description={t("v3.home.featTournDesc")} actionHref="/pickle-ball/tournaments" actionLabel={t("v3.home.featTournAction")} />
                   <div className="v3-tournament-grid">
                     {tournamentsLoading && !tournamentItems.length
                       ? [1, 2, 3].map((item) => <div className="v3-card-skeleton" key={item} />)
@@ -240,12 +249,12 @@ export default function SportHomePage() {
 
               <section className="v3-section">
                 <div className="v3-container">
-                  <SectionHeading eyebrow="HỆ SINH THÁI PICKLETOUR" title="Mọi thứ bạn cần. Trong một nền tảng." description="Thi đấu, vận hành và kết nối được thiết kế liền mạch cho vận động viên lẫn ban tổ chức." />
+                  <SectionHeading eyebrow={t("v3.home.ecoEyebrow")} title={t("v3.home.ecoTitle")} description={t("v3.home.ecoDesc")} />
                   <div className="v3-feature-grid">
                     {[
-                      [ShieldCheck, "Xếp hạng minh bạch", "Điểm trình được chuẩn hoá từ kết quả thi đấu thật, dễ theo dõi và kiểm chứng."],
-                      [Radio, "Live chuyên nghiệp", "Chấm điểm realtime, overlay phát sóng và màn hình hàng đợi sân."],
-                      [UsersRound, "Cộng đồng mạnh", "Kết bạn, lập câu lạc bộ, tìm đối thủ và chia sẻ khoảnh khắc thi đấu."],
+                      [ShieldCheck, t("v3.home.feat1Title"), t("v3.home.feat1Text")],
+                      [Radio, t("v3.home.feat2Title"), t("v3.home.feat2Text")],
+                      [UsersRound, t("v3.home.feat3Title"), t("v3.home.feat3Text")],
                     ].map(([Icon, title, text], index) => (
                       <article className={`v3-feature-card v3-feature-${index + 1}`} key={title}>
                         <span><Icon size={26} /></span><h3>{title}</h3><p>{text}</p>
@@ -257,8 +266,8 @@ export default function SportHomePage() {
 
               <section className="v3-cta-section">
                 <div className="v3-container v3-cta-card">
-                  <div><span className="v3-eyebrow">MORE THAN A GAME</span><h2>Sẵn sàng bước vào sân?</h2><p>Tham gia cộng đồng pickleball đang phát triển mạnh nhất Việt Nam.</p></div>
-                  <SportButton href={user ? "/my-tournaments" : "/register"}>{user ? "Mở giải của tôi" : "Tạo tài khoản miễn phí"}<ArrowRight size={18} /></SportButton>
+                  <div><span className="v3-eyebrow">MORE THAN A GAME</span><h2>{t("v3.home.ctaTitle")}</h2><p>{t("v3.home.ctaText")}</p></div>
+                  <SportButton href={user ? "/my-tournaments" : "/register"}>{user ? t("v3.home.ctaMember") : t("v3.home.ctaGuest")}<ArrowRight size={18} /></SportButton>
                 </div>
               </section>
             </main>

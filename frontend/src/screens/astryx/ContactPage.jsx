@@ -30,6 +30,7 @@ import ShadowFrame from "./ShadowFrame.jsx";
 import SiteNav from "./SiteNav.jsx";
 import SiteFooter from "./SiteFooter.jsx";
 import PickleMark from "./PickleMark.jsx";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 import { useGetContactContentQuery } from "../../slices/cmsApiSlice.js";
 
 /* ------------------------------- helpers ------------------------------- */
@@ -40,7 +41,7 @@ const Container = ({ children, style }) => (
 );
 
 const FALLBACK = {
-  address: "Việt Nam",
+  address: "",
   phone: "0932471990",
   email: "support@pickletour.vn",
   support: {
@@ -117,12 +118,14 @@ function AppBtn({ icon: Ico, label, sub, href }) {
 
 /* ================================= PAGE ================================= */
 export default function ContactPage() {
+  const { t } = useLanguage();
   const { data } = useGetContactContentQuery();
   // slice đã transformResponse unwrap sẵn res.data -> data chính là object contact
   const c = { ...FALLBACK, ...(data || {}) };
   const sup = { ...FALLBACK.support, ...(c.support || {}) };
   const socials = c.socials || {};
   const apps = c.apps || {};
+  const address = clean(c.address) || t("v3.contact.countryVN");
 
   const socialItems = [
     [Facebook, "Facebook", clean(socials.facebook)],
@@ -133,8 +136,8 @@ export default function ContactPage() {
   return (
     <>
       <SEOHead
-        title="Liên hệ — PickleTour"
-        description="Liên hệ đội ngũ PickleTour: hỗ trợ kỹ thuật, giải đấu, chấm điểm và hợp tác."
+        title={t("v3.contact.seoTitle")}
+        description={t("v3.contact.seoDescription")}
       />
       <ShadowFrame style={{ minHeight: "100vh" }}>
         <Theme theme={neutralTheme}>
@@ -153,13 +156,13 @@ export default function ContactPage() {
                     className="pk-rise"
                     style={{ margin: 0, fontWeight: 750, fontSize: "clamp(42px, 6.4vw, 84px)", lineHeight: 1.02, letterSpacing: "-0.028em", color: "var(--pk-text-strong)" }}
                   >
-                    Liên hệ
+                    {t("v3.contact.headingLine1")}
                     <br />
-                    <span style={{ color: "var(--color-brand, #3D87FF)" }}>với PickleTour.</span>
+                    <span style={{ color: "var(--color-brand, #3D87FF)" }}>{t("v3.contact.headingLine2")}</span>
                   </h1>
                   <div className="pk-rise" style={{ maxWidth: 620, marginTop: 22, animationDelay: ".14s" }}>
                     <Text type="large" color="secondary">
-                      Hỗ trợ kỹ thuật, vận hành giải đấu và hợp tác — đội ngũ phản hồi trong giờ hành chính.
+                      {t("v3.contact.heroSubtitle")}
                     </Text>
                   </div>
                 </div>
@@ -169,24 +172,24 @@ export default function ContactPage() {
             <Container>
               {/* 3 kênh hỗ trợ */}
               <div className="pk-3col" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18 }}>
-                <SupportCard icon={LifeBuoy} title="Hỗ trợ chung" desc="Tài khoản, đăng ký thi đấu, sự cố khi dùng nền tảng." index={0}>
+                <SupportCard icon={LifeBuoy} title={t("v3.contact.cardGeneralTitle")} desc={t("v3.contact.cardGeneralDesc")} index={0}>
                   <ContactLine icon={Mail} href={`mailto:${sup.generalEmail}`} label={sup.generalEmail} />
                   <ContactLine icon={Phone} href={`tel:${sup.generalPhone}`} label={sup.generalPhone} />
                 </SupportCard>
-                <SupportCard icon={ClipboardCheck} title="Giải đấu & chấm điểm" desc="Điểm trình, kết quả trận, khiếu nại trong giải." index={1}>
+                <SupportCard icon={ClipboardCheck} title={t("v3.contact.cardScoringTitle")} desc={t("v3.contact.cardScoringDesc")} index={1}>
                   <ContactLine icon={Mail} href={`mailto:${sup.scoringEmail}`} label={sup.scoringEmail} />
                   <ContactLine icon={Phone} href={`tel:${sup.scoringPhone}`} label={sup.scoringPhone} />
                 </SupportCard>
-                <SupportCard icon={Handshake} title="Hợp tác & tài trợ" desc="Tổ chức giải, tài trợ, truyền thông và đối tác sân bãi." index={2}>
+                <SupportCard icon={Handshake} title={t("v3.contact.cardSalesTitle")} desc={t("v3.contact.cardSalesDesc")} index={2}>
                   <ContactLine icon={Mail} href={`mailto:${sup.salesEmail}`} label={sup.salesEmail} />
-                  {clean(c.address) && <ContactLine icon={MapPin} href="#" label={c.address} />}
+                  {address && <ContactLine icon={MapPin} href="#" label={address} />}
                 </SupportCard>
               </div>
 
               {/* mạng xã hội */}
               {socialItems.length > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 26, flexWrap: "wrap" }}>
-                  <Text type="supporting" color="secondary">Theo dõi PickleTour:</Text>
+                  <Text type="supporting" color="secondary">{t("v3.contact.followUs")}</Text>
                   {socialItems.map(([Ico, label, href]) => (
                     <a
                       key={label}
@@ -209,19 +212,19 @@ export default function ContactPage() {
                   <div aria-hidden style={{ position: "absolute", inset: 0, background: "radial-gradient(50% 80% at 90% 0%, rgba(61,135,255,.10), transparent 70%)", pointerEvents: "none" }} />
                   <div style={{ position: "relative" }}>
                     <div style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: "clamp(22px, 2.6vw, 30px)", letterSpacing: "-0.015em" }}>
-                      Mang PickleTour ra sân
+                      {t("v3.contact.appsTitle")}
                     </div>
                     <div style={{ marginTop: 8, maxWidth: 560 }}>
                       <Text type="body" color="secondary">
-                        Ứng dụng cho vận động viên, trọng tài và đội livestream — cài bản phù hợp với bạn.
+                        {t("v3.contact.appsSubtitle")}
                       </Text>
                     </div>
                     <div style={{ display: "flex", gap: 12, marginTop: 22, flexWrap: "wrap" }}>
-                      <AppBtn icon={Smartphone} sub="TẢI TRÊN" label="App Store" href={apps.appStore} />
-                      <AppBtn icon={Smartphone} sub="TẢI TRÊN" label="Google Play" href={apps.playStore} />
-                      <AppBtn icon={Download} sub="APK TRỰC TIẾP" label="PickleTour" href={apps.apkPickleTour} />
-                      <AppBtn icon={ClipboardCheck} sub="APK TRỰC TIẾP" label="App Trọng tài" href={apps.apkReferee} />
-                      <AppBtn icon={Radio} sub="APK TRỰC TIẾP" label="App Live" href={apps.liveAppApk} />
+                      <AppBtn icon={Smartphone} sub={t("v3.contact.appBadgeDownloadOn")} label="App Store" href={apps.appStore} />
+                      <AppBtn icon={Smartphone} sub={t("v3.contact.appBadgeDownloadOn")} label="Google Play" href={apps.playStore} />
+                      <AppBtn icon={Download} sub={t("v3.contact.appBadgeDirectApk")} label="PickleTour" href={apps.apkPickleTour} />
+                      <AppBtn icon={ClipboardCheck} sub={t("v3.contact.appBadgeDirectApk")} label={t("v3.contact.appRefereeName")} href={apps.apkReferee} />
+                      <AppBtn icon={Radio} sub={t("v3.contact.appBadgeDirectApk")} label={t("v3.contact.appLiveName")} href={apps.liveAppApk} />
                     </div>
                   </div>
                 </div>

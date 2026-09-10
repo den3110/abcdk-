@@ -35,6 +35,7 @@ import ShadowFrame from "./ShadowFrame.jsx";
 import SiteNav from "./SiteNav.jsx";
 import PickleMark from "./PickleMark.jsx";
 import { useGetLiveFeedQuery } from "../../slices/liveApiSlice.js";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 
 const NAV_H = 64;
 
@@ -70,13 +71,15 @@ const fmtTime = (sec) => {
   return h ? `${h}:${String(mm).padStart(2, "0")}:${ss}` : `${mm}:${ss}`;
 };
 
+// [key, labelKey] — labelKey resolved via t() at render time.
 const MODES = [
-  ["all", "Tất cả"],
-  ["live", "Đang live"],
-  ["replay", "Xem lại"],
+  ["all", "v3.live.modeAll"],
+  ["live", "v3.live.modeLive"],
+  ["replay", "v3.live.modeReplay"],
 ];
 
 function StatusBadge({ m }) {
+  const { t } = useLanguage();
   if (isLive(m)) {
     return (
       <span
@@ -92,7 +95,7 @@ function StatusBadge({ m }) {
     return (
       <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 11px", borderRadius: 999, fontSize: 12, fontWeight: 700, background: "rgba(255,255,255,.10)", color: "var(--pk-text)", border: "1px solid rgba(255,255,255,.16)" }}>
         <Film size={11} />
-        XEM LẠI
+        {t("v3.live.replayBadge")}
       </span>
     );
   }
@@ -115,6 +118,7 @@ function RailBtn({ onClick, title, children }) {
 
 /* -------------------------------- slide -------------------------------- */
 function Slide({ m, index, active, muted, onToggleMute, onCopied, onOpenTournament }) {
+  const { t } = useLanguage();
   const videoRef = useRef(null);
   const userPausedRef = useRef(false);
   const pressTimerRef = useRef(null);
@@ -319,13 +323,13 @@ function Slide({ m, index, active, muted, onToggleMute, onCopied, onOpenTourname
         <div style={{ marginTop: 9, color: "var(--pk-text)", fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {m?.tournament?.name || "PickleTour"}
           {m?.stageLabel ? ` · ${m.stageLabel}` : ""}
-          {m?.courtLabel ? ` · Sân ${m.courtLabel}` : ""}
+          {m?.courtLabel ? ` · ${t("v3.live.court", { label: m.courtLabel })}` : ""}
         </div>
         <div style={{ marginTop: 7, display: "flex", alignItems: "baseline", gap: 14, flexWrap: "wrap" }}>
           <span style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: "clamp(17px, 2.2vw, 24px)", letterSpacing: "-0.01em", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>
-            {m?.teamAName || "Đội A"}
+            {m?.teamAName || t("v3.live.teamA")}
             <span style={{ color: "#9AA0A6", fontWeight: 600, fontSize: "0.75em", margin: "0 9px" }}>vs</span>
-            {m?.teamBName || "Đội B"}
+            {m?.teamBName || t("v3.live.teamB")}
           </span>
           {sc.show && (
             <span style={{ color: "var(--pk-text-strong)", fontWeight: 800, fontSize: "clamp(20px, 2.6vw, 30px)", lineHeight: 1 }}>
@@ -340,12 +344,12 @@ function Slide({ m, index, active, muted, onToggleMute, onCopied, onOpenTourname
       {/* rail hành động */}
       <div style={{ position: "absolute", right: 16, bottom: 36, display: "flex", flexDirection: "column", gap: 12 }}>
         {fileUrl && (
-          <RailBtn onClick={onToggleMute} title={muted ? "Bật tiếng" : "Tắt tiếng"}>
+          <RailBtn onClick={onToggleMute} title={muted ? t("v3.live.unmute") : t("v3.live.mute")}>
             {muted ? <VolumeX size={19} /> : <Volume2 size={19} />}
           </RailBtn>
         )}
         {m?.tournament?._id && (
-          <RailBtn onClick={() => onOpenTournament(m)} title="Các trận trong giải này">
+          <RailBtn onClick={() => onOpenTournament(m)} title={t("v3.live.matchesInTournament")}>
             <ListVideo size={19} />
           </RailBtn>
         )}
@@ -358,12 +362,12 @@ function Slide({ m, index, active, muted, onToggleMute, onCopied, onOpenTourname
               /* clipboard bị chặn thì thôi */
             }
           }}
-          title="Sao chép liên kết"
+          title={t("v3.live.copyLink")}
         >
           <Link2 size={19} />
         </RailBtn>
         {openUrl && (
-          <RailBtn onClick={() => window.open(openUrl, "_blank", "noopener,noreferrer")} title="Mở trong tab mới">
+          <RailBtn onClick={() => window.open(openUrl, "_blank", "noopener,noreferrer")} title={t("v3.live.openNewTab")}>
             <ExternalLink size={18} />
           </RailBtn>
         )}
@@ -399,6 +403,7 @@ function Slide({ m, index, active, muted, onToggleMute, onCopied, onOpenTourname
 
 /* --------------------- panel "các trận trong giải" ---------------------- */
 function TournamentDrawer({ tournament, currentId, onPick, onClose }) {
+  const { t } = useLanguage();
   const { data, isFetching } = useGetLiveFeedQuery({
     tournamentId: tournament._id,
     page: 1,
@@ -416,13 +421,13 @@ function TournamentDrawer({ tournament, currentId, onPick, onClose }) {
       <div className="pk-slidein" style={{ position: "absolute", top: 0, right: 0, bottom: 0, zIndex: 45, width: "min(420px, 92vw)", display: "flex", flexDirection: "column", background: "rgba(17,18,20,.97)", borderLeft: "1px solid rgba(255,255,255,.09)", backdropFilter: "blur(14px)" }}>
         <div style={{ padding: "16px 18px 13px", borderBottom: "1px solid rgba(255,255,255,.08)", display: "flex", alignItems: "flex-start", gap: 12 }}>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ color: "#8F959C", fontSize: 11.5, fontWeight: 700, letterSpacing: ".05em" }}>CÁC TRẬN TRONG GIẢI</div>
+            <div style={{ color: "#8F959C", fontSize: 11.5, fontWeight: 700, letterSpacing: ".05em" }}>{t("v3.live.drawerTitle")}</div>
             <div style={{ marginTop: 5, color: "var(--pk-text-strong)", fontWeight: 700, fontSize: 15, lineHeight: 1.35 }}>{tournament.name}</div>
             {Number(data?.count) > 0 && (
-              <div style={{ marginTop: 3, color: "#8F959C", fontSize: 12.5 }}>{data.count} trận</div>
+              <div style={{ marginTop: 3, color: "#8F959C", fontSize: 12.5 }}>{t("v3.live.matchCount", { count: data.count })}</div>
             )}
           </div>
-          <button type="button" onClick={onClose} aria-label="Đóng" style={{ all: "unset", width: 34, height: 34, borderRadius: 999, display: "grid", placeItems: "center", cursor: "pointer", background: "rgba(255,255,255,.08)", color: "var(--pk-text)", flexShrink: 0 }}>
+          <button type="button" onClick={onClose} aria-label={t("v3.live.close")} style={{ all: "unset", width: 34, height: 34, borderRadius: 999, display: "grid", placeItems: "center", cursor: "pointer", background: "rgba(255,255,255,.08)", color: "var(--pk-text)", flexShrink: 0 }}>
             <X size={17} />
           </button>
         </div>
@@ -460,7 +465,7 @@ function TournamentDrawer({ tournament, currentId, onPick, onClose }) {
                       {s.show && <span style={{ color: "var(--pk-text)", fontWeight: 700 }}>{s.a}–{s.b}</span>}
                       {it.stageLabel && <span>{it.stageLabel}</span>}
                       {it.displayCode && <span>{it.displayCode}</span>}
-                      {cur && <span style={{ color: "#9CC1FF", fontWeight: 700 }}>ĐANG XEM</span>}
+                      {cur && <span style={{ color: "#9CC1FF", fontWeight: 700 }}>{t("v3.live.watching")}</span>}
                     </div>
                   </div>
                 </button>
@@ -475,6 +480,7 @@ function TournamentDrawer({ tournament, currentId, onPick, onClose }) {
 
 /* ------------------------------ search bar ------------------------------ */
 function SearchBar({ onPick, onClose }) {
+  const { t } = useLanguage();
   const [q, setQ] = useState("");
   const [debounced, setDebounced] = useState("");
   const timer = useRef(null);
@@ -503,11 +509,11 @@ function SearchBar({ onPick, onClose }) {
             if (e.key === "Escape") onClose();
             if (e.key === "Enter" && sugs[0]) onPick(sugs[0], debounced);
           }}
-          placeholder="Tìm đội, giải đấu, mã trận…"
+          placeholder={t("v3.live.searchPlaceholder")}
           style={{ all: "unset", flex: 1, color: "var(--pk-text-strong)", fontSize: 14.5, fontFamily: "inherit" }}
         />
         {isFetching && <Loader2 size={15} color="#8F959C" className="pk-spinning" />}
-        <button type="button" onClick={onClose} aria-label="Đóng tìm kiếm" style={{ all: "unset", cursor: "pointer", color: "#9AA0A6", display: "grid", placeItems: "center" }}>
+        <button type="button" onClick={onClose} aria-label={t("v3.live.closeSearch")} style={{ all: "unset", cursor: "pointer", color: "#9AA0A6", display: "grid", placeItems: "center" }}>
           <X size={16} />
         </button>
       </div>
@@ -550,7 +556,7 @@ function SearchBar({ onPick, onClose }) {
       )}
       {debounced && !isFetching && !sugs.length && (
         <div className="pk-fade" style={{ marginTop: 8, padding: "14px 16px", borderRadius: 14, background: "rgba(17,18,20,.95)", border: "1px solid rgba(255,255,255,.10)", color: "#8F959C", fontSize: 13.5 }}>
-          Không thấy trận nào khớp "{debounced}"
+          {t("v3.live.noMatch", { q: debounced })}
         </div>
       )}
     </div>
@@ -559,6 +565,7 @@ function SearchBar({ onPick, onClose }) {
 
 /* ================================= PAGE ================================= */
 export default function LivePage() {
+  const { t } = useLanguage();
   const [mode, setMode] = useState("all");
   // ngữ cảnh feed: mode thường / kết quả tìm kiếm / các trận trong 1 giải
   const [ctx, setCtx] = useState({ type: "mode" });
@@ -689,8 +696,8 @@ export default function LivePage() {
   return (
     <>
       <SEOHead
-        title="Trực tiếp pickleball — PickleTour"
-        description="Lướt xem trực tiếp và xem lại các trận pickleball từ những giải đấu trên PickleTour."
+        title={t("v3.live.seoTitle")}
+        description={t("v3.live.seoDesc")}
       />
       <ShadowFrame style={{ height: "100dvh" }}>
         <Theme theme={neutralTheme}>
@@ -719,14 +726,14 @@ export default function LivePage() {
                         {key === "live" && liveCount > 0 && !activeTab && (
                           <span style={{ width: 6, height: 6, borderRadius: 99, background: "#F2555A" }} />
                         )}
-                        {label}
+                        {t(label)}
                       </button>
                     );
                   })}
                   <button
                     type="button"
                     onClick={() => setSearchOpen(true)}
-                    aria-label="Tìm kiếm trận"
+                    aria-label={t("v3.live.searchMatches")}
                     className="pk-pill"
                     style={{ all: "unset", width: 34, height: 34, borderRadius: 999, display: "grid", placeItems: "center", cursor: "pointer", background: "rgba(24,25,28,.6)", color: "var(--pk-text)", border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(8px)" }}
                   >
@@ -745,7 +752,7 @@ export default function LivePage() {
                   style={{ all: "unset", pointerEvents: "auto", display: "inline-flex", alignItems: "center", gap: 8, maxWidth: "86vw", padding: "6px 13px", borderRadius: 999, cursor: "pointer", background: "rgba(61,135,255,.14)", color: "#9CC1FF", fontSize: 12.5, fontWeight: 650, border: "1px solid rgba(61,135,255,.32)", backdropFilter: "blur(8px)" }}
                 >
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {ctx.type === "search" ? `Kết quả cho "${ctx.q}"` : `Giải: ${ctx.name}`}
+                    {ctx.type === "search" ? t("v3.live.resultsFor", { q: ctx.q }) : t("v3.live.tournamentPrefix", { name: ctx.name })}
                   </span>
                   <X size={13} style={{ flexShrink: 0 }} />
                 </button>
@@ -756,7 +763,7 @@ export default function LivePage() {
             {copied && (
               <div className="pk-fade" style={{ position: "absolute", top: NAV_H + 100, left: "50%", transform: "translateX(-50%)", zIndex: 40, display: "flex", alignItems: "center", gap: 7, padding: "8px 15px", borderRadius: 999, background: "rgba(24,25,28,.86)", color: "var(--pk-text-strong)", fontSize: 13, fontWeight: 650, border: "1px solid rgba(255,255,255,.14)", backdropFilter: "blur(8px)" }}>
                 <Check size={14} color="#3BA55D" />
-                Đã sao chép liên kết
+                {t("v3.live.linkCopied")}
               </div>
             )}
 
@@ -770,7 +777,7 @@ export default function LivePage() {
                 <div style={{ height: "100dvh", display: "grid", placeItems: "center" }}>
                   <div style={{ textAlign: "center" }}>
                     <Loader2 size={34} color="#8F959C" className="pk-spinning" style={{ margin: "0 auto" }} />
-                    <div style={{ marginTop: 14, color: "#8F959C", fontSize: 14 }}>Đang tải các trận…</div>
+                    <div style={{ marginTop: 14, color: "#8F959C", fontSize: 14 }}>{t("v3.live.loadingMatches")}</div>
                   </div>
                 </div>
               ) : rows.length ? (
@@ -793,10 +800,10 @@ export default function LivePage() {
                       <PickleMark size={44} />
                     </div>
                     <div style={{ marginTop: 16, color: "var(--pk-text)", fontSize: 18, fontWeight: 700 }}>
-                      {ctx.type === "search" ? "Không có kết quả" : mode === "live" ? "Chưa có trận nào đang phát" : "Chưa có video nào"}
+                      {ctx.type === "search" ? t("v3.live.noResults") : mode === "live" ? t("v3.live.noLive") : t("v3.live.noVideos")}
                     </div>
                     <div style={{ marginTop: 8, color: "#8F959C", fontSize: 14.5 }}>
-                      {ctx.type === "mode" ? "Quay lại sau nhé — trận mới lên sóng liên tục." : "Thử từ khoá khác xem sao."}
+                      {ctx.type === "mode" ? t("v3.live.checkBackLater") : t("v3.live.tryOtherKeyword")}
                     </div>
                   </div>
                 </div>
