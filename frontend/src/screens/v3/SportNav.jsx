@@ -44,47 +44,48 @@ import NotificationBell from "../astryx/NotificationBell.jsx";
 import { setPkTheme, usePkTheme } from "../astryx/theme.js";
 import SportBrand from "./SportBrand.jsx";
 
+// [labelKey, href, Icon?] — labelKey resolved via t() at render time.
 const DESKTOP_LINKS = [
-  ["Trang chủ", "/"],
-  ["Giải đấu", "/pickle-ball/tournaments"],
-  ["Bảng xếp hạng", "/pickle-ball/rankings"],
-  ["Đặt sân", "/courts"],
-  ["Bảng tin", "/feed"],
-  ["Trực tiếp", "/live"],
+  ["v3.nav.home", "/"],
+  ["v3.nav.tournaments", "/pickle-ball/tournaments"],
+  ["v3.nav.rankings", "/pickle-ball/rankings"],
+  ["v3.nav.courts", "/courts"],
+  ["v3.nav.feed", "/feed"],
+  ["v3.nav.live", "/live"],
 ];
 
 const MOBILE_LINKS = [
-  ["Trang chủ", "/", Home],
-  ["Bảng tin", "/feed", Newspaper],
-  ["Giải đấu", "/pickle-ball/tournaments", Trophy],
-  ["Xếp hạng", "/pickle-ball/rankings", ChartNoAxesColumnIncreasing],
-  ["Thông báo", "/notifications", Bell],
+  ["v3.nav.home", "/", Home],
+  ["v3.nav.feed", "/feed", Newspaper],
+  ["v3.nav.tournaments", "/pickle-ball/tournaments", Trophy],
+  ["v3.nav.rankingsShort", "/pickle-ball/rankings", ChartNoAxesColumnIncreasing],
+  ["v3.nav.notifications", "/notifications", Bell],
 ];
 
 const PUBLIC_EXTRA_LINKS = [
-  ["Đặt sân", "/courts", CalendarDays],
-  ["Tìm bạn đánh", "/play", UserSearch],
-  ["Huấn luyện viên", "/coaches", Dumbbell],
-  ["Chợ PickleTour", "/marketplace", ShoppingBag],
-  ["Câu lạc bộ", "/clubs", UsersRound],
-  ["Trực tiếp", "/live", Radio],
-  ["Tin tức", "/news", FileText],
-  ["Liên hệ", "/contact", CircleHelp],
-  ["Tài liệu API", "/docs/api", BookOpenText],
+  ["v3.nav.courts", "/courts", CalendarDays],
+  ["v3.nav.findPartner", "/play", UserSearch],
+  ["v3.nav.coaches", "/coaches", Dumbbell],
+  ["v3.nav.marketplace", "/marketplace", ShoppingBag],
+  ["v3.nav.clubs", "/clubs", UsersRound],
+  ["v3.nav.live", "/live", Radio],
+  ["v3.nav.news", "/news", FileText],
+  ["v3.nav.contact", "/contact", CircleHelp],
+  ["v3.nav.apiDocs", "/docs/api", BookOpenText],
 ];
 
 const MEMBER_EXTRA_LINKS = [
-  ["Hồ sơ", "/profile", UserRound],
-  ["Giải của tôi", "/my-tournaments", Trophy],
-  ["Tin nhắn", "/messages", MessageSquareText],
-  ["Bạn bè", "/friends", UsersRound],
-  ["Hỗ trợ", "/support", CircleHelp],
+  ["v3.nav.profile", "/profile", UserRound],
+  ["v3.nav.myTournaments", "/my-tournaments", Trophy],
+  ["v3.nav.messages", "/messages", MessageSquareText],
+  ["v3.nav.friends", "/friends", UsersRound],
+  ["v3.nav.support", "/support", CircleHelp],
 ];
 
 const ADMIN_EXTRA_LINKS = [
-  ["Lượt đặt sân", "/my-bookings", CalendarDays],
-  ["Quản lý sân", "/owner/venues", Building2],
-  ["Quản trị", "/admin", LayoutGrid],
+  ["v3.nav.myBookings", "/my-bookings", CalendarDays],
+  ["v3.nav.manageVenues", "/owner/venues", Building2],
+  ["v3.nav.admin", "/admin", LayoutGrid],
 ];
 
 const MOBILE_ROOT_PATHS = new Set([
@@ -104,7 +105,7 @@ const isActivePath = (pathname, href) =>
     : pathname === href || pathname.startsWith(`${href}/`);
 
 const displayName = (user) =>
-  user?.nickname || user?.name || user?.fullName || user?.email || "Tài khoản";
+  user?.nickname || user?.name || user?.fullName || user?.email || "";
 
 const isAdmin = (user) => {
   const roles = new Set(
@@ -116,13 +117,14 @@ const isAdmin = (user) => {
 };
 
 function ThemeButton() {
+  const { t } = useLanguage();
   const theme = usePkTheme();
   const dark = theme === "dark";
   return (
     <button
       type="button"
       className="v3-icon-button"
-      aria-label={dark ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"}
+      aria-label={dark ? t("v3.nav.themeToLight") : t("v3.nav.themeToDark")}
       onClick={() => setPkTheme(dark ? "light" : "dark")}
     >
       {dark ? <Sun size={18} /> : <Moon size={18} />}
@@ -131,13 +133,13 @@ function ThemeButton() {
 }
 
 function LanguageButton() {
-  const { language, toggleLanguage } = useLanguage();
+  const { language, toggleLanguage, t } = useLanguage();
   const nextLanguage = language === "vi" ? "English" : "Tiếng Việt";
   return (
     <button
       type="button"
       className="v3-language-button"
-      aria-label={`Chuyển sang ${nextLanguage}`}
+      aria-label={t("v3.nav.switchToLang", { lang: nextLanguage })}
       onClick={toggleLanguage}
     >
       <Languages size={16} /> {language === "vi" ? "VI" : "EN"}
@@ -146,6 +148,7 @@ function LanguageButton() {
 }
 
 function AccountMenu({ user }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const [logoutApiCall] = useLogoutMutation();
   const dispatch = useDispatch();
@@ -173,20 +176,20 @@ function AccountMenu({ user }) {
         <span className="v3-avatar">
           {imgSrc(user?.avatar) ? <img src={imgSrc(user.avatar)} alt="" /> : <UserRound size={17} />}
         </span>
-        <span className="v3-account-name">{displayName(user)}</span>
+        <span className="v3-account-name">{displayName(user) || t("v3.nav.accountFallback")}</span>
         <ChevronDown size={15} className={open ? "is-open" : ""} />
       </button>
       {open ? (
         <>
-          <button className="v3-menu-scrim" aria-label="Đóng menu" onClick={() => setOpen(false)} />
+          <button className="v3-menu-scrim" aria-label={t("v3.nav.closeMenu")} onClick={() => setOpen(false)} />
           <div className="v3-account-menu" role="menu">
-            <A href="/profile" onClick={() => setOpen(false)}><UserRound size={17} /> Hồ sơ</A>
-            <A href="/my-tournaments" onClick={() => setOpen(false)}><Trophy size={17} /> Giải của tôi</A>
-            <A href="/messages" onClick={() => setOpen(false)}><MessageSquareText size={17} /> Tin nhắn</A>
-            <A href="/friends" onClick={() => setOpen(false)}><UsersRound size={17} /> Bạn bè</A>
-            <A href="/settings/notifications" onClick={() => setOpen(false)}><Bell size={17} /> Cài đặt thông báo</A>
-            {isAdmin(user) ? <A href="/admin" onClick={() => setOpen(false)}><ShieldCheck size={17} /> Quản trị</A> : null}
-            <button type="button" onClick={logout}><LogOut size={17} /> Đăng xuất</button>
+            <A href="/profile" onClick={() => setOpen(false)}><UserRound size={17} /> {t("v3.nav.profile")}</A>
+            <A href="/my-tournaments" onClick={() => setOpen(false)}><Trophy size={17} /> {t("v3.nav.myTournaments")}</A>
+            <A href="/messages" onClick={() => setOpen(false)}><MessageSquareText size={17} /> {t("v3.nav.messages")}</A>
+            <A href="/friends" onClick={() => setOpen(false)}><UsersRound size={17} /> {t("v3.nav.friends")}</A>
+            <A href="/settings/notifications" onClick={() => setOpen(false)}><Bell size={17} /> {t("v3.nav.notifSettings")}</A>
+            {isAdmin(user) ? <A href="/admin" onClick={() => setOpen(false)}><ShieldCheck size={17} /> {t("v3.nav.admin")}</A> : null}
+            <button type="button" onClick={logout}><LogOut size={17} /> {t("v3.nav.logout")}</button>
           </div>
         </>
       ) : null}
@@ -195,6 +198,7 @@ function AccountMenu({ user }) {
 }
 
 function MoreMenu({ user }) {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const links = [
     ...PUBLIC_EXTRA_LINKS,
@@ -211,18 +215,18 @@ function MoreMenu({ user }) {
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
       >
-        Khám phá <ChevronDown size={14} className={open ? "is-open" : ""} />
+        {t("v3.nav.explore")} <ChevronDown size={14} className={open ? "is-open" : ""} />
       </button>
       {open ? (
         <>
-          <button className="v3-menu-scrim" aria-label="Đóng menu khám phá" onClick={() => setOpen(false)} />
+          <button className="v3-menu-scrim" aria-label={t("v3.nav.closeExploreMenu")} onClick={() => setOpen(false)} />
           <div className="v3-more-menu" role="menu">
-            <div className="v3-more-menu-head"><span>TOÀN BỘ TÍNH NĂNG</span><small>PickleTour Web V3</small></div>
+            <div className="v3-more-menu-head"><span>{t("v3.nav.allFeatures")}</span><small>PickleTour Web V3</small></div>
             <div className="v3-more-menu-grid">
               {links.map(([label, href, Icon]) => (
                 <A href={href} key={href} onClick={() => setOpen(false)}>
                   <span><Icon size={18} /></span>
-                  <b>{label}</b>
+                  <b>{t(label)}</b>
                 </A>
               ))}
             </div>
@@ -234,6 +238,7 @@ function MoreMenu({ user }) {
 }
 
 export default function SportNav({ hideMobileNav = false }) {
+  const { t } = useLanguage();
   const user = useSelector((state) => state.auth?.userInfo || null);
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -263,23 +268,23 @@ export default function SportNav({ hideMobileNav = false }) {
             <button
               type="button"
               className="v3-back-button"
-              aria-label="Quay lại trang trước"
+              aria-label={t("v3.nav.back")}
               onClick={handleBack}
             >
               <ArrowLeft size={19} />
             </button>
           ) : null}
           <SportBrand />
-          <nav className="v3-desktop-nav" aria-label="Điều hướng chính">
+          <nav className="v3-desktop-nav" aria-label={t("v3.nav.mainNav")}>
             {DESKTOP_LINKS.map(([label, href]) => (
               <A key={href} href={href} aria-current={isActivePath(pathname, href) ? "page" : undefined}>
-                {label}
+                {t(label)}
               </A>
             ))}
             <MoreMenu user={user} />
           </nav>
           <div className="v3-nav-actions">
-            <button type="button" className="v3-icon-button v3-search-button" aria-label="Tìm kiếm nhanh" onClick={openPalette}>
+            <button type="button" className="v3-icon-button v3-search-button" aria-label={t("v3.nav.quickSearch")} onClick={openPalette}>
               <Search size={18} />
             </button>
             <LanguageButton />
@@ -289,15 +294,15 @@ export default function SportNav({ hideMobileNav = false }) {
               <AccountMenu user={user} />
             ) : (
               <>
-                <A href="/login" className="v3-login-link">Đăng nhập</A>
-                <A href="/register" className="v3-primary-small">Tham gia ngay</A>
+                <A href="/login" className="v3-login-link">{t("v3.nav.login")}</A>
+                <A href="/register" className="v3-primary-small">{t("v3.nav.joinNow")}</A>
               </>
             )}
           </div>
         </div>
       </header>
 
-      {!hideMobileNav ? <nav className="v3-mobile-bottom" aria-label="Điều hướng mobile">
+      {!hideMobileNav ? <nav className="v3-mobile-bottom" aria-label={t("v3.nav.mobileNav")}>
         {MOBILE_LINKS.map(([label, href, Icon]) => {
           const active = isActivePath(pathname, href);
           return (
@@ -308,28 +313,28 @@ export default function SportNav({ hideMobileNav = false }) {
                   <i className="v3-mobile-badge">{unreadCount > 99 ? "99+" : unreadCount}</i>
                 ) : null}
               </span>
-              <small>{label}</small>
+              <small>{t(label)}</small>
             </A>
           );
         })}
         <button
           type="button"
-          aria-label="Mở thêm chức năng"
+          aria-label={t("v3.nav.openMore")}
           aria-expanded={mobileMenuOpen}
           onClick={() => setMobileMenuOpen(true)}
         >
           <span><Menu size={21} /></span>
-          <small>Khác</small>
+          <small>{t("v3.nav.more")}</small>
         </button>
       </nav> : null}
 
       {mobileMenuOpen ? (
         <div className="v3-mobile-sheet-layer">
-          <button className="v3-mobile-sheet-scrim" aria-label="Đóng menu" onClick={() => setMobileMenuOpen(false)} />
-          <section className="v3-mobile-sheet" aria-label="Thêm chức năng">
+          <button className="v3-mobile-sheet-scrim" aria-label={t("v3.nav.closeMenu")} onClick={() => setMobileMenuOpen(false)} />
+          <section className="v3-mobile-sheet" aria-label={t("v3.nav.moreFeatures")}>
             <div className="v3-mobile-sheet-head">
               <SportBrand compact />
-              <button type="button" className="v3-icon-button" aria-label="Đóng menu" onClick={() => setMobileMenuOpen(false)}><X size={20} /></button>
+              <button type="button" className="v3-icon-button" aria-label={t("v3.nav.closeMenu")} onClick={() => setMobileMenuOpen(false)}><X size={20} /></button>
             </div>
             <div className="v3-mobile-sheet-grid">
               {[
@@ -337,12 +342,12 @@ export default function SportNav({ hideMobileNav = false }) {
                 ...(user ? MEMBER_EXTRA_LINKS : []),
                 ...(isAdmin(user) ? ADMIN_EXTRA_LINKS : []),
               ].map(([label, href, Icon]) => (
-                <A href={href} key={href}><Icon size={21} /> <span>{label}</span></A>
+                <A href={href} key={href}><Icon size={21} /> <span>{t(label)}</span></A>
               ))}
-              {!user ? <A href="/login"><LogIn size={21} /> <span>Đăng nhập</span></A> : null}
+              {!user ? <A href="/login"><LogIn size={21} /> <span>{t("v3.nav.login")}</span></A> : null}
             </div>
             <div className="v3-mobile-sheet-tools">
-              <button type="button" onClick={() => { setMobileMenuOpen(false); openPalette(); }}><Search size={18} /> Tìm kiếm nhanh</button>
+              <button type="button" onClick={() => { setMobileMenuOpen(false); openPalette(); }}><Search size={18} /> {t("v3.nav.quickSearch")}</button>
               <LanguageButton />
               <ThemeButton />
             </div>

@@ -542,6 +542,10 @@ export default function SupportPage() {
   const [rateTicket, { isLoading: rating }] = useRateMySupportTicketMutation();
   const [uploadImage, { isLoading: uploading }] = useUploadImageToFolderMutation();
 
+  // Khai báo trước useEffect khoá cuộn (deps [newOpen, busy]) — nếu để dưới sẽ bị
+  // "Cannot access 'busy' before initialization" (TDZ) khi React đọc mảng deps lúc render.
+  const busy = creating || replying || uploading;
+
   /* vào /support (không id) -> tự mở yêu cầu đầu tiên (y trang cũ) */
   useEffect(() => {
     if (routeTicketId || ticketsLoading || !tickets.length) return;
@@ -623,7 +627,6 @@ export default function SupportPage() {
 
   const selectedStatus = getStatusMeta(selectedTicket?.status);
   const selectedPriority = priorityMeta(selectedTicket?.priority);
-  const busy = creating || replying || uploading;
   const hasActiveFilter =
     !!keyword.trim() || !!statusFilter || !!categoryFilter || !!priorityFilter || unreadOnly;
 

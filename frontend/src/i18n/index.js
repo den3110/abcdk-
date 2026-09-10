@@ -1,12 +1,13 @@
 import en from "./lang/en.js";
 import vi from "./lang/vi.js";
+import v3 from "./lang/v3/index.js";
 
 export const DEFAULT_LANGUAGE = "vi";
 export const SUPPORTED_LANGUAGES = ["vi", "en"];
 
 export const messages = {
-  vi,
-  en,
+  vi: { ...vi, v3: { ...(vi.v3 || {}), ...v3.vi } },
+  en: { ...en, v3: { ...(en.v3 || {}), ...v3.en } },
 };
 
 const warnedKeys = new Set();

@@ -15,7 +15,7 @@ import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { Text } from "@astryxdesign/core/Text";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { BadgeCheck, Crown, LayoutGrid, List, Lock, MapPin, Search, TrendingUp } from "lucide-react";
+import { AlertCircle, BadgeCheck, Crown, Flag, Gauge, LayoutGrid, List, Lock, MapPin, Medal, Search, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
 import ShadowFrame from "./ShadowFrame.jsx";
@@ -64,6 +64,111 @@ const TIER_DOT = {
   grey: "#8F959C",
   gray: "#8F959C",
 };
+
+/* ---------------------- danh hiệu (achievements) ---------------------- */
+// Đồng bộ với v1 (RankingList.jsx) và mobile: dữ liệu lấy từ r.achievements do
+// backend gắn sẵn (getRankingOnlyV2 -> attachRankingAchievementsToDocs).
+const ACHIEVEMENT_TONES = {
+  yellow: { bg: "#facc15", fg: "#422006" },
+  gold: { bg: "#facc15", fg: "#422006" },
+  bronze: { bg: "#b45309", fg: "#fff7ed" },
+  grey: { bg: "#5a636e", fg: "#f8fafc" },
+  gray: { bg: "#5a636e", fg: "#f8fafc" },
+  blue: { bg: "#2563eb", fg: "#eff6ff" },
+  cyan: { bg: "#0891b2", fg: "#ecfeff" },
+  green: { bg: "#16a34a", fg: "#f0fdf4" },
+  red: { bg: "#dc2626", fg: "#fef2f2" },
+  purple: { bg: "#7c3aed", fg: "#faf5ff" },
+  navy: { bg: "#1e3a8a", fg: "#eff6ff" },
+};
+const ACHIEVEMENT_VISIBLE_LIMIT = 3;
+
+const toneOfAchievement = (tone) =>
+  ACHIEVEMENT_TONES[String(tone || "").toLowerCase()] || ACHIEVEMENT_TONES.grey;
+
+const iconOfAchievement = (item = {}) => {
+  const id = String(item.id || "").toLowerCase();
+  const category = String(item.category || "").toLowerCase();
+  const tone = String(item.tone || "").toLowerCase();
+  if (id.includes("gold") || id.includes("champion") || tone === "yellow") return Trophy;
+  if (id.includes("silver")) return Medal;
+  if (id.includes("bronze") || tone === "bronze") return Medal;
+  if (id.includes("kyc") || category.includes("xác thực")) return ShieldCheck;
+  if (id.includes("tour") || category.includes("thi đấu")) return Flag;
+  if (id.includes("score") || category.includes("điểm")) return Gauge;
+  if (tone === "red") return AlertCircle;
+  return Sparkles;
+};
+
+const normalizeRankingAchievements = (items) =>
+  (Array.isArray(items) ? items : [])
+    .map((item, index) => ({
+      id: String(item?.id || item?._id || `achievement-${index}`),
+      label: String(item?.label || item?.title || "").trim(),
+      category: String(item?.category || "Chip nổi bật").trim(),
+      tone: String(item?.tone || item?.color || "grey").toLowerCase(),
+    }))
+    .filter((item) => item.label);
+
+function AchievementChips({ achievements, size = "sm" }) {
+  const list = normalizeRankingAchievements(achievements);
+  if (!list.length) return null;
+  const visible = list.slice(0, ACHIEVEMENT_VISIBLE_LIMIT);
+  const hidden = Math.max(0, list.length - visible.length);
+  const iconSize = size === "sm" ? 12 : 13;
+  const fontSize = size === "sm" ? 11 : 11.5;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {visible.map((item) => {
+        const tone = toneOfAchievement(item.tone);
+        const Icon = iconOfAchievement(item);
+        return (
+          <span
+            key={item.id}
+            title={item.category}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              maxWidth: 150,
+              height: 22,
+              padding: "0 9px",
+              borderRadius: 999,
+              fontSize,
+              fontWeight: 700,
+              lineHeight: 1,
+              color: tone.fg,
+              background: tone.bg,
+              border: "1px solid rgba(255,255,255,.22)",
+              textShadow: "0 1px 1px rgba(0,0,0,.28)",
+            }}
+          >
+            <Icon size={iconSize} style={{ flexShrink: 0 }} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.label}</span>
+          </span>
+        );
+      })}
+      {hidden > 0 && (
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            height: 22,
+            padding: "0 9px",
+            borderRadius: 999,
+            fontSize,
+            fontWeight: 700,
+            color: "#C9CDD2",
+            background: "rgba(255,255,255,.08)",
+            border: "1px solid rgba(255,255,255,.12)",
+          }}
+        >
+          +{hidden}
+        </span>
+      )}
+    </div>
+  );
+}
 
 const SCORE_FILTERS = [
   ["three_tours", "Từ 3 giải"],
@@ -500,6 +605,11 @@ function RankCard({ r, rank }) {
         </div>
         <MessageIconBtn userId={r?.user?._id} />
       </div>
+      {normalizeRankingAchievements(r?.achievements).length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <AchievementChips achievements={r?.achievements} />
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--color-border)" }}>
         {[
           ["Điểm đôi", fmtScore(r?.double), "var(--pk-text-strong)"],
