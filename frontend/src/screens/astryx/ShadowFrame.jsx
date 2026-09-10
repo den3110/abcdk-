@@ -14,8 +14,10 @@ import { createPortal } from "react-dom";
 import resetCssRaw from "@astryxdesign/core/reset.css?inline";
 import astryxCssRaw from "@astryxdesign/core/astryx.css?inline";
 import themeCssRaw from "@astryxdesign/theme-neutral/theme.css?inline";
+import sportV3CssRaw from "../v3/sport-v3.css?inline";
 
 import { usePkTheme } from "./theme.js";
+import useFrontendUiVersion from "../../hook/useFrontendUiVersion.js";
 
 // Remap selector gốc-tài-liệu -> :host để token/base áp trong shadow
 const scopeToHost = (css) =>
@@ -271,7 +273,9 @@ const buildCss = () =>
   "\n" +
   OVERRIDE +
   "\n" +
-  EXTRA_CSS;
+  EXTRA_CSS +
+  "\n" +
+  sportV3CssRaw;
 
 export default function ShadowFrame({ children, style }) {
   const hostRef = useRef(null);
@@ -279,6 +283,7 @@ export default function ShadowFrame({ children, style }) {
   // Theme sáng/tối: chỉ cần đổi attribute trên :host — CSS trong shadow đã
   // khai báo sẵn cả 2 nhánh (light-dark() + :host([data-pk-theme="light"])).
   const theme = usePkTheme();
+  const { isV3Version } = useFrontendUiVersion();
 
   // Ẩn scrollbar của TRANG khi giao diện Astryx active (vẫn cuộn bình thường).
   // Scrollbar thuộc <html> (ngoài shadow) nên phải tiêm style vào document;
@@ -320,7 +325,12 @@ export default function ShadowFrame({ children, style }) {
   }, [shadow]);
 
   return (
-    <div ref={hostRef} data-pk-theme={theme} style={{ display: "block", colorScheme: theme, ...style }}>
+    <div
+      ref={hostRef}
+      data-pk-theme={theme}
+      data-pk-ui={isV3Version ? "v3" : "v2"}
+      style={{ display: "block", colorScheme: theme, ...style }}
+    >
       {shadow ? createPortal(children, shadow) : null}
     </div>
   );

@@ -18,6 +18,8 @@ import { logout as logoutAction } from "../../slices/authSlice.js";
 import { useLogoutMutation } from "../../slices/usersApiSlice.js";
 import NotificationBell from "./NotificationBell.jsx";
 import PlayerName from "../../components/PlayerName";
+import useFrontendUiVersion from "../../hook/useFrontendUiVersion.js";
+import SportNav from "../v3/SportNav.jsx";
 
 const NAV_LINKS = [
   ["Giải đấu", "/pickle-ball/tournaments"],
@@ -216,8 +218,11 @@ function UserMenu({ userInfo }) {
 }
 
 export default function SiteNav() {
+  const { isV3Version } = useFrontendUiVersion();
   const userInfo = useSelector((s) => s.auth?.userInfo || null);
   const { pathname } = useLocation();
+
+  if (isV3Version) return <SportNav />;
 
   return (
     <div

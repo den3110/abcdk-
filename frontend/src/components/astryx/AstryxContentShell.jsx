@@ -13,6 +13,8 @@ import SiteNav from "../../screens/astryx/SiteNav.jsx";
 import SiteFooter from "../../screens/astryx/SiteFooter.jsx";
 import { usePkTheme } from "../../screens/astryx/theme.js";
 import { useThemeMode } from "../../context/ThemeContext.jsx";
+import useFrontendUiVersion from "../../hook/useFrontendUiVersion.js";
+import "../../screens/v3/sport-v3-global.css";
 
 export default function AstryxContentShell({ children }) {
   // Đồng bộ theme MUI (theme-mode, mặc định light) theo theme Astryx (pk-theme,
@@ -20,13 +22,21 @@ export default function AstryxContentShell({ children }) {
   // SiteNav chỉ đổi pk-theme → effect này kéo theo theme-mode.
   const pk = usePkTheme();
   const { mode, toggleTheme } = useThemeMode();
+  const { isV3Version } = useFrontendUiVersion();
   useEffect(() => {
     if (mode !== pk) toggleTheme();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pk, mode]);
 
   return (
-    <div style={{ minHeight: "100vh" }}>
+    <div
+      className={
+        isV3Version
+          ? `pk-v3-content-shell${pk === "light" ? " is-light" : ""}`
+          : undefined
+      }
+      style={{ minHeight: "100vh" }}
+    >
       {/* Nav: host ShadowFrame đặt sticky để ghim đầu trang khi cuộn */}
       <ShadowFrame style={{ position: "sticky", top: 0, zIndex: 1000 }}>
         <Theme theme={neutralTheme}>

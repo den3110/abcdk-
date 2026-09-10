@@ -8,6 +8,8 @@ import { Text } from "@astryxdesign/core/Text";
 import PickleMark from "./PickleMark.jsx";
 import PickleWordmark from "./PickleWordmark.jsx";
 import { A } from "./ui.jsx";
+import useFrontendUiVersion from "../../hook/useFrontendUiVersion.js";
+import SportFooter from "../v3/SportFooter.jsx";
 
 // Link cộng đồng chính thức của PickleTour.
 const FANPAGE_URL = "https://www.facebook.com/pickletour2025/";
@@ -20,7 +22,10 @@ const Container = ({ children, style }) => (
 );
 
 export default function SiteFooter() {
+  const { isV3Version } = useFrontendUiVersion();
   const authed = Boolean(useSelector((s) => s.auth?.userInfo));
+
+  if (isV3Version) return <SportFooter />;
   const cols = [
     ["Sản phẩm", [["Giải đấu", "/pickle-ball/tournaments"], ["Bảng xếp hạng", "/pickle-ball/rankings"], ["Trực tiếp", "/live"], ["Câu lạc bộ", "/clubs"]]],
     [
