@@ -123,6 +123,7 @@ import TournamentCourtLiveMonitorWatcher from "../../components/TournamentCourtL
 import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 import TeamTournamentManageView from "../../components/teamTournament/TeamTournamentManageView";
 import SEOHead from "../../components/SEOHead";
+import useFrontendUiVersion from "../../hook/useFrontendUiVersion.js";
 import RefereeScoreDialog from "../../components/referee/RefereeScoreDialog";
 import OverlayWidgetsPanel from "../../components/overlay/OverlayWidgetsPanel";
 import OverlayGeneratorDialog from "../../components/tournament/OverlayGeneratorDialog";
@@ -1241,6 +1242,10 @@ export default function TournamentManagePage() {
   const theme = useTheme();
   const dispatch = useDispatch();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  // Ở giao diện v3, trang render trong .astryx-content-host (KHÔNG có <Container>
+  // app-shell), nên các margin âm để "tràn" ra ngoài Container sẽ đẩy nội dung ra
+  // khỏi màn hình (mép trái bị cắt, tràn phải). Tắt margin âm khi v3.
+  const { isV3Version } = useFrontendUiVersion();
   const matchStatusDialogHelpers = useMemo(
     () => ({
       detailValue,
@@ -4014,12 +4019,14 @@ export default function TournamentManagePage() {
         pb: { xs: 2, md: 3 },
         minWidth: 0,
         overflowX: "hidden",
-        mx: {
-          xs: 0,
-          md: -3,
-          lg: -5,
-          xl: -7,
-        },
+        mx: isV3Version
+          ? 0
+          : {
+              xs: 0,
+              md: -3,
+              lg: -5,
+              xl: -7,
+            },
       }}
     >
       <SEOHead
