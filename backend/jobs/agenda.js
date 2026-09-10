@@ -73,6 +73,8 @@ export async function startAgenda() {
   console.log("✅ bookingJobs handlers registered");
   await import("./emailCampaignJob.js");
   console.log("✅ emailCampaignJob handler registered");
+  await import("./opsMonitorJobs.js");
+  console.log("✅ opsMonitorJobs handlers registered");
 
   // 🆕 logging tiện debug
   agenda.on("start", (job) => {
@@ -99,6 +101,16 @@ export async function startAgenda() {
     await agenda.every("10 minutes", "booking.settle-past");
     await agenda.every("6 hours", "recurring.auto-renew");
     console.log("✅ event-live.auto-notify scheduled (5m)");
+
+    // 🆕 Giám sát vận hành: quét sức khoẻ định kỳ + báo cáo tổng hợp hằng ngày.
+    const opsEvery = process.env.OPS_MONITOR_INTERVAL || "10 minutes";
+    await agenda.every(opsEvery, "ops-monitor.check");
+    // Digest: cron theo giờ VN (mặc định 08:00). Đổi qua OPS_MONITOR_DIGEST_CRON.
+    const digestCron = process.env.OPS_MONITOR_DIGEST_CRON || "0 8 * * *";
+    await agenda.every(digestCron, "ops-monitor.digest", {}, {
+      timezone: process.env.TZ || "Asia/Ho_Chi_Minh",
+    });
+    console.log(`✅ ops-monitor scheduled (check: ${opsEvery}, digest: ${digestCron})`);
   } catch (e) {
     console.error("[agenda] schedule event-live.auto-notify error:", e?.message);
   }

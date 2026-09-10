@@ -12,6 +12,7 @@ import {
   decideSmartLogRoute,
   maybeAskSmartLogAiAdvisor,
 } from "../services/smartLogPolicy.service.js";
+import { recordServerError } from "../services/ops/opsRuntime.service.js";
 
 const HOT_PATH_SLOW_MS = Math.max(
   100,
@@ -96,6 +97,18 @@ export function httpLogger(req, res, next) {
       statusCode: res.statusCode,
       durationMs: duration,
     });
+
+    // 🆕 Cảnh báo vận hành cho 5xx trả trực tiếp (res.status(500) trong catch),
+    //    không đi qua errorHandler. errorHandler đã set cờ để tránh đếm 2 lần.
+    if (res.statusCode >= 500 && !res.__opsErrorRecorded) {
+      recordServerError({
+        method: req.method,
+        path: req.path || url,
+        statusCode: res.statusCode,
+        requestId: requestId ? String(requestId) : "",
+        userId: userId ? String(userId) : "",
+      });
+    }
 
     if (
       shouldSkipDetailedHttpLog({

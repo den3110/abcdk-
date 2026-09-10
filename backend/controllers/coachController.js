@@ -7,6 +7,7 @@ import User from "../models/userModel.js";
 import CoachApplication from "../models/coachApplicationModel.js";
 import CoachAchievement from "../models/coachAchievementModel.js";
 import { encodeCursor, decodeCursor } from "../utils/cursor.js";
+import { notifyOpsEvent } from "../services/ops/opsAlert.service.js";
 
 const isAdmin = (u) => u?.role === "admin" || u?.isAdmin || u?.isSuperUser;
 const ACH_LEVELS = ["national", "regional", "local", "club", "other"];
@@ -206,6 +207,18 @@ export const applyToBeCoach = asyncHandler(async (req, res) => {
         }))
       : [],
   });
+
+  // 🆕 Báo lên kênh vận hành: có đơn đăng ký HLV chờ duyệt.
+  notifyOpsEvent({
+    severity: "info",
+    title: "Đơn đăng ký HLV — chờ duyệt",
+    lines: [
+      { label: "Người gửi", value: currentUser?.name || currentUser?.nickname || currentUser?.email || String(viewer._id) },
+      { label: "Giới thiệu", value: app.headline || "—" },
+      { label: "Kinh nghiệm", value: `${app.experienceYears} năm` },
+      { label: "SĐT", value: app.phone || "—" },
+    ],
+  }).catch(() => {});
 
   res.status(201).json(app);
 });

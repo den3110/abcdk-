@@ -1,3 +1,5 @@
+import { recordServerError } from "../services/ops/opsRuntime.service.js";
+
 const notFound = (req, res, next) => {
   const error = new Error(`Not Found - ${req.originalUrl}`);
   res.status(404);
@@ -51,6 +53,21 @@ const errorHandler = (err, req, res, next) => {
 
   if (Array.isArray(err.invalidRefereeIds) && err.invalidRefereeIds.length) {
     payload.invalidRefereeIds = err.invalidRefereeIds;
+  }
+
+  // 🆕 Cảnh báo vận hành: chỉ quan tâm lỗi phía server (5xx thật sự).
+  //    Bỏ qua 4xx (lỗi phía client) và CastError đã hạ xuống 404.
+  if (statusCode >= 500) {
+    res.__opsErrorRecorded = true; // để httpLogger không đếm lại lỗi này
+    recordServerError({
+      method: req.method,
+      path: req.originalUrl || req.url,
+      statusCode,
+      message,
+      error: err,
+      requestId: req.requestId || req.headers?.["x-request-id"] || "",
+      userId: req.user?._id ? String(req.user._id) : "",
+    });
   }
 
   res.status(statusCode).json(payload);

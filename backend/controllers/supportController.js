@@ -3,6 +3,7 @@ import SupportTicket from "../models/supportTicketModel.js";
 import SupportMessage from "../models/supportMessageModel.js";
 import User from "../models/userModel.js";
 import { notifySupportToTelegram } from "../bot/supportBridge.js";
+import { notifyOpsEvent } from "../services/ops/opsAlert.service.js";
 import {
   CATEGORY,
   EVENTS,
@@ -197,6 +198,18 @@ export const createTicket = async (req, res) => {
     });
 
     await notifyAdminsAboutUserMessage({ req, ticket, msg, text: cleanText });
+
+    // 🆕 Báo lên kênh vận hành trung tâm (best-effort, không chặn response).
+    notifyOpsEvent({
+      severity: "info",
+      title: "Phiếu hỗ trợ mới",
+      lines: [
+        { label: "Người gửi", value: req.user?.name || req.user?.nickname || req.user?.email || String(req.user?._id) },
+        { label: "Tiêu đề", value: ticket.title },
+        { label: "Phân loại", value: ticket.category },
+        { label: "Nội dung", value: cleanText ? cleanText.slice(0, 300) : "[Ảnh đính kèm]" },
+      ],
+    }).catch(() => {});
 
     res.status(201).json(ticket);
   } catch (error) {

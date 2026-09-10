@@ -11,6 +11,7 @@ import rankingRoutes from "./routes/rankingRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import azureAdminRoutes from "./routes/azureAdminRoutes.js";
+import opsMonitorRoutes from "./routes/opsMonitorRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import refereeRoutes from "./routes/refereeRoutes.js";
 import assessmentRoutes from "./routes/assessmentRoutes.js";
@@ -115,6 +116,7 @@ import { startSeoNewsPipelineWorker } from "./services/seoNewsPipelineQueue.serv
 import { startLiveRecordingAiCommentaryWorker } from "./services/liveRecordingAiCommentaryQueue.service.js";
 import { startLiveRecordingAutoExportSweep } from "./services/liveRecordingMonitor.service.js";
 import { isBackgroundJobLeaderProcess } from "./utils/backgroundJobWindow.js";
+import { installOpsProcessHooks } from "./services/ops/opsRuntime.service.js";
 // 🔹 GraphQL layer
 import { setupGraphQL } from "./graphql/index.js";
 import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
@@ -296,6 +298,7 @@ app.use("/api/upload", uploadRoutes);
 app.use("/upload", uploadRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/admin/azure", azureAdminRoutes);
+app.use("/api/admin/ops", opsMonitorRoutes);
 app.use("/api/admin/feed", adminFeedRoutes);
 app.use("/api/feed", feedRoutes);
 app.use("/api/market", marketRoutes);
@@ -533,6 +536,9 @@ const startServer = async () => {
       try {
         console.log(`✅ Server started on port ${port}`);
         const backgroundJobLeader = isBackgroundJobLeaderProcess();
+        // 🆕 Cảnh báo vận hành cấp process (uncaught/unhandledRejection) chỉ ở leader,
+        //    tránh mỗi instance cluster bắn trùng một lỗi.
+        if (backgroundJobLeader) installOpsProcessHooks();
         if (backgroundJobLeader) {
           startTournamentCrons();
           startFbRefreshCron();

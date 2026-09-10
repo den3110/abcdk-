@@ -6,6 +6,7 @@ import User from "../models/userModel.js";
 import { isCourtOwnerLike } from "../utils/venueAuth.js";
 import { publishNotification, EVENTS } from "../services/notifications/notificationHub.js";
 import { createInAppNotifications } from "../services/inAppNotify.js";
+import { notifyOpsEvent } from "../services/ops/opsAlert.service.js";
 
 const isId = (v) => mongoose.Types.ObjectId.isValid(v);
 
@@ -35,6 +36,19 @@ export const submitRequest = expressAsyncHandler(async (req, res) => {
     note: String(req.body?.note || "").slice(0, 500),
     status: "pending",
   });
+
+  // 🆕 Báo lên kênh vận hành: có đơn xin làm chủ sân chờ duyệt.
+  notifyOpsEvent({
+    severity: "info",
+    title: "Đơn xin làm chủ sân — chờ duyệt",
+    lines: [
+      { label: "Người gửi", value: req.user?.name || req.user?.nickname || req.user?.email || String(req.user?._id) },
+      { label: "Cơ sở", value: doc.businessName || "—" },
+      { label: "SĐT", value: doc.phone || "—" },
+      { label: "Địa chỉ", value: doc.address || "—" },
+    ],
+  }).catch(() => {});
+
   res.status(201).json(doc);
 });
 
