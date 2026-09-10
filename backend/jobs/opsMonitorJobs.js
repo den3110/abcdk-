@@ -9,7 +9,7 @@ export const OPS_DIGEST_JOB = "ops-monitor.digest";
 
 agenda.define(OPS_CHECK_JOB, { lockLifetime: 5 * 60 * 1000 }, async (_job, done) => {
   try {
-    if (!isOpsAlertEnabled()) return done();
+    if (!(await isOpsAlertEnabled())) return done();
     const result = await runOpsMonitorCycle({ notify: true });
     if (result.notified?.length) {
       console.log(
@@ -25,7 +25,7 @@ agenda.define(OPS_CHECK_JOB, { lockLifetime: 5 * 60 * 1000 }, async (_job, done)
 
 agenda.define(OPS_DIGEST_JOB, { lockLifetime: 5 * 60 * 1000 }, async (_job, done) => {
   try {
-    if (!isOpsAlertEnabled()) return done();
+    if (!(await isOpsAlertEnabled())) return done();
     await sendOpsDigest();
     done();
   } catch (error) {

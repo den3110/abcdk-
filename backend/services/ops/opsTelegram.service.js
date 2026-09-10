@@ -1,10 +1,13 @@
 // services/ops/opsTelegram.service.js
 // Kênh Telegram RIÊNG cho cảnh báo vận hành (ops), tách khỏi bot KYC/support sẵn có.
+// Nguồn cấu hình: ƯU TIÊN Admin → Cài đặt → Giám sát vận hành (SystemSettings.opsMonitor),
+// FALLBACK env:
 //   TELEGRAM_OPS_BOT_TOKEN  (không set thì fallback TELEGRAM_BOT_TOKEN)
 //   TELEGRAM_OPS_CHAT_ID    (CSV, hỗ trợ nhiều group)
 //   TELEGRAM_OPS_THREAD_ID  (tuỳ chọn — topic trong group)
 // Có hàng đợi tuần tự + giãn nhịp + retry 429 để không bị Telegram chặn.
 import dotenv from "dotenv";
+import { getSystemSettingsRuntime } from "../systemSettingsRuntime.service.js";
 
 dotenv.config();
 
@@ -21,17 +24,47 @@ function csv(value) {
     .filter(Boolean);
 }
 
-export function getOpsTelegramConfig() {
-  const token = String(
-    process.env.TELEGRAM_OPS_BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || ""
-  ).trim();
-  const chatIds = csv(process.env.TELEGRAM_OPS_CHAT_ID);
-  const threadId = String(process.env.TELEGRAM_OPS_THREAD_ID || "").trim();
-  return { token, chatIds, threadId };
+async function readOpsSettings() {
+  try {
+    const settings = await getSystemSettingsRuntime({ ensureDocument: false });
+    return settings?.opsMonitor || {};
+  } catch {
+    return {}; // DB chưa sẵn sàng → dùng env fallback
+  }
 }
 
-export function isOpsTelegramConfigured() {
-  const { token, chatIds } = getOpsTelegramConfig();
+/**
+ * Cấu hình Telegram ops đã hợp nhất (settings ưu tiên, env fallback).
+ * `source` = "settings" nếu admin đã điền token/chatId trong Cài đặt, ngược lại "env".
+ */
+export async function getOpsTelegramConfig() {
+  const s = await readOpsSettings();
+  const settingsHasConfig = Boolean(
+    String(s.botToken || "").trim() || String(s.chatId || "").trim()
+  );
+
+  const token = String(
+    s.botToken ||
+      process.env.TELEGRAM_OPS_BOT_TOKEN ||
+      process.env.TELEGRAM_BOT_TOKEN ||
+      ""
+  ).trim();
+  const chatIds = csv(s.chatId || process.env.TELEGRAM_OPS_CHAT_ID);
+  const threadId = String(
+    s.threadId || process.env.TELEGRAM_OPS_THREAD_ID || ""
+  ).trim();
+
+  return {
+    token,
+    chatIds,
+    threadId,
+    source: settingsHasConfig ? "settings" : "env",
+    settings: s,
+  };
+}
+
+export async function isOpsTelegramConfigured() {
+  const { token, chatIds } = await getOpsTelegramConfig();
   return Boolean(token && chatIds.length);
 }
 
@@ -122,7 +155,7 @@ async function sendOne(token, payload) {
  * Không bao giờ throw — cảnh báo hỏng thì không được kéo theo request nghiệp vụ.
  */
 export async function opsTgSend(html, { silent = false, chatId } = {}) {
-  const { token, chatIds, threadId } = getOpsTelegramConfig();
+  const { token, chatIds, threadId } = await getOpsTelegramConfig();
   if (!token) return { sent: 0, skipped: "missing-token" };
 
   const targets = chatId ? [String(chatId)] : chatIds;
@@ -158,8 +191,9 @@ export async function opsTgSend(html, { silent = false, chatId } = {}) {
 
 /** Kiểm tra token/chat còn dùng được không (dùng cho endpoint test của admin). */
 export async function opsTgProbe() {
-  const { token, chatIds } = getOpsTelegramConfig();
-  if (!token) return { ok: false, message: "Thiếu TELEGRAM_OPS_BOT_TOKEN" };
+  const { token, chatIds } = await getOpsTelegramConfig();
+  if (!token)
+    return { ok: false, message: "Chưa có bot token (Cài đặt admin hoặc env)" };
   const result = await callTelegram(token, "getMe", {});
   if (!result.ok) {
     return {

@@ -321,6 +321,23 @@ const SystemSettingsSchema = new mongoose.Schema(
       tokenRefreshedAt: { type: Date, default: null },
     },
 
+    // Giám sát vận hành — cảnh báo Telegram (token hết hạn, lỗi server, tồn đọng).
+    // Cấu hình ở Admin → Cài đặt → Giám sát vận hành. Bỏ trống botToken/chatId
+    // thì fallback dùng env TELEGRAM_OPS_* / TELEGRAM_BOT_TOKEN.
+    opsMonitor: {
+      enabled: { type: Boolean, default: false },
+      // Token bot Telegram RIÊNG cho cảnh báo (khác bot KYC/support nếu muốn).
+      botToken: { type: String, default: "", trim: true },
+      // Nhiều group phân tách bằng dấu phẩy (id group thường bắt đầu -100...).
+      chatId: { type: String, default: "", trim: true },
+      // (tuỳ chọn) id topic nếu group bật Topics.
+      threadId: { type: String, default: "", trim: true },
+      // Nhãn hiển thị trong tin cảnh báo (mặc định "PickleTour").
+      appLabel: { type: String, default: "", trim: true },
+      // Bật/tắt báo cáo tổng hợp hằng ngày.
+      digestEnabled: { type: Boolean, default: true },
+    },
+
     // Xem live giải đấu qua YouTube (vd Heineken Pickleball World Cup 2026):
     // tổng hợp live + video xem lại từ 1 kênh YouTube, gom theo sân/góc cam.
     eventLive: {

@@ -10,7 +10,11 @@ import {
   sendOpsAlert,
   severityRank,
 } from "./opsAlert.service.js";
-import { opsTgSend, htmlEscape } from "./opsTelegram.service.js";
+import {
+  opsTgSend,
+  htmlEscape,
+  getOpsTelegramConfig,
+} from "./opsTelegram.service.js";
 
 const PROBLEM_STATUSES = new Set(["warn", "error", "critical"]);
 
@@ -93,7 +97,7 @@ export async function runOpsMonitorCycle({ notify = true } = {}) {
   const snapshot = await runOpsHealthChecks();
   lastSnapshot = snapshot;
 
-  if (!notify || !isOpsAlertEnabled()) {
+  if (!notify || !(await isOpsAlertEnabled())) {
     return { ...snapshot, notified: [], skipped: !notify ? "notify-off" : "disabled" };
   }
 
@@ -153,7 +157,13 @@ export async function runOpsMonitorCycle({ notify = true } = {}) {
 
 /** Báo cáo tổng hợp hằng ngày — kể cả khi mọi thứ đều ổn, để biết hệ thống vẫn đang được theo dõi. */
 export async function sendOpsDigest({ snapshot } = {}) {
-  if (!isOpsAlertEnabled()) return { sent: false, reason: "disabled" };
+  if (!(await isOpsAlertEnabled())) return { sent: false, reason: "disabled" };
+
+  // Tôn trọng công tắc "báo cáo hằng ngày" nếu admin cấu hình qua Cài đặt.
+  const cfg = await getOpsTelegramConfig();
+  if (cfg.source === "settings" && cfg.settings?.digestEnabled === false) {
+    return { sent: false, reason: "digest-disabled" };
+  }
 
   const data = snapshot || (await runOpsHealthChecks());
   lastSnapshot = data;

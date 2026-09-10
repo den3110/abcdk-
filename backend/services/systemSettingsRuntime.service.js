@@ -135,6 +135,14 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     secretKey: "",
     tokenRefreshedAt: null,
   },
+  opsMonitor: {
+    enabled: false,
+    botToken: "",
+    chatId: "",
+    threadId: "",
+    appLabel: "",
+    digestEnabled: true,
+  },
   eventLive: {
     enabled: false,
     eventName: "",
@@ -280,6 +288,10 @@ export function normalizeSystemSettings(doc = {}) {
     zaloZns: {
       ...DEFAULT_SYSTEM_SETTINGS.zaloZns,
       ...(source.zaloZns || {}),
+    },
+    opsMonitor: {
+      ...DEFAULT_SYSTEM_SETTINGS.opsMonitor,
+      ...(source.opsMonitor || {}),
     },
     eventLive: {
       ...DEFAULT_SYSTEM_SETTINGS.eventLive,

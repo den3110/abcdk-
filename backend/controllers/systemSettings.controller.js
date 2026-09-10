@@ -91,6 +91,16 @@ function maskZaloZns(zaloZns) {
   };
 }
 
+function maskOpsMonitor(opsMonitor) {
+  if (!opsMonitor || typeof opsMonitor !== "object") return opsMonitor;
+  const botTokenSet = Boolean(String(opsMonitor.botToken || "").trim());
+  return {
+    ...opsMonitor,
+    botToken: "",
+    botTokenSet,
+  };
+}
+
 function maskEventLive(eventLive) {
   if (!eventLive || typeof eventLive !== "object") return eventLive;
   const youtubeApiKeySet = Boolean(String(eventLive.youtubeApiKey || "").trim());
@@ -105,6 +115,7 @@ function attachSystemSettingsUiFlags(settings) {
   return {
     ...settings,
     zaloZns: maskZaloZns(settings?.zaloZns),
+    opsMonitor: maskOpsMonitor(settings?.opsMonitor),
     eventLive: maskEventLive(settings?.eventLive),
     aiGateway: settings?.aiGateway
       ? {
@@ -469,6 +480,32 @@ function sanitizeSettingsPatch(patch = {}) {
     if (!Object.keys(next.zaloZns).length) delete next.zaloZns;
   }
 
+  if (next.opsMonitor && typeof next.opsMonitor === "object") {
+    const o = { ...next.opsMonitor };
+    if (Object.prototype.hasOwnProperty.call(o, "enabled")) {
+      o.enabled = o.enabled === true;
+    }
+    if (Object.prototype.hasOwnProperty.call(o, "digestEnabled")) {
+      o.digestEnabled = o.digestEnabled !== false;
+    }
+    // Non-secret: sửa/xoá tự do
+    for (const key of ["chatId", "threadId", "appLabel"]) {
+      if (Object.prototype.hasOwnProperty.call(o, key)) {
+        o[key] = String(o[key] || "").trim();
+      }
+    }
+    // Secret (botToken): gửi rỗng => KHÔNG ghi đè (giữ giá trị cũ, do UI mask).
+    if (Object.prototype.hasOwnProperty.call(o, "botToken")) {
+      const val = String(o.botToken || "").trim();
+      if (val) o.botToken = val;
+      else delete o.botToken;
+    }
+    // Cờ chỉ-đọc từ maskOpsMonitor — không nhận từ client
+    delete o.botTokenSet;
+    next.opsMonitor = o;
+    if (!Object.keys(next.opsMonitor).length) delete next.opsMonitor;
+  }
+
   if (next.observerLogging && typeof next.observerLogging === "object") {
     const logging = { ...next.observerLogging };
     logging.enabled = logging.enabled !== false;
@@ -615,6 +652,14 @@ export const updateSystemSettings = async (req, res, next) => {
         patch[`zaloZns.${k}`] = v;
       }
       delete patch.zaloZns;
+    }
+
+    // opsMonitor: merge dot-notation để KHÔNG xoá botToken khi UI mask gửi trống.
+    if (patch.opsMonitor && typeof patch.opsMonitor === "object") {
+      for (const [k, v] of Object.entries(patch.opsMonitor)) {
+        patch[`opsMonitor.${k}`] = v;
+      }
+      delete patch.opsMonitor;
     }
 
     // eventLive: dot-notation từng field. Bỏ youtubeApiKey rỗng để KHÔNG xoá key

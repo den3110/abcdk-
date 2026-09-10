@@ -5,7 +5,7 @@
 // 2 process cùng gặp 1 lỗi thì chỉ 1 tin được gửi.
 import os from "os";
 import OpsAlertState from "../../models/opsAlertStateModel.js";
-import { htmlEscape, isOpsTelegramConfigured, opsTgSend } from "./opsTelegram.service.js";
+import { htmlEscape, getOpsTelegramConfig, opsTgSend } from "./opsTelegram.service.js";
 
 const SEVERITY_META = {
   info: { emoji: "ℹ️", label: "THÔNG TIN", rank: 0, cooldownMs: 12 * 60 * 60 * 1000 },
@@ -24,13 +24,24 @@ export function severityRank(severity) {
   return severityMeta(severity).rank;
 }
 
-export function isOpsAlertEnabled() {
-  if (String(process.env.OPS_MONITOR_ENABLED || "1") === "0") return false;
-  return isOpsTelegramConfigured();
+/**
+ * Bật/tắt hệ cảnh báo. Quy tắc:
+ *  - Phải có token + ít nhất 1 chat id (không có thì luôn tắt).
+ *  - Nếu admin đã điền cấu hình trong Cài đặt (source="settings") → theo công tắc
+ *    `opsMonitor.enabled` trong Cài đặt.
+ *  - Nếu chỉ có env (source="env") → theo OPS_MONITOR_ENABLED (mặc định bật).
+ */
+export async function isOpsAlertEnabled() {
+  const { token, chatIds, source, settings } = await getOpsTelegramConfig();
+  if (!token || !chatIds.length) return false;
+  if (source === "settings") return settings?.enabled === true;
+  return String(process.env.OPS_MONITOR_ENABLED || "1") !== "0";
 }
 
-function appLabel() {
-  return String(process.env.OPS_MONITOR_APP_LABEL || "PickleTour").trim();
+function appLabel(explicit) {
+  return String(
+    explicit || process.env.OPS_MONITOR_APP_LABEL || "PickleTour"
+  ).trim();
 }
 
 function envLabel() {
@@ -97,6 +108,7 @@ export function buildOpsMessage({
   lines = [],
   footer = "",
   code = "",
+  label = "",
 }) {
   const meta = severityMeta(severity);
   const head = `${meta.emoji} <b>${htmlEscape(title || meta.label)}</b>`;
@@ -107,7 +119,7 @@ export function buildOpsMessage({
     blocks.push(`<pre>${htmlEscape(String(code).slice(0, 1200))}</pre>`);
   }
   const tail = [
-    `${appLabel()} · ${envLabel()} · ${os.hostname()}`,
+    `${appLabel(label)} · ${envLabel()} · ${os.hostname()}`,
     formatTime(),
     footer,
   ]
@@ -173,7 +185,15 @@ export async function sendOpsAlert({
   force = false,
 } = {}) {
   try {
-    if (!isOpsAlertEnabled()) return { sent: false, reason: "disabled" };
+    const cfg = await getOpsTelegramConfig();
+    if (!cfg.token || !cfg.chatIds.length) {
+      return { sent: false, reason: "disabled" };
+    }
+    const enabled =
+      cfg.source === "settings"
+        ? cfg.settings?.enabled === true
+        : String(process.env.OPS_MONITOR_ENABLED || "1") !== "0";
+    if (!enabled) return { sent: false, reason: "disabled" };
 
     const meta = severityMeta(severity);
     const effectiveCooldown =
@@ -200,6 +220,7 @@ export async function sendOpsAlert({
       title,
       lines,
       code,
+      label: cfg.settings?.appLabel || "",
       footer: [footer, repeatNote].filter(Boolean).join(" · "),
     });
 

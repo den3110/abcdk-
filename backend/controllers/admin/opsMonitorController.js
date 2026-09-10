@@ -30,11 +30,12 @@ export const getOpsStatus = expressAsyncHandler(async (req, res) => {
     ? await runOpsHealthChecks()
     : getLastOpsSnapshot();
 
-  const { chatIds } = getOpsTelegramConfig();
+  const cfg = await getOpsTelegramConfig();
   res.json({
-    enabled: isOpsAlertEnabled(),
-    telegramConfigured: isOpsTelegramConfigured(),
-    chatCount: chatIds.length,
+    enabled: await isOpsAlertEnabled(),
+    telegramConfigured: await isOpsTelegramConfigured(),
+    configSource: cfg.source, // "settings" | "env"
+    chatCount: cfg.chatIds.length,
     snapshot,
   });
 });
