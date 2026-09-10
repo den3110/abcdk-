@@ -8,14 +8,14 @@
  */
 import "@fontsource-variable/figtree";
 
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
 
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
 import { Text } from "@astryxdesign/core/Text";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { Skeleton } from "@astryxdesign/core/Skeleton";
-import { AlertCircle, BadgeCheck, Crown, Flag, Gauge, LayoutGrid, List, Lock, MapPin, Medal, Search, ShieldCheck, Sparkles, TrendingUp, Trophy } from "lucide-react";
+import { AlertCircle, BadgeCheck, Crown, Flag, Gauge, LayoutGrid, List, Lock, MapPin, Medal, Search, ShieldCheck, Sparkles, SquarePen, TrendingUp, Trophy, X } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
 import ShadowFrame from "./ShadowFrame.jsx";
@@ -26,6 +26,9 @@ import { A, GrayPill } from "./ui.jsx";
 import { useGetRankingsListQuery } from "../../slices/rankingsApiSlice.js";
 import PlayerName from "../../components/PlayerName";
 import { useOpenDmMutation } from "../../slices/messagesApiSlice.js";
+import { useGetMeQuery } from "../../slices/usersApiSlice";
+import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
+import { skipToken } from "@reduxjs/toolkit/query";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../../context/LanguageContext.jsx";
@@ -51,6 +54,55 @@ const fmtScore = (n) => {
   if (!Number.isFinite(v) || v <= 0) return "—";
   return v.toFixed(v % 1 === 0 ? 1 : 3).replace(/0+$/, "").replace(/\.$/, ".0");
 };
+
+/* --------------------- chấm trình (admin/mod) — như v1 --------------------- */
+const MIN_RATING = 1.6;
+const MAX_RATING = 8.0;
+// Quyền chấm: admin toàn quyền; evaluator (mod) chỉ chấm VĐV trong tỉnh được cấp.
+const canGradeUser = (me, province) => {
+  if (!me) return false;
+  if (me.role === "admin") return true;
+  if (!me.evaluator?.enabled) return false;
+  const scopes = me.evaluator?.gradingScopes?.provinces || [];
+  return !!province && scopes.includes(String(province || "").trim());
+};
+const fmtGradeInput = (n) =>
+  Number.isFinite(Number(n)) && Number(n) > 0 ? String(Number(n).toFixed(2)) : "";
+
+// Cung cấp me + onGrade xuống RankCard/RankRow mà không phải khoan prop.
+const GradeContext = createContext({ me: null, onGrade: null });
+
+function GradeButton({ r }) {
+  const { t } = useLanguage();
+  const { me, onGrade } = useContext(GradeContext);
+  if (!onGrade || !canGradeUser(me, r?.user?.province)) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onGrade(r);
+      }}
+      title={t("v3.rankings.gradeBtn")}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 30,
+        height: 30,
+        borderRadius: 8,
+        border: "1px solid rgba(205,232,24,0.35)",
+        background: "rgba(205,232,24,0.14)",
+        color: "#CDE818",
+        cursor: "pointer",
+        flexShrink: 0,
+      }}
+    >
+      <SquarePen size={15} />
+    </button>
+  );
+}
 
 // label: khoá i18n (giải qua t() nếu cần hiển thị) — hiện không render trực tiếp.
 const MEDAL = [
@@ -535,7 +587,8 @@ function RankRow({ r, fallbackRank, showGlobal }) {
       <div className="pk-col-hide" style={{ padding: "0 16px", textAlign: "right", color: "#8F959C", fontSize: 13.5 }}>
         {Number(r?.totalTours || 0)}
       </div>
-      <div style={{ padding: "0 12px", display: "flex", justifyContent: "flex-end" }}>
+      <div style={{ padding: "0 12px", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <GradeButton r={r} />
         <MessageIconBtn userId={r?.user?._id} />
       </div>
     </A>
@@ -613,7 +666,10 @@ function RankCard({ r, rank }) {
             <MapPin size={13} /> {r?.user?.province || "—"}
           </div>
         </div>
-        <MessageIconBtn userId={r?.user?._id} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <GradeButton r={r} />
+          <MessageIconBtn userId={r?.user?._id} />
+        </div>
       </div>
       {normalizeRankingAchievements(r?.achievements).length > 0 && (
         <div style={{ marginTop: 12 }}>
@@ -674,7 +730,7 @@ export default function RankingsPage() {
     return () => clearTimeout(debounceRef.current);
   }, [qInput]);
 
-  const { data, isFetching, error } = useGetRankingsListQuery({
+  const { data, isFetching, error, refetch } = useGetRankingsListQuery({
     keyword: keyword || undefined,
     scoreStatus: filter || undefined,
     // server đếm page từ 0 (page = số trang BỎ QUA) — UI đếm từ 1 nên trừ 1
@@ -716,8 +772,74 @@ export default function RankingsPage() {
   const hasMore = Boolean(data?.hasMore);
   const initialLoading = isFetching && page === 1 && !rows.length;
 
+  /* ---- chấm trình (admin/mod) ---- */
+  const token = useSelector((s) => s.auth?.userInfo?.token);
+  const { data: me } = useGetMeQuery(token ? undefined : skipToken, {
+    refetchOnFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMountOrArgChange: false,
+  });
+  const [createEvaluation, { isLoading: grading }] = useCreateEvaluationMutation();
+  const [grade, setGrade] = useState(null); // null | {userId,nickname,province,single,double,note,err}
+
+  const openGrade = useCallback((r) => {
+    setGrade({
+      userId: r?.user?._id,
+      nickname: r?.user?.nickname || r?.user?.name || "--",
+      province: r?.user?.province || "",
+      single: fmtGradeInput(r?.single),
+      double: fmtGradeInput(r?.double),
+      note: "",
+      err: "",
+    });
+  }, []);
+
+  const submitGrade = async () => {
+    if (!grade?.userId) return;
+    const singles = grade.single === "" ? undefined : Number.parseFloat(grade.single);
+    const doubles = grade.double === "" ? undefined : Number.parseFloat(grade.double);
+    const inRange = (v) =>
+      v === undefined || (Number.isFinite(v) && v >= MIN_RATING && v <= MAX_RATING);
+    if (!inRange(singles) || !inRange(doubles)) {
+      setGrade((g) => ({
+        ...g,
+        err: t("v3.rankings.gradeRange", { min: MIN_RATING, max: MAX_RATING }),
+      }));
+      return;
+    }
+    try {
+      const resp = await createEvaluation({
+        targetUser: grade.userId,
+        province: grade.province,
+        source: "live",
+        overall: { singles, doubles },
+        notes: grade.note?.trim() || undefined,
+      }).unwrap();
+      const nS = resp?.ranking?.single ?? singles;
+      const nD = resp?.ranking?.double ?? doubles;
+      setRows((prev) =>
+        prev.map((row) =>
+          String(row?.user?._id) === String(grade.userId)
+            ? {
+                ...row,
+                single: nS !== undefined ? nS : row.single,
+                double: nD !== undefined ? nD : row.double,
+              }
+            : row,
+        ),
+      );
+      setGrade(null);
+      refetch?.();
+    } catch (err) {
+      setGrade((g) => ({
+        ...g,
+        err: err?.data?.message || err?.error || t("v3.rankings.gradeFail"),
+      }));
+    }
+  };
+
   return (
-    <>
+    <GradeContext.Provider value={{ me, onGrade: openGrade }}>
       <SEOHead
         title={t("v3.rankings.seoTitle")}
         description={t("v3.rankings.seoDesc")}
@@ -837,9 +959,66 @@ export default function RankingsPage() {
             </Container>
 
             <SiteFooter />
+
+            {grade && (
+              <div
+                onClick={() => !grading && setGrade(null)}
+                style={{ position: "fixed", inset: 0, zIndex: 1000, display: "grid", placeItems: "center", background: "rgba(2,8,20,.66)", backdropFilter: "blur(4px)", padding: 16 }}
+              >
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ width: "100%", maxWidth: 420, borderRadius: 18, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: 20, boxShadow: "0 24px 70px rgba(0,0,0,.5)" }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                      <span style={{ width: 34, height: 34, borderRadius: 10, flexShrink: 0, display: "grid", placeItems: "center", background: "rgba(205,232,24,.14)", border: "1px solid rgba(205,232,24,.35)", color: "#CDE818" }}>
+                        <SquarePen size={17} />
+                      </span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ color: "var(--pk-text-strong)", fontWeight: 800, fontSize: 15.5 }}>{t("v3.rankings.gradeTitle")}</div>
+                        <div style={{ color: "#9AA0A6", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{grade.nickname}{grade.province ? ` · ${grade.province}` : ""}</div>
+                      </div>
+                    </div>
+                    <button type="button" onClick={() => !grading && setGrade(null)} style={{ all: "unset", cursor: "pointer", color: "#9AA0A6", padding: 4, flexShrink: 0 }}><X size={18} /></button>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 16 }}>
+                    {[["single", t("v3.rankings.gradeSingles")], ["double", t("v3.rankings.gradeDoubles")]].map(([k, label]) => (
+                      <label key={k} style={{ display: "block" }}>
+                        <div style={{ color: "#9AA0A6", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{label}</div>
+                        <input
+                          type="number" inputMode="decimal" step="0.01" min={MIN_RATING} max={MAX_RATING}
+                          value={grade[k]}
+                          onChange={(e) => setGrade((g) => ({ ...g, [k]: e.target.value, err: "" }))}
+                          placeholder="—"
+                          style={{ width: "100%", boxSizing: "border-box", height: 42, padding: "0 12px", borderRadius: 10, border: "1px solid var(--color-border)", background: "var(--color-background-body)", color: "var(--pk-text-strong)", fontSize: 15, fontWeight: 700 }}
+                        />
+                      </label>
+                    ))}
+                  </div>
+
+                  <label style={{ display: "block", marginTop: 12 }}>
+                    <div style={{ color: "#9AA0A6", fontSize: 12, fontWeight: 700, marginBottom: 6 }}>{t("v3.rankings.gradeNote")}</div>
+                    <textarea
+                      rows={2} value={grade.note}
+                      onChange={(e) => setGrade((g) => ({ ...g, note: e.target.value }))}
+                      style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 10, border: "1px solid var(--color-border)", background: "var(--color-background-body)", color: "var(--pk-text)", fontSize: 14, resize: "vertical", fontFamily: "inherit" }}
+                    />
+                  </label>
+
+                  <div style={{ marginTop: 10, color: "#8F959C", fontSize: 12 }}>{t("v3.rankings.gradeHint", { min: MIN_RATING, max: MAX_RATING })}</div>
+                  {grade.err && <div style={{ marginTop: 10, color: "#FF8A8E", fontSize: 13, fontWeight: 600 }}>{grade.err}</div>}
+
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
+                    <button type="button" onClick={() => !grading && setGrade(null)} disabled={grading} style={{ all: "unset", cursor: grading ? "default" : "pointer", padding: "9px 16px", borderRadius: 10, fontSize: 13.5, fontWeight: 700, color: "var(--color-text-secondary)", border: "1px solid var(--color-border)" }}>{t("v3.rankings.gradeCancel")}</button>
+                    <button type="button" onClick={submitGrade} disabled={grading} style={{ all: "unset", cursor: grading ? "default" : "pointer", padding: "9px 18px", borderRadius: 10, fontSize: 13.5, fontWeight: 800, color: "#0b1220", background: "#CDE818", opacity: grading ? 0.7 : 1 }}>{grading ? t("v3.rankings.gradeSaving") : t("v3.rankings.gradeSave")}</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </Theme>
       </ShadowFrame>
-    </>
+    </GradeContext.Provider>
   );
 }
