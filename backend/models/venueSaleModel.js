@@ -13,6 +13,17 @@ const saleItemSchema = new Schema(
   { _id: false },
 );
 
+// Dòng dịch vụ / tiền sân (không trừ kho) — dùng cho hoá đơn khách vãng lai gộp bill.
+const serviceItemSchema = new Schema(
+  {
+    name: { type: String, default: "" }, // vd "Tiền sân", "Thuê vợt"
+    amount: { type: Number, default: 0, min: 0 }, // đơn giá
+    qty: { type: Number, default: 1, min: 0 }, // số lượng / giờ
+    lineTotal: { type: Number, default: 0, min: 0 },
+  },
+  { _id: false },
+);
+
 /** Đơn bán hàng tại quầy (có thể gắn vào 1 booking). */
 const venueSaleSchema = new Schema(
   {
@@ -20,9 +31,11 @@ const venueSaleSchema = new Schema(
     booking: { type: Schema.Types.ObjectId, ref: "Booking", default: null, index: true },
     code: { type: String, default: "", index: true }, // mã hoá đơn ngắn cho bill
     items: { type: [saleItemSchema], default: [] },
+    serviceItems: { type: [serviceItemSchema], default: [] },
     total: { type: Number, default: 0, min: 0 },
     paymentMethod: { type: String, enum: ["cash", "transfer"], default: "cash" },
     customerName: { type: String, default: "" },
+    customerPhone: { type: String, default: "" },
     note: { type: String, default: "", maxlength: 300 },
     createdBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
   },

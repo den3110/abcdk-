@@ -110,17 +110,36 @@ export const deleteProduct = expressAsyncHandler(async (req, res) => {
 /* ============================ BÁN HÀNG ============================ */
 
 /** POST /api/venues/:id/sales  { items:[{productId, qty}], paymentMethod, bookingId?, customerName, note } */
+/** Chuẩn hoá dòng dịch vụ / tiền sân (không trừ kho). */
+function buildServiceItems(raw) {
+  const arr = Array.isArray(raw) ? raw : [];
+  const out = [];
+  let total = 0;
+  for (const s of arr) {
+    const amount = Math.max(0, Number(s.amount) || 0);
+    const qty = Math.max(1, Number(s.qty) || 1);
+    const name = String(s.name || "Dịch vụ").slice(0, 120);
+    if (amount <= 0) continue; // bỏ dòng 0đ
+    const lineTotal = amount * qty;
+    total += lineTotal;
+    out.push({ name, amount, qty, lineTotal });
+  }
+  return { serviceItems: out, serviceTotal: total };
+}
+
 export const createSale = expressAsyncHandler(async (req, res) => {
   const venue = await requireAccess(req, res, "pos.sell");
   const rawItems = Array.isArray(req.body?.items) ? req.body.items : [];
-  if (!rawItems.length) {
+  const { serviceItems, serviceTotal } = buildServiceItems(req.body?.serviceItems);
+
+  if (!rawItems.length && !serviceItems.length) {
     res.status(400);
-    throw new Error("Chưa chọn sản phẩm");
+    throw new Error("Hoá đơn phải có sản phẩm hoặc dịch vụ");
   }
 
   const decremented = [];
   const items = [];
-  let total = 0;
+  let total = serviceTotal;
   try {
     for (const it of rawItems) {
       const qty = Math.max(1, Number(it.qty) || 1);
@@ -146,9 +165,11 @@ export const createSale = expressAsyncHandler(async (req, res) => {
       venue: venue._id,
       booking: isId(req.body?.bookingId) ? req.body.bookingId : null,
       items,
+      serviceItems,
       total,
       paymentMethod: req.body?.paymentMethod === "transfer" ? "transfer" : "cash",
       customerName: String(req.body?.customerName || "").slice(0, 120),
+      customerPhone: String(req.body?.customerPhone || "").slice(0, 30),
       note: String(req.body?.note || "").slice(0, 300),
       createdBy: req.user._id,
     });
@@ -222,13 +243,9 @@ export const updateSale = expressAsyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy đơn");
   }
 
-  // Nếu có gửi items → tính lại items + tồn kho theo chênh lệch.
+  // Nếu có gửi items → tính lại items sản phẩm + tồn kho theo chênh lệch.
   if (Array.isArray(req.body?.items)) {
     const rawItems = req.body.items;
-    if (!rawItems.length) {
-      res.status(400);
-      throw new Error("Đơn phải có ít nhất 1 sản phẩm");
-    }
 
     // qty cũ theo product
     const oldQty = {};
@@ -240,7 +257,6 @@ export const updateSale = expressAsyncHandler(async (req, res) => {
     // build items mới + qty mới
     const newQty = {};
     const items = [];
-    let total = 0;
     for (const it of rawItems) {
       const qty = Math.max(1, Number(it.qty) || 1);
       if (!isId(it.productId)) {
@@ -254,7 +270,6 @@ export const updateSale = expressAsyncHandler(async (req, res) => {
       }
       newQty[String(product._id)] = (newQty[String(product._id)] || 0) + qty;
       const lineTotal = product.price * qty;
-      total += lineTotal;
       items.push({ product: product._id, name: product.name, price: product.price, qty, lineTotal });
     }
 
@@ -266,7 +281,12 @@ export const updateSale = expressAsyncHandler(async (req, res) => {
     await applyStockDeltas(delta); // throw 409 nếu không đủ tồn (đã tự rollback)
 
     sale.items = items;
-    sale.total = total;
+  }
+
+  // Dịch vụ / tiền sân (không trừ kho).
+  if (Array.isArray(req.body?.serviceItems)) {
+    const { serviceItems } = buildServiceItems(req.body.serviceItems);
+    sale.serviceItems = serviceItems;
   }
 
   if (req.body?.paymentMethod !== undefined) {
@@ -278,6 +298,18 @@ export const updateSale = expressAsyncHandler(async (req, res) => {
   if (req.body?.customerName !== undefined) {
     sale.customerName = String(req.body.customerName || "").slice(0, 120);
   }
+  if (req.body?.customerPhone !== undefined) {
+    sale.customerPhone = String(req.body.customerPhone || "").slice(0, 30);
+  }
+
+  // Tính lại tổng = sản phẩm + dịch vụ; đơn phải còn ≥ 1 dòng.
+  const productTotal = (sale.items || []).reduce((s, x) => s + (Number(x.lineTotal) || 0), 0);
+  const serviceTotal = (sale.serviceItems || []).reduce((s, x) => s + (Number(x.lineTotal) || 0), 0);
+  if (!(sale.items || []).length && !(sale.serviceItems || []).length) {
+    res.status(400);
+    throw new Error("Đơn phải có ít nhất 1 sản phẩm hoặc dịch vụ");
+  }
+  sale.total = productTotal + serviceTotal;
 
   await sale.save();
   res.json(sale);
