@@ -270,19 +270,20 @@ final class LiveAPIClient {
         )
     }
 
-    func createLiveSession(matchId: String, pageId: String?, force: Bool = false) async throws -> LiveSession {
+    func createLiveSession(matchId: String, pageId: String?, platform: String? = nil, force: Bool = false) async throws -> LiveSession {
         let query = force ? [URLQueryItem(name: "force", value: "1")] : []
         return try await request(
             path: "api/live-app/matches/\(matchId)/live/create",
             method: "POST",
             query: query,
-            body: CreateLiveRequest(pageId: pageId?.trimmedNilIfBlank)
+            body: CreateLiveRequest(pageId: pageId?.trimmedNilIfBlank, platform: platform?.trimmedNilIfBlank)
         )
     }
 
     func createLiveSession(
         matchId: String,
         pageId: String?,
+        platform: String? = nil,
         force: Bool = false,
         userMatch: Bool
     ) async throws -> LiveSession {
@@ -291,7 +292,7 @@ final class LiveAPIClient {
             path: "api/live-app/matches/\(matchId)/live/create",
             method: "POST",
             query: query,
-            body: CreateLiveRequest(pageId: pageId?.trimmedNilIfBlank),
+            body: CreateLiveRequest(pageId: pageId?.trimmedNilIfBlank, platform: platform?.trimmedNilIfBlank),
             extraHeaders: userMatch ? ["x-pkt-match-kind": "user"] : [:]
         )
     }

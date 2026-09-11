@@ -93,6 +93,7 @@ class LiveStreamViewModel(
     private var matchId: String = ""
     private var token: String = ""
     private var pageId: String? = null
+    private var livePlatform: String = "facebook"
     private var courtId: String = ""
     private var watchedCourtStationId: String? = null
     private var waitCourtJob: Job? = null
@@ -188,6 +189,9 @@ class LiveStreamViewModel(
     val selectedPageId: StateFlow<String?> = _selectedPageId.asStateFlow()
     private val _facebookPagesLoading = MutableStateFlow(false)
     val facebookPagesLoading: StateFlow<Boolean> = _facebookPagesLoading.asStateFlow()
+    // Chọn nền tảng live: "facebook" | "youtube"
+    private val _selectedPlatform = MutableStateFlow("facebook")
+    val selectedPlatform: StateFlow<String> = _selectedPlatform.asStateFlow()
 
     private val _waitingForCourt = MutableStateFlow(false)
     val waitingForCourt: StateFlow<Boolean> = _waitingForCourt.asStateFlow()
@@ -1305,10 +1309,10 @@ class LiveStreamViewModel(
         _lastSocketError.value = "Live lease $reason. Đang xin lại session live."
 
         launchGuarded(name = "recoverExpiredLease") {
-            repository.createLiveSession(targetMatchId, pageId, forceNew = true).onSuccess { session ->
+            repository.createLiveSession(targetMatchId, pageId, platform = livePlatform, forceNew = true).onSuccess { session ->
                 if (this@LiveStreamViewModel.matchId != targetMatchId) return@onSuccess
-                _facebookLive.value = session.facebook ?: FacebookLive()
-                val newUrl = session.facebook?.buildRtmpUrl()
+                _facebookLive.value = session.primaryTarget() ?: FacebookLive()
+                val newUrl = session.primaryTarget()?.buildRtmpUrl()
                 if (!newUrl.isNullOrBlank()) {
                     _rtmpUrl.value = newUrl
                     activeLiveMatchId = targetMatchId
@@ -1584,6 +1588,21 @@ class LiveStreamViewModel(
         if (courtId.isNotBlank()) persistPageIdFor(courtId, pid)
     }
 
+    private fun persistedPlatformFor(courtStationId: String): String? =
+        livePagePrefs().getString("platform:$courtStationId", null)?.takeIf { it.isNotBlank() }
+
+    private fun persistPlatformFor(courtStationId: String, platform: String) {
+        livePagePrefs().edit().putString("platform:$courtStationId", platform).apply()
+    }
+
+    /** Chọn nền tảng live cho sân: "facebook" | "youtube". Áp dụng lần go-live kế tiếp, nhớ theo sân. */
+    fun selectPlatform(platform: String) {
+        val p = if (platform.equals("youtube", ignoreCase = true)) "youtube" else "facebook"
+        livePlatform = p
+        _selectedPlatform.value = p
+        if (courtId.isNotBlank()) persistPlatformFor(courtId, p)
+    }
+
     fun initByCourt(courtId: String, token: String, pageId: String? = null) {
         val cid = courtId.trim()
         if (cid.isBlank()) {
@@ -1610,6 +1629,8 @@ class LiveStreamViewModel(
         this.token = token
         this.pageId = pageId ?: persistedPageIdFor(cid)
         _selectedPageId.value = this.pageId
+        livePlatform = persistedPlatformFor(cid) ?: "facebook"
+        _selectedPlatform.value = livePlatform
         _waitingForCourt.value = true
         _waitingForNextMatch.value = false
 
@@ -2603,9 +2624,9 @@ class LiveStreamViewModel(
                     if (shouldRefresh && autoGoLive && matchId.isNotBlank()) {
                         lastRtmpRefreshMs = now
                         launchGuarded(name = "refreshRtmpSession") {
-                            repository.createLiveSession(matchId, pageId, forceNew = true).onSuccess { session ->
-                                _facebookLive.value = session.facebook ?: FacebookLive()
-                                val newUrl = session.facebook?.buildRtmpUrl()
+                            repository.createLiveSession(matchId, pageId, platform = livePlatform, forceNew = true).onSuccess { session ->
+                                _facebookLive.value = session.primaryTarget() ?: FacebookLive()
+                                val newUrl = session.primaryTarget()?.buildRtmpUrl()
                                 if (!newUrl.isNullOrBlank() && newUrl != _rtmpUrl.value) {
                                     leaseHeartbeatJob?.cancel()
                                     leaseHeartbeatJob = null
@@ -2881,6 +2902,7 @@ class LiveStreamViewModel(
         val sessionEpoch = this.sessionEpoch.get()
         val targetMatchId = matchId
         val targetPageId = pageId
+        val targetPlatform = livePlatform
         if (freshEntryRequired || isWaitingForActivation()) {
             _loading.value = false
             _rtmpUrl.value = null
@@ -2896,10 +2918,10 @@ class LiveStreamViewModel(
         ) {
             var keepRequestingLiveSession = false
             recordingCoordinator.setLiveCriticalPathBusy(true)
-            repository.createLiveSession(targetMatchId, targetPageId, forceNew = false).onSuccess { session ->
+            repository.createLiveSession(targetMatchId, targetPageId, platform = targetPlatform, forceNew = false).onSuccess { session ->
                 if (!isSessionCurrent(sessionEpoch) || this@LiveStreamViewModel.matchId != targetMatchId) return@onSuccess
-                _facebookLive.value = session.facebook ?: FacebookLive()
-                val newUrl = session.facebook?.buildRtmpUrl()
+                _facebookLive.value = session.primaryTarget() ?: FacebookLive()
+                val newUrl = session.primaryTarget()?.buildRtmpUrl()
                 _rtmpUrl.value = newUrl
                 if (newUrl != null) {
                     activeLiveMatchId = targetMatchId

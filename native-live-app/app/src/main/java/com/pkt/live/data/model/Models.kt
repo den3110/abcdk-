@@ -276,7 +276,12 @@ data class LiveAppBootstrapResponse(
 
 data class LiveSession(
     val facebook: FacebookLive? = null,
-)
+    val youtube: FacebookLive? = null,
+    val platform: String? = null,
+) {
+    /** Mục tiêu RTMP hiện tại — ưu tiên youtube nếu có, else facebook. */
+    fun primaryTarget(): FacebookLive? = youtube ?: facebook
+}
 
 data class FacebookLive(
     @SerializedName("secure_stream_url") val secureStreamUrl: String? = null,
@@ -394,6 +399,7 @@ data class OverlayWidgetData(
 
 data class CreateLiveRequest(
     val pageId: String? = null,
+    val platform: String? = null,
 )
 
 data class NextCourtMatchResponse(

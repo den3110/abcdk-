@@ -65,6 +65,7 @@ fun StreamControls(
     val facebookPages by viewModel.facebookPages.collectAsState()
     val selectedPageId by viewModel.selectedPageId.collectAsState()
     val facebookPagesLoading by viewModel.facebookPagesLoading.collectAsState()
+    val selectedPlatform by viewModel.selectedPlatform.collectAsState()
     val orientationMode by viewModel.orientationMode.collectAsState()
     val zoomLevel by viewModel.zoomLevel.collectAsState()
     val fallbackColorArgb by viewModel.fallbackColorArgb.collectAsState()
@@ -397,6 +398,8 @@ fun StreamControls(
             facebookPages = facebookPages,
             selectedPageId = selectedPageId,
             facebookPagesLoading = facebookPagesLoading,
+            selectedPlatform = selectedPlatform,
+            onSelectPlatform = { viewModel.selectPlatform(it) },
             onSelectFacebookPage = { viewModel.selectFacebookPage(it) },
             onReloadFacebookPages = { viewModel.loadFacebookPages() },
             onDismiss = { showSettings = false },
@@ -839,6 +842,33 @@ fun SettingsDialog(
 }
 
 @Composable
+private fun PlatformChip(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val border = if (selected) LiveColors.AccentGreen else Color(0x33FFFFFF)
+    val bg = if (selected) Color(0x2241935D) else Color.Transparent
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(bg)
+            .border(1.dp, border, RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label,
+            color = if (selected) Color.White else LiveColors.TextSecondary,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
 private fun FanpageOptionRow(
     title: String,
     subtitle: String?,
@@ -884,6 +914,8 @@ fun LiveSettingsDialog(
     facebookPages: List<com.pkt.live.data.model.FacebookPage>,
     selectedPageId: String?,
     facebookPagesLoading: Boolean,
+    selectedPlatform: String,
+    onSelectPlatform: (String) -> Unit,
     onSelectFacebookPage: (String?) -> Unit,
     onReloadFacebookPages: () -> Unit,
     onDismiss: () -> Unit,
@@ -1040,7 +1072,39 @@ fun LiveSettingsDialog(
                     }
                 }
 
+                // ===== Nền tảng live =====
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Nền tảng live (cho sân này)",
+                        color = LiveColors.TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PlatformChip(
+                            label = "Facebook",
+                            selected = selectedPlatform != "youtube",
+                            modifier = Modifier.weight(1f),
+                            onClick = { onSelectPlatform("facebook") },
+                        )
+                        PlatformChip(
+                            label = "YouTube",
+                            selected = selectedPlatform == "youtube",
+                            modifier = Modifier.weight(1f),
+                            onClick = { onSelectPlatform("youtube") },
+                        )
+                    }
+                    if (selectedPlatform == "youtube") {
+                        Text(
+                            "YouTube: mỗi trận tạo 1 luồng live mới trên kênh hệ thống. Không cần chọn fanpage.",
+                            color = LiveColors.TextSecondary,
+                            fontSize = 11.sp,
+                        )
+                    }
+                }
+
                 // ===== Chọn fanpage để live cho sân =====
+                if (selectedPlatform != "youtube") {
                 Column(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -1092,6 +1156,7 @@ fun LiveSettingsDialog(
                             fontSize = 11.sp,
                         )
                     }
+                }
                 }
 
                 Row(

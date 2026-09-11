@@ -362,9 +362,9 @@ class LiveRepository(
     }
 
     /** Create live session → get RTMP URL */
-    suspend fun createLiveSession(matchId: String, pageId: String? = null, forceNew: Boolean = false): Result<LiveSession> {
+    suspend fun createLiveSession(matchId: String, pageId: String? = null, platform: String? = null, forceNew: Boolean = false): Result<LiveSession> {
         return try {
-            val resp = api.createLiveSession(matchId, if (forceNew) 1 else null, CreateLiveRequest(pageId))
+            val resp = api.createLiveSession(matchId, if (forceNew) 1 else null, CreateLiveRequest(pageId, platform))
             if (resp.isSuccessful && resp.body() != null) {
                 Result.success(resp.body()!!)
             } else {

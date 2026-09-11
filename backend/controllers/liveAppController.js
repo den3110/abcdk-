@@ -3,6 +3,8 @@ import IORedis from "ioredis";
 import Match from "../models/matchModel.js";
 import UserMatch from "../models/userMatchModel.js";
 import FbToken from "../models/fbTokenModel.js";
+import { YouTubeProvider } from "../services/liveProviders/youtube.js";
+import { getCfgStr } from "../services/config.service.js";
 import { randomUUID } from "crypto";
 import {
   buildLiveAppCourtRuntime,
@@ -114,13 +116,13 @@ export const createLiveSessionForLiveApp = async (req, res) => {
 
     const MatchModel = requestedUserMatch ? UserMatch : Match;
     let sourceDoc = await MatchModel.findById(matchId)
-      .select("facebookLive meta")
+      .select("facebookLive youtubeLive meta")
       .lean()
       .catch(() => null);
 
     if (!sourceDoc && !requestedUserMatch) {
       sourceDoc = await UserMatch.findById(matchId)
-        .select("facebookLive meta")
+        .select("facebookLive youtubeLive meta")
         .lean()
         .catch(() => null);
       if (sourceDoc) {
@@ -130,6 +132,112 @@ export const createLiveSessionForLiveApp = async (req, res) => {
 
     const fbLive = sourceDoc?.facebookLive || null;
     const metaFb = sourceDoc?.meta?.facebook || null;
+
+    // ===== Nhánh YouTube: mỗi trận 1 broadcast + liveStream mới (dedicated) =====
+    const requestedPlatform = String(req.body?.platform || "").trim().toLowerCase();
+    if (requestedPlatform === "youtube") {
+      const ytLive = sourceDoc?.youtubeLive || null;
+      const ytCreatedMs = ytLive?.createdAt ? new Date(ytLive.createdAt).getTime() : 0;
+      const ytFresh =
+        Number.isFinite(ytCreatedMs) && ytCreatedMs > 0 && Date.now() - ytCreatedMs <= 60_000;
+      const ytStatusUp = String(ytLive?.status || "").toUpperCase();
+      const ytAllowReuse =
+        !forceNew &&
+        ytStatusUp !== "ENDED" &&
+        ytStatusUp !== "STOPPED" &&
+        (ytStatusUp === "LIVE" || ytFresh);
+      if (ytAllowReuse && ytLive?.server_url && ytLive?.stream_key) {
+        payload = {
+          platform: "youtube",
+          youtube: {
+            id: ytLive.id || null,
+            server_url: ytLive.server_url,
+            stream_key: ytLive.stream_key,
+            watch_url: ytLive.watch_url || null,
+          },
+        };
+        return;
+      }
+
+      const refreshToken = await getCfgStr("YOUTUBE_REFRESH_TOKEN", "");
+      if (!refreshToken) {
+        statusCode = 400;
+        payload = {
+          message:
+            "Chưa kết nối kênh YouTube. Vào Admin → YouTube Live để kết nối trước.",
+        };
+        return;
+      }
+      const accessExpiresAt = await getCfgStr("YOUTUBE_ACCESS_EXPIRES_AT", "");
+      const privacy =
+        (await getCfgStr("YT_BROADCAST_PRIVACY", "unlisted")).trim() || "unlisted";
+
+      // Tiêu đề broadcast từ thông tin trận
+      let ytTitle = "PickleTour Live";
+      try {
+        if (requestedUserMatch) {
+          const um = await UserMatch.findById(matchId)
+            .select("title customLeague code labelKey")
+            .lean();
+          ytTitle =
+            (um?.customLeague?.name || um?.title || "Trận đấu") +
+            " – " +
+            (um?.labelKey || um?.code || "Live");
+        } else {
+          const m = await Match.findById(matchId)
+            .populate("tournament", "name")
+            .select("tournament roundLabel labelKey code")
+            .lean();
+          ytTitle =
+            (m?.tournament?.name || "PickleTour") +
+            " – " +
+            (m?.roundLabel || m?.labelKey || m?.code || "Live");
+        }
+      } catch {}
+      ytTitle = String(ytTitle).slice(0, 120);
+
+      const ytProvider = new YouTubeProvider({
+        refreshToken,
+        accessToken: "",
+        expiresAt: accessExpiresAt || "",
+      });
+      const r = await ytProvider.createLive({
+        title: ytTitle,
+        description: "Trực tiếp trận đấu trên PickleTour.",
+        privacy,
+        dedicatedStream: true,
+      });
+
+      try {
+        const saveDoc = requestedUserMatch
+          ? await UserMatch.findById(matchId)
+          : await Match.findById(matchId);
+        if (saveDoc) {
+          saveDoc.youtubeLive = {
+            id: r.platformLiveId,
+            watch_url: r.permalinkUrl,
+            server_url: r.serverUrl,
+            stream_key: r.streamKey,
+            createdAt: new Date(),
+            status: "CREATED",
+          };
+          await saveDoc.save();
+        }
+      } catch (e) {
+        console.error("[live-app][yt] save match error", e?.message || e);
+      }
+
+      payload = {
+        platform: "youtube",
+        youtube: {
+          id: r.platformLiveId,
+          server_url: r.serverUrl,
+          stream_key: r.streamKey,
+          watch_url: r.permalinkUrl,
+        },
+      };
+      return;
+    }
 
     const fbStatus = String(fbLive?.status || "CREATED").toUpperCase();
     const createdAtMs = fbLive?.createdAt ? new Date(fbLive.createdAt).getTime() : 0;
@@ -211,6 +319,27 @@ export const createLiveSessionForLiveApp = async (req, res) => {
     return res.status(statusCode).json(payload);
   }
 
+  // YouTube → trả nguyên khối youtube (app build RTMP từ đây)
+  if (payload?.platform === "youtube" || payload?.youtube) {
+    const yt = payload.youtube || {};
+    const yServer = yt.server_url || yt.serverUrl || null;
+    const yKey = yt.stream_key || yt.streamKey || null;
+    const ySecure = yt.secure_stream_url || yt.secureStreamUrl || null;
+    if (ySecure == null && (!yServer || !yKey)) {
+      return res.status(409).json({ message: "Không nhận được RTMP URL từ YouTube" });
+    }
+    return res.json({
+      platform: "youtube",
+      youtube: {
+        id: yt.id || yt.platformLiveId || null,
+        secure_stream_url: ySecure,
+        server_url: yServer,
+        stream_key: yKey,
+        watch_url: yt.watch_url || yt.watchUrl || null,
+      },
+    });
+  }
+
   const fb =
     payload?.facebook ||
     payload?.platforms?.facebook?.live ||
@@ -247,6 +376,7 @@ export const createLiveSessionForLiveApp = async (req, res) => {
   }
 
   return res.json({
+    platform: "facebook",
     facebook: {
       secure_stream_url,
       server_url,

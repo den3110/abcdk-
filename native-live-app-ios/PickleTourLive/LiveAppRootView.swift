@@ -2085,49 +2085,84 @@ private struct LiveStreamScreen: View {
         }
     }
 
+    private func platformChip(title: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(active ? .white : LivePalette.textSecondary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(active ? LivePalette.accent.opacity(0.18) : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(active ? LivePalette.accent : Color.white.opacity(0.18), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
     private var fanpageSection: some View {
         LiveCard {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top) {
-                    SectionHeader(
-                        title: "Fanpage live (cho sân này)",
-                        subtitle: "Chọn trang sẽ phát. Áp dụng từ lần live kế tiếp, ghi nhớ theo sân."
-                    )
-                    Spacer()
-                    Button("Tải lại") { store.loadFacebookPages() }
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(LivePalette.accent)
+                SectionHeader(
+                    title: "Nền tảng live (cho sân này)",
+                    subtitle: "Chọn Facebook hoặc YouTube. Áp dụng từ lần live kế tiếp, ghi nhớ theo sân."
+                )
+                HStack(spacing: 10) {
+                    platformChip(title: "Facebook", active: store.selectedPlatform != "youtube") {
+                        store.selectPlatform("facebook")
+                    }
+                    platformChip(title: "YouTube", active: store.selectedPlatform == "youtube") {
+                        store.selectPlatform("youtube")
+                    }
                 }
 
-                VStack(spacing: 8) {
-                    fanpageRow(
-                        title: "Mặc định (theo giải)",
-                        subtitle: "Dùng trang do giải/hệ thống cấu hình",
-                        selected: store.launchTarget.pageId?.trimmedNilIfBlank == nil
-                    ) {
-                        store.selectFacebookPage(nil)
+                if store.selectedPlatform == "youtube" {
+                    Text("YouTube: mỗi trận tạo 1 luồng live mới trên kênh hệ thống. Không cần chọn fanpage.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(LivePalette.textSecondary)
+                } else {
+                    HStack {
+                        Text("Fanpage")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(LivePalette.textSecondary)
+                        Spacer()
+                        Button("Tải lại") { store.loadFacebookPages() }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(LivePalette.accent)
                     }
-                    ForEach(store.facebookPages) { page in
+                    VStack(spacing: 8) {
                         fanpageRow(
-                            title: page.displayName,
-                            subtitle: (page.needsReauth == true) ? "Cần kết nối lại"
-                                : (page.isBusy == true) ? "Đang phát ở nơi khác"
-                                : page.pageId,
-                            selected: store.launchTarget.pageId?.trimmedNilIfBlank == page.pageId
+                            title: "Mặc định (theo giải)",
+                            subtitle: "Dùng trang do giải/hệ thống cấu hình",
+                            selected: store.launchTarget.pageId?.trimmedNilIfBlank == nil
                         ) {
-                            store.selectFacebookPage(page.pageId)
+                            store.selectFacebookPage(nil)
+                        }
+                        ForEach(store.facebookPages) { page in
+                            fanpageRow(
+                                title: page.displayName,
+                                subtitle: (page.needsReauth == true) ? "Cần kết nối lại"
+                                    : (page.isBusy == true) ? "Đang phát ở nơi khác"
+                                    : page.pageId,
+                                selected: store.launchTarget.pageId?.trimmedNilIfBlank == page.pageId
+                            ) {
+                                store.selectFacebookPage(page.pageId)
+                            }
                         }
                     }
-                }
-
-                if store.facebookPages.isEmpty {
-                    Text(
-                        store.facebookPagesLoading
-                            ? "Đang tải danh sách trang…"
-                            : "Chưa có fanpage kết nối. Kết nối Facebook trong app PickleTour để chọn trang."
-                    )
-                    .font(.system(size: 12))
-                    .foregroundStyle(LivePalette.textSecondary)
+                    if store.facebookPages.isEmpty {
+                        Text(
+                            store.facebookPagesLoading
+                                ? "Đang tải danh sách trang…"
+                                : "Chưa có fanpage kết nối. Kết nối Facebook trong app PickleTour để chọn trang."
+                        )
+                        .font(.system(size: 12))
+                        .foregroundStyle(LivePalette.textSecondary)
+                    }
                 }
             }
             .onAppear {

@@ -56,6 +56,7 @@ final class LiveAppStore: ObservableObject {
     // Chọn fanpage để live (cài đặt nâng cao)
     @Published var facebookPages: [FacebookPage] = []
     @Published var facebookPagesLoading = false
+    @Published var selectedPlatform: String = "facebook" // "facebook" | "youtube"
     @Published var liveMode: LiveStreamMode = .streamAndRecord
     @Published var selectedQuality: LiveQualityPreset = .balanced1080
 
@@ -458,6 +459,7 @@ final class LiveAppStore: ObservableObject {
         await startRuntimePolling(for: court.id)
         startMlpOverlayPolling(for: court.id)
         loadFacebookPages()
+        selectedPlatform = persistedPlatform(for: court.id) ?? "facebook"
     }
 
     func updateLaunchTarget(
@@ -703,13 +705,14 @@ final class LiveAppStore: ObservableObject {
             let liveSession = try await environment.apiClient.createLiveSession(
                 matchId: activeMatch.id,
                 pageId: launchTarget.pageId,
+                platform: selectedPlatform,
                 force: false,
                 userMatch: launchTarget.isUserMatchLaunch
             )
             self.liveSession = liveSession
 
             guard
-                let rawURL = liveSession.facebook?.resolvedRTMPURL,
+                let rawURL = liveSession.primaryTarget?.resolvedRTMPURL,
                 let destination = RTMPDestination.parse(from: rawURL)
             else {
                 throw LiveAPIError.server(statusCode: 0, message: "Không nhận được RTMP URL hợp lệ.")
@@ -2983,6 +2986,23 @@ final class LiveAppStore: ObservableObject {
         }
     }
 
+    private func persistedPlatform(for courtStationId: String) -> String? {
+        UserDefaults.standard.string(forKey: "live_platform_\(courtStationId)")?.trimmedNilIfBlank
+    }
+
+    private func persistPlatform(_ platform: String, for courtStationId: String) {
+        UserDefaults.standard.set(platform, forKey: "live_platform_\(courtStationId)")
+    }
+
+    /// Chọn nền tảng live cho sân: "facebook" | "youtube". Áp dụng lần go-live kế tiếp, nhớ theo sân.
+    func selectPlatform(_ platform: String) {
+        let p = platform.lowercased() == "youtube" ? "youtube" : "facebook"
+        selectedPlatform = p
+        if let courtId = currentCourtId?.trimmedNilIfBlank {
+            persistPlatform(p, for: courtId)
+        }
+    }
+
     private func resolveLaunchTarget(_ target: LiveLaunchTarget) async throws -> LiveLaunchTarget {
         var resolved = target
 
@@ -4348,13 +4368,14 @@ final class LiveAppStore: ObservableObject {
             let refreshedSession = try await environment.apiClient.createLiveSession(
                 matchId: matchId,
                 pageId: launchTarget.pageId,
+                platform: selectedPlatform,
                 force: true,
                 userMatch: launchTarget.isUserMatchLaunch
             )
             liveSession = refreshedSession
 
             guard
-                let rawURL = refreshedSession.facebook?.resolvedRTMPURL,
+                let rawURL = refreshedSession.primaryTarget?.resolvedRTMPURL,
                 let destination = RTMPDestination.parse(from: rawURL)
             else {
                 throw LiveAPIError.server(statusCode: 0, message: "Không nhận được RTMP URL hợp lệ khi xin lại live session.")

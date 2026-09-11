@@ -286,6 +286,39 @@ async function getOrCreateReusableStream(yt) {
   return { stream, serverUrl, streamKey };
 }
 
+// Tạo liveStream MỚI (không reusable) cho mỗi trận → nhiều sân live YouTube đồng thời.
+async function createDedicatedStream(yt, title) {
+  const streamTitle = String(title || "PickleTour Live").slice(0, 120);
+  const ins = await yt.liveStreams.insert({
+    part: ["snippet", "cdn", "contentDetails"],
+    requestBody: {
+      snippet: { title: streamTitle },
+      cdn: {
+        ingestionType: "rtmp",
+        resolution: "variable",
+        frameRate: "variable",
+      },
+      contentDetails: { isReusable: false },
+    },
+  });
+  const stream = ins.data;
+  console.info("[YT] dedicated liveStreams.insert created", {
+    streamId: stream?.id,
+  });
+  const ing = stream?.cdn?.ingestionInfo || {};
+  let serverUrl = ing.ingestionAddress || "";
+  const streamKey = ing.streamName || "";
+  if (serverUrl && serverUrl.startsWith("rtmp://")) {
+    serverUrl = serverUrl
+      .replace("rtmp://", "rtmps://")
+      .replace(".rtmp.", ".rtmps.");
+  }
+  if (!serverUrl || !streamKey) {
+    throw new Error("Không lấy được ingestion info từ YouTube (dedicated stream).");
+  }
+  return { stream, serverUrl, streamKey };
+}
+
 // ---------------------------------- Provider -----------------------------------
 export class YouTubeProvider extends LiveProvider {
   static providerName = "youtube";
@@ -309,13 +342,14 @@ export class YouTubeProvider extends LiveProvider {
     }
   }
 
-  async createLive({ title, description, privacy = "public" }) {
+  async createLive({ title, description, privacy = "public", dedicatedStream = false }) {
     const { oauth2 } = await getOAuthReady(this.cred || {});
     const yt = google.youtube({ version: "v3", auth: oauth2 });
     try {
-      const { stream, serverUrl, streamKey } = await getOrCreateReusableStream(
-        yt
-      );
+      // dedicatedStream = true → mỗi trận 1 liveStream MỚI (nhiều sân live đồng thời).
+      const { stream, serverUrl, streamKey } = dedicatedStream
+        ? await createDedicatedStream(yt, title)
+        : await getOrCreateReusableStream(yt);
 
       const bRes = await yt.liveBroadcasts.insert({
         part: ["snippet", "status", "contentDetails"],

@@ -399,6 +399,11 @@ struct NextCourtMatchResponse: Codable {
 
 struct LiveSession: Codable, Equatable {
     var facebook: FacebookLive?
+    var youtube: FacebookLive?
+    var platform: String?
+
+    /// Mục tiêu RTMP hiện tại — ưu tiên youtube nếu có, else facebook.
+    var primaryTarget: FacebookLive? { youtube ?? facebook }
 }
 
 struct FacebookLive: Codable, Equatable {
@@ -484,6 +489,7 @@ struct StreamNotifyResponse: Codable, Equatable {
 
 struct CreateLiveRequest: Codable {
     var pageId: String?
+    var platform: String?
 }
 
 struct CourtPresenceRequest: Codable {
