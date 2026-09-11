@@ -59,10 +59,31 @@ function Bubble({ msg, isMine, onDelete, canDelete }) {
     <Box
       sx={{
         display: "flex",
+        alignItems: "center",
+        gap: 0.5,
         justifyContent: isMine ? "flex-end" : "flex-start",
         mb: 0.5,
+        "&:hover .msg-copy": { opacity: 0.7 },
       }}
     >
+      {isMine && !msg.deletedAt && !!msg.content && (
+        <Box
+          className="msg-copy"
+          component="span"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(msg.content);
+              toast.success("Đã sao chép");
+            } catch {
+              toast.error("Không sao chép được");
+            }
+          }}
+          title="Sao chép"
+          sx={{ opacity: 0, cursor: "pointer", fontSize: 13, transition: "opacity .1s", "&:hover": { opacity: 1 } }}
+        >
+          📋
+        </Box>
+      )}
       <Box
         onDoubleClick={canDelete ? onDelete : undefined}
         sx={{
@@ -118,6 +139,24 @@ function Bubble({ msg, isMine, onDelete, canDelete }) {
           />
         )}
       </Box>
+      {!isMine && !msg.deletedAt && !!msg.content && (
+        <Box
+          className="msg-copy"
+          component="span"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(msg.content);
+              toast.success("Đã sao chép");
+            } catch {
+              toast.error("Không sao chép được");
+            }
+          }}
+          title="Sao chép"
+          sx={{ opacity: 0, cursor: "pointer", fontSize: 13, transition: "opacity .1s", "&:hover": { opacity: 1 } }}
+        >
+          📋
+        </Box>
+      )}
     </Box>
     </Tooltip>
   );

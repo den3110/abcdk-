@@ -351,6 +351,23 @@ function MessageBubble({ msg, isMine, showSender, onDelete, canDelete, onReply, 
           >
             ↩︎
           </Box>
+          {!!msg.content && (
+            <Box
+              component="span"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(msg.content);
+                  toast.success("Đã sao chép tin nhắn");
+                } catch {
+                  toast.error("Không sao chép được");
+                }
+              }}
+              title="Sao chép"
+              sx={{ cursor: "pointer", fontSize: 14, px: 0.5, opacity: 0.7, "&:hover": { opacity: 1 } }}
+            >
+              📋
+            </Box>
+          )}
           <Box
             component="span"
             onClick={() => onPin?.(msg, !isPinned)}

@@ -1,7 +1,41 @@
 // Render text với @mention màu xanh clickable → mở /profile/:id
+// + tự nhận diện URL (http/https/www) thành link bấm được (mở tab mới).
 import React from "react";
 import { Link as RouterLink } from "react-router-dom";
 import { Box } from "@mui/material";
+
+// Bắt http(s)://... hoặc www...., cắt dấu câu ở cuối.
+const URL_RE = /((?:https?:\/\/|www\.)[^\s<]+[^\s<.,;:!?)\]}'"])/gi;
+
+// Tách 1 đoạn text thành các node: text thường + <a> cho URL.
+function renderTextWithLinks(text, keyPrefix) {
+  if (!text) return [text];
+  const nodes = [];
+  let last = 0;
+  let m;
+  URL_RE.lastIndex = 0;
+  while ((m = URL_RE.exec(text))) {
+    const url = m[0];
+    const start = m.index;
+    if (start > last) nodes.push(text.slice(last, start));
+    const href = url.startsWith("http") ? url : `https://${url}`;
+    nodes.push(
+      <a
+        key={`${keyPrefix}-u-${start}`}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        style={{ color: "inherit", textDecoration: "underline", wordBreak: "break-all" }}
+      >
+        {url}
+      </a>
+    );
+    last = start + url.length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
 
 export default function MentionText({ content, mentions, sx, style }) {
   if (!content) return null;
@@ -66,7 +100,7 @@ export default function MentionText({ content, mentions, sx, style }) {
             {p.text}
           </RouterLink>
         ) : (
-          <React.Fragment key={i}>{p.text}</React.Fragment>
+          <React.Fragment key={i}>{renderTextWithLinks(p.text, i)}</React.Fragment>
         )
       )}
     </Box>
