@@ -637,6 +637,7 @@ private struct LiveStreamScreen: View {
     @State private var showSettingsSheet = false
     @State private var showQualitySheet = false
     @State private var showRecordingSheet = false
+    @State private var showSignOutDialog = false
     @State private var storedBrightness: CGFloat?
     @State private var brightnessReduced = false
     @State private var pinchZoomBase: CGFloat?
@@ -2084,6 +2085,86 @@ private struct LiveStreamScreen: View {
         }
     }
 
+    private var fanpageSection: some View {
+        LiveCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top) {
+                    SectionHeader(
+                        title: "Fanpage live (cho sân này)",
+                        subtitle: "Chọn trang sẽ phát. Áp dụng từ lần live kế tiếp, ghi nhớ theo sân."
+                    )
+                    Spacer()
+                    Button("Tải lại") { store.loadFacebookPages() }
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(LivePalette.accent)
+                }
+
+                VStack(spacing: 8) {
+                    fanpageRow(
+                        title: "Mặc định (theo giải)",
+                        subtitle: "Dùng trang do giải/hệ thống cấu hình",
+                        selected: store.launchTarget.pageId?.trimmedNilIfBlank == nil
+                    ) {
+                        store.selectFacebookPage(nil)
+                    }
+                    ForEach(store.facebookPages) { page in
+                        fanpageRow(
+                            title: page.displayName,
+                            subtitle: (page.needsReauth == true) ? "Cần kết nối lại"
+                                : (page.isBusy == true) ? "Đang phát ở nơi khác"
+                                : page.pageId,
+                            selected: store.launchTarget.pageId?.trimmedNilIfBlank == page.pageId
+                        ) {
+                            store.selectFacebookPage(page.pageId)
+                        }
+                    }
+                }
+
+                if store.facebookPages.isEmpty {
+                    Text(
+                        store.facebookPagesLoading
+                            ? "Đang tải danh sách trang…"
+                            : "Chưa có fanpage kết nối. Kết nối Facebook trong app PickleTour để chọn trang."
+                    )
+                    .font(.system(size: 12))
+                    .foregroundStyle(LivePalette.textSecondary)
+                }
+            }
+            .onAppear {
+                if store.facebookPages.isEmpty, !store.facebookPagesLoading {
+                    store.loadFacebookPages()
+                }
+            }
+        }
+    }
+
+    private func fanpageRow(
+        title: String,
+        subtitle: String,
+        selected: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(selected ? LivePalette.accent : LivePalette.textSecondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                    if !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(LivePalette.textSecondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     private var observerSection: some View {
         LiveCard {
             VStack(alignment: .leading, spacing: 16) {
@@ -2960,6 +3041,7 @@ private struct LiveStreamScreen: View {
                     sessionSection
                     healthSection
                     observerSection
+                    fanpageSection
 
                     SecondaryActionButton(
                         title: "Đăng xuất",
@@ -2971,6 +3053,16 @@ private struct LiveStreamScreen: View {
                 .padding(.horizontal, 20)
                 .padding(.vertical, 24)
             }
+        }
+        .confirmationDialog(
+            "Đăng xuất khỏi PickleTour Live?",
+            isPresented: $showSignOutDialog,
+            titleVisibility: .visible
+        ) {
+            Button("Đăng xuất", role: .destructive) {
+                store.signOut()
+            }
+            Button("Huỷ", role: .cancel) {}
         }
     }
 

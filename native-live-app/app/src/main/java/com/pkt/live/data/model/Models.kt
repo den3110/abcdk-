@@ -764,3 +764,98 @@ data class LoginResponse(
     val token: String? = null,
     val user: UserMe? = null,
 )
+
+/* ===================== MLP overlay (giải đồng đội) ===================== */
+// GET api/live/courts/{courtStationId}/mlp-overlay
+// Trả 1 trong 3: mode="sub" (2v2), mode="dreambreaker" (1v1 xoay VĐV), hoặc 404 (sân không phải MLP).
+
+data class MlpOverlayResponse(
+    val mode: String = "",                 // "sub" | "dreambreaker"
+    val status: String = "",
+    val tournament: MlpOverlayTournament? = null,
+    val station: MlpOverlayStation? = null,
+    val slot: MlpOverlaySlot? = null,      // chỉ có ở mode "sub"
+    val dualId: String = "",
+    val teamA: MlpOverlayTeam? = null,
+    val teamB: MlpOverlayTeam? = null,
+    val score: MlpOverlayScore? = null,    // chỉ có ở mode "sub"
+    val dreamBreaker: MlpOverlayDreamBreaker? = null, // chỉ có ở mode "dreambreaker"
+    val serve: JsonElement? = null,
+    val rules: JsonElement? = null,
+) {
+    val isSub: Boolean get() = mode.equals("sub", ignoreCase = true)
+    val isDreamBreaker: Boolean get() = mode.equals("dreambreaker", ignoreCase = true)
+}
+
+data class MlpOverlayTournament(
+    val name: String = "",
+    val image: String = "",
+)
+
+data class MlpOverlayStation(
+    @SerializedName("_id") val id: String = "",
+    val name: String = "",
+    val code: String = "",
+)
+
+data class MlpOverlaySlot(
+    val key: String = "",
+    val label: String = "",
+    val matchType: String = "double",      // "double" | "single"
+)
+
+data class MlpOverlayScore(
+    val currentGameA: Int = 0,
+    val currentGameB: Int = 0,
+    val gamesWonA: Int = 0,
+    val gamesWonB: Int = 0,
+)
+
+data class MlpOverlayPlayer(
+    @SerializedName("_id") val id: String = "",
+    val name: String = "",
+    val nickname: String = "",
+    val avatar: String = "",
+)
+
+data class MlpOverlayTeam(
+    @SerializedName("_id") val id: String = "",
+    val name: String = "",
+    val shortName: String = "",
+    val color: String = "",                // hex màu đội (dùng nhuộm scoreboard)
+    val logo: String = "",
+    val slotWins: Int = 0,                 // số sub-match đội đã thắng trong dual (tỉ số series)
+    val isWinner: Boolean = false,
+    // mode "sub": cặp đang thi đấu (2 VĐV, hoặc 1 nếu single)
+    val players: List<MlpOverlayPlayer> = emptyList(),
+    // mode "dreambreaker": VĐV đang cầm vợt + toàn bộ lineup xoay vòng
+    val currentPlayer: MlpOverlayPlayer? = null,
+    val currentPlayerIdx: Int = 0,
+    val lineup: List<MlpOverlayPlayer> = emptyList(),
+)
+
+data class MlpOverlayDreamBreaker(
+    val triggered: Boolean = false,
+    val scoreA: Int = 0,
+    val scoreB: Int = 0,
+    val winner: String? = null,            // "A" | "B" | null
+    val target: Int = 21,
+    val rotate: Int = 4,
+    val pointsInBlockA: Int = 0,
+    val pointsInBlockB: Int = 0,
+)
+
+/* ===================== Facebook pages (chọn fanpage để live) ===================== */
+// GET api/live-app/facebook-pages → pool fanpage do admin liên kết (ở web admin).
+// pageId = id trang FB (truyền vào createLiveSession).
+
+data class FacebookPage(
+    val id: String = "",
+    val pageId: String = "",
+    val pageName: String = "",
+    val pagePicture: String? = null,
+    val pageCategory: String? = null,
+    val isDefault: Boolean = false,
+    val isBusy: Boolean = false,
+    val needsReauth: Boolean = false,
+)

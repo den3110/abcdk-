@@ -3,6 +3,7 @@ import {
   createLiveSessionForLiveApp,
   getCourtRuntimeForLiveApp,
   getMatchRuntimeForLiveApp,
+  listLiveAppFacebookPages,
 } from "../controllers/liveAppController.js";
 import { getLiveAppVersion } from "../controllers/appVersion.controller.js";
 import { protectLiveApp } from "../middleware/authMiddleware.js";
@@ -25,6 +26,7 @@ const router = express.Router();
 router.get("/version", getLiveAppVersion);
 router.post("/matches/:matchId/live/create", protectLiveApp, createLiveSessionForLiveApp);
 router.get("/bootstrap", protectLiveApp, getLiveAppBootstrap);
+router.get("/facebook-pages", protectLiveApp, listLiveAppFacebookPages);
 router.get("/clusters", protectLiveApp, listLiveAppCourtClusters);
 router.get("/clusters/:clusterId/courts", protectLiveApp, listLiveAppCourtStations);
 router.get("/tournaments/:tournamentId/courts", protectLiveApp, listLiveAppTournamentCourtStations);

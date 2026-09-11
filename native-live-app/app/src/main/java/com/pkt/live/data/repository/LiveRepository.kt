@@ -141,6 +141,41 @@ class LiveRepository(
         }
     }
 
+    /**
+     * Overlay MLP (giải đồng đội) theo court station.
+     * - 200 → Result.success(response): sân đang chạy MLP (sub-match hoặc DreamBreaker).
+     * - 404 → Result.success(null):     KHÔNG phải sân MLP → dùng overlay thường.
+     * - lỗi khác → Result.failure.
+     */
+    suspend fun getMlpCourtOverlay(courtStationId: String): Result<MlpOverlayResponse?> {
+        return try {
+            val resp = api.getMlpCourtOverlay(courtStationId)
+            when {
+                resp.isSuccessful && resp.body() != null -> Result.success(resp.body())
+                resp.code() == 404 -> Result.success(null)
+                else -> Result.failure(Exception("Get MLP overlay failed: ${resp.code()}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getMlpCourtOverlay error", e)
+            Result.failure(e)
+        }
+    }
+
+    /** Danh sách fanpage operator đã kết nối (để chọn trang live cho sân). */
+    suspend fun getMyFacebookPages(): Result<List<FacebookPage>> {
+        return try {
+            val resp = api.getMyFacebookPages()
+            if (resp.isSuccessful && resp.body() != null) {
+                Result.success(resp.body()!!)
+            } else {
+                Result.failure(Exception("Get FB pages failed: ${resp.code()}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getMyFacebookPages error", e)
+            Result.failure(e)
+        }
+    }
+
     suspend fun getLiveAppBootstrap(): Result<LiveAppBootstrapResponse> {
         return try {
             val resp = api.getLiveAppBootstrap()

@@ -53,6 +53,9 @@ final class LiveAppStore: ObservableObject {
     @Published var orientationMode: DeviceOrientationMode = .auto
 
     @Published var launchTarget = LiveLaunchTarget()
+    // Chọn fanpage để live (cài đặt nâng cao)
+    @Published var facebookPages: [FacebookPage] = []
+    @Published var facebookPagesLoading = false
     @Published var liveMode: LiveStreamMode = .streamAndRecord
     @Published var selectedQuality: LiveQualityPreset = .balanced1080
 
@@ -94,6 +97,7 @@ final class LiveAppStore: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var heartbeatTask: Task<Void, Never>?
     private var runtimePollTask: Task<Void, Never>?
+    private var mlpOverlayTask: Task<Void, Never>?
     private var setupMatchHydrationTask: Task<Void, Never>?
     private var liveDeviceTelemetryTask: Task<Void, Never>?
     private var goLiveCountdownTask: Task<Void, Never>?
@@ -446,12 +450,14 @@ final class LiveAppStore: ObservableObject {
         launchTarget = LiveLaunchTarget(
             courtId: court.id,
             matchId: court.currentMatchId?.trimmedNilIfBlank,
-            pageId: launchTarget.pageId,
+            pageId: persistedPageId(for: court.id) ?? launchTarget.pageId,
             launchMode: .tournamentCourt
         )
         route = .courtSetup
         await refreshCourtRuntime(courtId: court.id)
         await startRuntimePolling(for: court.id)
+        startMlpOverlayPolling(for: court.id)
+        loadFacebookPages()
     }
 
     func updateLaunchTarget(
@@ -2908,6 +2914,75 @@ final class LiveAppStore: ObservableObject {
         }
     }
 
+    /// Poll overlay MLP (giải đồng đội) theo court station — tự chuyển sub-match ↔ DreamBreaker.
+    /// 200 → đẩy vào streamingService.mlpOverlay (renderer vẽ scoreboard MLP);
+    /// 404/nil → renderer dùng overlay thường. Poll nhanh khi MLP, chậm lại khi không phải MLP.
+    private func startMlpOverlayPolling(for courtStationId: String) {
+        mlpOverlayTask?.cancel()
+        guard let sid = courtStationId.trimmedNilIfBlank else {
+            streamingService.mlpOverlay = nil
+            return
+        }
+        mlpOverlayTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled {
+                var isMlp = false
+                do {
+                    let overlay = try await self.environment.apiClient.getMlpCourtOverlay(courtStationId: sid)
+                    if Task.isCancelled { break }
+                    self.streamingService.mlpOverlay = overlay
+                    isMlp = overlay != nil
+                } catch {
+                    // lỗi transient → giữ overlay MLP hiện tại, thử lại sau
+                }
+                let intervalMs: UInt64 = isMlp ? 1_200 : 8_000
+                try? await Task.sleep(nanoseconds: intervalMs * 1_000_000)
+            }
+        }
+    }
+
+    // ===== Chọn fanpage để live (cài đặt nâng cao) =====
+
+    private func persistedPageId(for courtStationId: String) -> String? {
+        UserDefaults.standard.string(forKey: "live_page_\(courtStationId)")?.trimmedNilIfBlank
+    }
+
+    private func persistPageId(_ pageId: String?, for courtStationId: String) {
+        let key = "live_page_\(courtStationId)"
+        if let pageId = pageId?.trimmedNilIfBlank {
+            UserDefaults.standard.set(pageId, forKey: key)
+        } else {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
+
+    /// Nạp danh sách fanpage operator đã kết nối (cho picker cài đặt nâng cao).
+    func loadFacebookPages() {
+        guard !facebookPagesLoading else { return }
+        facebookPagesLoading = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.facebookPagesLoading = false }
+            do {
+                let pages = try await self.environment.apiClient.getMyFacebookPages()
+                self.facebookPages = pages
+            } catch {
+                // giữ danh sách cũ, không hiện lỗi
+            }
+        }
+    }
+
+    /// Chọn fanpage sẽ live cho sân hiện tại. Áp dụng cho lần go-live KẾ TIẾP
+    /// (không đổi bản đang live). Lưu theo court station để mở lại sân vẫn nhớ.
+    /// nil → dùng trang mặc định của giải/hệ thống.
+    func selectFacebookPage(_ pageId: String?) {
+        let pid = pageId?.trimmedNilIfBlank
+        launchTarget.pageId = pid
+        if let courtId = currentCourtId?.trimmedNilIfBlank {
+            persistPageId(pid, for: courtId)
+        }
+    }
+
     private func resolveLaunchTarget(_ target: LiveLaunchTarget) async throws -> LiveLaunchTarget {
         var resolved = target
 
@@ -3015,6 +3090,7 @@ final class LiveAppStore: ObservableObject {
             applyPresenceResponse(response, matchId: matchId)
             watchCourt(courtId)
             await startRuntimePolling(for: courtId)
+            startMlpOverlayPolling(for: courtId)
         }
 
         if let matchId {
@@ -4149,6 +4225,9 @@ final class LiveAppStore: ObservableObject {
         stopLiveCountdownTask = nil
         backgroundExitTask?.cancel()
         backgroundExitTask = nil
+        mlpOverlayTask?.cancel()
+        mlpOverlayTask = nil
+        streamingService.mlpOverlay = nil
     }
 
     private func cancelRecordingUploads() {

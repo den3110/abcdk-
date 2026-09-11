@@ -13,6 +13,8 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Log
 import com.pkt.live.BuildConfig
+import com.pkt.live.data.model.MlpOverlayResponse
+import com.pkt.live.data.model.MlpOverlayTeam
 import com.pkt.live.data.model.OverlayData
 import com.pkt.live.util.normalizeOverlayNameStyle
 import com.pkt.live.util.overlayTeamNameCandidates
@@ -72,6 +74,7 @@ class OverlayBitmapRenderer(
     private val brandingDispatcher = brandingExecutor.asCoroutineDispatcher()
 
     private val currentData = AtomicReference(OverlayData())
+    private val currentMlp = AtomicReference<MlpOverlayResponse?>(null)
     private val lastRenderedData = AtomicReference<OverlayData?>(null)
     private val lastRenderedBrandingKey = AtomicReference("")
     private val currentOutputSize =
@@ -138,6 +141,28 @@ class OverlayBitmapRenderer(
         color = Color.parseColor("#9AA4AF")
         textSize = 18f
     }
+    // ===== MLP overlay paints =====
+    private val mlpTeamNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 26f
+        typeface = Typeface.DEFAULT_BOLD
+    }
+    private val mlpSubPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#C7CED6")
+        textSize = 16f
+    }
+    private val mlpSeriesPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 30f
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+    private val mlpScorePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 40f
+        typeface = Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
     private val logoBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.argb(90, 0, 0, 0)
     }
@@ -172,6 +197,17 @@ class OverlayBitmapRenderer(
         // Skip render if data hasn't changed — prevents flickering from duplicate socket payloads
         if (previous == data) return
         lastRenderedData.set(null) // invalidate cache so next renderFrame() actually pushes
+        scheduleRender()
+    }
+
+    /**
+     * Cập nhật dữ liệu overlay MLP (giải đồng đội). null = không phải sân MLP → dùng overlay thường.
+     * Poll từ VM (endpoint /mlp-overlay). Khi khác lần trước sẽ vẽ lại.
+     */
+    fun updateMlpData(mlp: MlpOverlayResponse?) {
+        val previous = currentMlp.getAndSet(mlp)
+        if (previous == mlp) return
+        lastRenderedData.set(null) // invalidate cache so next renderFrame() pushes MLP change
         scheduleRender()
     }
 
@@ -298,10 +334,11 @@ class OverlayBitmapRenderer(
 
                 val scoreboardCanvas = Canvas(scoreboard)
                 scoreboardCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-                if (data.isBreak) {
-                    drawBreakCard(scoreboardCanvas, data)
-                } else {
-                    drawV2Scoreboard(scoreboardCanvas, data)
+                val mlp = currentMlp.get()
+                when {
+                    mlp != null -> drawMlpScoreboard(scoreboardCanvas, mlp)
+                    data.isBreak -> drawBreakCard(scoreboardCanvas, data)
+                    else -> drawV2Scoreboard(scoreboardCanvas, data)
                 }
 
                 val canvas = Canvas(outputBitmap)
@@ -1125,6 +1162,151 @@ class OverlayBitmapRenderer(
             if (serveCount >= 2) {
                 canvas.drawCircle(dotX + 14f, dotCenterY, 5f, serveDotPaint)
             }
+        }
+    }
+
+    private fun parseTeamColor(hex: String?, fallback: Int): Int {
+        val s = hex?.trim().orEmpty()
+        if (s.isEmpty()) return fallback
+        val norm = if (s.startsWith("#")) s else "#$s"
+        return runCatching { Color.parseColor(norm) }.getOrDefault(fallback)
+    }
+
+    /**
+     * Scoreboard cho giải MLP (giải đồng đội) — tự chuyển giữa:
+     * - sub-match (2v2): tên đội + cặp đấu + tỉ số ván + slotWins (tỉ số series)
+     * - DreamBreaker (1v1): tên đội + VĐV đang cầm vợt + điểm DreamBreaker
+     * Kích thước bitmap 520×160 (giống scoreboard thường).
+     */
+    private fun drawMlpScoreboard(canvas: Canvas, mlp: MlpOverlayResponse) {
+        val w = canvas.width.toFloat()
+        val cornerR = 8f
+        val colorWhite = Color.WHITE
+        val colorBlack = Color.BLACK
+        val colorDivider = Color.argb(77, 255, 255, 255)
+        val defA = Color.parseColor("#25C2A0")
+        val defB = Color.parseColor("#60A5FA")
+
+        val teamA = mlp.teamA
+        val teamB = mlp.teamB
+        val colorA = parseTeamColor(teamA?.color, defA)
+        val colorB = parseTeamColor(teamB?.color, defB)
+        val isDb = mlp.isDreamBreaker
+
+        val startY = 4f
+        val topBarH = 32f
+        val gap = 2f
+        val rowH = 40f
+        val midH = 88f
+        val seriesColW = 46f
+        val scoreColW = 66f
+        val bottomBarH = 30f
+
+        // Top bar: tên giải
+        fillPaint.color = colorWhite
+        val topRect = RectF(0f, startY, w, startY + topBarH)
+        canvas.drawRoundRect(topRect, cornerR, cornerR, fillPaint)
+        canvas.drawRect(0f, startY + topBarH - cornerR, w, startY + topBarH, fillPaint)
+        val topTitle = (mlp.tournament?.name ?: "").ifBlank { "GIẢI MLP" }.uppercase()
+        topBarPaint.color = colorBlack
+        val topTextY = startY + topBarH / 2f + topBarPaint.textSize / 3f
+        canvas.drawText(truncateText(topTitle, topBarPaint, w - 28f), w / 2f, topTextY, topBarPaint)
+
+        // Mid (nền đen)
+        val midTop = startY + topBarH + gap
+        fillPaint.color = colorBlack
+        canvas.drawRect(0f, midTop, w, midTop + midH, fillPaint)
+
+        val nameAreaW = w - seriesColW - scoreColW
+        val rowAY = midTop + 2f
+        val rowBY = rowAY + rowH + 4f
+
+        drawMlpTeamRow(canvas, rowAY, rowH, teamA, colorA, nameAreaW, isDb)
+        drawMlpTeamRow(canvas, rowBY, rowH, teamB, colorB, nameAreaW, isDb)
+
+        // Cột series (slotWins) — navy
+        val seriesLeft = nameAreaW
+        fillPaint.color = Color.parseColor("#1E293B")
+        canvas.drawRect(seriesLeft, midTop, seriesLeft + seriesColW, midTop + midH, fillPaint)
+        mlpSeriesPaint.color = colorWhite
+        val seriesCx = seriesLeft + seriesColW / 2f
+        canvas.drawText(
+            (teamA?.slotWins ?: 0).toString(),
+            seriesCx,
+            rowAY + rowH / 2f + mlpSeriesPaint.textSize / 3f,
+            mlpSeriesPaint,
+        )
+        canvas.drawText(
+            (teamB?.slotWins ?: 0).toString(),
+            seriesCx,
+            rowBY + rowH / 2f + mlpSeriesPaint.textSize / 3f,
+            mlpSeriesPaint,
+        )
+
+        // Cột điểm chính — xanh (game) hoặc vàng (DreamBreaker)
+        val scoreLeft = w - scoreColW
+        fillPaint.color = if (isDb) Color.parseColor("#B8860B") else Color.parseColor("#41935D")
+        canvas.drawRect(scoreLeft, midTop, w, midTop + midH, fillPaint)
+        val scoreA = if (isDb) (mlp.dreamBreaker?.scoreA ?: 0) else (mlp.score?.currentGameA ?: 0)
+        val scoreB = if (isDb) (mlp.dreamBreaker?.scoreB ?: 0) else (mlp.score?.currentGameB ?: 0)
+        mlpScorePaint.color = colorWhite
+        val scoreCx = scoreLeft + scoreColW / 2f
+        canvas.drawText(scoreA.toString(), scoreCx, rowAY + rowH / 2f + mlpScorePaint.textSize / 3f, mlpScorePaint)
+        fillPaint.color = colorDivider
+        val dividerY = midTop + midH / 2f
+        canvas.drawRect(scoreLeft + 4f, dividerY - 0.5f, w - 4f, dividerY + 0.5f, fillPaint)
+        canvas.drawText(scoreB.toString(), scoreCx, rowBY + rowH / 2f + mlpScorePaint.textSize / 3f, mlpScorePaint)
+
+        // Bottom bar: slot label (sub) hoặc "DREAM BREAKER · CHẠM <target>"
+        val bottomTop = midTop + midH + gap
+        fillPaint.color = colorWhite
+        val bottomRect = RectF(0f, bottomTop, w, bottomTop + bottomBarH)
+        canvas.drawRoundRect(bottomRect, cornerR, cornerR, fillPaint)
+        canvas.drawRect(0f, bottomTop, w, bottomTop + cornerR, fillPaint)
+        val bottomText = if (isDb) {
+            "DREAM BREAKER · CHẠM ${mlp.dreamBreaker?.target ?: 21}"
+        } else {
+            (mlp.slot?.label ?: "").ifBlank { "MLP" }.uppercase()
+        }
+        topBarPaint.color = colorBlack
+        val bottomTextY = bottomTop + bottomBarH / 2f + topBarPaint.textSize / 3f
+        canvas.drawText(truncateText(bottomText, topBarPaint, w - 28f), w / 2f, bottomTextY, topBarPaint)
+    }
+
+    private fun drawMlpTeamRow(
+        canvas: Canvas,
+        y: Float,
+        h: Float,
+        team: MlpOverlayTeam?,
+        color: Int,
+        nameAreaW: Float,
+        isDb: Boolean,
+    ) {
+        // dải màu đội bên trái
+        fillPaint.color = color
+        canvas.drawRect(0f, y, 6f, y + h, fillPaint)
+
+        val x = 16f
+        val nameMaxW = nameAreaW - x - 12f
+        val teamName = team?.shortName?.trim().takeIf { !it.isNullOrBlank() }
+            ?: team?.name?.trim().takeIf { !it.isNullOrBlank() }
+            ?: "Đội"
+        mlpTeamNamePaint.color = Color.WHITE
+        canvas.drawText(truncateText(teamName, mlpTeamNamePaint, nameMaxW), x, y + 20f, mlpTeamNamePaint)
+
+        val sub: String
+        val subColor: Int
+        if (isDb) {
+            val cp = team?.currentPlayer
+            sub = cp?.let { it.nickname.ifBlank { it.name } }.orEmpty()
+            subColor = Color.parseColor("#F5C542")
+        } else {
+            sub = team?.players?.joinToString(" / ") { it.nickname.ifBlank { it.name } }.orEmpty()
+            subColor = Color.parseColor("#C7CED6")
+        }
+        if (sub.isNotBlank()) {
+            mlpSubPaint.color = subColor
+            canvas.drawText(truncateText(sub, mlpSubPaint, nameMaxW), x, y + 36f, mlpSubPaint)
         }
     }
 

@@ -62,6 +62,9 @@ fun StreamControls(
     val rtmpUrl by viewModel.rtmpUrl.collectAsState()
     val batterySaver by viewModel.batterySaver.collectAsState()
     val autoBatterySaverEnabled by viewModel.autoBatterySaverEnabled.collectAsState()
+    val facebookPages by viewModel.facebookPages.collectAsState()
+    val selectedPageId by viewModel.selectedPageId.collectAsState()
+    val facebookPagesLoading by viewModel.facebookPagesLoading.collectAsState()
     val orientationMode by viewModel.orientationMode.collectAsState()
     val zoomLevel by viewModel.zoomLevel.collectAsState()
     val fallbackColorArgb by viewModel.fallbackColorArgb.collectAsState()
@@ -391,6 +394,11 @@ fun StreamControls(
             autoBatterySaverEnabled = autoBatterySaverEnabled,
             onSetFallbackColorArgb = { viewModel.setFallbackColorArgb(it) },
             onSetAutoBatterySaverEnabled = { viewModel.setAutoBatterySaverEnabled(it) },
+            facebookPages = facebookPages,
+            selectedPageId = selectedPageId,
+            facebookPagesLoading = facebookPagesLoading,
+            onSelectFacebookPage = { viewModel.selectFacebookPage(it) },
+            onReloadFacebookPages = { viewModel.loadFacebookPages() },
             onDismiss = { showSettings = false },
         )
     }
@@ -831,6 +839,32 @@ fun SettingsDialog(
 }
 
 @Composable
+private fun FanpageOptionRow(
+    title: String,
+    subtitle: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            if (!subtitle.isNullOrBlank()) {
+                Text(subtitle, color = LiveColors.TextSecondary, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable
 fun LiveSettingsDialog(
     currentFallbackColorArgb: Int?,
     currentMatch: MatchData?,
@@ -847,6 +881,11 @@ fun LiveSettingsDialog(
     autoBatterySaverEnabled: Boolean,
     onSetFallbackColorArgb: (Int?) -> Unit,
     onSetAutoBatterySaverEnabled: (Boolean) -> Unit,
+    facebookPages: List<com.pkt.live.data.model.FacebookPage>,
+    selectedPageId: String?,
+    facebookPagesLoading: Boolean,
+    onSelectFacebookPage: (String?) -> Unit,
+    onReloadFacebookPages: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val waitingForActivation = waitingForCourt || waitingForMatchLive || waitingForNextMatch
@@ -997,6 +1036,60 @@ fun LiveSettingsDialog(
                             text = "Chưa tải đủ thông tin trận hiện tại.",
                             color = LiveColors.TextSecondary,
                             fontSize = 11.sp
+                        )
+                    }
+                }
+
+                // ===== Chọn fanpage để live cho sân =====
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "Fanpage live (cho sân này)",
+                            color = LiveColors.TextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        TextButton(onClick = onReloadFacebookPages) {
+                            Text("Tải lại", fontSize = 12.sp, color = LiveColors.AccentGreen)
+                        }
+                    }
+                    Text(
+                        "Áp dụng từ lần live kế tiếp. Ghi nhớ theo sân.",
+                        color = LiveColors.TextSecondary,
+                        fontSize = 11.sp,
+                    )
+                    if (facebookPagesLoading && facebookPages.isEmpty()) {
+                        Text("Đang tải danh sách trang…", color = LiveColors.TextSecondary, fontSize = 11.sp)
+                    }
+                    FanpageOptionRow(
+                        title = "Mặc định (theo giải)",
+                        subtitle = "Dùng trang do giải/hệ thống cấu hình",
+                        selected = selectedPageId.isNullOrBlank(),
+                        onClick = { onSelectFacebookPage(null) },
+                    )
+                    facebookPages.forEach { page ->
+                        FanpageOptionRow(
+                            title = page.pageName.ifBlank { page.pageId },
+                            subtitle = when {
+                                page.needsReauth -> "Cần kết nối lại"
+                                page.isBusy -> "Đang phát ở nơi khác"
+                                else -> page.pageId
+                            },
+                            selected = selectedPageId == page.pageId,
+                            onClick = { onSelectFacebookPage(page.pageId) },
+                        )
+                    }
+                    if (!facebookPagesLoading && facebookPages.isEmpty()) {
+                        Text(
+                            "Chưa có fanpage kết nối. Kết nối Facebook trong app PickleTour để chọn trang.",
+                            color = LiveColors.TextSecondary,
+                            fontSize = 11.sp,
                         )
                     }
                 }

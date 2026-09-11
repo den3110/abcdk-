@@ -78,6 +78,8 @@ class LiveStreamViewModel(
     companion object {
         private const val TAG = "LiveVM"
         private const val DEFAULT_COURT_WATCH_POLL_INTERVAL_MS = 5_000L
+        private const val MLP_OVERLAY_POLL_INTERVAL_MS = 1_200L
+        private const val MLP_OVERLAY_IDLE_POLL_INTERVAL_MS = 8_000L
         private const val MATCH_LIVE_WAIT_POLL_INTERVAL_MS = 3_000L
         private const val OBSERVER_BOOTSTRAP_RETRY_MS = 60_000L
         private const val PRIMARY_START_RETRY_BASE_MS = 5_000L
@@ -94,6 +96,7 @@ class LiveStreamViewModel(
     private var courtId: String = ""
     private var watchedCourtStationId: String? = null
     private var waitCourtJob: Job? = null
+    private var mlpOverlayJob: Job? = null
     private var waitMatchLiveJob: Job? = null
     private var initJob: Job? = null
     private var observersStarted: Boolean = false
@@ -178,6 +181,13 @@ class LiveStreamViewModel(
     val rtmpUrl: StateFlow<String?> = _rtmpUrl.asStateFlow()
     private val _facebookLive = MutableStateFlow(FacebookLive())
     val facebookLive: StateFlow<FacebookLive> = _facebookLive.asStateFlow()
+    // Chọn fanpage để live (cài đặt nâng cao)
+    private val _facebookPages = MutableStateFlow<List<FacebookPage>>(emptyList())
+    val facebookPages: StateFlow<List<FacebookPage>> = _facebookPages.asStateFlow()
+    private val _selectedPageId = MutableStateFlow<String?>(null)
+    val selectedPageId: StateFlow<String?> = _selectedPageId.asStateFlow()
+    private val _facebookPagesLoading = MutableStateFlow(false)
+    val facebookPagesLoading: StateFlow<Boolean> = _facebookPagesLoading.asStateFlow()
 
     private val _waitingForCourt = MutableStateFlow(false)
     val waitingForCourt: StateFlow<Boolean> = _waitingForCourt.asStateFlow()
@@ -1458,6 +1468,7 @@ class LiveStreamViewModel(
                         if (this@LiveStreamViewModel.courtId.isBlank()) {
                             this@LiveStreamViewModel.courtId = resolvedCourtId
                             watchCourtStationRuntime(resolvedCourtId)
+                            startMlpOverlayPoll(resolvedCourtId)
                             if (liveScreenForeground) {
                                 launchGuarded(name = "claimCourtPresenceFromMatch") {
                                     if (!startCourtPresenceIfNeeded()) return@launchGuarded
@@ -1497,6 +1508,82 @@ class LiveStreamViewModel(
 
     // ===== Actions =====
 
+    /**
+     * Poll overlay MLP (giải đồng đội) theo court station (endpoint /mlp-overlay).
+     * - 200 → đẩy vào renderer để vẽ scoreboard MLP (tự chuyển sub-match ↔ DreamBreaker).
+     * - 404/null → renderer dùng overlay thường.
+     * Poll nhanh khi đang chạy MLP, chậm lại khi không phải sân MLP để đỡ tải mạng.
+     * Court-scoped: chạy suốt vòng đời một sân (xuyên các sub-match), hủy khi đổi sân/rời live.
+     */
+    private fun startMlpOverlayPoll(stationId: String) {
+        mlpOverlayJob?.cancel()
+        overlayRenderer.updateMlpData(null)
+        val sid = stationId.trim()
+        if (sid.isBlank()) return
+        mlpOverlayJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                var interval = MLP_OVERLAY_POLL_INTERVAL_MS
+                try {
+                    val result = repository.getMlpCourtOverlay(sid)
+                    if (!isActive) break
+                    result.onSuccess { mlp ->
+                        overlayRenderer.updateMlpData(mlp)
+                        interval = if (mlp != null) MLP_OVERLAY_POLL_INTERVAL_MS
+                        else MLP_OVERLAY_IDLE_POLL_INTERVAL_MS
+                    }
+                } catch (_: Exception) {
+                    // lỗi transient → giữ overlay hiện tại, thử lại sau
+                }
+                delay(interval)
+            }
+        }
+    }
+
+    private fun stopMlpOverlayPoll() {
+        mlpOverlayJob?.cancel()
+        mlpOverlayJob = null
+        overlayRenderer.updateMlpData(null)
+    }
+
+    // ===== Chọn fanpage để live (cài đặt nâng cao) =====
+
+    private fun livePagePrefs() =
+        appContext.getSharedPreferences("live_page_prefs", Context.MODE_PRIVATE)
+
+    private fun persistedPageIdFor(courtStationId: String): String? =
+        livePagePrefs().getString("page:$courtStationId", null)?.takeIf { it.isNotBlank() }
+
+    private fun persistPageIdFor(courtStationId: String, pageId: String?) {
+        val editor = livePagePrefs().edit()
+        if (pageId.isNullOrBlank()) editor.remove("page:$courtStationId")
+        else editor.putString("page:$courtStationId", pageId)
+        editor.apply()
+    }
+
+    /** Nạp danh sách fanpage operator đã kết nối (hiện trong picker cài đặt nâng cao). */
+    fun loadFacebookPages() {
+        if (_facebookPagesLoading.value) return
+        _facebookPagesLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.getMyFacebookPages()
+                .onSuccess { pages -> _facebookPages.value = pages }
+                .onFailure { Log.e(TAG, "loadFacebookPages failed", it) }
+            _facebookPagesLoading.value = false
+        }
+    }
+
+    /**
+     * Chọn fanpage sẽ live cho sân hiện tại. Áp dụng cho lần go-live KẾ TIẾP
+     * (không đổi bản đang live). Lưu theo courtStationId để mở lại sân vẫn nhớ.
+     * pageId=null → dùng trang mặc định của giải/hệ thống.
+     */
+    fun selectFacebookPage(pageId: String?) {
+        val pid = pageId?.trim()?.takeIf { it.isNotBlank() }
+        this.pageId = pid
+        _selectedPageId.value = pid
+        if (courtId.isNotBlank()) persistPageIdFor(courtId, pid)
+    }
+
     fun initByCourt(courtId: String, token: String, pageId: String? = null) {
         val cid = courtId.trim()
         if (cid.isBlank()) {
@@ -1521,7 +1608,8 @@ class LiveStreamViewModel(
         watchCourtStationRuntime(cid)
         this.matchId = ""
         this.token = token
-        this.pageId = pageId
+        this.pageId = pageId ?: persistedPageIdFor(cid)
+        _selectedPageId.value = this.pageId
         _waitingForCourt.value = true
         _waitingForNextMatch.value = false
 
@@ -1538,6 +1626,8 @@ class LiveStreamViewModel(
         ensureObservers()
         ensureRefreshTokenForLongRunningSession("init_court")
         overlayRenderer.start()
+        startMlpOverlayPoll(cid)
+        loadFacebookPages()
         streamManager.startPreview(_quality.value)
         _loading.value = false
         _errorMessage.value = null
@@ -2010,6 +2100,7 @@ class LiveStreamViewModel(
         initJob = null
         waitCourtJob?.cancel()
         waitCourtJob = null
+        stopMlpOverlayPoll()
         clearCourtStationRuntimeWatch()
         pendingSwitchMatchId = null
         _matchTransitioning.value = false
@@ -2055,6 +2146,7 @@ class LiveStreamViewModel(
                 clearCourtStationRuntimeWatch()
                 repository.resetOverlayData()
                 overlayRenderer.stop()
+                stopMlpOverlayPoll()
                 matchId = ""
                 _rtmpUrl.value = null
                 _facebookLive.value = FacebookLive()
@@ -2732,6 +2824,7 @@ class LiveStreamViewModel(
                         if (this@LiveStreamViewModel.courtId.isBlank()) {
                             this@LiveStreamViewModel.courtId = resolvedCourtId
                             watchCourtStationRuntime(resolvedCourtId)
+                            startMlpOverlayPoll(resolvedCourtId)
                         }
                     }
                 }
@@ -3663,6 +3756,7 @@ class LiveStreamViewModel(
         activeLiveMatchId = null
         initJob?.cancel()
         waitCourtJob?.cancel()
+        mlpOverlayJob?.cancel()
         waitMatchLiveJob?.cancel()
         leaseHeartbeatJob?.cancel()
         leaseHeartbeatJob = null

@@ -2,6 +2,7 @@ import { createFacebookLiveForMatch } from "./adminMatchLiveController.js";
 import IORedis from "ioredis";
 import Match from "../models/matchModel.js";
 import UserMatch from "../models/userMatchModel.js";
+import FbToken from "../models/fbTokenModel.js";
 import { randomUUID } from "crypto";
 import {
   buildLiveAppCourtRuntime,
@@ -292,4 +293,25 @@ export const getMatchRuntimeForLiveApp = async (req, res) => {
   }
 
   return res.json(runtime);
+};
+
+// GET /api/live-app/facebook-pages
+// Danh sách fanpage do admin liên kết (pool FbToken) để operator chọn khi live.
+// Chỉ trả field an toàn — KHÔNG kèm access token.
+export const listLiveAppFacebookPages = async (req, res) => {
+  const docs = await FbToken.find({ disabled: { $ne: true } })
+    .select("pageId pageName isBusy needsReauth")
+    .sort({ pageName: 1 })
+    .lean()
+    .catch(() => []);
+  const pages = (Array.isArray(docs) ? docs : [])
+    .filter((d) => d && d.pageId)
+    .map((d) => ({
+      id: String(d.pageId),
+      pageId: String(d.pageId),
+      pageName: d.pageName || String(d.pageId),
+      isBusy: !!d.isBusy,
+      needsReauth: !!d.needsReauth,
+    }));
+  return res.json(pages);
 };

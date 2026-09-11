@@ -1671,3 +1671,127 @@ private func liveAppParseDate(_ raw: String?) -> Date? {
     }
     return nil
 }
+
+// MARK: - MLP overlay (giải đồng đội)
+// GET api/live/courts/{courtStationId}/mlp-overlay
+// Trả 1 trong 3: mode="sub" (2v2), mode="dreambreaker" (1v1 xoay VĐV), hoặc 404 (sân không phải MLP).
+
+struct MlpOverlay: Codable, Equatable {
+    var mode: String
+    var status: String?
+    var tournament: MlpOverlayTournament?
+    var station: MlpOverlayStation?
+    var slot: MlpOverlaySlot?          // chỉ có ở mode "sub"
+    var dualId: String?
+    var teamA: MlpOverlayTeam?
+    var teamB: MlpOverlayTeam?
+    var score: MlpOverlayScore?        // chỉ có ở mode "sub"
+    var dreamBreaker: MlpOverlayDreamBreaker? // chỉ có ở mode "dreambreaker"
+
+    var isSub: Bool { mode.lowercased() == "sub" }
+    var isDreamBreaker: Bool { mode.lowercased() == "dreambreaker" }
+
+    // Bỏ qua serve/rules (không dùng để vẽ) — Codable tự bỏ field thừa.
+    enum CodingKeys: String, CodingKey {
+        case mode, status, tournament, station, slot, dualId, teamA, teamB, score, dreamBreaker
+    }
+}
+
+struct MlpOverlayTournament: Codable, Equatable {
+    var name: String?
+    var image: String?
+}
+
+struct MlpOverlayStation: Codable, Equatable {
+    var id: String?
+    var name: String?
+    var code: String?
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case name, code
+    }
+}
+
+struct MlpOverlaySlot: Codable, Equatable {
+    var key: String?
+    var label: String?
+    var matchType: String?             // "double" | "single"
+}
+
+struct MlpOverlayScore: Codable, Equatable {
+    var currentGameA: Int?
+    var currentGameB: Int?
+    var gamesWonA: Int?
+    var gamesWonB: Int?
+}
+
+struct MlpOverlayPlayer: Codable, Equatable {
+    var id: String?
+    var name: String?
+    var nickname: String?
+    var avatar: String?
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case name, nickname, avatar
+    }
+    var displayName: String {
+        let nick = (nickname ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !nick.isEmpty { return nick }
+        return (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+struct MlpOverlayTeam: Codable, Equatable {
+    var id: String?
+    var name: String?
+    var shortName: String?
+    var color: String?                 // hex màu đội
+    var logo: String?
+    var slotWins: Int?                 // số sub-match đội đã thắng (tỉ số series)
+    var isWinner: Bool?
+    var players: [MlpOverlayPlayer]?   // mode "sub": cặp đang thi đấu
+    var currentPlayer: MlpOverlayPlayer? // mode "dreambreaker": VĐV đang cầm vợt
+    var currentPlayerIdx: Int?
+    var lineup: [MlpOverlayPlayer]?
+    enum CodingKeys: String, CodingKey {
+        case id = "_id"
+        case name, shortName, color, logo, slotWins, isWinner, players, currentPlayer, currentPlayerIdx, lineup
+    }
+    var displayName: String {
+        let sn = (shortName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !sn.isEmpty { return sn }
+        let n = (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return n.isEmpty ? "Đội" : n
+    }
+}
+
+struct MlpOverlayDreamBreaker: Codable, Equatable {
+    var triggered: Bool?
+    var scoreA: Int?
+    var scoreB: Int?
+    var winner: String?                // "A" | "B" | null
+    var target: Int?
+    var rotate: Int?
+    var pointsInBlockA: Int?
+    var pointsInBlockB: Int?
+}
+
+// MARK: - Facebook pages (chọn fanpage để live)
+// GET api/live-app/facebook-pages → pool fanpage do admin liên kết (web admin).
+// `pageId` = id trang FB (truyền vào createLiveSession).
+
+struct FacebookPage: Codable, Equatable, Identifiable {
+    var id: String
+    var pageId: String
+    var pageName: String?
+    var pagePicture: String?
+    var pageCategory: String?
+    var isDefault: Bool?
+    var isBusy: Bool?
+    var needsReauth: Bool?
+
+    var displayName: String {
+        let n = (pageName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return n.isEmpty ? pageId : n
+    }
+}

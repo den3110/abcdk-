@@ -427,6 +427,26 @@ final class LiveAPIClient {
         )
     }
 
+    /// Overlay MLP (giải đồng đội) theo court station — tự chuyển sub-match ↔ DreamBreaker.
+    /// Trả `nil` khi 404 (sân không phải MLP → dùng overlay thường).
+    func getMlpCourtOverlay(courtStationId: String) async throws -> MlpOverlay? {
+        do {
+            // Public route (như OBS browser source) → không cần token.
+            let overlay: MlpOverlay = try await request(
+                path: "api/live/courts/\(courtStationId)/mlp-overlay",
+                requiresAuth: false
+            )
+            return overlay
+        } catch LiveAPIError.server(let statusCode, _) where statusCode == 404 {
+            return nil
+        }
+    }
+
+    /// Pool fanpage do admin liên kết (web admin) — để chọn trang live cho sân.
+    func getMyFacebookPages() async throws -> [FacebookPage] {
+        try await request(path: "api/live-app/facebook-pages")
+    }
+
     func startRecording(_ body: StartMatchRecordingRequest) async throws -> MatchRecordingResponse {
         try await request(path: "api/live/recordings/v2/start", method: "POST", body: body)
     }

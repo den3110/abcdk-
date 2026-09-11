@@ -50,6 +50,12 @@ final class LiveStreamingService: NSObject, ObservableObject {
             }
         }
     }
+
+    @Published var mlpOverlay: MlpOverlay? {
+        didSet {
+            overlayEffect.update(mlpOverlay: mlpOverlay)
+        }
+    }
     @Published private(set) var diagnostics: [String] = []
     @Published private(set) var localRecordingState: LocalRecordingState = .idle
     @Published private(set) var recoveryState = StreamRecoveryState()
@@ -1479,6 +1485,10 @@ private final class LiveScoreboardVideoEffect: VideoEffect {
         renderer.update(snapshot: snapshot)
     }
 
+    func update(mlpOverlay: MlpOverlay?) {
+        renderer.update(mlpOverlay: mlpOverlay)
+    }
+
     func handleMemoryWarning() {
         renderer.handleMemoryWarning()
     }
@@ -1536,6 +1546,7 @@ private enum OverlayPerformanceMode: Int {
 private final class LiveScoreboardOverlayRenderer {
     private let lock = NSLock()
     private var snapshot: LiveOverlaySnapshot?
+    private var mlpOverlay: MlpOverlay?
     private var cachedKey: String?
     private var cachedImage: CIImage?
     private var assetKey: String?
@@ -1664,10 +1675,19 @@ private final class LiveScoreboardOverlayRenderer {
         }
     }
 
+    func update(mlpOverlay: MlpOverlay?) {
+        lock.lock()
+        self.mlpOverlay = mlpOverlay
+        cachedKey = nil
+        cachedImage = nil
+        lock.unlock()
+    }
+
     func overlayImage(for size: CGSize) -> CIImage? {
         guard size.width > 0, size.height > 0 else { return nil }
 
         let snapshot: LiveOverlaySnapshot?
+        let mlp: MlpOverlay?
         let cacheKey: String
         let renderSize: CGSize
         let tournamentLogoImage: UIImage?
@@ -1677,9 +1697,10 @@ private final class LiveScoreboardOverlayRenderer {
 
         lock.lock()
         snapshot = self.snapshot
+        mlp = self.mlpOverlay
         performanceMode = self.performanceMode
         renderSize = Self.normalizedRenderSize(for: size, mode: performanceMode)
-        cacheKey = Self.cacheKey(snapshot: self.snapshot, size: renderSize, mode: performanceMode)
+        cacheKey = Self.cacheKey(snapshot: self.snapshot, mlp: self.mlpOverlay, size: renderSize, mode: performanceMode)
         tournamentLogoImage = self.tournamentLogoImage
         webLogoImage = self.webLogoImage
         sponsorLogoImages = self.sponsorLogoImages
@@ -1691,18 +1712,28 @@ private final class LiveScoreboardOverlayRenderer {
 
         guard performanceMode != .disabled else { return nil }
         guard renderSize.width > 0, renderSize.height > 0 else { return nil }
-        guard let snapshot else { return nil }
-        guard var rendered = Self.render(
-            snapshot: snapshot,
-            size: renderSize,
-            tournamentLogoImage: tournamentLogoImage,
-            webLogoImage: webLogoImage,
-            sponsorLogoImages: sponsorLogoImages,
-            performanceMode: performanceMode
-        )
-        else {
+
+        let renderedBase: CIImage?
+        if let mlp {
+            renderedBase = Self.renderMlp(
+                mlp: mlp,
+                size: renderSize,
+                tournamentLogoImage: tournamentLogoImage,
+                webLogoImage: webLogoImage
+            )
+        } else if let snapshot {
+            renderedBase = Self.render(
+                snapshot: snapshot,
+                size: renderSize,
+                tournamentLogoImage: tournamentLogoImage,
+                webLogoImage: webLogoImage,
+                sponsorLogoImages: sponsorLogoImages,
+                performanceMode: performanceMode
+            )
+        } else {
             return nil
         }
+        guard var rendered = renderedBase else { return nil }
 
         if renderSize != size {
             let scaleX = size.width / renderSize.width
@@ -1730,15 +1761,29 @@ private final class LiveScoreboardOverlayRenderer {
         Self.remoteImageCache.removeAllObjects()
     }
 
-    private static func cacheKey(snapshot: LiveOverlaySnapshot?, size: CGSize, mode: OverlayPerformanceMode) -> String {
+    private static func cacheKey(snapshot: LiveOverlaySnapshot?, mlp: MlpOverlay?, size: CGSize, mode: OverlayPerformanceMode) -> String {
         let setKey = (snapshot?.sets ?? [])
             .map { "\($0.index):\($0.a ?? 0)-\($0.b ?? 0)" }
             .joined(separator: ";")
         let sponsorKey = (snapshot?.sponsorLogoURLs ?? [])
             .compactMap { $0.trimmedNilIfBlank }
             .joined(separator: ",")
+        let mlpKey: String? = mlp.map { m in
+            [
+                "MLP", m.mode,
+                (m.teamA?.slotWins).map(String.init),
+                (m.teamB?.slotWins).map(String.init),
+                (m.isDreamBreaker ? m.dreamBreaker?.scoreA : m.score?.currentGameA).map(String.init),
+                (m.isDreamBreaker ? m.dreamBreaker?.scoreB : m.score?.currentGameB).map(String.init),
+                m.teamA?.displayName, m.teamB?.displayName,
+                m.isDreamBreaker ? m.teamA?.currentPlayer?.id : nil,
+                m.isDreamBreaker ? m.teamB?.currentPlayer?.id : nil,
+                m.slot?.label
+            ].compactMap { $0 }.joined(separator: "~")
+        }
 
         return [
+            mlpKey,
             snapshot?.tournamentName,
             snapshot?.courtName,
             snapshot?.teamAName,
@@ -2112,6 +2157,155 @@ private final class LiveScoreboardOverlayRenderer {
     }
 
         return CIImage(image: image)
+    }
+
+    private static func mlpColor(_ hex: String?, fallback: UIColor) -> UIColor {
+        guard var s = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return fallback }
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return fallback }
+        let r = CGFloat((v >> 16) & 0xFF) / 255.0
+        let g = CGFloat((v >> 8) & 0xFF) / 255.0
+        let b = CGFloat(v & 0xFF) / 255.0
+        return UIColor(red: r, green: g, blue: b, alpha: 1)
+    }
+
+    /// Scoreboard cho giải MLP — tự chuyển sub-match (2v2) ↔ DreamBreaker (1v1 xoay VĐV).
+    private static func renderMlp(
+        mlp: MlpOverlay,
+        size: CGSize,
+        tournamentLogoImage: UIImage?,
+        webLogoImage: UIImage?
+    ) -> CIImage? {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = false
+        let isDb = mlp.isDreamBreaker
+        let colorA = mlpColor(mlp.teamA?.color, fallback: UIColor(red: 0.15, green: 0.76, blue: 0.63, alpha: 1))
+        let colorB = mlpColor(mlp.teamB?.color, fallback: UIColor(red: 0.38, green: 0.65, blue: 0.98, alpha: 1))
+
+        func subText(_ team: MlpOverlayTeam?) -> String {
+            if isDb {
+                return team?.currentPlayer?.displayName ?? ""
+            }
+            return (team?.players ?? [])
+                .map { $0.displayName }
+                .filter { !$0.isEmpty }
+                .joined(separator: " / ")
+        }
+        let scoreA = isDb ? (mlp.dreamBreaker?.scoreA ?? 0) : (mlp.score?.currentGameA ?? 0)
+        let scoreB = isDb ? (mlp.dreamBreaker?.scoreB ?? 0) : (mlp.score?.currentGameB ?? 0)
+        let subColor: UIColor = isDb
+            ? UIColor(red: 0.96, green: 0.77, blue: 0.26, alpha: 1)
+            : UIColor.white.withAlphaComponent(0.72)
+
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        let image = autoreleasepool { () -> UIImage in
+            renderer.image { context in
+                let cg = context.cgContext
+                cg.setFillColor(UIColor.clear.cgColor)
+                cg.fill(CGRect(origin: .zero, size: size))
+
+                let cardWidth = min(size.width * 0.42, 620)
+                let cardHeight = min(size.height * 0.26, 230)
+                let cardRect = CGRect(x: size.width * 0.04, y: size.height * 0.05, width: cardWidth, height: cardHeight)
+                let background = UIBezierPath(roundedRect: cardRect, cornerRadius: 28)
+                UIColor(red: 0.05, green: 0.09, blue: 0.14, alpha: 0.82).setFill()
+                background.fill()
+                UIColor.white.withAlphaComponent(0.10).setStroke()
+                background.lineWidth = 2
+                background.stroke()
+
+                let contentRect = cardRect.insetBy(dx: 20, dy: 18)
+                let smallAttr: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 15, weight: .semibold),
+                    .foregroundColor: UIColor.white.withAlphaComponent(0.72)
+                ]
+                let strongAttr: [NSAttributedString.Key: Any] = [
+                    .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
+                    .foregroundColor: isDb ? UIColor(red: 0.96, green: 0.77, blue: 0.26, alpha: 1) : UIColor.white
+                ]
+
+                let hasTournamentLogo = tournamentLogoImage != nil
+                if let tournamentLogoImage {
+                    drawLogo(tournamentLogoImage, in: CGRect(x: contentRect.minX, y: contentRect.minY, width: 40, height: 40), context: cg)
+                }
+                let headerTextX = hasTournamentLogo ? contentRect.minX + 50 : contentRect.minX
+                let headerTextW = max(0, (contentRect.maxX - headerTextX) - (webLogoImage != nil ? 44 : 0))
+                NSString(string: mlp.tournament?.name?.trimmedNilIfBlank ?? "MLP").draw(
+                    in: CGRect(x: headerTextX, y: contentRect.minY, width: headerTextW, height: 20),
+                    withAttributes: smallAttr
+                )
+                let subtitle = isDb
+                    ? "DREAM BREAKER · CHẠM \(mlp.dreamBreaker?.target ?? 21)"
+                    : (mlp.slot?.label?.trimmedNilIfBlank ?? "MLP")
+                NSString(string: subtitle).draw(
+                    in: CGRect(x: headerTextX, y: contentRect.minY + 22, width: headerTextW, height: 26),
+                    withAttributes: strongAttr
+                )
+                if let webLogoImage {
+                    drawLogo(webLogoImage, in: CGRect(x: cardRect.maxX - 52, y: contentRect.minY, width: 36, height: 36), context: cg)
+                }
+
+                let colTop = contentRect.minY + 60
+                let colH: CGFloat = 110
+                let leftCol = CGRect(x: contentRect.minX, y: colTop, width: contentRect.width * 0.5 - 8, height: colH)
+                let rightCol = CGRect(x: contentRect.midX + 8, y: colTop, width: contentRect.width * 0.5 - 8, height: colH)
+
+                drawMlpColumn(
+                    name: mlp.teamA?.displayName ?? "Đội A", sub: subText(mlp.teamA), subColor: subColor,
+                    score: scoreA, series: mlp.teamA?.slotWins ?? 0, accent: colorA, rect: leftCol
+                )
+                drawMlpColumn(
+                    name: mlp.teamB?.displayName ?? "Đội B", sub: subText(mlp.teamB), subColor: subColor,
+                    score: scoreB, series: mlp.teamB?.slotWins ?? 0, accent: colorB, rect: rightCol
+                )
+            }
+        }
+        return CIImage(image: image)
+    }
+
+    private static func drawMlpColumn(
+        name: String, sub: String, subColor: UIColor,
+        score: Int, series: Int, accent: UIColor, rect: CGRect
+    ) {
+        let chip = UIBezierPath(roundedRect: CGRect(x: rect.minX, y: rect.minY + 2, width: 8, height: 20), cornerRadius: 3)
+        accent.setFill()
+        chip.fill()
+
+        let nameAttr: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 20, weight: .bold),
+            .foregroundColor: UIColor.white
+        ]
+        NSString(string: name).draw(
+            in: CGRect(x: rect.minX + 14, y: rect.minY, width: rect.width - 14, height: 26),
+            withAttributes: nameAttr
+        )
+        if !sub.isEmpty {
+            let subAttr: [NSAttributedString.Key: Any] = [
+                .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
+                .foregroundColor: subColor
+            ]
+            NSString(string: sub).draw(
+                in: CGRect(x: rect.minX + 14, y: rect.minY + 26, width: rect.width - 14, height: 18),
+                withAttributes: subAttr
+            )
+        }
+        let seriesAttr: [NSAttributedString.Key: Any] = [
+            .font: UIFont.monospacedDigitSystemFont(ofSize: 20, weight: .bold),
+            .foregroundColor: UIColor.white.withAlphaComponent(0.55)
+        ]
+        NSString(string: "\(series)").draw(
+            in: CGRect(x: rect.minX, y: rect.minY + 52, width: 28, height: 26),
+            withAttributes: seriesAttr
+        )
+        let scoreAttr: [NSAttributedString.Key: Any] = [
+            .font: UIFont.monospacedDigitSystemFont(ofSize: 52, weight: .black),
+            .foregroundColor: accent
+        ]
+        NSString(string: "\(score)").draw(
+            in: CGRect(x: rect.minX + 30, y: rect.minY + 46, width: rect.width - 30, height: 58),
+            withAttributes: scoreAttr
+        )
     }
 
     private static func drawLogo(

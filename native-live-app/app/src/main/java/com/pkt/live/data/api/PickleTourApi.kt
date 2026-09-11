@@ -7,11 +7,13 @@ import com.pkt.live.data.model.CourtClusterData
 import com.pkt.live.data.model.CourtClusterListResponse
 import com.pkt.live.data.model.CourtPresenceRequest
 import com.pkt.live.data.model.CourtPresenceResponse
+import com.pkt.live.data.model.FacebookPage
 import com.pkt.live.data.model.LiveSession
 import com.pkt.live.data.model.LiveAppBootstrapResponse
 import com.pkt.live.data.model.LoginRequest
 import com.pkt.live.data.model.LoginResponse
 import com.pkt.live.data.model.MatchData
+import com.pkt.live.data.model.MlpOverlayResponse
 import com.pkt.live.data.model.NextCourtMatchResponse
 import com.pkt.live.data.model.OverlayConfig
 import com.pkt.live.data.model.LiveAppVersionResponse
@@ -232,4 +234,19 @@ interface PickleTourApi {
         @Query("limit") limit: Int = 12,
         @Query("featured") featured: Int = 1,
     ): Response<OverlayConfig>
+
+    // ==================== MLP overlay (giải đồng đội) ====================
+
+    // Overlay MLP theo court station: tự chuyển giữa sub-match (2v2) và DreamBreaker (1v1).
+    // 200 = sân đang chạy MLP; 404 = không phải sân MLP (dùng overlay thường).
+    @GET("api/live/courts/{courtStationId}/mlp-overlay")
+    suspend fun getMlpCourtOverlay(
+        @Path("courtStationId") courtStationId: String,
+    ): Response<MlpOverlayResponse>
+
+    // ==================== Facebook pages (chọn fanpage để live) ====================
+
+    // Pool fanpage do admin liên kết (web admin) — để chọn trang sẽ live cho sân.
+    @GET("api/live-app/facebook-pages")
+    suspend fun getMyFacebookPages(): Response<List<FacebookPage>>
 }
