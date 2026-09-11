@@ -26,8 +26,11 @@ export async function getGraphVersion() {
 
 async function getAppAccessToken() {
   if (APP_TOKEN_CACHE) return APP_TOKEN_CACHE;
-  const appId = process.env.FB_APP_ID;
-  const appSecret = process.env.FB_APP_SECRET;
+  // Ưu tiên env; fallback sang DB Config (FB_APP_ID/FB_APP_SECRET được set ở
+  // trang System Config, không phải lúc nào cũng có trong .env).
+  const appId = process.env.FB_APP_ID || (await getCfgStr("FB_APP_ID", ""));
+  const appSecret =
+    process.env.FB_APP_SECRET || (await getCfgStr("FB_APP_SECRET", ""));
   if (!appId || !appSecret) throw new Error("Missing FB_APP_ID/FB_APP_SECRET");
 
   const GRAPH = await getGraphBase();
@@ -40,6 +43,26 @@ async function getAppAccessToken() {
   });
   APP_TOKEN_CACHE = data.access_token;
   return APP_TOKEN_CACHE;
+}
+
+// Chủ sở hữu của 1 user token: { id, name }. Throw nếu token hỏng.
+export async function getMeFromToken(userToken) {
+  const GRAPH = await getGraphBase();
+  const { data } = await axios.get(`${GRAPH}/me`, {
+    params: { fields: "id,name", access_token: userToken },
+    timeout: 15000,
+  });
+  return data; // { id, name }
+}
+
+// Danh sách Page mà user token này quản: [{ id, name, tasks }]. Throw nếu token hỏng.
+export async function listPagesFromToken(userToken, limit = 200) {
+  const GRAPH = await getGraphBase();
+  const { data } = await axios.get(`${GRAPH}/me/accounts`, {
+    params: { fields: "id,name,tasks", limit, access_token: userToken },
+    timeout: 20000,
+  });
+  return Array.isArray(data?.data) ? data.data : [];
 }
 
 // Debug any token (user/page). Returns { is_valid, expires_at, error_subcode, scopes, ... }

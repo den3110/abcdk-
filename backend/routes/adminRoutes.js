@@ -318,7 +318,12 @@ import {
   updateAdminCourtCluster,
   updateAdminCourtStation,
 } from "../controllers/admin/adminCourtClusterController.js";
-import { exchangeLongUserToken } from "../controllers/adminFacebookController.js";
+import {
+  exchangeLongUserToken,
+  inspectBootTokens,
+  addBootToken,
+  deleteBootToken,
+} from "../controllers/adminFacebookController.js";
 import {
   getNewsCandidates,
   getNewsSettings,
@@ -1526,6 +1531,16 @@ router.post(
   protect,
   authorize("admin"),
   exchangeLongUserToken,
+);
+
+// Quản lý FB_BOOT_LONG_USER_TOKEN trực quan (soi tài khoản/page + thêm/xoá nhanh)
+router.get("/fb/boot-tokens", protect, authorize("admin"), inspectBootTokens);
+router.post("/fb/boot-tokens", protect, authorize("admin"), addBootToken);
+router.delete(
+  "/fb/boot-tokens/:fingerprint",
+  protect,
+  authorize("admin"),
+  deleteBootToken,
 );
 
 router.post(
