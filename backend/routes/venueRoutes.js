@@ -38,6 +38,8 @@ import {
   deleteProduct,
   createSale,
   listSales,
+  updateSale,
+  deleteSale,
 } from "../controllers/venuePosController.js";
 import {
   listPackages,
@@ -123,6 +125,8 @@ router.patch("/:id/products/:productId", protect, updateProduct);
 router.delete("/:id/products/:productId", protect, deleteProduct);
 router.get("/:id/sales", protect, listSales);
 router.post("/:id/sales", protect, createSale);
+router.patch("/:id/sales/:saleId", protect, updateSale);
+router.delete("/:id/sales/:saleId", protect, deleteSale);
 
 // Gói giờ / thẻ tháng
 router.get("/:id/packages", attachJwtIfPresent, listPackages); // public (active) hoặc owner all=1

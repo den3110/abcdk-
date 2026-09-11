@@ -175,3 +175,137 @@ export const listSales = expressAsyncHandler(async (req, res) => {
   const total = items.reduce((s, x) => s + (Number(x.total) || 0), 0);
   res.json({ items, total, count: items.length });
 });
+
+/** Cộng/trừ tồn kho theo map { productId: deltaQty } (delta>0 = cộng lại tồn). */
+async function applyStockDeltas(deltaByProduct) {
+  const applied = [];
+  const entries = Object.entries(deltaByProduct).filter(([, d]) => d !== 0);
+  try {
+    for (const [pid, delta] of entries) {
+      const product = await VenueProduct.findById(pid);
+      if (!product || !product.trackStock) continue; // chỉ chỉnh SP có theo dõi tồn
+      if (delta < 0) {
+        // cần trừ thêm tồn (bán nhiều hơn) → guard đủ tồn
+        const need = -delta;
+        const upd = await VenueProduct.findOneAndUpdate(
+          { _id: product._id, stock: { $gte: need } },
+          { $inc: { stock: delta } },
+          { new: true },
+        );
+        if (!upd)
+          throw Object.assign(new Error(`"${product.name}" không đủ tồn kho`), { status: 409 });
+      } else {
+        await VenueProduct.updateOne({ _id: product._id }, { $inc: { stock: delta } });
+      }
+      applied.push([pid, delta]);
+    }
+  } catch (e) {
+    // rollback những gì đã áp
+    for (const [pid, delta] of applied) {
+      await VenueProduct.updateOne({ _id: pid }, { $inc: { stock: -delta } }).catch(() => {});
+    }
+    throw e;
+  }
+}
+
+/** PATCH /api/venues/:id/sales/:saleId — sửa đơn (items/paymentMethod/note). */
+export const updateSale = expressAsyncHandler(async (req, res) => {
+  const venue = await requireAccess(req, res, "pos.sell");
+  const { saleId } = req.params;
+  if (!isId(saleId)) {
+    res.status(400);
+    throw new Error("Đơn không hợp lệ");
+  }
+  const sale = await VenueSale.findOne({ _id: saleId, venue: venue._id });
+  if (!sale) {
+    res.status(404);
+    throw new Error("Không tìm thấy đơn");
+  }
+
+  // Nếu có gửi items → tính lại items + tồn kho theo chênh lệch.
+  if (Array.isArray(req.body?.items)) {
+    const rawItems = req.body.items;
+    if (!rawItems.length) {
+      res.status(400);
+      throw new Error("Đơn phải có ít nhất 1 sản phẩm");
+    }
+
+    // qty cũ theo product
+    const oldQty = {};
+    for (const it of sale.items) {
+      const pid = String(it.product);
+      oldQty[pid] = (oldQty[pid] || 0) + (Number(it.qty) || 0);
+    }
+
+    // build items mới + qty mới
+    const newQty = {};
+    const items = [];
+    let total = 0;
+    for (const it of rawItems) {
+      const qty = Math.max(1, Number(it.qty) || 1);
+      if (!isId(it.productId)) {
+        res.status(400);
+        throw new Error("Sản phẩm không hợp lệ");
+      }
+      const product = await VenueProduct.findOne({ _id: it.productId, venue: venue._id });
+      if (!product) {
+        res.status(400);
+        throw new Error("Sản phẩm không khả dụng");
+      }
+      newQty[String(product._id)] = (newQty[String(product._id)] || 0) + qty;
+      const lineTotal = product.price * qty;
+      total += lineTotal;
+      items.push({ product: product._id, name: product.name, price: product.price, qty, lineTotal });
+    }
+
+    // delta = oldQty - newQty (dương = trả tồn lại; âm = trừ thêm tồn)
+    const delta = {};
+    for (const pid of new Set([...Object.keys(oldQty), ...Object.keys(newQty)])) {
+      delta[pid] = (oldQty[pid] || 0) - (newQty[pid] || 0);
+    }
+    await applyStockDeltas(delta); // throw 409 nếu không đủ tồn (đã tự rollback)
+
+    sale.items = items;
+    sale.total = total;
+  }
+
+  if (req.body?.paymentMethod !== undefined) {
+    sale.paymentMethod = req.body.paymentMethod === "transfer" ? "transfer" : "cash";
+  }
+  if (req.body?.note !== undefined) {
+    sale.note = String(req.body.note || "").slice(0, 300);
+  }
+  if (req.body?.customerName !== undefined) {
+    sale.customerName = String(req.body.customerName || "").slice(0, 120);
+  }
+
+  await sale.save();
+  res.json(sale);
+});
+
+/** DELETE /api/venues/:id/sales/:saleId — xoá đơn + hoàn tồn kho. */
+export const deleteSale = expressAsyncHandler(async (req, res) => {
+  const venue = await requireAccess(req, res, "pos.sell");
+  const { saleId } = req.params;
+  if (!isId(saleId)) {
+    res.status(400);
+    throw new Error("Đơn không hợp lệ");
+  }
+  const sale = await VenueSale.findOne({ _id: saleId, venue: venue._id });
+  if (!sale) {
+    res.status(404);
+    throw new Error("Không tìm thấy đơn");
+  }
+
+  // Hoàn tồn kho cho các sản phẩm có theo dõi tồn.
+  for (const it of sale.items) {
+    if (!isId(it.product)) continue;
+    await VenueProduct.updateOne(
+      { _id: it.product, trackStock: true },
+      { $inc: { stock: Number(it.qty) || 0 } },
+    ).catch(() => {});
+  }
+
+  await VenueSale.deleteOne({ _id: sale._id });
+  res.json({ ok: true, deletedId: String(sale._id) });
+});
