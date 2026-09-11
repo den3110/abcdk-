@@ -325,6 +325,12 @@ import {
   deleteBootToken,
 } from "../controllers/adminFacebookController.js";
 import {
+  startFbLiveTest,
+  listFbLiveTest,
+  stopAllFbLiveTest,
+  stopFbLiveTest,
+} from "../controllers/admin/fbLiveTestController.js";
+import {
   getNewsCandidates,
   getNewsSettings,
   generateNewsArticlesNow,
@@ -1541,6 +1547,17 @@ router.delete(
   protect,
   authorize("admin"),
   deleteBootToken,
+);
+
+// Test live nhiều page cùng lúc (test pattern, không cần camera)
+router.post("/fb/live-test/start", protect, authorize("admin"), startFbLiveTest);
+router.get("/fb/live-test/sessions", protect, authorize("admin"), listFbLiveTest);
+router.post("/fb/live-test/stop-all", protect, authorize("admin"), stopAllFbLiveTest);
+router.post(
+  "/fb/live-test/:sessionId/stop",
+  protect,
+  authorize("admin"),
+  stopFbLiveTest,
 );
 
 router.post(
