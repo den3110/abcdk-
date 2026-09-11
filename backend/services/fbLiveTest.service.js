@@ -6,6 +6,11 @@ import { spawn } from "child_process";
 import { randomUUID } from "crypto";
 import ffmpegStatic from "ffmpeg-static";
 
+// ⚠️ QUAN TRỌNG: đẩy RTMPS Facebook PHẢI dùng ffmpeg HỆ THỐNG (FFMPEG_PATH,
+// vd /usr/bin/ffmpeg). Bản ffmpeg-static (johnvansickle static gnutls) BỊ SEGFAULT
+// khi output rtmps → "code null". ffmpeg-static chỉ dùng làm fallback (dev/local).
+const FFMPEG_BIN = process.env.FFMPEG_PATH || ffmpegStatic || "ffmpeg";
+
 import FbLiveTestSession from "../models/fbLiveTestSessionModel.js";
 import {
   pickFreeFacebookPage,
@@ -30,6 +35,7 @@ const AUTO_STOP_MIN = Math.max(1, Number(process.env.FB_LIVE_TEST_AUTOSTOP_MIN |
 function ffmpegArgs(secureStreamUrl, label = "") {
   // testsrc + tone sine, H.264/AAC, đẩy FLV vào RTMPS của Facebook.
   return [
+    "-nostdin",
     "-re",
     "-f", "lavfi",
     "-i", `testsrc=size=1280x720:rate=30`,
@@ -67,7 +73,7 @@ async function finishSessionAsError(sessionId, reason) {
 function spawnPusher(sessionId, secureStreamUrl) {
   let proc;
   try {
-    proc = spawn(ffmpegStatic, ffmpegArgs(secureStreamUrl), {
+    proc = spawn(FFMPEG_BIN, ffmpegArgs(secureStreamUrl), {
       stdio: ["ignore", "ignore", "pipe"],
     });
   } catch (e) {
