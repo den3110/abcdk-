@@ -1719,7 +1719,9 @@ private final class LiveScoreboardOverlayRenderer {
                 mlp: mlp,
                 size: renderSize,
                 tournamentLogoImage: tournamentLogoImage,
-                webLogoImage: webLogoImage
+                webLogoImage: webLogoImage,
+                sponsorLogoImages: sponsorLogoImages,
+                performanceMode: performanceMode
             )
         } else if let snapshot {
             renderedBase = Self.render(
@@ -2174,12 +2176,18 @@ private final class LiveScoreboardOverlayRenderer {
         mlp: MlpOverlay,
         size: CGSize,
         tournamentLogoImage: UIImage?,
-        webLogoImage: UIImage?
+        webLogoImage: UIImage?,
+        sponsorLogoImages: [UIImage] = [],
+        performanceMode: OverlayPerformanceMode = .normal
     ) -> CIImage? {
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = false
         let isDb = mlp.isDreamBreaker
+        let shouldRenderLogos = performanceMode.rawValue < OverlayPerformanceMode.minimal.rawValue
+        let visibleSponsorImages = shouldRenderLogos
+            ? Array(sponsorLogoImages.prefix(performanceMode == .constrained ? 1 : 2))
+            : []
         let colorA = mlpColor(mlp.teamA?.color, fallback: UIColor(red: 0.15, green: 0.76, blue: 0.63, alpha: 1))
         let colorB = mlpColor(mlp.teamB?.color, fallback: UIColor(red: 0.38, green: 0.65, blue: 0.98, alpha: 1))
 
@@ -2259,6 +2267,18 @@ private final class LiveScoreboardOverlayRenderer {
                     name: mlp.teamB?.displayName ?? "Đội B", sub: subText(mlp.teamB), subColor: subColor,
                     score: scoreB, series: mlp.teamB?.slotWins ?? 0, accent: colorB, rect: rightCol
                 )
+
+                // Sponsor logos — vẽ như bản Android (luôn hiển thị kể cả overlay MLP),
+                // thành một hàng nhỏ canh phải ngay dưới thẻ scoreboard.
+                if !visibleSponsorImages.isEmpty {
+                    let logoSize: CGFloat = 34
+                    let gap: CGFloat = 8
+                    let y = cardRect.maxY + 10
+                    for (index, sponsorLogoImage) in visibleSponsorImages.enumerated() {
+                        let x = cardRect.maxX - CGFloat(visibleSponsorImages.count - index) * (logoSize + gap)
+                        drawLogo(sponsorLogoImage, in: CGRect(x: x, y: y, width: logoSize, height: logoSize), context: cg, inset: 4)
+                    }
+                }
             }
         }
         return CIImage(image: image)

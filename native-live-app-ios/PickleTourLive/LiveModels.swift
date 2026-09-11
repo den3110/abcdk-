@@ -1601,16 +1601,21 @@ struct RTMPDestination: Equatable {
             return nil
         }
 
-        let publishName = pathParts.last ?? ""
+        // Stream key = segment cuối của path + query (nếu có). Với Facebook, token xác thực
+        // `?s_bl=...&a=<auth>` nằm trong query và BẮT BUỘC phải đi kèm stream key khi publish,
+        // không được nhét vào connect/app URL — nếu tách sai, Facebook từ chối publish (mất `a=`)
+        // nên không live được. Pedro (Android) nhận nguyên URL đầy đủ nên không dính lỗi này;
+        // HaishinKit (iOS) tách connect + publishName nên phải tự giữ query lại với stream key.
+        var publishName = pathParts.last ?? ""
+        if let query = components.percentEncodedQuery, !query.isEmpty {
+            publishName += "?\(query)"
+        }
         let appPath = pathParts.dropLast().joined(separator: "/")
         var connectURL = "\(scheme)://\(host)"
         if let port = components.port {
             connectURL += ":\(port)"
         }
         connectURL += "/\(appPath)"
-        if let query = components.percentEncodedQuery, !query.isEmpty {
-            connectURL += "?\(query)"
-        }
         return RTMPDestination(connectURL: connectURL, publishName: publishName)
     }
 }
