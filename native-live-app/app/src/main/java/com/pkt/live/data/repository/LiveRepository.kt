@@ -388,10 +388,10 @@ class LiveRepository(
     }
 
     /** Notify backend stream started */
-    suspend fun notifyStreamStarted(matchId: String, clientSessionId: String): Result<StreamNotifyResponse> {
+    suspend fun notifyStreamStarted(matchId: String, clientSessionId: String, platform: String = "facebook"): Result<StreamNotifyResponse> {
         return try {
             val body = StreamNotifyRequest(
-                platform = "facebook",
+                platform = platform,
                 timestamp = currentIsoTimestampUtc(),
                 clientSessionId = clientSessionId,
             )
@@ -405,10 +405,10 @@ class LiveRepository(
     }
 
     /** Notify backend live lease heartbeat */
-    suspend fun notifyStreamHeartbeat(matchId: String, clientSessionId: String): Result<StreamNotifyResponse> {
+    suspend fun notifyStreamHeartbeat(matchId: String, clientSessionId: String, platform: String = "facebook"): Result<StreamNotifyResponse> {
         return try {
             val body = StreamNotifyRequest(
-                platform = "facebook",
+                platform = platform,
                 timestamp = currentIsoTimestampUtc(),
                 clientSessionId = clientSessionId,
             )
@@ -422,10 +422,10 @@ class LiveRepository(
     }
 
     /** Notify backend stream ended */
-    suspend fun notifyStreamEnded(matchId: String, clientSessionId: String?): Result<StreamNotifyResponse> {
+    suspend fun notifyStreamEnded(matchId: String, clientSessionId: String?, platform: String = "facebook"): Result<StreamNotifyResponse> {
         return try {
             val body = StreamNotifyRequest(
-                platform = "facebook",
+                platform = platform,
                 timestamp = currentIsoTimestampUtc(),
                 clientSessionId = clientSessionId,
             )

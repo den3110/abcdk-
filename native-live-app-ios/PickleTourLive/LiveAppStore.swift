@@ -722,6 +722,7 @@ final class LiveAppStore: ObservableObject {
             let response = try await environment.apiClient.notifyStreamStarted(
                 matchId: activeMatch.id,
                 clientSessionId: streamingService.clientSessionId,
+                platform: selectedPlatform,
                 userMatch: launchTarget.isUserMatchLaunch
             )
             _ = await handleStreamLeaseResponse(response, matchId: activeMatch.id)
@@ -766,6 +767,7 @@ final class LiveAppStore: ObservableObject {
             _ = try? await environment.apiClient.notifyStreamEnded(
                 matchId: liveMatchId,
                 clientSessionId: streamingService.clientSessionId,
+                platform: selectedPlatform,
                 userMatch: launchTarget.isUserMatchLaunch
             )
         }
@@ -2128,6 +2130,7 @@ final class LiveAppStore: ObservableObject {
             _ = try? await environment.apiClient.notifyStreamEnded(
                 matchId: liveMatchId,
                 clientSessionId: streamingService.clientSessionId,
+                platform: selectedPlatform,
                 userMatch: launchTarget.isUserMatchLaunch
             )
             guard !Task.isCancelled, !appIsActive else { return }
@@ -3164,11 +3167,13 @@ final class LiveAppStore: ObservableObject {
                         ? self.environment.apiClient.notifyStreamStarted(
                             matchId: matchId,
                             clientSessionId: self.streamingService.clientSessionId,
+                            platform: self.selectedPlatform,
                             userMatch: self.launchTarget.isUserMatchLaunch
                         )
                         : self.environment.apiClient.notifyStreamHeartbeat(
                             matchId: matchId,
                             clientSessionId: self.streamingService.clientSessionId,
+                            platform: self.selectedPlatform,
                             userMatch: self.launchTarget.isUserMatchLaunch
                         )
                     )
@@ -4387,6 +4392,7 @@ final class LiveAppStore: ObservableObject {
             let response = try await environment.apiClient.notifyStreamStarted(
                 matchId: matchId,
                 clientSessionId: streamingService.clientSessionId,
+                platform: selectedPlatform,
                 userMatch: launchTarget.isUserMatchLaunch
             )
             _ = applyStreamLeaseResponse(response)

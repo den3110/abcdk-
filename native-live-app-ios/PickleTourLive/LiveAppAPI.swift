@@ -297,65 +297,68 @@ final class LiveAPIClient {
         )
     }
 
-    func notifyStreamStarted(matchId: String, clientSessionId: String) async throws -> StreamNotifyResponse {
+    func notifyStreamStarted(matchId: String, clientSessionId: String, platform: String = "facebook") async throws -> StreamNotifyResponse {
         try await request(
             path: "api/matches/\(matchId)/live/start",
             method: "POST",
-            body: StreamNotifyRequest(timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId)
+            body: StreamNotifyRequest(platform: platform, timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId)
         )
     }
 
     func notifyStreamStarted(
         matchId: String,
         clientSessionId: String,
+        platform: String = "facebook",
         userMatch: Bool
     ) async throws -> StreamNotifyResponse {
         try await request(
             path: "api/matches/\(matchId)/live/start",
             method: "POST",
-            body: StreamNotifyRequest(timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId),
+            body: StreamNotifyRequest(platform: platform, timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId),
             extraHeaders: userMatch ? ["x-pkt-match-kind": "user"] : [:]
         )
     }
 
-    func notifyStreamHeartbeat(matchId: String, clientSessionId: String) async throws -> StreamNotifyResponse {
+    func notifyStreamHeartbeat(matchId: String, clientSessionId: String, platform: String = "facebook") async throws -> StreamNotifyResponse {
         try await request(
             path: "api/matches/\(matchId)/live/heartbeat",
             method: "POST",
-            body: StreamNotifyRequest(timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId)
+            body: StreamNotifyRequest(platform: platform, timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId)
         )
     }
 
     func notifyStreamHeartbeat(
         matchId: String,
         clientSessionId: String,
+        platform: String = "facebook",
         userMatch: Bool
     ) async throws -> StreamNotifyResponse {
         try await request(
             path: "api/matches/\(matchId)/live/heartbeat",
             method: "POST",
-            body: StreamNotifyRequest(timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId),
+            body: StreamNotifyRequest(platform: platform, timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId),
             extraHeaders: userMatch ? ["x-pkt-match-kind": "user"] : [:]
         )
     }
 
-    func notifyStreamEnded(matchId: String, clientSessionId: String) async throws -> StreamNotifyResponse {
+    func notifyStreamEnded(matchId: String, clientSessionId: String, platform: String = "facebook") async throws -> StreamNotifyResponse {
         try await request(
             path: "api/matches/\(matchId)/live/end",
             method: "POST",
-            body: StreamNotifyRequest(timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId)
+            body: StreamNotifyRequest(platform: platform, timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId)
         )
     }
 
     func notifyStreamEnded(
         matchId: String,
         clientSessionId: String,
+        platform: String = "facebook",
         userMatch: Bool
     ) async throws -> StreamNotifyResponse {
         try await request(
             path: "api/matches/\(matchId)/live/end",
             method: "POST",
-            body: StreamNotifyRequest(timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId),
+            body: StreamNotifyRequest(platform: platform, timestamp: Date().iso8601UTCString, clientSessionId: clientSessionId),
             extraHeaders: userMatch ? ["x-pkt-match-kind": "user"] : [:]
         )
     }

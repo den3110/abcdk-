@@ -1338,9 +1338,9 @@ class LiveStreamViewModel(
                 val currentState = streamManager.state.value
                 if (shouldMaintainLease(currentState)) {
                     val result = if (leaseId.isNullOrBlank()) {
-                        repository.notifyStreamStarted(targetMatchId, clientSessionId)
+                        repository.notifyStreamStarted(targetMatchId, clientSessionId, livePlatform)
                     } else {
-                        repository.notifyStreamHeartbeat(targetMatchId, clientSessionId)
+                        repository.notifyStreamHeartbeat(targetMatchId, clientSessionId, livePlatform)
                     }
 
                     result.onSuccess { response ->
@@ -1375,7 +1375,7 @@ class LiveStreamViewModel(
 
         if (notifyEnd && hadLiveSession && !endedMatchId.isNullOrBlank()) {
             launchGuarded(name = "notifyStreamEnded") {
-                repository.notifyStreamEnded(endedMatchId, endedClientSessionId)
+                repository.notifyStreamEnded(endedMatchId, endedClientSessionId, livePlatform)
             }
         }
     }
