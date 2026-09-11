@@ -51,26 +51,65 @@ function ffmpegArgs(secureStreamUrl, label = "") {
   ];
 }
 
+async function finishSessionAsError(sessionId, reason) {
+  try {
+    const doc = await FbLiveTestSession.findOne({ sessionId });
+    if (doc && ["starting", "live"].includes(doc.status)) {
+      doc.status = "error";
+      doc.error = String(reason || "ffmpeg dừng").slice(0, 900);
+      doc.stoppedAt = new Date();
+      await doc.save();
+      await markFacebookPageFreeByPage(doc.pageId, { delayMs: 0 }).catch(() => {});
+    }
+  } catch {}
+}
+
 function spawnPusher(sessionId, secureStreamUrl) {
-  const proc = spawn(ffmpegStatic, ffmpegArgs(secureStreamUrl), {
-    stdio: ["ignore", "ignore", "pipe"],
-  });
+  let proc;
+  try {
+    proc = spawn(ffmpegStatic, ffmpegArgs(secureStreamUrl), {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+  } catch (e) {
+    finishSessionAsError(sessionId, `Không chạy được ffmpeg: ${e?.message || e}`);
+    return null;
+  }
   _procs.set(sessionId, proc);
 
-  proc.stderr.on("data", () => {}); // nuốt log ffmpeg cho đỡ ồn
-  proc.on("close", async (code) => {
+  // Giữ lại đuôi log ffmpeg để biết lý do khi nó chết.
+  let stderrTail = "";
+  proc.stderr.on("data", (d) => {
+    stderrTail = (stderrTail + d.toString()).slice(-2500);
+  });
+
+  proc.on("error", (e) => {
     _procs.delete(sessionId);
-    // Nếu phiên vẫn đang "live" mà ffmpeg chết → đánh dấu lỗi/kết thúc.
-    try {
-      const doc = await FbLiveTestSession.findOne({ sessionId });
-      if (doc && ["starting", "live"].includes(doc.status)) {
-        doc.status = code === 0 ? "stopped" : "error";
-        if (code !== 0) doc.error = `ffmpeg thoát code ${code}`;
-        doc.stoppedAt = new Date();
-        await doc.save();
-        await markFacebookPageFreeByPage(doc.pageId, { delayMs: 0 }).catch(() => {});
+    console.error(`[fb-live-test] ffmpeg spawn error (${sessionId}):`, e?.message);
+    finishSessionAsError(sessionId, `ffmpeg lỗi khởi chạy: ${e?.message || e}`);
+  });
+
+  proc.on("close", async (code, signal) => {
+    _procs.delete(sessionId);
+    const tail = stderrTail
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .slice(-5)
+      .join(" | ");
+    console.error(
+      `[fb-live-test] ffmpeg exit (${sessionId}) code=${code} signal=${signal}\n${stderrTail.slice(-1500)}`
+    );
+    const doc = await FbLiveTestSession.findOne({ sessionId }).catch(() => null);
+    if (doc && ["starting", "live"].includes(doc.status)) {
+      const reason = signal ? `bị tín hiệu ${signal}` : `thoát code ${code}`;
+      doc.status = code === 0 && !signal ? "stopped" : "error";
+      if (doc.status === "error") {
+        doc.error = `ffmpeg ${reason}${tail ? ` — ${tail}` : ""}`.slice(0, 900);
       }
-    } catch {}
+      doc.stoppedAt = new Date();
+      await doc.save().catch(() => {});
+      await markFacebookPageFreeByPage(doc.pageId, { delayMs: 0 }).catch(() => {});
+    }
   });
   return proc;
 }
