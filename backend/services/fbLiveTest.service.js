@@ -25,6 +25,7 @@ import {
   fbEndLiveVideo,
   fbGetLiveVideo,
 } from "./facebookLive.service.js";
+import { getMeFromToken } from "./fbGraph.js";
 
 // ffmpeg handle theo sessionId — chỉ tồn tại trong process đã spawn.
 const _procs = new Map();
@@ -122,25 +123,65 @@ function spawnPusher(sessionId, secureStreamUrl) {
   return proc;
 }
 
-/** Danh sách page để CHỌN test: kèm trạng thái rảnh/bận/cần reauth. */
+// Cache tên tài khoản FB theo user token (tránh gọi /me mỗi lần poll).
+const _ownerCache = new Map(); // token -> { name, till }
+const OWNER_TTL = 10 * 60 * 1000;
+
+async function resolveOwnerName(longUserToken) {
+  const key = String(longUserToken || "");
+  if (!key) return "";
+  const hit = _ownerCache.get(key);
+  if (hit && hit.till > Date.now()) return hit.name;
+  let name = "";
+  try {
+    const me = await getMeFromToken(key);
+    name = me?.name || "";
+  } catch {
+    name = ""; // token hỏng → không lấy được tên
+  }
+  _ownerCache.set(key, { name, till: Date.now() + OWNER_TTL });
+  return name;
+}
+
+/** Tên tài khoản FB sở hữu 1 page (theo longUserToken của page). */
+async function ownerNameOfPage(page) {
+  return resolveOwnerName(page?.longUserToken || "");
+}
+
+/** Danh sách page để CHỌN test: kèm trạng thái + TÊN TÀI KHOẢN sở hữu. */
 export async function listTestablePages() {
-  const pages = await FbToken.find({ disabled: { $ne: true } })
-    .select("pageId pageName isBusy needsReauth pageToken")
+  const pages = await FbToken.find({})
+    .select("pageId pageName isBusy needsReauth disabled pageToken longUserToken")
     .sort({ pageName: 1 })
     .lean();
+
+  // Gom theo user token để chỉ gọi /me 1 lần cho mỗi tài khoản.
+  const tokens = [...new Set(pages.map((p) => p.longUserToken).filter(Boolean))];
+  const ownerByToken = {};
+  await Promise.all(
+    tokens.map(async (t) => {
+      ownerByToken[t] = await resolveOwnerName(t);
+    })
+  );
+
   return pages.map((p) => {
     const hasToken = Boolean(String(p.pageToken || "").trim());
+    const owner = ownerByToken[p.longUserToken] || "";
     let reason = "";
-    if (p.needsReauth) reason = "Cần reauth";
+    if (p.disabled) reason = "Đã tắt";
+    else if (p.needsReauth) reason = "Cần reauth";
     else if (!hasToken) reason = "Chưa có page token";
     else if (p.isBusy) reason = "Đang bận";
     return {
       pageId: p.pageId,
       pageName: p.pageName || p.pageId,
+      ownerName: owner,
+      account: owner || (p.longUserToken ? `acct:${String(p.longUserToken).slice(-6)}` : ""),
       isBusy: Boolean(p.isBusy),
       needsReauth: Boolean(p.needsReauth),
+      disabled: Boolean(p.disabled),
       hasToken,
-      testable: hasToken && !p.needsReauth && !p.isBusy,
+      testable: hasToken && !p.needsReauth && !p.isBusy && !p.disabled,
       reason,
     };
   });
@@ -154,10 +195,13 @@ async function startOnePageTest(page, startedBy) {
 
   await markFacebookPageBusy({ pageId, matchId: null, liveVideoId: null });
 
+  const ownerName = await ownerNameOfPage(page);
+
   const doc = await FbLiveTestSession.create({
     sessionId,
     pageId,
     pageName,
+    ownerName,
     status: "starting",
     startedBy,
     autoStopAt: new Date(Date.now() + AUTO_STOP_MIN * 60 * 1000),
@@ -207,6 +251,7 @@ async function startOnePageTest(page, startedBy) {
       sessionId,
       pageId,
       pageName,
+      ownerName,
       liveVideoId,
       permalinkUrl: doc.permalinkUrl,
       status: "live",
@@ -217,7 +262,7 @@ async function startOnePageTest(page, startedBy) {
     doc.stoppedAt = new Date();
     await doc.save();
     await markFacebookPageFreeByPage(pageId, { delayMs: 0 }).catch(() => {});
-    return { sessionId, pageId, pageName, status: "error", error: doc.error };
+    return { sessionId, pageId, pageName, ownerName, status: "error", error: doc.error };
   }
 }
 
@@ -243,6 +288,10 @@ export async function startFbLiveTests({ count = 3, pageIds = null, startedBy = 
       }
       if (page.needsReauth) {
         created.push({ pageId: pid, pageName: page.pageName || pid, status: "error", error: "Page cần reauth" });
+        continue;
+      }
+      if (page.disabled) {
+        created.push({ pageId: pid, pageName: page.pageName || pid, status: "error", error: "Page đã tắt" });
         continue;
       }
       if (page.isBusy) {

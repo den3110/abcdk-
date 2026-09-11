@@ -10,6 +10,7 @@ const fbLiveTestSessionSchema = new Schema(
     sessionId: { type: String, required: true, unique: true, index: true },
     pageId: { type: String, required: true, index: true },
     pageName: { type: String, default: "" },
+    ownerName: { type: String, default: "" }, // tên tài khoản FB sở hữu page
     liveVideoId: { type: String, default: "" },
     permalinkUrl: { type: String, default: "" },
     status: {
