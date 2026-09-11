@@ -5,13 +5,25 @@ import {
   listFbLiveTestSessions,
   stopFbLiveTestSession,
   stopAllFbLiveTestSessions,
+  listTestablePages,
 } from "../../services/fbLiveTest.service.js";
 
-// POST /admin/fb/live-test/start  { count }
+// GET /admin/fb/live-test/pages — danh sách page để chọn test
+export const listFbLiveTestPages = expressAsyncHandler(async (req, res) => {
+  const pages = await listTestablePages();
+  res.json({
+    pages,
+    testableCount: pages.filter((p) => p.testable).length,
+  });
+});
+
+// POST /admin/fb/live-test/start  { count } hoặc { pageIds: [] }
 export const startFbLiveTest = expressAsyncHandler(async (req, res) => {
+  const pageIds = Array.isArray(req.body?.pageIds) ? req.body.pageIds : null;
   const count = Number(req.body?.count) || 3;
   const result = await startFbLiveTests({
     count,
+    pageIds,
     startedBy: req.user?.email || "admin",
   });
   res.json({ ok: true, ...result });

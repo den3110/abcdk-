@@ -12,6 +12,7 @@ import ffmpegStatic from "ffmpeg-static";
 const FFMPEG_BIN = process.env.FFMPEG_PATH || ffmpegStatic || "ffmpeg";
 
 import FbLiveTestSession from "../models/fbLiveTestSessionModel.js";
+import FbToken from "../models/fbTokenModel.js";
 import {
   pickFreeFacebookPage,
   markFacebookPageBusy,
@@ -22,6 +23,7 @@ import {
   fbCreateLiveOnPage,
   fbGoLive,
   fbEndLiveVideo,
+  fbGetLiveVideo,
 } from "./facebookLive.service.js";
 
 // ffmpeg handle theo sessionId — chỉ tồn tại trong process đã spawn.
@@ -120,90 +122,147 @@ function spawnPusher(sessionId, secureStreamUrl) {
   return proc;
 }
 
-/**
- * Bắt đầu N phiên test trên N page rảnh.
- * Trả về danh sách phiên đã tạo (+ lý do dừng nếu hết page).
- */
-export async function startFbLiveTests({ count = 3, startedBy = "" } = {}) {
-  const want = Math.min(MAX_COUNT, Math.max(1, Number(count) || 1));
-  const created = [];
-  let stoppedReason = "";
+/** Danh sách page để CHỌN test: kèm trạng thái rảnh/bận/cần reauth. */
+export async function listTestablePages() {
+  const pages = await FbToken.find({ disabled: { $ne: true } })
+    .select("pageId pageName isBusy needsReauth pageToken")
+    .sort({ pageName: 1 })
+    .lean();
+  return pages.map((p) => {
+    const hasToken = Boolean(String(p.pageToken || "").trim());
+    let reason = "";
+    if (p.needsReauth) reason = "Cần reauth";
+    else if (!hasToken) reason = "Chưa có page token";
+    else if (p.isBusy) reason = "Đang bận";
+    return {
+      pageId: p.pageId,
+      pageName: p.pageName || p.pageId,
+      isBusy: Boolean(p.isBusy),
+      needsReauth: Boolean(p.needsReauth),
+      hasToken,
+      testable: hasToken && !p.needsReauth && !p.isBusy,
+      reason,
+    };
+  });
+}
 
-  for (let i = 0; i < want; i += 1) {
-    const page = await pickFreeFacebookPage();
-    if (!page) {
-      stoppedReason = "Hết page rảnh trong pool";
-      break;
+/** Khởi 1 phiên test cho 1 page (đã giữ chỗ busy). Trả về entry kết quả. */
+async function startOnePageTest(page, startedBy) {
+  const pageId = page.pageId;
+  const pageName = page.pageName || pageId;
+  const sessionId = randomUUID();
+
+  await markFacebookPageBusy({ pageId, matchId: null, liveVideoId: null });
+
+  const doc = await FbLiveTestSession.create({
+    sessionId,
+    pageId,
+    pageName,
+    status: "starting",
+    startedBy,
+    autoStopAt: new Date(Date.now() + AUTO_STOP_MIN * 60 * 1000),
+  });
+
+  try {
+    const pageToken = await getValidPageToken(pageId);
+    const live = await fbCreateLiveOnPage({
+      pageId,
+      pageAccessToken: pageToken,
+      title: `🔴 TEST LIVE — ${pageName}`,
+      description: "Phiên test đa luồng PickleTour (test pattern).",
+      status: "LIVE_NOW",
+    });
+    const liveVideoId = live?.id;
+    const secureStreamUrl = live?.secure_stream_url;
+    if (!liveVideoId || !secureStreamUrl) {
+      throw new Error("Facebook không trả live video / stream url");
     }
-    const pageId = page.pageId;
-    const pageName = page.pageName || pageId;
-    const sessionId = randomUUID();
 
-    // Giữ chỗ page NGAY để lần pick kế không trả lại chính nó.
-    await markFacebookPageBusy({ pageId, matchId: null, liveVideoId: null });
+    // Link xem: FB thường trả permalink_url ngay lúc tạo; nếu chưa có thì hỏi lại.
+    let permalink = live?.permalink_url || "";
+    if (!permalink) {
+      const info = await fbGetLiveVideo({
+        liveVideoId,
+        pageAccessToken: pageToken,
+        fields: "permalink_url,status",
+      }).catch(() => null);
+      permalink = info?.permalink_url || "";
+    }
 
-    const doc = await FbLiveTestSession.create({
+    doc.liveVideoId = liveVideoId;
+    doc.permalinkUrl = permalink ? `https://www.facebook.com${permalink}` : "";
+    doc.status = "live";
+    doc.hostPid = process.pid;
+    await doc.save();
+
+    await markFacebookPageBusy({ pageId, matchId: null, liveVideoId });
+    spawnPusher(sessionId, secureStreamUrl);
+
+    // Sau ~8s (khi stream đã chảy) ép LIVE_NOW cho chắc.
+    setTimeout(() => {
+      fbGoLive({ liveVideoId, pageAccessToken: pageToken }).catch(() => {});
+    }, 8000);
+
+    return {
       sessionId,
       pageId,
       pageName,
-      status: "starting",
-      startedBy,
-      autoStopAt: new Date(Date.now() + AUTO_STOP_MIN * 60 * 1000),
-    });
+      liveVideoId,
+      permalinkUrl: doc.permalinkUrl,
+      status: "live",
+    };
+  } catch (err) {
+    doc.status = "error";
+    doc.error = err?.response?.data?.error?.message || err?.message || "Lỗi tạo live";
+    doc.stoppedAt = new Date();
+    await doc.save();
+    await markFacebookPageFreeByPage(pageId, { delayMs: 0 }).catch(() => {});
+    return { sessionId, pageId, pageName, status: "error", error: doc.error };
+  }
+}
 
-    try {
-      const pageToken = await getValidPageToken(pageId);
-      const live = await fbCreateLiveOnPage({
-        pageId,
-        pageAccessToken: pageToken,
-        title: `🔴 TEST LIVE — ${pageName}`,
-        description: "Phiên test đa luồng PickleTour (test pattern).",
-        status: "LIVE_NOW",
-      });
-      const liveVideoId = live?.id;
-      const secureStreamUrl = live?.secure_stream_url;
-      if (!liveVideoId || !secureStreamUrl) {
-        throw new Error("Facebook không trả live video / stream url");
+/**
+ * Bắt đầu test live.
+ *  - `pageIds` (mảng): test đúng các page được CHỌN (bỏ qua page bận/cần reauth kèm lý do).
+ *  - ngược lại: lấy `count` page rảnh bất kỳ trong pool.
+ */
+export async function startFbLiveTests({ count = 3, pageIds = null, startedBy = "" } = {}) {
+  const created = [];
+  let stoppedReason = "";
+
+  if (Array.isArray(pageIds) && pageIds.length) {
+    const wanted = [...new Set(pageIds.map((x) => String(x).trim()).filter(Boolean))].slice(
+      0,
+      MAX_COUNT
+    );
+    for (const pid of wanted) {
+      const page = await FbToken.findOne({ pageId: pid }).lean();
+      if (!page) {
+        created.push({ pageId: pid, pageName: pid, status: "error", error: "Không tìm thấy page" });
+        continue;
       }
-
-      doc.liveVideoId = liveVideoId;
-      doc.permalinkUrl = live?.permalink_url
-        ? `https://www.facebook.com${live.permalink_url}`
-        : "";
-      doc.status = "live";
-      doc.hostPid = process.pid;
-      await doc.save();
-
-      await markFacebookPageBusy({ pageId, matchId: null, liveVideoId });
-
-      spawnPusher(sessionId, secureStreamUrl);
-
-      // Sau ~8s (khi stream đã chảy) ép LIVE_NOW cho chắc.
-      setTimeout(() => {
-        fbGoLive({ liveVideoId, pageAccessToken: pageToken }).catch(() => {});
-      }, 8000);
-
-      created.push({
-        sessionId,
-        pageId,
-        pageName,
-        liveVideoId,
-        permalinkUrl: doc.permalinkUrl,
-        status: "live",
-      });
-    } catch (err) {
-      doc.status = "error";
-      doc.error = err?.response?.data?.error?.message || err?.message || "Lỗi tạo live";
-      doc.stoppedAt = new Date();
-      await doc.save();
-      await markFacebookPageFreeByPage(pageId, { delayMs: 0 }).catch(() => {});
-      created.push({
-        sessionId,
-        pageId,
-        pageName,
-        status: "error",
-        error: doc.error,
-      });
+      if (page.needsReauth) {
+        created.push({ pageId: pid, pageName: page.pageName || pid, status: "error", error: "Page cần reauth" });
+        continue;
+      }
+      if (page.isBusy) {
+        created.push({ pageId: pid, pageName: page.pageName || pid, status: "error", error: "Page đang bận" });
+        continue;
+      }
+      created.push(await startOnePageTest(page, startedBy));
+    }
+    if (wanted.length < pageIds.length) {
+      stoppedReason = `Giới hạn ${MAX_COUNT} page/lần`;
+    }
+  } else {
+    const want = Math.min(MAX_COUNT, Math.max(1, Number(count) || 1));
+    for (let i = 0; i < want; i += 1) {
+      const page = await pickFreeFacebookPage();
+      if (!page) {
+        stoppedReason = "Hết page rảnh trong pool";
+        break;
+      }
+      created.push(await startOnePageTest(page, startedBy));
     }
   }
 

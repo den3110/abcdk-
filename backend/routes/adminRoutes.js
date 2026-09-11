@@ -329,6 +329,7 @@ import {
   listFbLiveTest,
   stopAllFbLiveTest,
   stopFbLiveTest,
+  listFbLiveTestPages,
 } from "../controllers/admin/fbLiveTestController.js";
 import {
   getNewsCandidates,
@@ -1550,6 +1551,7 @@ router.delete(
 );
 
 // Test live nhiều page cùng lúc (test pattern, không cần camera)
+router.get("/fb/live-test/pages", protect, authorize("admin"), listFbLiveTestPages);
 router.post("/fb/live-test/start", protect, authorize("admin"), startFbLiveTest);
 router.get("/fb/live-test/sessions", protect, authorize("admin"), listFbLiveTest);
 router.post("/fb/live-test/stop-all", protect, authorize("admin"), stopAllFbLiveTest);
