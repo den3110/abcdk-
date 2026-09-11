@@ -24,7 +24,8 @@ const _procs = new Map();
 
 const MAX_COUNT = Math.max(1, Number(process.env.FB_LIVE_TEST_MAX || 10));
 const AUTO_STOP_MIN = Math.max(1, Number(process.env.FB_LIVE_TEST_AUTOSTOP_MIN || 15));
-const BUSY_MATCH_TAG = "__fb_live_test__"; // đánh dấu busy, không đụng match thật
+// KHÔNG set busyMatch (field ObjectId ref Match) cho phiên test — sẽ CastError.
+// Phiên test được theo dõi qua collection FbLiveTestSession (theo pageId).
 
 function ffmpegArgs(secureStreamUrl, label = "") {
   // testsrc + tone sine, H.264/AAC, đẩy FLV vào RTMPS của Facebook.
@@ -94,7 +95,7 @@ export async function startFbLiveTests({ count = 3, startedBy = "" } = {}) {
     const sessionId = randomUUID();
 
     // Giữ chỗ page NGAY để lần pick kế không trả lại chính nó.
-    await markFacebookPageBusy({ pageId, matchId: BUSY_MATCH_TAG, liveVideoId: null });
+    await markFacebookPageBusy({ pageId, matchId: null, liveVideoId: null });
 
     const doc = await FbLiveTestSession.create({
       sessionId,
@@ -128,7 +129,7 @@ export async function startFbLiveTests({ count = 3, startedBy = "" } = {}) {
       doc.hostPid = process.pid;
       await doc.save();
 
-      await markFacebookPageBusy({ pageId, matchId: BUSY_MATCH_TAG, liveVideoId });
+      await markFacebookPageBusy({ pageId, matchId: null, liveVideoId });
 
       spawnPusher(sessionId, secureStreamUrl);
 
