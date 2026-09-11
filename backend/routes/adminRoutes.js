@@ -274,6 +274,12 @@ import {
   ytRevoke,
 } from "../controllers/youtubeSetupController.js";
 import {
+  startYtLiveTest,
+  listYtLiveTest,
+  stopAllYtLiveTest,
+  stopYtLiveTest,
+} from "../controllers/admin/ytLiveTestController.js";
+import {
   disconnectRecordingDriveOAuth,
   recordingDrivePickerSession,
   getRecordingDriveOAuthStatus,
@@ -1499,6 +1505,12 @@ router.get(
   ytGetOrCreateStreamKey,
 );
 router.post("/youtube/revoke", protect, authorize("admin"), ytRevoke);
+
+// Test live YouTube nhiều luồng cùng lúc (test pattern, không cần camera)
+router.post("/youtube/live-test/start", protect, authorize("admin"), startYtLiveTest);
+router.get("/youtube/live-test/sessions", protect, authorize("admin"), listYtLiveTest);
+router.post("/youtube/live-test/stop-all", protect, authorize("admin"), stopAllYtLiveTest);
+router.post("/youtube/live-test/:sessionId/stop", protect, authorize("admin"), stopYtLiveTest);
 
 router.get(
   "/live-sessions/:id([0-9a-fA-F]{24})",

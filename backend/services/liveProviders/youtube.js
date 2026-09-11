@@ -380,6 +380,7 @@ export class YouTubeProvider extends LiveProvider {
 
       return {
         platformLiveId: broadcast.id,
+        streamId: stream.id,
         serverUrl,
         streamKey,
         secureStreamUrl: null,
@@ -392,6 +393,29 @@ export class YouTubeProvider extends LiveProvider {
         e?.response?.data || e?.errors || e?.message || e
       );
       throw e;
+    }
+  }
+
+  /** Kết thúc + xoá broadcast/stream (best-effort) — dùng cho dọn phiên test. */
+  async endAndDelete({ broadcastId, streamId }) {
+    const { oauth2 } = await getOAuthReady(this.cred || {});
+    const yt = google.youtube({ version: "v3", auth: oauth2 });
+    if (broadcastId) {
+      try {
+        await yt.liveBroadcasts.transition({
+          id: broadcastId,
+          broadcastStatus: "complete",
+          part: ["id", "status"],
+        });
+      } catch {}
+      try {
+        await yt.liveBroadcasts.delete({ id: broadcastId });
+      } catch {}
+    }
+    if (streamId) {
+      try {
+        await yt.liveStreams.delete({ id: streamId });
+      } catch {}
     }
   }
 }

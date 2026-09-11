@@ -116,6 +116,7 @@ import { startSeoNewsPipelineWorker } from "./services/seoNewsPipelineQueue.serv
 import { startLiveRecordingAiCommentaryWorker } from "./services/liveRecordingAiCommentaryQueue.service.js";
 import { startLiveRecordingAutoExportSweep } from "./services/liveRecordingMonitor.service.js";
 import { startFbLiveTestAutoStopSweep } from "./services/fbLiveTest.service.js";
+import { startYtLiveTestAutoStopSweep } from "./services/youtubeLiveTest.service.js";
 import { isBackgroundJobLeaderProcess } from "./utils/backgroundJobWindow.js";
 import { installOpsProcessHooks } from "./services/ops/opsRuntime.service.js";
 // 🔹 GraphQL layer
@@ -548,6 +549,7 @@ const startServer = async () => {
           startCourtLivePresenceSweep();
           startLiveRecordingAutoExportSweep();
           startFbLiveTestAutoStopSweep();
+          startYtLiveTestAutoStopSweep();
           startUserAvatarOptimizationCron();
           startOptimizedImageCleanupCron();
           startSeoNewsImageRegenerationWorker();
