@@ -128,14 +128,14 @@ function Panel({ icon, title, children, style }) {
 }
 
 /* card điểm trình trong hero */
-function RatingCard({ label, value, reliability, delay }) {
+function RatingCard({ label, value, reliability, delay, unrated }) {
   const { t } = useLanguage();
   const pct = Math.max(0, Math.min(100, Math.round(Number(reliability || 0) * 100)));
   return (
     <div className="pk-rise" style={{ borderRadius: 16, border: "1px solid rgba(255,255,255,.12)", background: "rgba(20,21,24,.66)", backdropFilter: "blur(10px)", padding: "16px 20px", minWidth: 148, animationDelay: delay }}>
       <div style={{ fontSize: 11.5, fontWeight: 750, letterSpacing: ".08em", textTransform: "uppercase", color: "#9AA0A6" }}>{label}</div>
-      <div style={{ marginTop: 6, fontSize: 32, fontWeight: 800, letterSpacing: "-.02em", color: "var(--pk-text-strong)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
-        {Number(value ?? 0).toFixed(2)}
+      <div style={{ marginTop: 6, fontSize: unrated ? 20 : 32, fontWeight: 800, letterSpacing: "-.02em", color: unrated ? "#9AA0A6" : "var(--pk-text-strong)", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+        {unrated ? "Chưa chấm" : Number(value ?? 0).toFixed(2)}
       </div>
       <div style={{ marginTop: 10 }}>
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#8F959C", marginBottom: 4 }}>
@@ -413,8 +413,8 @@ export default function ProfilePage() {
 
                     {/* phải: điểm trình */}
                     <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-                      <RatingCard label={t("v3.profile.ratingDoubles")} value={user?.localRatings?.doubles ?? user?.ratingDouble} reliability={user?.localRatings?.reliabilityDoubles} delay=".18s" />
-                      <RatingCard label={t("v3.profile.ratingSingles")} value={user?.localRatings?.singles ?? user?.ratingSingle} reliability={user?.localRatings?.reliabilitySingles} delay=".24s" />
+                      <RatingCard label={t("v3.profile.ratingDoubles")} value={user?.localRatings?.doubles ?? user?.ratingDouble} unrated={user?.rated === false} reliability={user?.localRatings?.reliabilityDoubles} delay=".18s" />
+                      <RatingCard label={t("v3.profile.ratingSingles")} value={user?.localRatings?.singles ?? user?.ratingSingle} unrated={user?.rated === false} reliability={user?.localRatings?.reliabilitySingles} delay=".24s" />
                     </div>
                   </div>
                 )}

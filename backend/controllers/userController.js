@@ -2608,6 +2608,9 @@ const getUserProfile = asyncHandler(async (req, res) => {
   // ✅ gán cho UI dùng
   userObj.ratingSingle = ratingSingle;
   userObj.ratingDouble = ratingDouble;
+  // Đã được chấm trình chưa? (có Ranking doc = đã chấm / đã có điểm thật).
+  // Nếu chưa: điểm 2.5 chỉ là giá trị khởi tạo mặc định, UI nên hiện "Chưa chấm".
+  userObj.rated = Boolean(rankDoc);
   userObj.isAdmin = userObj.role === "admin";
   userObj.isSuperUser = !!(userObj.isSuperUser || userObj.isSuperAdmin);
   userObj.isSuperAdmin = !!(userObj.isSuperUser || userObj.isSuperAdmin);
