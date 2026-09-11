@@ -100,7 +100,8 @@ export async function startYtLiveTests({ count = 2, startedBy = "" } = {}) {
   const want = Math.min(MAX_COUNT, Math.max(1, Number(count) || 1));
   const created = [];
   const provider = await getProvider();
-  const privacy = (await getCfgStr("YT_BROADCAST_PRIVACY", "unlisted")).trim() || "unlisted";
+  // Clip test để PUBLIC + không dành cho trẻ em (provider set selfDeclaredMadeForKids:false).
+  const privacy = (await getCfgStr("YT_LIVE_TEST_PRIVACY", "public")).trim() || "public";
 
   for (let i = 0; i < want; i += 1) {
     const sessionId = randomUUID();
