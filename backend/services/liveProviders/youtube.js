@@ -359,7 +359,10 @@ export class YouTubeProvider extends LiveProvider {
             description,
             scheduledStartTime: new Date().toISOString(),
           },
-          status: { privacyStatus: privacy },
+          status: {
+            privacyStatus: privacy,
+            selfDeclaredMadeForKids: false,
+          },
           contentDetails: { enableAutoStart: true, enableAutoStop: true },
         },
       });

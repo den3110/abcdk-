@@ -170,7 +170,7 @@ export const createLiveSessionForLiveApp = async (req, res) => {
       }
       const accessExpiresAt = await getCfgStr("YOUTUBE_ACCESS_EXPIRES_AT", "");
       const privacy =
-        (await getCfgStr("YT_BROADCAST_PRIVACY", "unlisted")).trim() || "unlisted";
+        (await getCfgStr("YT_BROADCAST_PRIVACY", "public")).trim() || "public";
 
       // Tiêu đề broadcast từ thông tin trận
       let ytTitle = "PickleTour Live";
