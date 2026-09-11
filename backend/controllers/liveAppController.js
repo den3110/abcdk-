@@ -89,6 +89,41 @@ async function acquireRedisLock(key, ttlMs, maxWaitMs) {
   return null;
 }
 
+function matchKindIsUser(req) {
+  return (
+    String(req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"] || "")
+      .trim()
+      .toLowerCase() === "user"
+  );
+}
+
+// Đè link "clip/live" của trận về nền tảng vừa live (mới nhất) + xoá block live
+// của nền tảng cũ. Dùng khi live lại 1 trận sang nền tảng khác (vd FB lỗi → YouTube).
+async function applyLatestLiveLinkToMatch({ matchId, isUserMatch, platform, watchUrl }) {
+  try {
+    if (!matchId) return;
+    const M = isUserMatch ? UserMatch : Match;
+    const set = {};
+    if (watchUrl) set.video = watchUrl;
+    const unset = {};
+    if (platform === "youtube") {
+      unset.facebookLive = "";
+      unset["meta.facebook"] = "";
+    } else {
+      unset.youtubeLive = "";
+      unset["meta.youtube"] = "";
+    }
+    const update = {};
+    if (Object.keys(set).length) update.$set = set;
+    if (Object.keys(unset).length) update.$unset = unset;
+    if (Object.keys(update).length) {
+      await M.updateOne({ _id: matchId }, update);
+    }
+  } catch (e) {
+    console.error("[live-app] applyLatestLiveLinkToMatch error", e?.message || e);
+  }
+}
+
 export const createLiveSessionForLiveApp = async (req, res) => {
   const matchId = String(req.params?.matchId || "").trim();
   if (!matchId) return res.status(400).json({ message: "matchId is required" });
@@ -328,6 +363,12 @@ export const createLiveSessionForLiveApp = async (req, res) => {
     if (ySecure == null && (!yServer || !yKey)) {
       return res.status(409).json({ message: "Không nhận được RTMP URL từ YouTube" });
     }
+    await applyLatestLiveLinkToMatch({
+      matchId,
+      isUserMatch: matchKindIsUser(req),
+      platform: "youtube",
+      watchUrl: yt.watch_url || yt.watchUrl || null,
+    });
     return res.json({
       platform: "youtube",
       youtube: {
@@ -374,6 +415,13 @@ export const createLiveSessionForLiveApp = async (req, res) => {
       detail: { hasFacebook: !!fb, hasPrimary: !!primary },
     });
   }
+
+  await applyLatestLiveLinkToMatch({
+    matchId,
+    isUserMatch: matchKindIsUser(req),
+    platform: "facebook",
+    watchUrl: watch_url || permalink_url || null,
+  });
 
   return res.json({
     platform: "facebook",
