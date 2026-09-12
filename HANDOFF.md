@@ -12,6 +12,7 @@
 > 7. **SĐT/CCCD dùng bàn phím hệ thống** (nhập số 0 đầu) — `PtInput` ép phone-pad system, CCCD `systemKeyboard`. ⚠️ OTP chưa fix. `[[mobile-numeric-keypad]]`.
 > 8. **MLP**: giải demo tạo trên server (id `6aa4b00aa456bb8de2d7d320`, 6 đội×4 VĐV); web v3 trang chi tiết hiện đội MLP (`MlpTeamCard`) + fix màu BXH/dual card trên dark (`MlpBracketView`, dùng token theme thay nền sáng cứng).
 > 9. iOS bump 1.1.15/45 + fix launch screen (folder `ios/` thiếu `UILaunchStoryboardName` → App Store 90475). Native live iOS: FB RTMP auth token, crash/decode/ATS, overlay MLP pixel-parity (đan xen — xem memories `native-live-*`).
+> 10. **Thẻ giải MLP "Đăng ký 0/0"** (12/09 sáng) — list/detail/admin chỉ đếm `registrations`, MLP dùng `mlpteams` → thêm lookup mlpteams + `$cond` theo `tournamentMode`; FE ẩn mẫu số khi `maxPairs=0`. Backend `0cd50898`, mobile `38416e0`. Đã deploy backend+web+OTA. Chi tiết root `../HANDOFF.md`.
 >
 > **⚠️ Nhắc:** mobile ở nhánh **`feat/ui-v2-modern`** (`git push origin feat/ui-v2-modern`). Deploy ffmpeg RTMP luôn dùng ffmpeg hệ thống.
 
