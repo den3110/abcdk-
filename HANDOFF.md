@@ -1,3 +1,20 @@
+> ## 🆕 Session 2026-09-11→12 — Ops monitor + FB/YT live test + Chat link/copy + POS khách vãng lai + MLP demo/màu v3 + SĐT/CCCD keyboard
+>
+> **HEAD:** backend `abcdk-` master `1a79371c` · admin `abcde` master `6f899fb` · mobile `pickletour-app` **nhánh `feat/ui-v2-modern`** `806b29b` (KHÔNG phải master). Đã deploy backend + web + admin + OTA iOS/Android.
+>
+> **Đã ship (đọc root `../HANDOFF.md` cho chi tiết + memories):**
+> 1. **Giám sát vận hành + Telegram** — cảnh báo token hết hạn (Zalo/Drive/YouTube/FB) / SSL / lỗi 5xx/uncaught / tồn đọng phiếu-đơn. Cấu hình ở Admin → Cài đặt → Giám sát vận hành (`SystemSettings.opsMonitor`, env `TELEGRAM_OPS_*` fallback). `backend/services/ops/*`, `/api/admin/ops/*`. Memory `[[ops-monitor-telegram]]`.
+> 2. **Admin FB Login Tokens** (`/admin/fb-boot-tokens`) — quản lý `FB_BOOT_LONG_USER_TOKEN` (token=tài khoản, không phải page); soi tài khoản/page, live/chết, thêm/xoá + resync. `[[fb-boot-tokens-admin]]`.
+> 3. **FB Live Test** (`/admin/fb-live-test`) + **YouTube Live Test** (`/admin/yt-live-test`) — test live nhiều luồng đồng thời (test pattern, không cần camera). **GOTCHA: ffmpeg-static SEGFAULT khi RTMPS → dùng /usr/bin/ffmpeg (`FFMPEG_PATH`)**. YT: mỗi luồng 1 broadcast/stream riêng, public + madeForKids=false; giới hạn quota API 10k/ngày.
+> 4. **Chat**: link bấm được + copy tin nhắn (web+mobile, `MentionText`).
+> 5. **POS chủ sân**: sửa/xoá đơn + **tính tiền khách vãng lai** (gộp tiền sân/dịch vụ + bán hàng 1 bill, `VenueSale.serviceItems`). `[[court-booking-system]]`.
+> 6. **Điểm trình "Chưa chấm"** (cờ `rated`; 2.5 chỉ là default `localRatings`) — web+mobile.
+> 7. **SĐT/CCCD dùng bàn phím hệ thống** (nhập số 0 đầu) — `PtInput` ép phone-pad system, CCCD `systemKeyboard`. ⚠️ OTP chưa fix. `[[mobile-numeric-keypad]]`.
+> 8. **MLP**: giải demo tạo trên server (id `6aa4b00aa456bb8de2d7d320`, 6 đội×4 VĐV); web v3 trang chi tiết hiện đội MLP (`MlpTeamCard`) + fix màu BXH/dual card trên dark (`MlpBracketView`, dùng token theme thay nền sáng cứng).
+> 9. iOS bump 1.1.15/45 + fix launch screen (folder `ios/` thiếu `UILaunchStoryboardName` → App Store 90475). Native live iOS: FB RTMP auth token, crash/decode/ATS, overlay MLP pixel-parity (đan xen — xem memories `native-live-*`).
+>
+> **⚠️ Nhắc:** mobile ở nhánh **`feat/ui-v2-modern`** (`git push origin feat/ui-v2-modern`). Deploy ffmpeg RTMP luôn dùng ffmpeg hệ thống.
+
 > ## 🆕 Session 2026-09-07 — Đặt sân (Alobo-style) hoàn thiện + Nhân viên/phân quyền + POS bill/PDF + Bank picker + fix bàn phím
 >
 > **HEAD:** backend `abcdk-` master (nhiều commit: staff/permissions `e9848ef4`, hold-15' `40733b6a`, fix "Ngày không hợp lệ" `492c5939`) · mobile `pickletour-app` master (staff/POS/bank `7e2e61f`, home banner `91da93d`, keyboard fixes commit tiếp theo) · web frontend (staff page + bank picker commit tiếp theo). **Backend CHƯA chắc đã deploy — nhắc user chạy** `cd /abcdk- && git fetch origin master && git reset --hard origin/master && pm2 restart server --update-env`.
