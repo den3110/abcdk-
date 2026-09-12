@@ -2503,12 +2503,18 @@ export async function removeMatchFromCourtStationQueue(stationId, matchId) {
 
 export async function advanceCourtStationQueueOnMatchFinished(matchId) {
   const normalizedMatchId = toIdString(matchId);
+  // Trước: chỉ tìm station `assignmentMode: "queue"` → sân MANUAL không được
+  // dọn khi match finish → `currentMatch` kẹt trỏ trận đã xong → app native
+  // (LiveAppStore) thấy `runtime.currentMatchId` cũ = activeMatch.id → không
+  // chuyển sang trạng thái "chờ trận mới", nên khi admin gán trận mới cũng
+  // không tự nạp. Nay bỏ ràng buộc mode để manual cũng được dọn currentMatch
+  // ngay khi trận finish; mode "queue" vẫn tự đẩy item kế tiếp (assigned:false
+  // return giữ nguyên vì không auto pick trong service này).
   const station = await CourtStation.findOne({
     $or: [
       { currentMatch: normalizedMatchId },
       { "assignmentQueue.items.matchId": normalizedMatchId },
     ],
-    assignmentMode: "queue",
   })
     .select(
       "_id clusterId assignmentMode assignmentQueue currentMatch currentTournament status"
