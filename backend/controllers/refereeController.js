@@ -18,6 +18,11 @@ import Court from "../models/courtModel.js";
 import CourtStation from "../models/courtStationModel.js";
 import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 import { broadcastState } from "../services/broadcastState.js";
+import { advanceCourtStationQueueOnMatchFinished } from "../services/courtCluster.service.js";
+import {
+  publishCourtClusterRuntimeUpdate,
+  publishCourtStationRuntimeUpdate,
+} from "../services/courtStationRuntimeEvents.service.js";
 import UserMatch from "../models/userMatchModel.js";
 import { emitTournamentMatchUpdate } from "../socket/tournamentRealtime.js";
 import { dispatchMatchLiveActivityUpdate } from "../services/liveActivityApns.service.js";
@@ -1580,6 +1585,44 @@ export const patchWinner = asyncHandler(async (req, res) => {
 
   await match.save();
   await invalidateMatchSnapshotCache(match._id);
+
+  // Trọng tài chốt winner qua HTTP (đường cũ) → trận finished nhưng sân KHÔNG được dọn
+  // currentMatch / không publish court-station:update (chỉ luồng matchLiveSync.
+  // runFinishedSideEffects mới làm) → app native ở sân ngồi "chờ trận kế tiếp" mà không
+  // biết sân đã trống. Làm cùng side-effect như luồng sync.
+  if (!clearing) {
+    try {
+      const stationAdvance = await advanceCourtStationQueueOnMatchFinished(match._id);
+      const stationId =
+        stationAdvance?.station?._id || match.courtStation?._id || match.courtStation;
+      const clusterId =
+        stationAdvance?.station?.clusterId ||
+        match.courtClusterId?._id ||
+        match.courtClusterId;
+      await Promise.allSettled([
+        clusterId
+          ? publishCourtClusterRuntimeUpdate({
+              clusterId,
+              stationIds: stationId ? [stationId] : [],
+              reason: "match_finished_winner",
+            })
+          : Promise.resolve(false),
+        stationId
+          ? publishCourtStationRuntimeUpdate({
+              stationId,
+              clusterId,
+              reason: "match_finished_winner",
+            })
+          : Promise.resolve(false),
+      ]);
+    } catch (error) {
+      console.error(
+        "[patchWinner] court station finish side effect error:",
+        error?.message || error
+      );
+    }
+  }
+
   const mFull = await populateMatchForEmit(id);
   if (!mFull) return;
   const dto = toDTO(decorateServeAndSlots(mFull));

@@ -1311,6 +1311,34 @@ async function syncMatchLiveEventsLocked({
     await runFinishedSideEffects(match, actorId);
   }
 
+  // Trận vừa BẮT ĐẦU (status → live) trên sân: publish court-station:update để app native đang
+  // "chờ trận kế tiếp" trên sân đó nhận ngay currentMatch mới. Trước đây chỉ thao tác GÁN sân
+  // mới publish, còn bắt đầu trận thì không → app lỡ 1 event gán là chờ mãi.
+  if (
+    match.status === "live" &&
+    (match.courtStation || match.courtClusterId) &&
+    normalizedEvents.some((n) => n?.event?.type === "start")
+  ) {
+    const stationId = match.courtStation?._id || match.courtStation;
+    const clusterId = match.courtClusterId?._id || match.courtClusterId;
+    await Promise.allSettled([
+      clusterId
+        ? publishCourtClusterRuntimeUpdate({
+            clusterId,
+            stationIds: stationId ? [stationId] : [],
+            reason: "match_started",
+          })
+        : Promise.resolve(false),
+      stationId
+        ? publishCourtStationRuntimeUpdate({
+            stationId,
+            clusterId,
+            reason: "match_started",
+          })
+        : Promise.resolve(false),
+    ]);
+  }
+
   const snapshot = await loadMatchLiveSnapshot(matchId);
   if (snapshot && ackedClientEventIds.length > 0) {
     await emitMatchRealtimeUpdate(io, matchId, lastEmittedType || "sync", snapshot);

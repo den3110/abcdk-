@@ -753,7 +753,7 @@ final class LiveAppStore: ObservableObject {
         }
     }
 
-    func stopLive() async {
+    func stopLive(resumeCourtLoops: Bool = true) async {
         stopBackgroundLoops()
         goLiveCountdownTask?.cancel()
         goLiveCountdownTask = nil
@@ -812,12 +812,20 @@ final class LiveAppStore: ObservableObject {
             self.queuedCourtMatchId = nil
             await switchMatchContext(to: queuedCourtMatchId, announcement: "Đã chuyển sang match kế tiếp.")
         }
+
+        // Vẫn đứng ở màn sân (trận kết thúc / operator bấm dừng): stopBackgroundLoops() ở trên
+        // đã huỷ vòng poll runtime sân — fallback duy nhất để app tự thấy trận mới khi lỡ
+        // socket court-station:update. Trước đây không ai bật lại → app "chờ trận kế tiếp" mãi
+        // dù admin đã gán sân + trọng tài đã bắt đầu trận mới.
+        if resumeCourtLoops, route == .liveStream, let courtId = currentCourtId?.trimmedNilIfBlank {
+            await resumeCourtWaitingLoops(courtId: courtId)
+        }
     }
 
     func leaveLiveScreen() async {
         showModeSelector = false
         if hasActiveLivestreamSession || streamingService.isRecordingLocally {
-            await stopLive()
+            await stopLive(resumeCourtLoops: false)
         } else if let courtId = currentCourtId {
             stopBackgroundLoops()
             _ = try? await environment.apiClient.endCourtPresence(
@@ -2945,6 +2953,24 @@ final class LiveAppStore: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Sau khi phiên live/ghi hình đóng mà vẫn đứng ở màn sân: nối lại watch socket sân,
+    /// báo presence "đang chờ", hỏi runtime NGAY một lần (bắt trận đã được gán trong lúc đóng
+    /// phiên) rồi bật lại poll runtime + overlay MLP.
+    private func resumeCourtWaitingLoops(courtId: String) async {
+        watchCourt(courtId)
+        environment.courtRuntimeSocket.connectIfNeeded()
+        let response = try? await environment.apiClient.startCourtPresence(
+            courtId: courtId,
+            clientSessionId: streamingService.clientSessionId,
+            screenState: currentPresenceScreenState(),
+            matchId: activeMatch?.id
+        )
+        applyPresenceResponse(response, matchId: activeMatch?.id)
+        await refreshCourtRuntime(courtId: courtId)
+        await startRuntimePolling(for: courtId)
+        startMlpOverlayPolling(for: courtId)
     }
 
     private func startRuntimePolling(for courtId: String) async {
