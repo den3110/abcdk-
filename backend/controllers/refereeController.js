@@ -382,6 +382,19 @@ export function computeStageInfoForMatchDoc(m) {
     }
   }
 
+  // Ưu tiên tên bracket do user tự đặt (VD "Playoff", "Vòng loại") — thay auto
+  // "Chung kết"/"Tứ kết"/... bằng "Vòng {N} - {tên bracket}". Chỉ áp cho KO
+  // đơn nhánh (double_elim đã có nhánh thắng/thua/CK tổng riêng).
+  if (bracketType !== "double_elim") {
+    const bracketName = String((m.bracket && m.bracket.name) || "").trim();
+    const isAutoName = /^(chung k[eê]́?t|b[aá]n k[eê]́?t|t[uứ] k[eê]́?t|v[oò]ng\s+\d|nh[aá]nh)/i.test(
+      bracketName
+    );
+    if (bracketName && !isAutoName && Number.isInteger(roundNo) && roundNo > 0) {
+      stageName = `Vòng ${roundNo} - ${bracketName}`;
+    }
+  }
+
   return { stageType, stageName };
 }
 

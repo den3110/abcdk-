@@ -641,7 +641,45 @@ export const toDTO = (matchDoc) => {
       const ordinal = overlayRoundElimOrdinalLabel();
       if (ordinal) return ordinal;
     }
-    return readOverlayText(roundName, overlayCodeToRoundLabel(roundCode));
+
+    // Per-match roundName ưu tiên tuyệt đối
+    const byName = readOverlayText(roundName);
+    if (byName) return byName;
+
+    // KO family: nếu bracket có tên riêng do user đặt → "Vòng {N} - {tên}"
+    // (VD "Vòng 1 - Playoff" khi bracket.name="Playoff", trận Vòng 1)
+    const koFamily = [
+      "po",
+      "playoff",
+      "play-offs",
+      "knockout",
+      "ko",
+      "single",
+      "singleelimination",
+      "single_elimination",
+      "double",
+      "doubleelimination",
+      "double_elimination",
+      "double_elim",
+    ];
+    if (koFamily.includes(bracketTypeValue)) {
+      const bracketName = String(bracket?.name || "").trim();
+      const roundNo = Number(m?.round);
+      const isAutoName =
+        /^(chung k[eê]́?t|b[aá]n k[eê]́?t|t[uứ] k[eê]́?t|v[oò]ng\s+\d|nh[aá]nh)/i.test(
+          bracketName
+        );
+      if (
+        bracketName &&
+        !isAutoName &&
+        Number.isInteger(roundNo) &&
+        roundNo > 0
+      ) {
+        return `Vòng ${roundNo} - ${bracketName}`;
+      }
+    }
+
+    return overlayCodeToRoundLabel(roundCode);
   })();
   const phaseText = (() => {
     const bracketTypeValue = String(bracket?.type || format || "")

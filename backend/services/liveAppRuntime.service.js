@@ -362,6 +362,40 @@ function buildRoundElimOrdinalLabel(match, roundCode) {
   return Number.isInteger(ordinal) && ordinal > 0 ? `Vòng ${ordinal}` : "";
 }
 
+const KO_FAMILY_BRACKET_TYPES = new Set([
+  "knockout",
+  "ko",
+  "playoff",
+  "po",
+  "play-offs",
+  "single",
+  "singleelimination",
+  "single_elimination",
+  "double",
+  "doubleelimination",
+  "double_elimination",
+  "double_elim",
+]);
+
+// Bracket.name có phải label vòng tự sinh (Chung kết / Bán kết / Tứ kết / Vòng N)
+// hay tên do user tự đặt (Playoff, Nhánh thắng, Vòng loại, Knockout...). Nếu là
+// tên tự sinh thì fallback về codeToRoundLabel; nếu là tên user thì hiển thị
+// "Vòng {N} - {tên bracket}" (case user yêu cầu: bracket "Playoff", trận Vòng 1).
+function isAutoStageBracketName(name) {
+  const t = String(name || "")
+    .trim()
+    .toLowerCase();
+  if (!t) return false;
+  if (t === "chung kết" || t === "bán kết" || t === "tứ kết") return true;
+  if (t === "chung ket" || t === "ban ket" || t === "tu ket") return true;
+  if (/^vòng\s+\d+/.test(t)) return true;
+  if (/^vong\s+\d+/.test(t)) return true;
+  if (/^vòng\s+1\/\d+/.test(t)) return true;
+  if (/^vong\s+1\/\d+/.test(t)) return true;
+  if (t.startsWith("nhánh") || t.startsWith("nhanh")) return true;
+  return false;
+}
+
 function buildRuntimeRoundLabel(match, roundCode = inferRoundCode(match)) {
   const bracketType = String(match?.bracket?.type || match?.format || "")
     .trim()
@@ -371,7 +405,28 @@ function buildRuntimeRoundLabel(match, roundCode = inferRoundCode(match)) {
     const ordinal = buildRoundElimOrdinalLabel(match, roundCode);
     if (ordinal) return ordinal;
   }
-  return firstText(match?.roundName, codeToRoundLabel(roundCode));
+
+  // Per-match roundName ưu tiên tuyệt đối (user tự set)
+  const explicitRoundName = firstText(match?.roundName);
+  if (explicitRoundName) return explicitRoundName;
+
+  // KO family: nếu bracket có tên riêng (user tự đặt) thì "Vòng {N} - {tên}"
+  // → Match "Vòng 1" của bracket "Playoff" ra "Vòng 1 - Playoff", thay vì auto
+  // codeToRoundLabel("R2") = "Chung kết" (khi drawSize=2 nhưng user coi là playoff).
+  if (KO_FAMILY_BRACKET_TYPES.has(bracketType)) {
+    const bracketName = firstText(match?.bracket?.name);
+    const roundNo = Number(match?.round);
+    if (
+      bracketName &&
+      Number.isInteger(roundNo) &&
+      roundNo > 0 &&
+      !isAutoStageBracketName(bracketName)
+    ) {
+      return `Vòng ${roundNo} - ${bracketName}`;
+    }
+  }
+
+  return codeToRoundLabel(roundCode);
 }
 
 function buildRuntimePhaseText(match) {
