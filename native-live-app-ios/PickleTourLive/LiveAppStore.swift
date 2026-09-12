@@ -709,7 +709,9 @@ final class LiveAppStore: ObservableObject {
                 matchId: activeMatch.id,
                 pageId: launchTarget.pageId,
                 platform: selectedPlatform,
-                force: false,
+                // Luôn tạo live MỚI như trang admin FB Live Test (không tái dùng live/stream key
+                // của phiên trước — key của live FB đã kết thúc → "Video trực tiếp không khả dụng").
+                force: true,
                 userMatch: launchTarget.isUserMatchLaunch
             )
             self.liveSession = liveSession
