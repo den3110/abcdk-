@@ -137,6 +137,34 @@ private struct APIErrorPayload: Decodable {
     var message: String?
     var error: String?
     var reason: String?
+    var hint: String?
+    var failedPages: [FailedPage]?
+
+    struct FailedPage: Decodable {
+        var pageId: String?
+        var pageName: String?
+        var error: String?
+    }
+
+    func composedMessage(statusCode: Int) -> String {
+        let base = message ?? error ?? reason ?? "Máy chủ trả về lỗi \(statusCode)."
+        var parts: [String] = [base]
+        if let hint, !hint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append("💡 \(hint)")
+        }
+        if let failedPages, !failedPages.isEmpty {
+            let lines = failedPages.prefix(5).map { p -> String in
+                let name = p.pageName?.trimmedNilIfBlank ?? p.pageId?.trimmedNilIfBlank ?? "Page"
+                let err = p.error?.trimmedNilIfBlank ?? "lỗi không rõ"
+                return "• \(name): \(err)"
+            }
+            parts.append("Chi tiết page:\n" + lines.joined(separator: "\n"))
+            if failedPages.count > 5 {
+                parts.append("… và \(failedPages.count - 5) page khác")
+            }
+        }
+        return parts.joined(separator: "\n\n")
+    }
 }
 
 final class KeychainStore {
@@ -601,7 +629,8 @@ final class LiveAPIClient {
 
         guard (200 ..< 300).contains(httpResponse.statusCode) else {
             let payload = try? JSONDecoder.liveApp.decode(APIErrorPayload.self, from: data)
-            let message = payload?.message ?? payload?.error ?? payload?.reason ?? "Máy chủ trả về lỗi \(httpResponse.statusCode)."
+            let message = payload?.composedMessage(statusCode: httpResponse.statusCode)
+                ?? "Máy chủ trả về lỗi \(httpResponse.statusCode)."
             throw LiveAPIError.server(statusCode: httpResponse.statusCode, message: message)
         }
 
