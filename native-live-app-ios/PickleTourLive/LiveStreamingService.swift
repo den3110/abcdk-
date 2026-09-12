@@ -1685,8 +1685,9 @@ private final class LiveScoreboardOverlayRenderer {
     private static let downsampleMaxPixelSize: CGFloat = 320
     private static let remoteImageCache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
-        cache.countLimit = 12
-        cache.totalCostLimit = 8 * 1024 * 1024
+        // 2 logo + tối đa 8 sponsor (Android MAX_SPONSORS) ở 320px ≈ 4MB → nới trần.
+        cache.countLimit = 16
+        cache.totalCostLimit = 12 * 1024 * 1024
         return cache
     }()
     var onBrandingStatusChange: ((OverlayBrandingAssetStatus) -> Void)?
@@ -1888,24 +1889,37 @@ private final class LiveScoreboardOverlayRenderer {
         Self.remoteImageCache.removeAllObjects()
     }
 
+    /// Trim, bỏ rỗng, khử trùng lặp giữ thứ tự (Android: trim / filter blank / distinct / take(8)).
+    private static func distinctTrimmed(_ urls: [String]?) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for url in urls ?? [] {
+            guard let trimmed = url.trimmedNilIfBlank, !seen.contains(trimmed) else { continue }
+            seen.insert(trimmed)
+            result.append(trimmed)
+        }
+        return result
+    }
+
+    // Key cache phải chứa MỌI field renderer vẽ (theo layout Android): thiếu field nào thì
+    // frame không vẽ lại khi field đó đổi.
     private static func cacheKey(snapshot: LiveOverlaySnapshot?, mlp: MlpOverlay?, size: CGSize, mode: OverlayPerformanceMode) -> String {
-        let setKey = (snapshot?.sets ?? [])
-            .map { "\($0.index):\($0.a ?? 0)-\($0.b ?? 0)" }
-            .joined(separator: ";")
-        let sponsorKey = (snapshot?.sponsorLogoURLs ?? [])
-            .compactMap { $0.trimmedNilIfBlank }
-            .joined(separator: ",")
+        let sponsorKey = distinctTrimmed(snapshot?.sponsorLogoURLs).joined(separator: ",")
         let mlpKey: String? = mlp.map { m in
             [
                 "MLP", m.mode,
-                (m.teamA?.slotWins).map(String.init),
-                (m.teamB?.slotWins).map(String.init),
-                (m.isDreamBreaker ? m.dreamBreaker?.scoreA : m.score?.currentGameA).map(String.init),
-                (m.isDreamBreaker ? m.dreamBreaker?.scoreB : m.score?.currentGameB).map(String.init),
+                m.tournament?.name, m.slot?.label,
+                m.teamA?.color, m.teamB?.color,
+                (m.teamA?.slotWins).map { String($0) },
+                (m.teamB?.slotWins).map { String($0) },
+                (m.isDreamBreaker ? m.dreamBreaker?.scoreA : m.score?.currentGameA).map { String($0) },
+                (m.isDreamBreaker ? m.dreamBreaker?.scoreB : m.score?.currentGameB).map { String($0) },
+                (m.dreamBreaker?.target).map { String($0) },
                 m.teamA?.displayName, m.teamB?.displayName,
-                m.isDreamBreaker ? m.teamA?.currentPlayer?.id : nil,
-                m.isDreamBreaker ? m.teamB?.currentPlayer?.id : nil,
-                m.slot?.label
+                (m.teamA?.players ?? []).map { $0.displayName }.joined(separator: "/"),
+                (m.teamB?.players ?? []).map { $0.displayName }.joined(separator: "/"),
+                m.teamA?.currentPlayer?.displayName,
+                m.teamB?.currentPlayer?.displayName
             ].compactMap { $0 }.joined(separator: "~")
         }
 
@@ -1913,18 +1927,21 @@ private final class LiveScoreboardOverlayRenderer {
             mlpKey,
             snapshot?.tournamentName,
             snapshot?.courtName,
+            snapshot?.stageName,
             snapshot?.teamAName,
             snapshot?.teamBName,
-            snapshot?.scoreA.map(String.init),
-            snapshot?.scoreB.map(String.init),
+            (snapshot?.scoreA).map { String($0) },
+            (snapshot?.scoreB).map { String($0) },
+            (snapshot?.seedA).map { String($0) },
+            (snapshot?.seedB).map { String($0) },
             snapshot?.serveSide,
-            snapshot?.phaseText,
-            snapshot?.roundLabel,
+            (snapshot?.serveCount).map { String($0) },
+            (snapshot?.isBreak).map { String($0) },
+            snapshot?.breakNote,
+            snapshot?.overlayNameStyle,
             assetKey(snapshot: snapshot),
             mode.label,
-            snapshot?.webLogoURL?.trimmedNilIfBlank,
             sponsorKey.isEmpty ? nil : sponsorKey,
-            setKey.isEmpty ? nil : setKey,
             "\(Int(size.width))x\(Int(size.height))"
         ]
         .compactMap { $0 }
@@ -1932,9 +1949,7 @@ private final class LiveScoreboardOverlayRenderer {
     }
 
     private static func assetKey(snapshot: LiveOverlaySnapshot?) -> String {
-        let sponsorKey = (snapshot?.sponsorLogoURLs ?? [])
-            .compactMap { $0.trimmedNilIfBlank }
-            .joined(separator: ",")
+        let sponsorKey = distinctTrimmed(snapshot?.sponsorLogoURLs).joined(separator: ",")
 
         return [
             snapshot?.tournamentLogoURL?.trimmedNilIfBlank,
@@ -1966,8 +1981,9 @@ private final class LiveScoreboardOverlayRenderer {
         async let tournamentLogoTask = Self.loadRemoteImage(from: snapshot.tournamentLogoURL)
         async let webLogoTask = Self.loadRemoteImage(from: snapshot.webLogoURL)
 
-        let sponsorLimit = mode == .constrained ? 1 : 3
-        let sponsorURLs = Array((snapshot.sponsorLogoURLs ?? []).compactMap { $0.trimmedNilIfBlank }.prefix(sponsorLimit))
+        // Android MAX_SPONSORS = 8 (trim / distinct / take 8); .constrained là fail-soft riêng iOS → 4.
+        let sponsorLimit = mode == .constrained ? 4 : 8
+        let sponsorURLs = Array(Self.distinctTrimmed(snapshot.sponsorLogoURLs).prefix(sponsorLimit))
         var sponsorImages: [UIImage] = []
         for sponsorURL in sponsorURLs {
             guard !Task.isCancelled else { return }
@@ -2013,7 +2029,7 @@ private final class LiveScoreboardOverlayRenderer {
 
     private static func configuredAssetCount(for snapshot: LiveOverlaySnapshot?) -> Int {
         guard let snapshot else { return 0 }
-        let sponsorCount = Array((snapshot.sponsorLogoURLs ?? []).compactMap { $0.trimmedNilIfBlank }.prefix(3)).count
+        let sponsorCount = distinctTrimmed(snapshot.sponsorLogoURLs).prefix(8).count
         let baseCount = [
             snapshot.tournamentLogoURL?.trimmedNilIfBlank,
             snapshot.webLogoURL?.trimmedNilIfBlank
@@ -2097,11 +2113,50 @@ private final class LiveScoreboardOverlayRenderer {
 
         guard maxDimension > 0 else { return .zero }
         let largestSide = max(size.width, size.height)
+        // Scale ĐỀU hai chiều, làm tròn chẵn — bỏ làm tròn bội 16 (gây lệch ~1% x/y khi CI
+        // upscale về frame thật, làm layout Android-parity bị méo nhẹ).
         let scale = largestSide > maxDimension ? maxDimension / largestSide : 1
-        let width = max(CGFloat(320), (size.width * scale / 16).rounded(.up) * 16)
-        let height = max(CGFloat(180), (size.height * scale / 16).rounded(.up) * 16)
+        let width = max(CGFloat(320), (size.width * scale / 2).rounded() * 2)
+        let height = max(CGFloat(180), (size.height * scale / 2).rounded() * 2)
         return CGSize(width: width, height: height)
     }
+
+    // MARK: - Overlay vẽ đúng thiết kế Android (native-live-app OverlayBitmapRenderer.kt)
+    //
+    // Hệ toạ độ: basis 1280x720 → uiScale = min(w/1280, h/720), margin = 16*uiScale (đúng công
+    // thức Android). Card scoreboard được Android vẽ trong bitmap 520x160 rồi blit ở 0.75*uiScale
+    // → card chiếm basis (16,16,390,120); mọi số đo dưới đây ĐÃ đổi sang basis (local*0.75).
+    // Text: Android drawText đặt BASELINE → iOS vẽ tại origin.y = baseline - font.ascender.
+    // Lớp vẽ theo thứ tự Android: card (normal/break/MLP) → logo box (góc phải trên) →
+    // sponsor bar (góc phải dưới). Không có badge debug, không viền, không bóng.
+
+    private struct OverlayLayout {
+        let size: CGSize
+        let uiScale: CGFloat
+        let margin: CGFloat
+        init(size: CGSize) {
+            self.size = size
+            uiScale = min(size.width / 1280, size.height / 720)
+            margin = 16 * uiScale
+        }
+        var cardRect: CGRect { CGRect(x: margin, y: margin, width: 390 * uiScale, height: 120 * uiScale) }
+    }
+
+    private enum TextAlign { case left, center }
+
+    // Màu đúng Android (ARGB)
+    private static let colorScoreGreen = UIColor(red: 65 / 255, green: 147 / 255, blue: 93 / 255, alpha: 1)      // #41935D
+    private static let colorDivider = UIColor(red: 1, green: 1, blue: 1, alpha: 77 / 255)                          // #4DFFFFFF
+    private static let colorServeDot = UIColor(red: 34 / 255, green: 197 / 255, blue: 94 / 255, alpha: 1)        // #22C55E
+    private static let colorLogoBoxBg = UIColor(red: 0, green: 0, blue: 0, alpha: 90 / 255)                       // #5A000000
+    private static let colorBreakBg = UIColor(red: 26 / 255, green: 26 / 255, blue: 26 / 255, alpha: 230 / 255)   // #E61A1A1A
+    private static let colorBreakSub = UIColor(red: 154 / 255, green: 164 / 255, blue: 175 / 255, alpha: 1)      // #9AA4AF
+    private static let colorMlpSub = UIColor(red: 199 / 255, green: 206 / 255, blue: 214 / 255, alpha: 1)        // #C7CED6
+    private static let colorMlpDbGold = UIColor(red: 245 / 255, green: 197 / 255, blue: 66 / 255, alpha: 1)      // #F5C542
+    private static let colorMlpSeriesBg = UIColor(red: 30 / 255, green: 41 / 255, blue: 59 / 255, alpha: 1)      // #1E293B
+    private static let colorMlpDbScoreBg = UIColor(red: 184 / 255, green: 134 / 255, blue: 11 / 255, alpha: 1)   // #B8860B
+    private static let colorMlpTeamADefault = UIColor(red: 37 / 255, green: 194 / 255, blue: 160 / 255, alpha: 1) // #25C2A0
+    private static let colorMlpTeamBDefault = UIColor(red: 96 / 255, green: 165 / 255, blue: 250 / 255, alpha: 1) // #60A5FA
 
     private static func render(
         snapshot: LiveOverlaySnapshot,
@@ -2115,194 +2170,35 @@ private final class LiveScoreboardOverlayRenderer {
         format.scale = 1
         format.opaque = false
         let shouldRenderLogos = performanceMode.rawValue < OverlayPerformanceMode.minimal.rawValue
-        let visibleSponsorImages = Array(sponsorLogoImages.prefix(performanceMode == .constrained ? 1 : 2))
+        // Android: webLogoUrl ưu tiên, không có thì tournamentLogoUrl; chỉ vẽ ĐÚNG MỘT logo.
+        let logoImage = shouldRenderLogos ? (webLogoImage ?? tournamentLogoImage) : nil
+        let sponsorCap = performanceMode == .constrained ? 4 : 8
+        let sponsors = shouldRenderLogos ? Array(sponsorLogoImages.prefix(sponsorCap)) : []
 
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         let image = autoreleasepool { () -> UIImage in
-            return renderer.image { context in
+            renderer.image { context in
                 let cg = context.cgContext
-                cg.setFillColor(UIColor.clear.cgColor)
-                cg.fill(CGRect(origin: .zero, size: size))
-
-                let cardWidth = min(size.width * 0.42, 620)
-                let cardHeight = min(size.height * 0.26, 230)
-                let cardRect = CGRect(x: size.width * 0.04, y: size.height * 0.05, width: cardWidth, height: cardHeight)
-
-                let background = UIBezierPath(roundedRect: cardRect, cornerRadius: 28)
-                UIColor(red: 0.05, green: 0.09, blue: 0.14, alpha: 0.82).setFill()
-                background.fill()
-
-                UIColor.white.withAlphaComponent(0.10).setStroke()
-                background.lineWidth = 2
-                background.stroke()
-
-            let contentRect = cardRect.insetBy(dx: 20, dy: 18)
-            let smallTextAttributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 15, weight: .semibold),
-                .foregroundColor: UIColor.white.withAlphaComponent(0.72)
-            ]
-            let strongTextAttributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 24, weight: .heavy),
-                .foregroundColor: UIColor.white
-            ]
-            let teamTextAttributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 22, weight: .bold),
-                .foregroundColor: UIColor.white
-            ]
-            let scoreATextAttributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.monospacedDigitSystemFont(ofSize: 58, weight: .black),
-                .foregroundColor: UIColor(red: 0.77, green: 0.90, blue: 0.44, alpha: 1)
-            ]
-            let scoreBTextAttributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.monospacedDigitSystemFont(ofSize: 58, weight: .black),
-                .foregroundColor: UIColor(red: 0.42, green: 0.82, blue: 0.98, alpha: 1)
-            ]
-
-            let tournamentLogoRect = CGRect(x: contentRect.minX, y: contentRect.minY, width: 42, height: 42)
-            let hasTournamentLogo = shouldRenderLogos && tournamentLogoImage != nil
-            if shouldRenderLogos, let tournamentLogoImage {
-                drawLogo(tournamentLogoImage, in: tournamentLogoRect, context: cg)
-            }
-
-            let titleX = hasTournamentLogo ? tournamentLogoRect.maxX + 12 : contentRect.minX
-            let titleWidth = contentRect.maxX - titleX - 52
-
-            NSString(string: snapshot.tournamentName?.trimmedNilIfBlank ?? "PickleTour").draw(
-                in: CGRect(x: titleX, y: contentRect.minY, width: titleWidth, height: 20),
-                withAttributes: smallTextAttributes
-            )
-
-            NSString(string: snapshot.courtName?.trimmedNilIfBlank ?? "Court").draw(
-                in: CGRect(x: titleX, y: contentRect.minY + 22, width: titleWidth, height: 30),
-                withAttributes: strongTextAttributes
-            )
-
-            if shouldRenderLogos, let webLogoImage {
-                drawLogo(
-                    webLogoImage,
-                    in: CGRect(x: cardRect.maxX - 60, y: contentRect.minY, width: 40, height: 40),
-                    context: cg
-                )
-            }
-
-            let scoreboardTop = contentRect.minY + 66
-            let leftColumn = CGRect(x: contentRect.minX, y: scoreboardTop, width: contentRect.width * 0.5 - 8, height: 100)
-            let rightColumn = CGRect(x: contentRect.midX + 8, y: scoreboardTop, width: contentRect.width * 0.5 - 8, height: 100)
-
-            NSString(string: snapshot.teamAName?.trimmedNilIfBlank ?? "Đội A").draw(
-                in: CGRect(x: leftColumn.minX, y: leftColumn.minY, width: leftColumn.width, height: 26),
-                withAttributes: teamTextAttributes
-            )
-            NSString(string: "\(snapshot.scoreA ?? 0)").draw(
-                in: CGRect(x: leftColumn.minX, y: leftColumn.minY + 26, width: leftColumn.width, height: 64),
-                withAttributes: scoreATextAttributes
-            )
-
-            NSString(string: snapshot.teamBName?.trimmedNilIfBlank ?? "Đội B").draw(
-                in: CGRect(x: rightColumn.minX, y: rightColumn.minY, width: rightColumn.width, height: 26),
-                withAttributes: teamTextAttributes
-            )
-            NSString(string: "\(snapshot.scoreB ?? 0)").draw(
-                in: CGRect(x: rightColumn.minX, y: rightColumn.minY + 26, width: rightColumn.width, height: 64),
-                withAttributes: scoreBTextAttributes
-            )
-
-            let footer = [
-                snapshot.phaseText?.trimmedNilIfBlank,
-                snapshot.roundLabel?.trimmedNilIfBlank,
-                snapshot.serveSide?.trimmedNilIfBlank.map { "Giao bóng: \($0)" }
-            ]
-            .compactMap { $0 }
-            .joined(separator: " | ")
-
-            if !footer.isEmpty {
-                NSString(string: footer).draw(
-                    in: CGRect(x: contentRect.minX, y: cardRect.maxY - 38, width: contentRect.width, height: 20),
-                    withAttributes: smallTextAttributes
-                )
-            }
-
-            if let sets = snapshot.sets, !sets.isEmpty {
-                let setSummary = sets
-                    .prefix(3)
-                    .map { "S\($0.index + 1) \($0.a ?? 0)-\($0.b ?? 0)" }
-                    .joined(separator: " | ")
-
-                NSString(string: setSummary).draw(
-                    in: CGRect(x: contentRect.minX, y: cardRect.maxY - 62, width: contentRect.width, height: 18),
-                    withAttributes: smallTextAttributes
-                )
-            }
-
-            if shouldRenderLogos, !visibleSponsorImages.isEmpty {
-                let sponsorRects = visibleSponsorImages.enumerated().map { index, _ in
-                    CGRect(
-                        x: cardRect.maxX - CGFloat((visibleSponsorImages.count - index)) * 42 - 18,
-                        y: cardRect.maxY - 80,
-                        width: 34,
-                        height: 34
-                    )
+                cg.clear(CGRect(origin: .zero, size: size))
+                cg.interpolationQuality = .high
+                let layout = OverlayLayout(size: size)
+                if snapshot.isBreak == true {
+                    drawBreakCard(snapshot, layout: layout, in: cg)
+                } else {
+                    drawNormalCard(snapshot, layout: layout, in: cg)
                 }
-
-                for (index, sponsorLogoImage) in visibleSponsorImages.enumerated() {
-                    drawLogo(sponsorLogoImage, in: sponsorRects[index], context: cg, inset: 4)
+                if let logoImage {
+                    drawLogoBox(logoImage, layout: layout, in: cg)
                 }
-            }
-
-            let brandingBits = [
-                shouldRenderLogos
-                    ? (webLogoImage != nil ? "WEB" : snapshot.webLogoURL?.trimmedNilIfBlank.map { _ in "WEB..." })
-                    : nil,
-                shouldRenderLogos
-                    ? (!visibleSponsorImages.isEmpty
-                        ? "SPONSOR x\(visibleSponsorImages.count)"
-                        : (snapshot.sponsorLogoURLs?.isEmpty == false ? "SPONSOR..." : nil))
-                    : nil
-            ]
-            .compactMap { $0 }
-            .joined(separator: " | ")
-
-            if !brandingBits.isEmpty {
-                let badgeRect = CGRect(
-                    x: cardRect.maxX - 164,
-                    y: cardRect.maxY - 46,
-                    width: 144,
-                    height: 26
-                )
-                let badgePath = UIBezierPath(roundedRect: badgeRect, cornerRadius: 12)
-                UIColor(red: 0.12, green: 0.19, blue: 0.25, alpha: 0.92).setFill()
-                badgePath.fill()
-                UIColor.white.withAlphaComponent(0.16).setStroke()
-                badgePath.lineWidth = 1
-                badgePath.stroke()
-
-                let brandingAttributes: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: 12, weight: .bold),
-                    .foregroundColor: UIColor.white.withAlphaComponent(0.84)
-                ]
-
-                NSString(string: brandingBits).draw(
-                    in: badgeRect.insetBy(dx: 10, dy: 6),
-                    withAttributes: brandingAttributes
-                )
+                if !sponsors.isEmpty {
+                    drawSponsorBar(sponsors, layout: layout, in: cg)
+                }
             }
         }
-    }
-
         return CIImage(image: image)
     }
 
-    private static func mlpColor(_ hex: String?, fallback: UIColor) -> UIColor {
-        guard var s = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return fallback }
-        if s.hasPrefix("#") { s.removeFirst() }
-        guard s.count == 6, let v = UInt32(s, radix: 16) else { return fallback }
-        let r = CGFloat((v >> 16) & 0xFF) / 255.0
-        let g = CGFloat((v >> 8) & 0xFF) / 255.0
-        let b = CGFloat(v & 0xFF) / 255.0
-        return UIColor(red: r, green: g, blue: b, alpha: 1)
-    }
-
-    /// Scoreboard cho giải MLP — tự chuyển sub-match (2v2) ↔ DreamBreaker (1v1 xoay VĐV).
+    /// Scoreboard giải đồng đội MLP — sub-match (2v2) ↔ DreamBreaker, layout đúng Android.
     private static func renderMlp(
         mlp: MlpOverlay,
         size: CGSize,
@@ -2314,169 +2210,391 @@ private final class LiveScoreboardOverlayRenderer {
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = false
-        let isDb = mlp.isDreamBreaker
         let shouldRenderLogos = performanceMode.rawValue < OverlayPerformanceMode.minimal.rawValue
-        let visibleSponsorImages = shouldRenderLogos
-            ? Array(sponsorLogoImages.prefix(performanceMode == .constrained ? 1 : 2))
-            : []
-        let colorA = mlpColor(mlp.teamA?.color, fallback: UIColor(red: 0.15, green: 0.76, blue: 0.63, alpha: 1))
-        let colorB = mlpColor(mlp.teamB?.color, fallback: UIColor(red: 0.38, green: 0.65, blue: 0.98, alpha: 1))
-
-        func subText(_ team: MlpOverlayTeam?) -> String {
-            if isDb {
-                return team?.currentPlayer?.displayName ?? ""
-            }
-            return (team?.players ?? [])
-                .map { $0.displayName }
-                .filter { !$0.isEmpty }
-                .joined(separator: " / ")
-        }
-        let scoreA = isDb ? (mlp.dreamBreaker?.scoreA ?? 0) : (mlp.score?.currentGameA ?? 0)
-        let scoreB = isDb ? (mlp.dreamBreaker?.scoreB ?? 0) : (mlp.score?.currentGameB ?? 0)
-        let subColor: UIColor = isDb
-            ? UIColor(red: 0.96, green: 0.77, blue: 0.26, alpha: 1)
-            : UIColor.white.withAlphaComponent(0.72)
+        let logoImage = shouldRenderLogos ? (webLogoImage ?? tournamentLogoImage) : nil
+        let sponsorCap = performanceMode == .constrained ? 4 : 8
+        let sponsors = shouldRenderLogos ? Array(sponsorLogoImages.prefix(sponsorCap)) : []
 
         let renderer = UIGraphicsImageRenderer(size: size, format: format)
         let image = autoreleasepool { () -> UIImage in
             renderer.image { context in
                 let cg = context.cgContext
-                cg.setFillColor(UIColor.clear.cgColor)
-                cg.fill(CGRect(origin: .zero, size: size))
-
-                let cardWidth = min(size.width * 0.42, 620)
-                let cardHeight = min(size.height * 0.26, 230)
-                let cardRect = CGRect(x: size.width * 0.04, y: size.height * 0.05, width: cardWidth, height: cardHeight)
-                let background = UIBezierPath(roundedRect: cardRect, cornerRadius: 28)
-                UIColor(red: 0.05, green: 0.09, blue: 0.14, alpha: 0.82).setFill()
-                background.fill()
-                UIColor.white.withAlphaComponent(0.10).setStroke()
-                background.lineWidth = 2
-                background.stroke()
-
-                let contentRect = cardRect.insetBy(dx: 20, dy: 18)
-                let smallAttr: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: 15, weight: .semibold),
-                    .foregroundColor: UIColor.white.withAlphaComponent(0.72)
-                ]
-                let strongAttr: [NSAttributedString.Key: Any] = [
-                    .font: UIFont.systemFont(ofSize: 20, weight: .heavy),
-                    .foregroundColor: isDb ? UIColor(red: 0.96, green: 0.77, blue: 0.26, alpha: 1) : UIColor.white
-                ]
-
-                let hasTournamentLogo = tournamentLogoImage != nil
-                if let tournamentLogoImage {
-                    drawLogo(tournamentLogoImage, in: CGRect(x: contentRect.minX, y: contentRect.minY, width: 40, height: 40), context: cg)
+                cg.clear(CGRect(origin: .zero, size: size))
+                cg.interpolationQuality = .high
+                let layout = OverlayLayout(size: size)
+                drawMlpCard(mlp, layout: layout, in: cg)
+                if let logoImage {
+                    drawLogoBox(logoImage, layout: layout, in: cg)
                 }
-                let headerTextX = hasTournamentLogo ? contentRect.minX + 50 : contentRect.minX
-                let headerTextW = max(0, (contentRect.maxX - headerTextX) - (webLogoImage != nil ? 44 : 0))
-                NSString(string: mlp.tournament?.name?.trimmedNilIfBlank ?? "MLP").draw(
-                    in: CGRect(x: headerTextX, y: contentRect.minY, width: headerTextW, height: 20),
-                    withAttributes: smallAttr
-                )
-                let subtitle = isDb
-                    ? "DREAM BREAKER · CHẠM \(mlp.dreamBreaker?.target ?? 21)"
-                    : (mlp.slot?.label?.trimmedNilIfBlank ?? "MLP")
-                NSString(string: subtitle).draw(
-                    in: CGRect(x: headerTextX, y: contentRect.minY + 22, width: headerTextW, height: 26),
-                    withAttributes: strongAttr
-                )
-                if let webLogoImage {
-                    drawLogo(webLogoImage, in: CGRect(x: cardRect.maxX - 52, y: contentRect.minY, width: 36, height: 36), context: cg)
-                }
-
-                let colTop = contentRect.minY + 60
-                let colH: CGFloat = 110
-                let leftCol = CGRect(x: contentRect.minX, y: colTop, width: contentRect.width * 0.5 - 8, height: colH)
-                let rightCol = CGRect(x: contentRect.midX + 8, y: colTop, width: contentRect.width * 0.5 - 8, height: colH)
-
-                drawMlpColumn(
-                    name: mlp.teamA?.displayName ?? "Đội A", sub: subText(mlp.teamA), subColor: subColor,
-                    score: scoreA, series: mlp.teamA?.slotWins ?? 0, accent: colorA, rect: leftCol
-                )
-                drawMlpColumn(
-                    name: mlp.teamB?.displayName ?? "Đội B", sub: subText(mlp.teamB), subColor: subColor,
-                    score: scoreB, series: mlp.teamB?.slotWins ?? 0, accent: colorB, rect: rightCol
-                )
-
-                // Sponsor logos — vẽ như bản Android (luôn hiển thị kể cả overlay MLP),
-                // thành một hàng nhỏ canh phải ngay dưới thẻ scoreboard.
-                if !visibleSponsorImages.isEmpty {
-                    let logoSize: CGFloat = 34
-                    let gap: CGFloat = 8
-                    let y = cardRect.maxY + 10
-                    for (index, sponsorLogoImage) in visibleSponsorImages.enumerated() {
-                        let x = cardRect.maxX - CGFloat(visibleSponsorImages.count - index) * (logoSize + gap)
-                        drawLogo(sponsorLogoImage, in: CGRect(x: x, y: y, width: logoSize, height: logoSize), context: cg, inset: 4)
-                    }
+                if !sponsors.isEmpty {
+                    drawSponsorBar(sponsors, layout: layout, in: cg)
                 }
             }
         }
         return CIImage(image: image)
     }
 
-    private static func drawMlpColumn(
-        name: String, sub: String, subColor: UIColor,
-        score: Int, series: Int, accent: UIColor, rect: CGRect
-    ) {
-        let chip = UIBezierPath(roundedRect: CGRect(x: rect.minX, y: rect.minY + 2, width: 8, height: 20), cornerRadius: 3)
-        accent.setFill()
-        chip.fill()
+    // MARK: Text helpers (đo bằng cùng font để fit và vẽ khớp nhau)
 
-        let nameAttr: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: 20, weight: .bold),
-            .foregroundColor: UIColor.white
-        ]
-        NSString(string: name).draw(
-            in: CGRect(x: rect.minX + 14, y: rect.minY, width: rect.width - 14, height: 26),
-            withAttributes: nameAttr
-        )
-        if !sub.isEmpty {
-            let subAttr: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
-                .foregroundColor: subColor
-            ]
-            NSString(string: sub).draw(
-                in: CGRect(x: rect.minX + 14, y: rect.minY + 26, width: rect.width - 14, height: 18),
-                withAttributes: subAttr
-            )
-        }
-        let seriesAttr: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedDigitSystemFont(ofSize: 20, weight: .bold),
-            .foregroundColor: UIColor.white.withAlphaComponent(0.55)
-        ]
-        NSString(string: "\(series)").draw(
-            in: CGRect(x: rect.minX, y: rect.minY + 52, width: 28, height: 26),
-            withAttributes: seriesAttr
-        )
-        let scoreAttr: [NSAttributedString.Key: Any] = [
-            .font: UIFont.monospacedDigitSystemFont(ofSize: 52, weight: .black),
-            .foregroundColor: accent
-        ]
-        NSString(string: "\(score)").draw(
-            in: CGRect(x: rect.minX + 30, y: rect.minY + 46, width: rect.width - 30, height: 58),
-            withAttributes: scoreAttr
-        )
+    private static func textWidth(_ text: String, _ font: UIFont) -> CGFloat {
+        (text as NSString).size(withAttributes: [.font: font]).width
     }
 
-    private static func drawLogo(
-        _ image: UIImage,
-        in rect: CGRect,
-        context: CGContext,
-        inset: CGFloat = 5
+    private static func drawText(
+        _ text: String, font: UIFont, color: UIColor,
+        x: CGFloat, baseline: CGFloat, align: TextAlign
     ) {
-        let containerPath = UIBezierPath(roundedRect: rect, cornerRadius: min(rect.width, rect.height) * 0.24)
-        UIColor.white.withAlphaComponent(0.10).setFill()
-        containerPath.fill()
-        UIColor.white.withAlphaComponent(0.16).setStroke()
-        containerPath.lineWidth = 1
-        containerPath.stroke()
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let originX = align == .center ? x - textWidth(text, font) / 2 : x
+        (text as NSString).draw(at: CGPoint(x: originX, y: baseline - font.ascender), withAttributes: attributes)
+    }
 
-        context.saveGState()
-        containerPath.addClip()
-        let fittedRect = aspectFitRect(for: image.size, in: rect.insetBy(dx: inset, dy: inset))
-        image.draw(in: fittedRect)
-        context.restoreGState()
+    /// Android truncateText: cắt bớt ký tự tới khi vừa + "..." (3 dấu chấm ASCII).
+    private static func truncateText(_ text: String, font: UIFont, maxWidth: CGFloat) -> String {
+        if textWidth(text, font) <= maxWidth { return text }
+        let ellipsis = "..."
+        let ellipsisWidth = textWidth(ellipsis, font)
+        var end = text.count
+        while end > 0, textWidth(String(text.prefix(end)), font) + ellipsisWidth > maxWidth {
+            end -= 1
+        }
+        if end == 0 { return text }
+        return String(text.prefix(end)) + ellipsis
+    }
+
+    private static func fillRoundedBar(_ rect: CGRect, radius: CGFloat, roundTop: Bool, color: UIColor) {
+        color.setFill()
+        let corners: UIRectCorner = roundTop ? [.topLeft, .topRight] : [.bottomLeft, .bottomRight]
+        UIBezierPath(roundedRect: rect, byRoundingCorners: corners, cornerRadii: CGSize(width: radius, height: radius)).fill()
+    }
+
+    // MARK: OverlayNameStyle.kt (port nguyên văn) — chỉ dùng cho card thường
+
+    private static func normalizeTeamSeparator(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        s = s.replacingOccurrences(of: #"\s*&\s*"#, with: " / ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\s*/\s*"#, with: " / ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\s{2,}"#, with: " ", options: .regularExpression)
+        return s
+    }
+
+    private static func abbreviatePlayerName(_ value: String, aggressive: Bool) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(whereSeparator: { $0.isWhitespace }).map(String.init).filter { !$0.isEmpty }
+        guard parts.count > 1 else { return trimmed }
+        func initial(_ token: String) -> String {
+            token.unicodeScalars.first.map { String($0).uppercased() } ?? ""
+        }
+        if !aggressive {
+            return ([initial(parts[0])] + parts.dropFirst()).joined(separator: " ")
+        }
+        return parts.enumerated().map { index, token in
+            index == parts.count - 1 ? token : initial(token)
+        }.joined(separator: " ")
+    }
+
+    private static func abbreviateTeamName(_ base: String, aggressive: Bool) -> String {
+        base.components(separatedBy: "/")
+            .map { abbreviatePlayerName($0, aggressive: aggressive) }
+            .joined(separator: " / ")
+    }
+
+    private static func overlayTeamNameCandidates(_ rawName: String, style: String?) -> [String] {
+        let rawStyle = style?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "1"
+        let normalizedStyle = ["1", "2", "3", "4"].contains(rawStyle) ? rawStyle : "1"
+        let base = normalizeTeamSeparator(rawName)
+        let firstTokenShort = abbreviateTeamName(base, aggressive: false)
+        let compactShort = abbreviateTeamName(base, aggressive: true)
+        let ordered: [String]
+        switch normalizedStyle {
+        case "2": ordered = [base]
+        case "3": ordered = [firstTokenShort, compactShort, base]
+        case "4": ordered = [compactShort, firstTokenShort, base]
+        default: ordered = [base, firstTokenShort, compactShort]
+        }
+        var seen = Set<String>()
+        var result: [String] = []
+        for candidate in ordered {
+            let trimmed = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !seen.contains(trimmed) else { continue }
+            seen.insert(trimmed)
+            result.append(trimmed)
+        }
+        return result
+    }
+
+    // Thang cỡ chữ (basis = local*0.75): primary [28,26,24,22,20,18], compact [26,...,14]
+    private static let primaryNameLadder: [CGFloat] = [21, 19.5, 18, 16.5, 15, 13.5]
+    private static let compactNameLadder: [CGFloat] = [19.5, 18, 16.5, 15, 13.5, 12, 10.5]
+
+    private static func chooseFittedTeamName(_ raw: String, style: String?, maxWidth: CGFloat, uiScale: CGFloat) -> (text: String, sizeBasis: CGFloat) {
+        let candidates = overlayTeamNameCandidates(raw, style: style)
+        let normalizedStyle = style?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "1"
+        for (index, candidate) in candidates.enumerated() {
+            let ladder = (normalizedStyle == "2" || index == 0) ? primaryNameLadder : compactNameLadder
+            for sizeBasis in ladder {
+                let font = UIFont.systemFont(ofSize: sizeBasis * uiScale, weight: .bold)
+                if textWidth(candidate, font) <= maxWidth { return (candidate, sizeBasis) }
+            }
+        }
+        return (candidates.last ?? raw.trimmingCharacters(in: .whitespacesAndNewlines), 10.5)
+    }
+
+    // MARK: Card thường (drawV2Scoreboard)
+
+    private static func drawNormalCard(_ s: LiveOverlaySnapshot, layout: OverlayLayout, in cg: CGContext) {
+        let u = layout.uiScale
+        let ox = layout.margin
+        let oy = layout.margin
+        cg.saveGState()
+        cg.clip(to: layout.cardRect)
+
+        // OP1-2: thanh trắng trên + tên giải (in hoa, cắt bớt)
+        let barFont = UIFont.systemFont(ofSize: 16.5 * u, weight: .bold)
+        fillRoundedBar(CGRect(x: ox, y: oy + 3 * u, width: 390 * u, height: 24 * u), radius: 6 * u, roundTop: true, color: .white)
+        let title = truncateText((s.tournamentName?.trimmedNilIfBlank ?? "GIẢI PICKLETOUR BETA").uppercased(), font: barFont, maxWidth: 369 * u)
+        drawText(title, font: barFont, color: .black, x: ox + 195 * u, baseline: oy + 20.5 * u, align: .center)
+
+        // OP3: khối đen giữa (cách thanh trên 1.5 basis trong suốt)
+        UIColor.black.setFill()
+        cg.fill(CGRect(x: ox, y: oy + 28.5 * u, width: 390 * u, height: 63 * u))
+
+        // OP4-9: hai hàng đội (seed → tên fit → chấm giao bóng)
+        let serveSide = (s.serveSide ?? "A").trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let serveCount = s.serveCount ?? 1
+        drawTeamRow(
+            seed: s.seedA, name: s.teamAName?.trimmedNilIfBlank ?? "Team A", style: s.overlayNameStyle,
+            serving: serveSide == "A", serveCount: serveCount,
+            seedBaseline: oy + 53.5 * u, nameBaseline: oy + 55 * u, dotCenterY: oy + 48 * u,
+            ox: ox, u: u, in: cg
+        )
+        drawTeamRow(
+            seed: s.seedB, name: s.teamBName?.trimmedNilIfBlank ?? "Team B", style: s.overlayNameStyle,
+            serving: serveSide == "B", serveCount: serveCount,
+            seedBaseline: oy + 83.5 * u, nameBaseline: oy + 85 * u, dotCenterY: oy + 78 * u,
+            ox: ox, u: u, in: cg
+        )
+
+        // OP10-13: cột điểm xanh (vẽ SAU hàng để đè phần tràn) + 2 điểm + vạch chia
+        colorScoreGreen.setFill()
+        cg.fill(CGRect(x: ox + 337.5 * u, y: oy + 28.5 * u, width: 52.5 * u, height: 63 * u))
+        let scoreFont = UIFont.systemFont(ofSize: 31.5 * u, weight: .bold)
+        drawText(String(s.scoreA ?? 0), font: scoreFont, color: .white, x: ox + 363.75 * u, baseline: oy + 58.5 * u, align: .center)
+        colorDivider.setFill()
+        cg.fill(CGRect(x: ox + 340.5 * u, y: oy + 59.625 * u, width: 46.5 * u, height: 0.75 * u))
+        drawText(String(s.scoreB ?? 0), font: scoreFont, color: .white, x: ox + 363.75 * u, baseline: oy + 88.5 * u, align: .center)
+
+        // OP14-15: thanh trắng dưới chỉ khi có stageName
+        if let stage = s.stageName?.trimmedNilIfBlank {
+            fillRoundedBar(CGRect(x: ox, y: oy + 93 * u, width: 390 * u, height: 24 * u), radius: 6 * u, roundTop: false, color: .white)
+            let text = truncateText(stage.uppercased(), font: barFont, maxWidth: 369 * u)
+            drawText(text, font: barFont, color: .black, x: ox + 195 * u, baseline: oy + 110.5 * u, align: .center)
+        }
+        cg.restoreGState()
+    }
+
+    private static func drawTeamRow(
+        seed: Int?, name: String, style: String?, serving: Bool, serveCount: Int,
+        seedBaseline: CGFloat, nameBaseline: CGFloat, dotCenterY: CGFloat,
+        ox: CGFloat, u: CGFloat, in cg: CGContext
+    ) {
+        var cursorX = ox + 10.5 * u
+        if let seed, seed > 0 {
+            let seedFont = UIFont.systemFont(ofSize: 16.5 * u, weight: .regular)
+            let seedText = String(seed)
+            drawText(seedText, font: seedFont, color: .white, x: cursorX, baseline: seedBaseline, align: .left)
+            cursorX += textWidth(seedText, seedFont) + 4.5 * u
+        }
+        // nameAreaW 337.5 (local 450) − vị trí con trỏ − dotArea 27 (local 36) − 7.5 (local 10)
+        let maxWidth = 337.5 * u - (cursorX - ox) - 27 * u - 7.5 * u
+        let fitted = chooseFittedTeamName(name, style: style, maxWidth: maxWidth, uiScale: u)
+        let font = UIFont.systemFont(ofSize: fitted.sizeBasis * u, weight: .bold)
+        let measured = textWidth(fitted.text, font)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: UIColor.white]
+        let origin = CGPoint(x: cursorX, y: nameBaseline - font.ascender)
+        if measured > maxWidth, measured > 0 {
+            // Android: bóp ngang quanh (x, baseline) khi vẫn không vừa, không bao giờ cắt "..."
+            let scaleX = min(1, maxWidth / measured)
+            cg.saveGState()
+            cg.translateBy(x: cursorX, y: nameBaseline)
+            cg.scaleBy(x: scaleX, y: 1)
+            cg.translateBy(x: -cursorX, y: -nameBaseline)
+            (fitted.text as NSString).draw(at: origin, withAttributes: attributes)
+            cg.restoreGState()
+        } else {
+            (fitted.text as NSString).draw(at: origin, withAttributes: attributes)
+        }
+        if serving {
+            colorServeDot.setFill()
+            let r = 3.75 * u
+            cg.fillEllipse(in: CGRect(x: ox + 310.5 * u - r, y: dotCenterY - r, width: 2 * r, height: 2 * r))
+            if serveCount >= 2 {
+                cg.fillEllipse(in: CGRect(x: ox + 321 * u - r, y: dotCenterY - r, width: 2 * r, height: 2 * r))
+            }
+        }
+    }
+
+    // MARK: Card tạm nghỉ (drawBreakCard)
+
+    private static func drawBreakCard(_ s: LiveOverlaySnapshot, layout: OverlayLayout, in cg: CGContext) {
+        let u = layout.uiScale
+        let ox = layout.margin
+        let oy = layout.margin
+        cg.saveGState()
+        cg.clip(to: layout.cardRect)
+
+        colorBreakBg.setFill()
+        UIBezierPath(roundedRect: layout.cardRect, cornerRadius: 6 * u).fill()
+
+        let subFont = UIFont.systemFont(ofSize: 13.5 * u, weight: .regular)
+        let x = ox + 12 * u
+        var y: CGFloat = 18 // baseline cursor (basis)
+        if let tournament = s.tournamentName?.trimmedNilIfBlank {
+            drawText(tournament, font: subFont, color: colorBreakSub, x: x, baseline: oy + y * u, align: .left)
+            y += 15
+        }
+        if let court = s.courtName?.trimmedNilIfBlank {
+            drawText("Sân: " + court, font: subFont, color: colorBreakSub, x: x, baseline: oy + y * u, align: .left)
+            y += 15
+        }
+        y += 3
+        drawText("ĐANG TẠM NGHỈ", font: UIFont.systemFont(ofSize: 22.5 * u, weight: .bold), color: .white, x: x, baseline: oy + y * u, align: .left)
+        y += 18
+        drawText("Chờ trọng tài bắt đầu game tiếp theo...", font: subFont, color: colorBreakSub, x: x, baseline: oy + y * u, align: .left)
+        y += 15
+        if let note = s.breakNote?.trimmedNilIfBlank {
+            drawText(note, font: subFont, color: colorBreakSub, x: x, baseline: oy + y * u, align: .left)
+            y += 15
+        }
+        y += 3
+        let teams = (s.teamAName?.trimmedNilIfBlank ?? "Team A") + " vs " + (s.teamBName?.trimmedNilIfBlank ?? "Team B")
+        drawText(teams, font: UIFont.systemFont(ofSize: 15 * u, weight: .regular), color: .white, x: x, baseline: oy + y * u, align: .left)
+        cg.restoreGState()
+    }
+
+    // MARK: Card MLP (drawMlpScoreboard)
+
+    private static func drawMlpCard(_ mlp: MlpOverlay, layout: OverlayLayout, in cg: CGContext) {
+        let u = layout.uiScale
+        let ox = layout.margin
+        let oy = layout.margin
+        let isDb = mlp.isDreamBreaker
+        cg.saveGState()
+        cg.clip(to: layout.cardRect)
+
+        // OP1-2: thanh trắng trên + tên giải
+        let barFont = UIFont.systemFont(ofSize: 16.5 * u, weight: .bold)
+        fillRoundedBar(CGRect(x: ox, y: oy + 3 * u, width: 390 * u, height: 24 * u), radius: 6 * u, roundTop: true, color: .white)
+        let title = truncateText((mlp.tournament?.name?.trimmedNilIfBlank ?? "GIẢI MLP").uppercased(), font: barFont, maxWidth: 369 * u)
+        drawText(title, font: barFont, color: .black, x: ox + 195 * u, baseline: oy + 20.5 * u, align: .center)
+
+        // OP3: khối đen giữa (local 88)
+        UIColor.black.setFill()
+        cg.fill(CGRect(x: ox, y: oy + 28.5 * u, width: 390 * u, height: 66 * u))
+
+        // OP4-9: hai hàng đội — vạch màu đội + tên + dòng phụ (VĐV)
+        let nameFont = UIFont.systemFont(ofSize: 19.5 * u, weight: .bold)
+        let subFont = UIFont.systemFont(ofSize: 12 * u, weight: .regular)
+        let subColor = isDb ? colorMlpDbGold : colorMlpSub
+        func subLine(_ team: MlpOverlayTeam?) -> String {
+            if isDb {
+                return team?.currentPlayer?.displayName.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            }
+            return (team?.players ?? [])
+                .map { $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " / ")
+        }
+        func drawRow(_ team: MlpOverlayTeam?, accent: UIColor, barY: CGFloat, nameBaseline: CGFloat, subBaseline: CGFloat) {
+            accent.setFill()
+            cg.fill(CGRect(x: ox, y: oy + barY * u, width: 4.5 * u, height: 30 * u))
+            let name = truncateText(team?.displayName.trimmedNilIfBlank ?? "Đội", font: nameFont, maxWidth: 285 * u)
+            drawText(name, font: nameFont, color: .white, x: ox + 12 * u, baseline: oy + nameBaseline * u, align: .left)
+            let sub = subLine(team)
+            if !sub.isEmpty {
+                drawText(truncateText(sub, font: subFont, maxWidth: 285 * u), font: subFont, color: subColor, x: ox + 12 * u, baseline: oy + subBaseline * u, align: .left)
+            }
+        }
+        drawRow(mlp.teamA, accent: parseTeamColor(mlp.teamA?.color, fallback: colorMlpTeamADefault), barY: 30, nameBaseline: 45, subBaseline: 57)
+        drawRow(mlp.teamB, accent: parseTeamColor(mlp.teamB?.color, fallback: colorMlpTeamBDefault), barY: 63, nameBaseline: 78, subBaseline: 90)
+
+        // OP10-12: cột series (slotWins) navy — vẽ SAU hàng
+        colorMlpSeriesBg.setFill()
+        cg.fill(CGRect(x: ox + 306 * u, y: oy + 28.5 * u, width: 34.5 * u, height: 66 * u))
+        let seriesFont = UIFont.systemFont(ofSize: 22.5 * u, weight: .bold)
+        drawText(String(mlp.teamA?.slotWins ?? 0), font: seriesFont, color: .white, x: ox + 323.25 * u, baseline: oy + 52.5 * u, align: .center)
+        drawText(String(mlp.teamB?.slotWins ?? 0), font: seriesFont, color: .white, x: ox + 323.25 * u, baseline: oy + 85.5 * u, align: .center)
+
+        // OP13-16: cột điểm (xanh / vàng đậm khi DreamBreaker) + 2 điểm + vạch chia
+        (isDb ? colorMlpDbScoreBg : colorScoreGreen).setFill()
+        cg.fill(CGRect(x: ox + 340.5 * u, y: oy + 28.5 * u, width: 49.5 * u, height: 66 * u))
+        let scoreFont = UIFont.systemFont(ofSize: 30 * u, weight: .bold)
+        let scoreA = isDb ? (mlp.dreamBreaker?.scoreA ?? 0) : (mlp.score?.currentGameA ?? 0)
+        let scoreB = isDb ? (mlp.dreamBreaker?.scoreB ?? 0) : (mlp.score?.currentGameB ?? 0)
+        drawText(String(scoreA), font: scoreFont, color: .white, x: ox + 365.25 * u, baseline: oy + 55 * u, align: .center)
+        colorDivider.setFill()
+        cg.fill(CGRect(x: ox + 343.5 * u, y: oy + 61.125 * u, width: 43.5 * u, height: 0.75 * u))
+        drawText(String(scoreB), font: scoreFont, color: .white, x: ox + 365.25 * u, baseline: oy + 88 * u, align: .center)
+
+        // OP17-18: thanh trắng dưới (luôn có ở MLP)
+        fillRoundedBar(CGRect(x: ox, y: oy + 96 * u, width: 390 * u, height: 22.5 * u), radius: 6 * u, roundTop: false, color: .white)
+        let bottomText = isDb
+            ? "DREAM BREAKER · CHẠM " + String(mlp.dreamBreaker?.target ?? 21)
+            : (mlp.slot?.label?.trimmedNilIfBlank ?? "MLP").uppercased()
+        drawText(truncateText(bottomText, font: barFont, maxWidth: 369 * u), font: barFont, color: .black, x: ox + 195 * u, baseline: oy + 112.75 * u, align: .center)
+        cg.restoreGState()
+    }
+
+    /// Android parseColor: "#RRGGBB" hoặc "#AARRGGBB" (alpha ĐỨNG TRƯỚC), thiếu '#' thì thêm.
+    private static func parseTeamColor(_ hex: String?, fallback: UIColor) -> UIColor {
+        guard var s = hex?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return fallback }
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard let value = UInt64(s, radix: 16) else { return fallback }
+        switch s.count {
+        case 6:
+            return UIColor(
+                red: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
+                blue: CGFloat(value & 0xFF) / 255, alpha: 1
+            )
+        case 8:
+            return UIColor(
+                red: CGFloat((value >> 16) & 0xFF) / 255, green: CGFloat((value >> 8) & 0xFF) / 255,
+                blue: CGFloat(value & 0xFF) / 255, alpha: CGFloat((value >> 24) & 0xFF) / 255
+            )
+        default:
+            return fallback
+        }
+    }
+
+    // MARK: Lớp logo (drawLogoLayer) — hộp 68x68 góc phải trên, nền đen 35%, bo 10, logo fit trong lề 8
+
+    private static func drawLogoBox(_ image: UIImage, layout: OverlayLayout, in cg: CGContext) {
+        let u = layout.uiScale
+        let boxSize = 68 * u
+        let box = CGRect(x: layout.size.width - layout.margin - boxSize, y: layout.margin, width: boxSize, height: boxSize)
+        colorLogoBoxBg.setFill()
+        UIBezierPath(roundedRect: box, cornerRadius: 10 * u).fill()
+        let content = box.insetBy(dx: 8 * u, dy: 8 * u)
+        image.draw(in: aspectFitRect(for: image.size, in: content))
+    }
+
+    // MARK: Sponsor bar (drawSponsorsLayer) — góc phải dưới, KHÔNG nền, ô 44.8 basis kéo giãn vuông, pad 5.6
+
+    private static func drawSponsorBar(_ images: [UIImage], layout: OverlayLayout, in cg: CGContext) {
+        let u = layout.uiScale
+        let n = CGFloat(images.count)
+        let barHeight = 56 * u
+        let tile = 44.8 * u
+        let pad = 5.6 * u
+        let barWidth = (5.6 + 50.4 * n) * u
+        let barRight = layout.size.width - layout.margin
+        let barBottom = layout.size.height - layout.margin
+        let barLeft = barRight - barWidth
+        let barTop = barBottom - barHeight
+        for (index, image) in images.enumerated() {
+            let dst = CGRect(x: barLeft + pad + CGFloat(index) * (tile + pad), y: barTop + pad, width: tile, height: tile)
+            image.draw(in: dst) // stretch, giống Android drawBitmap(null src)
+        }
     }
 
     private static func aspectFitRect(for imageSize: CGSize, in bounds: CGRect) -> CGRect {

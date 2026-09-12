@@ -311,6 +311,7 @@ struct TournamentInfo: Codable, Equatable {
         case displayNameMode
         case logoURL = "logoUrl"
         case imageURL = "imageUrl"
+        case overlayNameStyle
     }
 
     var id: String
@@ -318,6 +319,7 @@ struct TournamentInfo: Codable, Equatable {
     var displayNameMode: String?
     var logoURL: String?
     var imageURL: String?
+    var overlayNameStyle: String?
 }
 
 struct CourtInfo: Codable, Equatable {
@@ -365,6 +367,8 @@ struct MatchData: Codable, Identifiable, Equatable {
         case courtClusterName
         case tournament
         case court
+        case isBreak
+        case overlayNameStyle
     }
 
     var id: String
@@ -396,6 +400,9 @@ struct MatchData: Codable, Identifiable, Equatable {
     var courtClusterName: String?
     var tournament: TournamentInfo?
     var court: CourtInfo?
+    /// Chỉ true khi JSON boolean true (Android asBoolean); dạng object {note} → nil.
+    @Lenient var isBreak: Bool?
+    var overlayNameStyle: String?
 
     var teamADisplayName: String {
         teamAName?.trimmedNilIfBlank ?? "Đội A"
@@ -846,6 +853,10 @@ struct LiveOverlaySnapshot: Codable, Equatable {
     @Lenient var sets: [SetScore]?
     var sponsorLogoURLs: [String]?
     var webLogoURL: String?
+    /// Android chỉ nhận true khi JSON là boolean true; dạng object {note} → coi như false.
+    @Lenient var isBreak: Bool?
+    /// Kiểu rút gọn tên đội (OverlayNameStyle "1".."4"), mặc định "1".
+    var overlayNameStyle: String?
 
     enum CodingKeys: String, CodingKey {
         case tournamentName
@@ -866,6 +877,8 @@ struct LiveOverlaySnapshot: Codable, Equatable {
         case sets
         case sponsorLogoURLs = "sponsorLogos"
         case webLogoURL = "webLogoUrl"
+        case isBreak
+        case overlayNameStyle
     }
 
     init(
@@ -886,7 +899,9 @@ struct LiveOverlaySnapshot: Codable, Equatable {
         seedB: Int? = nil,
         sets: [SetScore]? = nil,
         sponsorLogoURLs: [String]? = nil,
-        webLogoURL: String? = nil
+        webLogoURL: String? = nil,
+        isBreak: Bool? = nil,
+        overlayNameStyle: String? = nil
     ) {
         self.tournamentName = tournamentName
         self.courtName = courtName
@@ -906,12 +921,19 @@ struct LiveOverlaySnapshot: Codable, Equatable {
         self.sets = sets
         self.sponsorLogoURLs = sponsorLogoURLs
         self.webLogoURL = webLogoURL
+        self.isBreak = isBreak
+        self.overlayNameStyle = overlayNameStyle
     }
 
     init(match: MatchData) {
         self.init(
-            tournamentName: match.tournamentDisplayName,
-            courtName: match.courtDisplayName,
+            // Không chèn placeholder "PickleTour"/"Court": Android để trống → card hiện
+            // "GIẢI PICKLETOUR BETA" và break card bỏ dòng "Sân:" khi chưa biết.
+            tournamentName: match.tournament?.name?.trimmedNilIfBlank ?? match.tournamentName?.trimmedNilIfBlank,
+            courtName: match.court?.name?.trimmedNilIfBlank
+                ?? match.court?.label?.trimmedNilIfBlank
+                ?? match.courtName?.trimmedNilIfBlank
+                ?? match.courtStationName?.trimmedNilIfBlank,
             tournamentLogoURL: match.tournament?.logoURL ?? match.tournamentLogoURL,
             stageName: match.stageName,
             phaseText: match.phaseText,
@@ -925,7 +947,9 @@ struct LiveOverlaySnapshot: Codable, Equatable {
             breakNote: match.breakNote,
             seedA: match.seedA,
             seedB: match.seedB,
-            sets: match.gameScores
+            sets: match.gameScores,
+            isBreak: match.isBreak,
+            overlayNameStyle: match.overlayNameStyle?.trimmedNilIfBlank ?? match.tournament?.overlayNameStyle?.trimmedNilIfBlank
         )
     }
 }

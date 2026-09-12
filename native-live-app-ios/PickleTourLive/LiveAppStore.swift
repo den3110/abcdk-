@@ -1996,11 +1996,17 @@ final class LiveAppStore: ObservableObject {
         let resolvedConfig = config ?? overlayConfig
         let resolvedMatch = match ?? activeMatch
 
+        // Không chèn placeholder "PickleTour"/"Court" (Android để trống): card hiện
+        // "GIẢI PICKLETOUR BETA", break card bỏ dòng "Sân:" khi chưa biết.
         if next?.tournamentName?.trimmedNilIfBlank == nil {
-            next?.tournamentName = resolvedMatch?.tournamentDisplayName
+            next?.tournamentName = resolvedMatch?.tournament?.name?.trimmedNilIfBlank
+                ?? resolvedMatch?.tournamentName?.trimmedNilIfBlank
         }
         if next?.courtName?.trimmedNilIfBlank == nil {
-            next?.courtName = resolvedMatch?.courtDisplayName
+            next?.courtName = resolvedMatch?.court?.name?.trimmedNilIfBlank
+                ?? resolvedMatch?.court?.label?.trimmedNilIfBlank
+                ?? resolvedMatch?.courtName?.trimmedNilIfBlank
+                ?? resolvedMatch?.courtStationName?.trimmedNilIfBlank
         }
         if next?.teamAName?.trimmedNilIfBlank == nil {
             next?.teamAName = resolvedMatch?.teamADisplayName
@@ -2036,6 +2042,13 @@ final class LiveAppStore: ObservableObject {
         }
         if next?.sets?.isEmpty != false {
             next?.sets = resolvedMatch?.gameScores
+        }
+        if next?.isBreak == nil {
+            next?.isBreak = resolvedMatch?.isBreak
+        }
+        if next?.overlayNameStyle?.trimmedNilIfBlank == nil {
+            next?.overlayNameStyle = resolvedMatch?.overlayNameStyle?.trimmedNilIfBlank
+                ?? resolvedMatch?.tournament?.overlayNameStyle?.trimmedNilIfBlank
         }
 
         return next
