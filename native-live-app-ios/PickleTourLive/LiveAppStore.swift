@@ -1992,6 +1992,9 @@ final class LiveAppStore: ObservableObject {
     ) -> LiveOverlaySnapshot? {
         var next = snapshot ?? match.map(LiveOverlaySnapshot.init)
         guard next != nil else { return nil }
+        // Suy điểm/serve từ gameScores+currentGame+serve (Android extractCurrentScore) — một chỗ
+        // duy nhất, bao phủ cả socket lẫn api/overlay/match/:id (đều không có scoreA/scoreB).
+        next = next?.withDerivedLiveState()
 
         let resolvedConfig = config ?? overlayConfig
         let resolvedMatch = match ?? activeMatch

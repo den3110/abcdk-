@@ -169,17 +169,42 @@ final class MatchSocketCoordinator {
         socket?.emit("match:join", ["matchId": desiredMatchId])
     }
 
+    /// Key chứng tỏ payload có dữ liệu trận. Thiếu hết → patch-only (match:patched,
+    /// status:updated…) → xin snapshot đầy đủ như Android.
+    private static let informativeMatchKeys = ["gameScores", "currentGame", "scoreA", "scoreB", "teamAName", "teamBName", "serve", "sets"]
+
     private func handleMatchPayload(_ payload: Any?) {
         onPayloadTimestamp?(Date())
 
-        if let snapshot = SocketDecode.decode(LiveOverlaySnapshot.self, from: payload) {
-            onOverlaySnapshot?(snapshot)
-        } else if let match = SocketDecode.decode(MatchData.self, from: payload) {
-            onOverlaySnapshot?(LiveOverlaySnapshot(match: match))
+        // `match:update` là envelope {type, matchId, bracketId, data: DTO} → bóc `data`.
+        var body = payload as? [String: Any]
+        if let raw = body, let wrapped = raw["data"] as? [String: Any],
+           !Self.informativeMatchKeys.contains(where: { raw[$0] != nil }) {
+            body = wrapped
+        }
+        let effectivePayload: Any? = body ?? payload
+
+        // Patch-only: không có gì để vẽ → xin `match:snapshot` mới (server trả DTO đầy đủ).
+        if let raw = body, !Self.informativeMatchKeys.contains(where: { raw[$0] != nil }) {
+            if let matchId = (joinedMatchId ?? desiredMatchId)?.trimmedNilIfBlank {
+                socket?.emit("match:snapshot:request", ["matchId": matchId])
+            }
+            if let status = raw["status"] as? String {
+                onStatusChange?(status)
+            }
+            return
+        }
+
+        // DTO trận giải KHÔNG có scoreA/scoreB → withDerivedLiveState() suy điểm từ
+        // gameScores/currentGame/serve đúng như Android (extractCurrentScore).
+        if let snapshot = SocketDecode.decode(LiveOverlaySnapshot.self, from: effectivePayload) {
+            onOverlaySnapshot?(snapshot.withDerivedLiveState())
+        } else if let match = SocketDecode.decode(MatchData.self, from: effectivePayload) {
+            onOverlaySnapshot?(LiveOverlaySnapshot(match: match).withDerivedLiveState())
             onStatusChange?(match.status)
         }
 
-        if let body = payload as? [String: Any], let status = body["status"] as? String {
+        if let raw = body, let status = raw["status"] as? String {
             onStatusChange?(status)
         }
     }

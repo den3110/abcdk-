@@ -302,6 +302,21 @@ struct SetScore: Codable, Equatable, Hashable {
     var b: Int?
     var winner: String?
     var current: Bool?
+
+    enum CodingKeys: String, CodingKey { case index, a, b, winner, current }
+}
+
+extension SetScore {
+    /// Socket DTO gửi gameScores dạng [{a,b,capped,_id}] KHÔNG có `index` → mặc định 0
+    /// (vị trí trong mảng mới là thứ tự game); field lệch kiểu → nil, không làm hỏng payload.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        index = (try? container.decodeIfPresent(Int.self, forKey: .index)) ?? 0
+        a = try? container.decodeIfPresent(Int.self, forKey: .a)
+        b = try? container.decodeIfPresent(Int.self, forKey: .b)
+        winner = try? container.decodeIfPresent(String.self, forKey: .winner)
+        current = try? container.decodeIfPresent(Bool.self, forKey: .current)
+    }
 }
 
 struct TournamentInfo: Codable, Equatable {
@@ -857,6 +872,11 @@ struct LiveOverlaySnapshot: Codable, Equatable {
     @Lenient var isBreak: Bool?
     /// Kiểu rút gọn tên đội (OverlayNameStyle "1".."4"), mặc định "1".
     var overlayNameStyle: String?
+    /// Có trong socket/HTTP DTO (vốn KHÔNG có scoreA/scoreB): dùng để suy điểm hiện tại
+    /// như Android — xem withDerivedLiveState().
+    @Lenient var gameScores: [SetScore]?
+    var currentGame: Int?
+    @Lenient var serve: OverlayServeInfo?
 
     enum CodingKeys: String, CodingKey {
         case tournamentName
@@ -879,6 +899,9 @@ struct LiveOverlaySnapshot: Codable, Equatable {
         case webLogoURL = "webLogoUrl"
         case isBreak
         case overlayNameStyle
+        case gameScores
+        case currentGame
+        case serve
     }
 
     init(
@@ -901,7 +924,10 @@ struct LiveOverlaySnapshot: Codable, Equatable {
         sponsorLogoURLs: [String]? = nil,
         webLogoURL: String? = nil,
         isBreak: Bool? = nil,
-        overlayNameStyle: String? = nil
+        overlayNameStyle: String? = nil,
+        gameScores: [SetScore]? = nil,
+        currentGame: Int? = nil,
+        serve: OverlayServeInfo? = nil
     ) {
         self.tournamentName = tournamentName
         self.courtName = courtName
@@ -923,6 +949,9 @@ struct LiveOverlaySnapshot: Codable, Equatable {
         self.webLogoURL = webLogoURL
         self.isBreak = isBreak
         self.overlayNameStyle = overlayNameStyle
+        self.gameScores = gameScores
+        self.currentGame = currentGame
+        self.serve = serve
     }
 
     init(match: MatchData) {
@@ -951,6 +980,41 @@ struct LiveOverlaySnapshot: Codable, Equatable {
             isBreak: match.isBreak,
             overlayNameStyle: match.overlayNameStyle?.trimmedNilIfBlank ?? match.tournament?.overlayNameStyle?.trimmedNilIfBlank
         )
+    }
+}
+
+/// `serve: {side, server, opening}` trong DTO socket/HTTP của trận giải.
+struct OverlayServeInfo: Codable, Equatable {
+    var side: String?
+    @Lenient var server: Int?
+}
+
+extension LiveOverlaySnapshot {
+    /// Port Android extractCurrentScore: scoreA/B (nếu server đã tính) → gameScores[current==true]
+    /// → gameScores[currentGame] → gameScores.last. DTO trận giải KHÔNG có scoreA/scoreB nên
+    /// không suy từ đây thì overlay luôn 0-0 dù trận đã có điểm. serve{side,server} →
+    /// serveSide/serveCount. Chỉ điền field đang nil (dữ liệu tới từ socket luôn thắng).
+    func withDerivedLiveState() -> LiveOverlaySnapshot {
+        var next = self
+        let games = next.gameScores ?? []
+        let currentIndex = next.currentGame ?? -1
+        let currentGame: SetScore? = games.first(where: { $0.current == true })
+            ?? ((currentIndex >= 0 && currentIndex < games.count) ? games[currentIndex] : nil)
+            ?? games.last
+        if let currentGame {
+            if next.scoreA == nil { next.scoreA = currentGame.a ?? 0 }
+            if next.scoreB == nil { next.scoreB = currentGame.b ?? 0 }
+        }
+        if next.serveSide?.trimmedNilIfBlank == nil, let side = next.serve?.side?.trimmedNilIfBlank {
+            next.serveSide = side
+        }
+        if next.serveCount == nil, let server = next.serve?.server {
+            next.serveCount = server
+        }
+        if next.sets?.isEmpty != false, !games.isEmpty {
+            next.sets = games
+        }
+        return next
     }
 }
 
