@@ -822,7 +822,21 @@ final class LiveAppStore: ObservableObject {
         // dù admin đã gán sân + trọng tài đã bắt đầu trận mới.
         if resumeCourtLoops, route == .liveStream, let courtId = currentCourtId?.trimmedNilIfBlank {
             await resumeCourtWaitingLoops(courtId: courtId)
+            // streamState là mirror Combine của service → có thể còn .live vài ms sau stopPublishing()
+            // → handleRuntimeMatchCandidate trong resume XẾP HÀNG trận mới (queuedCourtMatchId) thay vì
+            // chuyển, mà block xử lý hàng đợi phía trên đã chạy xong → chuyển lại ở đây.
+            if let queued = queuedCourtMatchId?.trimmedNilIfBlank, queued != activeMatch?.id {
+                queuedCourtMatchId = nil
+                waitingForNextMatch = false
+                await switchMatchContext(to: queued, announcement: "Đã chuyển sang match kế tiếp.")
+            }
         }
+    }
+
+    private func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError { return true }
+        if let urlError = error as? URLError, urlError.code == .cancelled { return true }
+        return false
     }
 
     func leaveLiveScreen() async {
@@ -1958,18 +1972,23 @@ final class LiveAppStore: ObservableObject {
     }
 
     private func maybeAutoStartArmedSession() {
-        guard appIsActive else { return }
-        guard !freshEntryRequired else { return }
-        guard !isWorking else { return }
-        guard goLiveCountdownTask == nil else { return }
-        guard stopLiveCountdownTask == nil else { return }
-        guard !matchesLiveSessionState else { return }
-        guard !streamingService.isRecordingLocally else { return }
-        guard goLiveArmed || recordOnlyArmed || isWaitingForActivation else { return }
+        func bail(_ reason: String) {
+            #if DEBUG
+            print("[PTLive autostart] chưa auto-start: \(reason) — match=\(activeMatch?.id ?? "-") status=\(activeMatch?.status ?? "-") armed=\(goLiveArmed)/\(recordOnlyArmed) waiting=\(waitingForCourt)/\(waitingForMatchLive)/\(waitingForNextMatch) stream=\(streamState)")
+            #endif
+        }
+        guard appIsActive else { return bail("app background") }
+        guard !freshEntryRequired else { return bail("freshEntryRequired") }
+        guard !isWorking else { return bail("isWorking") }
+        guard goLiveCountdownTask == nil else { return bail("đang đếm ngược go-live") }
+        guard stopLiveCountdownTask == nil else { return bail("đang đếm ngược dừng") }
+        guard !matchesLiveSessionState else { return bail("streamState còn live/connecting") }
+        guard !streamingService.isRecordingLocally else { return bail("recorder còn ghi") }
+        guard goLiveArmed || recordOnlyArmed || isWaitingForActivation else { return bail("không armed / không chờ") }
 
         if activeMatch == nil {
             waitingForCourt = currentCourtId?.trimmedNilIfBlank != nil
-            return
+            return bail("chưa có activeMatch")
         }
 
         waitingForCourt = false
@@ -1977,10 +1996,11 @@ final class LiveAppStore: ObservableObject {
 
         if shouldWaitForMatchToBeLive(activeMatch) {
             waitingForMatchLive = true
-            return
+            return bail("trận chưa LIVE")
         }
 
         if let autoStartDelayReason {
+            bail(autoStartDelayReason)
             waitingForMatchLive = false
             bannerMessage = autoStartDelayReason
             if let matchId = activeMatch?.id.trimmedNilIfBlank, (socketRoomPending || socketRoomMismatch) {
@@ -1995,9 +2015,8 @@ final class LiveAppStore: ObservableObject {
         }
 
         waitingForMatchLive = false
-        goLiveArmed = false
-        recordOnlyArmed = false
-
+        // KHÔNG tắt armed ở đây: startLive() tự tắt khi thật sự vào phiên. Nếu nó bail ở tiền kiểm
+        // (socket chưa join room, offline tạm…) thì ý định còn nguyên → watchdog 2s thử lại.
         Task {
             await startLive()
         }
@@ -2958,6 +2977,8 @@ final class LiveAppStore: ObservableObject {
                 waitingForCourt = activeMatch == nil
             }
         } catch {
+            // Poll bị huỷ (stopBackgroundLoops giữa lúc request) → không phải lỗi, đừng hiện "cancelled"
+            if isCancellation(error) { return }
             errorMessage = error.localizedDescription
         }
     }
@@ -3019,6 +3040,8 @@ final class LiveAppStore: ObservableObject {
             }
         }
         if activeMatch != nil, overlaySnapshot == nil || socketPayloadStale {
+            // Xin server phát lại match:snapshot (cập nhật lastSocketPayloadAt → hết stale) + HTTP overlay
+            environment.matchSocket.requestSnapshot(reason: "armed-watchdog")
             await refreshOverlay(force: false)
         }
         maybeAutoStartArmedSession()
@@ -3423,6 +3446,9 @@ final class LiveAppStore: ObservableObject {
             let match = try await environment.apiClient.getMatchRuntime(matchId: matchId)
             activeMatch = match
             lastHandledTerminalMatchId = nil
+            // Tuổi payload socket thuộc trận CŨ → nếu giữ, socketPayloadStale (≥20s) chặn auto-start
+            // của trận mới bằng lý do "payload stale" cho tới khi trận mới có event socket.
+            lastSocketPayloadAt = nil
             launchTarget.matchId = match.id
             queuedCourtMatchId = nil
             waitingForCourt = false
@@ -3456,6 +3482,7 @@ final class LiveAppStore: ObservableObject {
             }
             maybeAutoStartArmedSession()
         } catch {
+            if isCancellation(error) { return }
             errorMessage = error.localizedDescription
         }
     }
