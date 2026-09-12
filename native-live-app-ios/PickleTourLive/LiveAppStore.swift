@@ -3268,6 +3268,9 @@ final class LiveAppStore: ObservableObject {
 
         guard route == .liveStream else { return }
         guard nextMatchId != activeMatch?.id else { return }
+        #if DEBUG
+        print("[PTLive court] runtime sân báo trận \(nextMatchId) ≠ trận đang active \(activeMatch?.id ?? "-") → \((matchesLiveSessionState || streamingService.isRecordingLocally) ? "XẾP HÀNG chuyển (đang live/ghi)" : "chuyển ngay")")
+        #endif
 
         if matchesLiveSessionState || streamingService.isRecordingLocally {
             queuedCourtMatchId = nextMatchId
@@ -4332,6 +4335,9 @@ final class LiveAppStore: ObservableObject {
 
     private func handleTerminalMatchStatus(status: String, matchId: String) async {
         guard lastHandledTerminalMatchId != matchId else { return }
+        #if DEBUG
+        print("[PTLive match] status kết thúc '\(status)' cho trận \(matchId) → đóng phiên live/ghi hình")
+        #endif
 
         let hasActiveSession =
             hasActiveLivestreamSession

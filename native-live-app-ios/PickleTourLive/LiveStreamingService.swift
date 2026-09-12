@@ -151,6 +151,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private var publishTimeoutTask: Task<Void, Never>?
     private var recordingRotationTimer: Timer?
     private var recordingStopTimeoutTask: Task<Void, Never>?
+    private var recorderEmptySegmentStrikes = 0
     private var pendingRecordingStopContinuation: CheckedContinuation<Void, Never>?
     private var activeRecordingSession: ActiveLocalRecordingSession?
     private var pendingRecordingBoundary: PendingRecordingBoundary?
@@ -428,6 +429,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
         )
 
         activeRecordingSession = nextSession
+        recorderEmptySegmentStrikes = 0
         localRecordingState = .recording(recordingId: recordingId, segmentIndex: 0)
         appendDiagnostic("Recording armed for match \(matchId).")
         beginRecordingSegment()
@@ -574,18 +576,21 @@ final class LiveStreamingService: NSObject, ObservableObject {
         audioSettings.bitRate = 128_000
         stream.audioSettings = audioSettings
 
+        // 0 = HaishinKit tự lấy theo NGUỒN thật (sample rate/channels từ mixer, kích thước từ
+        // frame) — đúng mặc định của thư viện. Ép cứng 44.1kHz trong khi mixer chạy 48kHz (log
+        // IOAudioMixerTrack) làm AVAssetWriterInput audio tạo/append thất bại → thiếu input audio
+        // → isReadyForStartWriting=false → writer không bao giờ .writing → mỗi lần xoay segment
+        // báo failedToFinishWriting (IOStreamRecorder.Error error 3) + banner đỏ.
         recorder.settings = [
             .audio: [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 44_100,
-                AVNumberOfChannelsKey: 1
+                AVSampleRateKey: 0,
+                AVNumberOfChannelsKey: 0
             ],
             .video: [
                 AVVideoCodecKey: AVVideoCodecType.h264,
-                // Dùng kích thước có hướng (portrait 1080x1920) thay vì landscape cứng,
-                // vì Screen offscreen giờ cấp frame đúng hướng cho recorder.
-                AVVideoWidthKey: Int(offscreenCanvasSize().width),
-                AVVideoHeightKey: Int(offscreenCanvasSize().height),
+                AVVideoWidthKey: 0,
+                AVVideoHeightKey: 0,
                 AVVideoCompressionPropertiesKey: [
                     AVVideoAverageBitRateKey: quality.videoBitrate,
                     AVVideoMaxKeyFrameIntervalDurationKey: 2
@@ -596,7 +601,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
     func attachPreviewView(_ view: MTHKView) {
         previewViews.add(view)
-        view.videoGravity = .resizeAspectFill
+        view.videoGravity = .resizeAspect // WYSIWYG: hiện trọn frame 16:9 (fill sẽ crop mất overlay ở lề như Android không bị)
         view.videoOrientation = currentVideoOrientation
         view.attachStream(stream)
     }
@@ -1125,7 +1130,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     /// - videoSettings.videoSize: KÍCH THƯỚC ENCODER H264 (VTCompressionSession được tạo
     ///   từ đây, mặc định HaishinKit 854x480 — trước đây app chưa bao giờ set nên stream
     ///   "1080p" thực tế chỉ 854x480). Đổi videoSize sẽ tạo lại VT session (đúng ý).
-    /// - recorder (mp4 local) width/height, chỉ khi không đang ghi.
+    /// (recorder mp4 tự lấy kích thước theo frame nguồn — settings width/height = 0.)
     private func syncOffscreenScreenSize() {
         let size = offscreenCanvasSize()
         if stream.screen.size != size {
@@ -1135,14 +1140,6 @@ final class LiveStreamingService: NSObject, ObservableObject {
         if videoSettings.videoSize != size {
             videoSettings.videoSize = size
             stream.videoSettings = videoSettings
-        }
-        if !isRecordingLocally {
-            var settings = recorder.settings
-            var video = settings[.video] ?? [:]
-            video[AVVideoWidthKey] = Int(size.width)
-            video[AVVideoHeightKey] = Int(size.height)
-            settings[.video] = video
-            recorder.settings = settings
         }
     }
 
@@ -1240,6 +1237,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
     private func handleRecorderFinishWriting(_ writer: AVAssetWriter) {
         cancelRecordingStopTimeout()
+        recorderEmptySegmentStrikes = 0
         guard let boundary = pendingRecordingBoundary else {
             resolvePendingRecordingStop()
             return
@@ -1294,6 +1292,30 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private func handleRecorderError(_ error: IOStreamRecorder.Error) {
         cancelRecordingStopTimeout()
         let message = error.localizedDescription
+
+        // failedToFinishWriting = writer chưa từng vào .writing khi đóng segment (chưa nhận sample
+        // nào, ví dụ input audio chưa có). Segment rỗng không phải lỗi nghiêm trọng: mở segment kế
+        // tiếp (tối đa 2 lần liên tiếp) thay vì hạ cả ghi hình + banner đỏ giữa lúc đang live.
+        if case .failedToFinishWriting = error, let boundary = pendingRecordingBoundary {
+            pendingRecordingBoundary = nil
+            if boundary.isFinal {
+                appendDiagnostic("Segment cuối rỗng (writer chưa có sample) → kết thúc ghi hình êm.")
+                activeRecordingSession = nil
+                localRecordingState = .idle
+                resolvePendingRecordingStop()
+                return
+            }
+            if recorderEmptySegmentStrikes < 2, var nextSession = activeRecordingSession {
+                recorderEmptySegmentStrikes += 1
+                appendDiagnostic("Segment #\(boundary.segmentIndex + 1) rỗng (writer chưa có sample) → mở segment mới (\(recorderEmptySegmentStrikes)/2).")
+                nextSession.segmentIndex = boundary.segmentIndex + 1
+                nextSession.segmentStartedAt = Date()
+                activeRecordingSession = nextSession
+                beginRecordingSegment()
+                return
+            }
+        }
+
         appendDiagnostic("Recorder error: \(message)")
         localRecordingState = .failed(message)
         activeRecordingSession = nil
@@ -1548,7 +1570,7 @@ final class LivePreviewContainerView: UIView {
         super.init(frame: frame)
         backgroundColor = .black
         previewView.translatesAutoresizingMaskIntoConstraints = false
-        previewView.videoGravity = .resizeAspectFill
+        previewView.videoGravity = .resizeAspect // WYSIWYG: hiện trọn frame 16:9 (fill sẽ crop mất overlay ở lề như Android không bị)
         addSubview(previewView)
         NSLayoutConstraint.activate([
             previewView.topAnchor.constraint(equalTo: topAnchor),

@@ -859,13 +859,15 @@ struct LiveOverlaySnapshot: Codable, Equatable {
     var roundLabel: String?
     var teamAName: String?
     var teamBName: String?
-    var scoreA: Int?
-    var scoreB: Int?
+    // Int? bọc @Lenient: một field lệch kiểu (vd seedA là chuỗi) không được làm hỏng cả payload
+    // socket → mất cập nhật điểm realtime.
+    @Lenient var scoreA: Int?
+    @Lenient var scoreB: Int?
     var serveSide: String?
-    var serveCount: Int?
+    @Lenient var serveCount: Int?
     var breakNote: String?
-    var seedA: Int?
-    var seedB: Int?
+    @Lenient var seedA: Int?
+    @Lenient var seedB: Int?
     @Lenient var sets: [SetScore]?
     var sponsorLogoURLs: [String]?
     var webLogoURL: String?
@@ -876,7 +878,7 @@ struct LiveOverlaySnapshot: Codable, Equatable {
     /// Có trong socket/HTTP DTO (vốn KHÔNG có scoreA/scoreB): dùng để suy điểm hiện tại
     /// như Android — xem withDerivedLiveState().
     @Lenient var gameScores: [SetScore]?
-    var currentGame: Int?
+    @Lenient var currentGame: Int?
     @Lenient var serve: OverlayServeInfo?
 
     enum CodingKeys: String, CodingKey {

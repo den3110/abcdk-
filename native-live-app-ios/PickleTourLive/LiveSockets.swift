@@ -26,7 +26,14 @@ private enum SocketDecode {
 
     static func decode<T: Decodable>(_ type: T.Type, from payload: Any?) -> T? {
         guard let data = data(from: payload) else { return nil }
-        return try? JSONDecoder().decode(type, from: data)
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            #if DEBUG
+            print("[PTLive socket] decode \(T.self) FAILED: \(error)")
+            #endif
+            return nil
+        }
     }
 }
 
@@ -160,7 +167,7 @@ final class MatchSocketCoordinator {
 
         for event in ["match:snapshot", "score:updated", "score:update", "match:update", "match:patched", "status:updated", "winner:updated"] {
             socket.on(event) { [weak self] data, _ in
-                self?.handleMatchPayload(data.first)
+                self?.handleMatchPayload(data.first, event: event)
             }
         }
     }
@@ -207,8 +214,13 @@ final class MatchSocketCoordinator {
         return nil
     }
 
-    private func handleMatchPayload(_ payload: Any?) {
-        guard let root = payload as? [String: Any] else { return }
+    private func handleMatchPayload(_ payload: Any?, event: String = "?") {
+        guard let root = payload as? [String: Any] else {
+            #if DEBUG
+            print("[PTLive socket] \(event): payload không phải object")
+            #endif
+            return
+        }
         let hasInfo: ([String: Any]) -> Bool = { dict in
             Self.informativeMatchKeys.contains { dict[$0] != nil }
         }
@@ -228,6 +240,9 @@ final class MatchSocketCoordinator {
         let payloadId = Self.idString(root["_id"]) ?? Self.idString(root["id"]) ?? Self.idString(root["matchId"])
             ?? Self.idString(body["_id"]) ?? Self.idString(body["matchId"])
         if let payloadId, let expected = (joinedMatchId ?? desiredMatchId)?.trimmedNilIfBlank, payloadId != expected {
+            #if DEBUG
+            print("[PTLive socket] \(event): BỎ — payload của trận \(payloadId), đang theo \(expected)")
+            #endif
             return
         }
 
@@ -236,6 +251,9 @@ final class MatchSocketCoordinator {
         // Patch-only (match:patched, status:updated, winner:updated…): không có gì để vẽ → xin
         // snapshot đầy đủ như Android. KHÔNG tính là "payload mới" để socketPayloadStale đúng.
         guard hasInfo(body) else {
+            #if DEBUG
+            print("[PTLive socket] \(event): patch-only (keys: \(Array(root.keys).sorted().joined(separator: ","))) → xin match:snapshot")
+            #endif
             requestSnapshot(reason: "lightweight")
             if let status { onStatusChange?(status) }
             return
@@ -245,6 +263,9 @@ final class MatchSocketCoordinator {
         let version = Self.intValue(root["version"]) ?? Self.intValue(root["liveVersion"])
             ?? Self.intValue(body["version"]) ?? Self.intValue(body["liveVersion"])
         if let version, lastAppliedVersion >= 0, version < lastAppliedVersion {
+            #if DEBUG
+            print("[PTLive socket] \(event): BỎ — version \(version) < đã áp \(lastAppliedVersion)")
+            #endif
             return
         }
 
@@ -252,12 +273,22 @@ final class MatchSocketCoordinator {
 
         // DTO trận giải KHÔNG có scoreA/scoreB → withDerivedLiveState() suy điểm từ
         // gameScores/currentGame/serve đúng như Android (extractCurrentScore).
+        var derived: LiveOverlaySnapshot?
         if let snapshot = SocketDecode.decode(LiveOverlaySnapshot.self, from: body) {
-            if let version { lastAppliedVersion = max(lastAppliedVersion, version) }
-            onOverlaySnapshot?(snapshot.withDerivedLiveState())
+            derived = snapshot.withDerivedLiveState()
         } else if let match = SocketDecode.decode(MatchData.self, from: body) {
+            derived = LiveOverlaySnapshot(match: match).withDerivedLiveState()
+        }
+        if let derived {
             if let version { lastAppliedVersion = max(lastAppliedVersion, version) }
-            onOverlaySnapshot?(LiveOverlaySnapshot(match: match).withDerivedLiveState())
+            #if DEBUG
+            print("[PTLive socket] \(event) v=\(version ?? -1) điểm=\(derived.scoreA ?? -1)-\(derived.scoreB ?? -1) giao=\(derived.serveSide ?? "-")/\(derived.serveCount ?? -1) game=\(derived.currentGame ?? -1)/\((derived.gameScores ?? []).count) A=\(derived.teamAName ?? "-") B=\(derived.teamBName ?? "-") status=\(status ?? "-")")
+            #endif
+            onOverlaySnapshot?(derived)
+        } else {
+            #if DEBUG
+            print("[PTLive socket] \(event): decode THẤT BẠI cả LiveOverlaySnapshot lẫn MatchData (keys: \(Array(body.keys).sorted().joined(separator: ",")))")
+            #endif
         }
         if let status { onStatusChange?(status) }
     }
