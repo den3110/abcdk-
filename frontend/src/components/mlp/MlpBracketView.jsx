@@ -59,8 +59,9 @@ function TeamRow({ team, score, isWinner, compact = false, placeholder }) {
         sx={{
           p: compact ? 0.5 : 1,
           borderRadius: 1.5,
-          bgcolor: "#FEF3C7",
-          border: "1px dashed #F59E0B",
+          bgcolor: "action.hover",
+          border: "1px dashed",
+          borderColor: "divider",
         }}
       >
         <Avatar
@@ -74,12 +75,12 @@ function TeamRow({ team, score, isWinner, compact = false, placeholder }) {
           ?
         </Avatar>
         <Typography
-          sx={{ flex: 1, fontWeight: 700, fontStyle: "italic", color: "#92400E", fontSize: compact ? 12 : 14 }}
+          sx={{ flex: 1, fontWeight: 700, fontStyle: "italic", color: "text.secondary", fontSize: compact ? 12 : 14 }}
           noWrap
         >
           {placeholder}
         </Typography>
-        <Typography variant={compact ? "body2" : "h5"} sx={{ fontWeight: 900, color: "#92400E" }}>
+        <Typography variant={compact ? "body2" : "h5"} sx={{ fontWeight: 900, color: "text.secondary" }}>
           –
         </Typography>
       </Stack>
@@ -93,8 +94,9 @@ function TeamRow({ team, score, isWinner, compact = false, placeholder }) {
       sx={{
         p: compact ? 0.5 : 1,
         borderRadius: 1.5,
-        bgcolor: isWinner ? "#F0FDF4" : "#F8FAFC",
-        border: isWinner ? "1px solid #10B981" : "1px solid transparent",
+        bgcolor: isWinner ? "rgba(16,185,129,0.15)" : "action.hover",
+        border: "1px solid",
+        borderColor: isWinner ? "#10B981" : "transparent",
       }}
     >
       <Avatar
@@ -115,7 +117,7 @@ function TeamRow({ team, score, isWinner, compact = false, placeholder }) {
           flex: 1,
           fontWeight: 700,
           fontSize: compact ? 12 : 14,
-          color: isWinner ? "#065F46" : "#0F172A",
+          color: isWinner ? "success.main" : "text.primary",
         }}
         noWrap
       >
@@ -125,7 +127,7 @@ function TeamRow({ team, score, isWinner, compact = false, placeholder }) {
         variant={compact ? "body2" : "h5"}
         sx={{
           fontWeight: 900,
-          color: isWinner ? "#065F46" : "#0F172A",
+          color: isWinner ? "success.main" : "text.primary",
         }}
       >
         {score ?? 0}
@@ -234,13 +236,17 @@ function DualCard({ dual, onOpen, compact = false }) {
               {dual.subMatches.map((s) => {
                 const w = s?.result?.winner;
                 const bg =
-                  w === "A" ? "#DBEAFE" : w === "B" ? "#FEE2E2" : "#F1F5F9";
+                  w === "A"
+                    ? "rgba(59,130,246,0.22)"
+                    : w === "B"
+                      ? "rgba(239,68,68,0.22)"
+                      : "rgba(148,163,184,0.20)";
                 return (
                   <Chip
                     key={String(s._id)}
                     size="small"
                     label={`${s.slotKey} · ${s?.result?.scoreA ?? 0}-${s?.result?.scoreB ?? 0}`}
-                    sx={{ bgcolor: bg, fontWeight: 700, fontSize: 11 }}
+                    sx={{ bgcolor: bg, color: "text.primary", fontWeight: 700, fontSize: 11 }}
                   />
                 );
               })}
