@@ -1180,12 +1180,30 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
               as: "_rc",
             },
           },
+          // Giải MLP đăng ký theo ĐỘI (mlpteams), không dùng registrations.
           {
-            $addFields: {
-              registered: { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
+            $lookup: {
+              from: "mlpteams",
+              let: { tid: "$_id" },
+              pipeline: [
+                { $match: { $expr: { $eq: ["$tournament", "$$tid"] } } },
+                { $group: { _id: null, c: { $sum: 1 } } },
+              ],
+              as: "_mlpc",
             },
           },
-          { $project: { _rc: 0, _startInstant: 0, _endInstant: 0 } },
+          {
+            $addFields: {
+              registered: {
+                $cond: [
+                  { $eq: ["$tournamentMode", "mlp"] },
+                  { $ifNull: [{ $arrayElemAt: ["$_mlpc.c", 0] }, 0] },
+                  { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
+                ],
+              },
+            },
+          },
+          { $project: { _rc: 0, _mlpc: 0, _startInstant: 0, _endInstant: 0 } },
         ],
         total: [{ $count: "count" }],
       },

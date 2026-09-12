@@ -10,6 +10,7 @@ import User from "../models/userModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
 import { autoScheduleTournament } from "../services/matchAutoSchedule.service.js";
 import Registration from "../models/registrationModel.js";
+import MlpTeam from "../models/mlpTeamModel.js";
 import DrawSession from "../models/drawSessionModel.js";
 import Court from "../models/courtModel.js";
 import { sleep } from "../utils/sleep.js";
@@ -2889,6 +2890,9 @@ const getTournaments = asyncHandler(async (req, res) => {
   // ----- registered / isFull / remaining -----
   // Chỉ đếm registration status "approved" (mặc định + data cũ). Waitlisted
   // không được tính vào công khai — người dùng vẫn thấy 48/48 dù có đội chờ.
+  // Giải MLP (tournamentMode="mlp") đăng ký theo ĐỘI ở collection `mlpteams`
+  // (không dùng `registrations`) → đếm team approved thay vì registrations,
+  // nếu không thẻ giải MLP luôn hiện "0/…" dù đã có đội.
   pipeline.push(
     {
       $lookup: {
@@ -2911,19 +2915,40 @@ const getTournaments = asyncHandler(async (req, res) => {
       },
     },
     {
+      $lookup: {
+        from: "mlpteams",
+        let: { tid: "$_id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ["$tournament", "$$tid"] },
+              status: "approved",
+            },
+          },
+          { $group: { _id: null, c: { $sum: 1 } } },
+        ],
+        as: "_mlpc",
+      },
+    },
+    {
       $addFields: {
-        registered: { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
+        registered: {
+          $cond: [
+            { $eq: ["$tournamentMode", "mlp"] },
+            { $ifNull: [{ $arrayElemAt: ["$_mlpc.c", 0] }, 0] },
+            { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
         isFull: {
           $cond: [
             {
               $and: [
                 { $gt: ["$maxPairs", 0] },
-                {
-                  $gte: [
-                    { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
-                    "$maxPairs",
-                  ],
-                },
+                { $gte: ["$registered", "$maxPairs"] },
               ],
             },
             true,
@@ -2933,17 +2958,7 @@ const getTournaments = asyncHandler(async (req, res) => {
         remaining: {
           $cond: [
             { $gt: ["$maxPairs", 0] },
-            {
-              $max: [
-                0,
-                {
-                  $subtract: [
-                    "$maxPairs",
-                    { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
-                  ],
-                },
-              ],
-            },
+            { $max: [0, { $subtract: ["$maxPairs", "$registered"] }] },
             null,
           ],
         },
@@ -3034,6 +3049,7 @@ const getTournaments = asyncHandler(async (req, res) => {
     {
       $project: {
         _rc: 0,
+        _mlpc: 0,
         _bc: 0,
         _mc: 0,
         _startInstant: 0,
@@ -3105,7 +3121,7 @@ const getTournamentById = asyncHandler(async (req, res) => {
       { status: null },
     ],
   };
-  const [
+  let [
     managerRows,
     registrationsCount,
     waitlistedCount,
@@ -3127,6 +3143,21 @@ const getTournamentById = asyncHandler(async (req, res) => {
       "payment.status": "Paid",
     }),
   ]);
+
+  // Giải MLP đăng ký theo ĐỘI (collection mlpteams), không dùng registrations
+  // → stats phải đếm team, nếu không FE hiện 0 đội dù đã có đội.
+  if (String(tour.tournamentMode || "") === "mlp") {
+    [registrationsCount, waitlistedCount, paidCount] = await Promise.all([
+      MlpTeam.countDocuments({ tournament: id, status: "approved" }),
+      MlpTeam.countDocuments({ tournament: id, status: "waitlisted" }),
+      MlpTeam.countDocuments({
+        tournament: id,
+        status: "approved",
+        "payment.status": "paid",
+      }),
+    ]);
+    checkedInCount = 0;
+  }
 
   const managers = managerRows.map((r) => ({
     user: r.user,

@@ -827,7 +827,8 @@ export default function TournamentDashboard() {
                         : "primary.main"
                     }
                   >
-                    {registeredCount} / {maxPairs}
+                    {registeredCount}
+                    {maxPairs > 0 ? ` / ${maxPairs}` : ""}
                   </Typography>
                 </Stack>
 

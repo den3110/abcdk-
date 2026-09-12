@@ -393,27 +393,33 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
           {Number(t.matchesCount || 0) > 0 && <span style={chip}>{tr("v3.tournaments.matchesCount", { count: t.matchesCount })}</span>}
         </div>
 
-        {cap > 0 && (
+        {(cap > 0 || reg > 0) && (
           <div style={{ marginTop: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
               <Text type="supporting" color="secondary">{tr("v3.tournaments.registration")}</Text>
               <Text type="supporting" color={t.isFull ? "primary" : "secondary"} weight="semibold">
-                {t.isFull ? tr("v3.tournaments.full") : tr("v3.tournaments.teamsCount", { reg, cap })}
+                {cap > 0
+                  ? t.isFull
+                    ? tr("v3.tournaments.full")
+                    : tr("v3.tournaments.teamsCount", { reg, cap })
+                  : tr("v3.tournaments.teamsOnly", { reg })}
               </Text>
             </div>
-            <div style={{ height: 5, borderRadius: 99, background: "light-dark(rgba(0,0,0,.08), rgba(255,255,255,.08))", overflow: "hidden" }}>
-              <div
-                style={{
-                  height: "100%",
-                  width: `${pct}%`,
-                  borderRadius: 99,
-                  background: t.isFull
-                    ? "linear-gradient(90deg, #F2555A, #FF8A5C)"
-                    : "linear-gradient(90deg, #2694FE, #3D87FF)",
-                  transition: "width .6s cubic-bezier(.2,.7,.2,1)",
-                }}
-              />
-            </div>
+            {cap > 0 && (
+              <div style={{ height: 5, borderRadius: 99, background: "light-dark(rgba(0,0,0,.08), rgba(255,255,255,.08))", overflow: "hidden" }}>
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${pct}%`,
+                    borderRadius: 99,
+                    background: t.isFull
+                      ? "linear-gradient(90deg, #F2555A, #FF8A5C)"
+                      : "linear-gradient(90deg, #2694FE, #3D87FF)",
+                    transition: "width .6s cubic-bezier(.2,.7,.2,1)",
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 
