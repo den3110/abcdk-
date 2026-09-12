@@ -1645,7 +1645,14 @@ actor LiveRecordingUploadCoordinator {
                 } catch {
                     inFlightSegmentIDs.remove(nextSegment.id)
                     markSegmentError(nextSegment.id, message: error.localizedDescription)
-                    publishError(error.localizedDescription)
+                    // MP4 chưa finalize / chưa readable / thiếu mdat/moov là báo cáo tạm thời:
+                    // recorder xoay segment 6s → backend validate ngay khi upload xong có thể
+                    // đọc file trước khi ffmpeg đóng box moov. Backend trả 409 kèm
+                    // `retryable:true` — vòng upload phải tự retry im lặng, KHÔNG bật banner đỏ
+                    // mỗi 6s ("Recording segment MP4 is not finalized yet…").
+                    if !Self.isTransientSegmentUploadError(error) {
+                        publishError(error.localizedDescription)
+                    }
                     try? await Task.sleep(nanoseconds: uploadLoopRetryDelayNs)
                     continue
                 }
@@ -1683,6 +1690,22 @@ actor LiveRecordingUploadCoordinator {
                 try? await Task.sleep(nanoseconds: uploadLoopRetryDelayNs)
             }
         }
+    }
+
+    /// True cho các lỗi upload segment mà backend đã đánh dấu retryable
+    /// (backend response 409 kèm `retryable:true`, code `SEGMENT_MP4_NOT_FINALIZED`).
+    /// Vòng upload sẽ retry im lặng thay vì bật banner đỏ liên tục.
+    private static func isTransientSegmentUploadError(_ error: Error) -> Bool {
+        guard case LiveAPIError.server(let statusCode, let message) = error else {
+            return false
+        }
+        guard statusCode == 409 else { return false }
+        let lower = message.lowercased()
+        return lower.contains("not finalized yet")
+            || lower.contains("not ready for completion")
+            || lower.contains("is not readable yet")
+            || lower.contains("missing media data")
+            || lower.contains("missing a valid container header")
     }
 
     private static func resolveQueueRootDirectory(fileManager: FileManager) -> URL {
