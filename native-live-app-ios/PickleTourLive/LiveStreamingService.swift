@@ -1294,8 +1294,13 @@ final class LiveStreamingService: NSObject, ObservableObject {
         let message = error.localizedDescription
 
         // failedToFinishWriting = writer chưa từng vào .writing khi đóng segment (chưa nhận sample
-        // nào, ví dụ input audio chưa có). Segment rỗng không phải lỗi nghiêm trọng: mở segment kế
-        // tiếp (tối đa 2 lần liên tiếp) thay vì hạ cả ghi hình + banner đỏ giữa lúc đang live.
+        // nào, ví dụ input audio chưa có). Segment rỗng KHÔNG được ném banner đỏ ra màn live
+        // (user báo cáo: "The operation couldn't be completed. HaishinKit.IOStreamRecorder.Error
+        // error 3" ~14s sau khi bắt đầu live, giữa lúc đang phát). Trong khi phiên đang chạy,
+        // luôn tự mở segment kế tiếp và chỉ log vào diagnostics — live stream không bị gián đoạn,
+        // ghi hình sẽ tự khôi phục khi input audio về (mixer bắt sample từ microphone).
+        // Chỉ hard-fail ở final segment nếu ngay từ đầu chưa có segment nào ghi được (session
+        // hoàn toàn rỗng) — tôn trọng user muốn biết nếu recording chưa bao giờ hoạt động.
         if case .failedToFinishWriting = error, let boundary = pendingRecordingBoundary {
             pendingRecordingBoundary = nil
             if boundary.isFinal {
@@ -1305,9 +1310,11 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 resolvePendingRecordingStop()
                 return
             }
-            if recorderEmptySegmentStrikes < 2, var nextSession = activeRecordingSession {
+            if var nextSession = activeRecordingSession {
                 recorderEmptySegmentStrikes += 1
-                appendDiagnostic("Segment #\(boundary.segmentIndex + 1) rỗng (writer chưa có sample) → mở segment mới (\(recorderEmptySegmentStrikes)/2).")
+                appendDiagnostic(
+                    "Segment #\(boundary.segmentIndex + 1) rỗng (writer chưa có sample) → mở segment mới (strike #\(recorderEmptySegmentStrikes))."
+                )
                 nextSession.segmentIndex = boundary.segmentIndex + 1
                 nextSession.segmentStartedAt = Date()
                 activeRecordingSession = nextSession
