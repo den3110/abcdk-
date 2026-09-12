@@ -172,6 +172,11 @@ async function validateUploadedRecordingSegmentObject({
     });
   }
 
+  // Khai báo NGOÀI try: dòng `if (!foundMdatAtom)` sau try/catch cần tới chúng — trước đây
+  // khai báo trong try → khi quét xong mà thiếu atom thì ném ReferenceError
+  // "foundMdatAtom is not defined" (app hiện đúng chuỗi này khi dừng live).
+  let foundMoovAtom = false;
+  let foundMdatAtom = false;
   try {
     const headChunk = await readRecordingObjectBytes({
       objectKey,
@@ -182,8 +187,8 @@ async function validateUploadedRecordingSegmentObject({
     if (!hasMp4ContainerHeader(headChunk)) {
       return "Recording segment MP4 is missing a valid container header; retry upload in a moment";
     }
-    let foundMoovAtom = containsMp4Atom(headChunk, MP4_MOOV_ATOM);
-    let foundMdatAtom = containsMp4Atom(headChunk, MP4_MDAT_ATOM);
+    foundMoovAtom = containsMp4Atom(headChunk, MP4_MOOV_ATOM);
+    foundMdatAtom = containsMp4Atom(headChunk, MP4_MDAT_ATOM);
     if (foundMoovAtom && foundMdatAtom) {
       return null;
     }
