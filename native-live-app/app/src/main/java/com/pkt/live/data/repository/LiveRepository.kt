@@ -369,7 +369,9 @@ class LiveRepository(
                 Result.success(resp.body()!!)
             } else {
                 val raw = runCatching { resp.errorBody()?.string() }.getOrNull()
-                val msg = parseErrorMessage(raw)
+                // Parity iOS (cc9b47c5): backend trả 409 kèm `hint` + `failedPages[{pageName,error}]`
+                // khi mọi page trong pool đều fail → gộp vào message để operator thấy page nào lỗi gì.
+                val msg = composeCreateLiveErrorMessage(raw) ?: parseErrorMessage(raw)
                 val userMessage = when (resp.code()) {
                     400 -> msg ?: "Không tạo được live (thiếu dữ liệu)."
                     401 -> "Bạn chưa đăng nhập hoặc token đã hết hạn."
@@ -662,6 +664,38 @@ class LiveRepository(
             if (v.isJsonArray) return v.asJsonArray.toList()
         }
         return emptyList()
+    }
+
+    /**
+     * Gộp `message` + `hint` + `failedPages` (tối đa 5) của lỗi tạo live FB thành 1 chuỗi nhiều dòng.
+     * Trả null nếu body không có hint/failedPages (để caller fallback parseErrorMessage).
+     */
+    private fun composeCreateLiveErrorMessage(raw: String?): String? {
+        if (raw.isNullOrBlank()) return null
+        val obj = runCatching { gson.fromJson(raw, com.google.gson.JsonObject::class.java) }.getOrNull() ?: return null
+        val str = { key: String ->
+            obj.get(key)?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isString }?.asString?.trim()?.takeIf { it.isNotBlank() }
+        }
+        val hint = str("hint")
+        val failed = obj.get("failedPages")?.takeIf { it.isJsonArray }?.asJsonArray?.mapNotNull { el ->
+            val page = el.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val pick = { key: String ->
+                page.get(key)?.takeIf { it.isJsonPrimitive }?.asString?.trim()?.takeIf { it.isNotBlank() }
+            }
+            val name = pick("pageName") ?: pick("pageId") ?: "Page"
+            val err = pick("error") ?: "lỗi không rõ"
+            "• $name: $err"
+        }.orEmpty()
+        if (hint == null && failed.isEmpty()) return null
+
+        val parts = mutableListOf<String>()
+        parts += parseErrorMessage(raw) ?: "Không tạo được live."
+        if (hint != null) parts += "💡 $hint"
+        if (failed.isNotEmpty()) {
+            parts += "Chi tiết page:\n" + failed.take(5).joinToString("\n")
+            if (failed.size > 5) parts += "… và ${failed.size - 5} page khác"
+        }
+        return parts.joinToString("\n\n")
     }
 
     private fun parseErrorMessage(raw: String?): String? {
