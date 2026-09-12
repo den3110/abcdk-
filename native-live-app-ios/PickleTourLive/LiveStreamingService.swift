@@ -237,6 +237,9 @@ final class LiveStreamingService: NSObject, ObservableObject {
             )
         )
         pendingRecordingStopContinuation?.resume(returning: ())
+        // CADisplayLink (RunLoop.main) giữ mạnh choreographer → phải dừng Screen khi huỷ,
+        // nếu không loop tiếp tục tick với delegate nil tới khi process thoát.
+        stream.screen.stopRunning()
         stream.attachCamera(nil)
         stream.attachAudio(nil)
         connection.close()
@@ -255,6 +258,10 @@ final class LiveStreamingService: NSObject, ObservableObject {
             applyQuality(quality)
             syncVideoOrientation(force: true)
             registerOverlayEffectIfNeeded()
+            // Bắt buộc sau khi bật offscreen (applyQuality): khởi động render loop của Screen
+            // để effect overlay thực sự được chạy trên từng frame. Đặt TRƯỚC nhánh reuse camera
+            // bên dưới để cả hai đường (dựng mới / dùng lại preview) đều có loop chạy.
+            ensureOffscreenScreenRunning()
 
             attachMicrophoneIfNeeded()
 
@@ -378,6 +385,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
         resetTorchState()
         stream.attachCamera(nil)
         stream.attachAudio(nil)
+        // Dừng DisplayLink của Screen offscreen khi thả preview (tránh render loop chạy nền).
+        stream.screen.stopRunning()
         currentCamera = nil
         maxZoomFactor = 6
         connectionState = .idle
@@ -469,6 +478,9 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 appendDiagnostic("Camera switch completed late and was ignored.")
                 return
             }
+            // Sau stopPreview (đã stopRunning) mà đổi camera trước preparePreview kế tiếp thì
+            // frame được enqueue vào Screen nhưng không ai render → đen. Bật lại loop (idempotent).
+            ensureOffscreenScreenRunning()
             syncTorchStateWithCurrentCamera()
             appendDiagnostic("Switched to \(currentCameraPosition == .back ? "rear" : "front") camera.")
         } catch {
@@ -536,6 +548,20 @@ final class LiveStreamingService: NSObject, ObservableObject {
         stream.frameRate = Double(quality.frameRate)
         stream.sessionPreset = resolution.width >= 1900 ? .hd1920x1080 : .hd1280x720
 
+        // ROOT CAUSE overlay không bao giờ hiện trên iOS: HaishinKit 1.9.x chỉ chạy
+        // VideoEffect khi videoMixerSettings.mode == .offscreen (frame đi qua Screen →
+        // VideoTrackScreenObject.makeImage → effect.execute). Mặc định là .passthrough:
+        // IOVideoMixer.append đẩy thẳng frame ra output, effect đã registerVideoEffect
+        // nhưng KHÔNG BAO GIỜ được gọi → không overlay/sponsor dù dữ liệu đúng.
+        // Lưu ý: Screen.size chỉ là canvas offscreen (phải khớp hướng/aspect camera để không
+        // viền đen); độ phân giải STREAM do videoSettings.videoSize quyết định — được đồng bộ
+        // trong syncOffscreenScreenSize(). Không bật lại nếu fail-soft đã tắt overlay.
+        if activeOverlayPerformanceMode != .disabled {
+            setOffscreenPipelineEnabled(true)
+        }
+        stream.screen.frameRate = quality.frameRate
+        syncOffscreenScreenSize()
+
         var videoSettings = stream.videoSettings
         videoSettings.bitRate = max(0, quality.videoBitrate)
         videoSettings.maxKeyFrameIntervalDuration = 2
@@ -556,8 +582,10 @@ final class LiveStreamingService: NSObject, ObservableObject {
             ],
             .video: [
                 AVVideoCodecKey: AVVideoCodecType.h264,
-                AVVideoWidthKey: resolution.width,
-                AVVideoHeightKey: resolution.height,
+                // Dùng kích thước có hướng (portrait 1080x1920) thay vì landscape cứng,
+                // vì Screen offscreen giờ cấp frame đúng hướng cho recorder.
+                AVVideoWidthKey: Int(offscreenCanvasSize().width),
+                AVVideoHeightKey: Int(offscreenCanvasSize().height),
                 AVVideoCompressionPropertiesKey: [
                     AVVideoAverageBitRateKey: quality.videoBitrate,
                     AVVideoMaxKeyFrameIntervalDurationKey: 2
@@ -714,6 +742,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
 
         currentVideoOrientation = nextOrientation
         stream.videoOrientation = nextOrientation
+        // Screen offscreen phải đổi kích thước theo hướng mới (portrait ↔ landscape).
+        syncOffscreenScreenSize()
 
         for view in previewViews.allObjects {
             view.videoOrientation = nextOrientation
@@ -811,6 +841,14 @@ final class LiveStreamingService: NSObject, ObservableObject {
         let previousMode = activeOverlayPerformanceMode
         activeOverlayPerformanceMode = nextMode
         overlayEffect.setPerformanceMode(nextMode)
+        // Fail-soft thật sự: .disabled phải tắt hẳn pipeline offscreen (về passthrough +
+        // dừng DisplayLink) — chỉ null overlay CIImage thì chi phí render mỗi frame vẫn còn
+        // nguyên đúng lúc thiết bị đang thiếu RAM. Rời .disabled thì bật lại.
+        if nextMode == .disabled {
+            setOffscreenPipelineEnabled(false)
+        } else if previousMode == .disabled {
+            setOffscreenPipelineEnabled(true)
+        }
 
         if nextMode == .normal {
             overlayHealth.lastEvent = "Overlay renderer restored to normal mode"
@@ -1068,6 +1106,71 @@ final class LiveStreamingService: NSObject, ObservableObject {
         try await Task.sleep(nanoseconds: 300_000_000)
         if let attachError {
             throw attachError
+        }
+    }
+
+    /// Kích thước canvas theo độ phân giải đã chọn VÀ hướng xoay hiện tại (portrait đảo w/h).
+    /// Buffer camera tới đã được xoay theo stream.videoOrientation (portrait = 1080x1920).
+    private func offscreenCanvasSize() -> CGSize {
+        let resolution = stats.quality.resolution
+        let isPortrait = currentVideoOrientation == .portrait || currentVideoOrientation == .portraitUpsideDown
+        return isPortrait
+            ? CGSize(width: CGFloat(resolution.height), height: CGFloat(resolution.width))
+            : CGSize(width: CGFloat(resolution.width), height: CGFloat(resolution.height))
+    }
+
+    /// Đồng bộ 3 thứ theo cùng một kích thước có hướng:
+    /// - Screen.size (canvas offscreen): VideoTrackScreenObject fit ảnh bằng .resizeAspect,
+    ///   sai hướng/aspect sẽ bị viền đen.
+    /// - videoSettings.videoSize: KÍCH THƯỚC ENCODER H264 (VTCompressionSession được tạo
+    ///   từ đây, mặc định HaishinKit 854x480 — trước đây app chưa bao giờ set nên stream
+    ///   "1080p" thực tế chỉ 854x480). Đổi videoSize sẽ tạo lại VT session (đúng ý).
+    /// - recorder (mp4 local) width/height, chỉ khi không đang ghi.
+    private func syncOffscreenScreenSize() {
+        let size = offscreenCanvasSize()
+        if stream.screen.size != size {
+            stream.screen.size = size
+        }
+        var videoSettings = stream.videoSettings
+        if videoSettings.videoSize != size {
+            videoSettings.videoSize = size
+            stream.videoSettings = videoSettings
+        }
+        if !isRecordingLocally {
+            var settings = recorder.settings
+            var video = settings[.video] ?? [:]
+            video[AVVideoWidthKey] = Int(size.width)
+            video[AVVideoHeightKey] = Int(size.height)
+            settings[.video] = video
+            recorder.settings = settings
+        }
+    }
+
+    /// HaishinKit KHÔNG tự khởi động render loop (DisplayLinkChoreographer) của Screen.
+    /// Ở chế độ offscreen, không startRunning thì Screen không bao giờ xuất frame →
+    /// preview/RTMP đen. Idempotent (Screen.startRunning tự guard isRunning).
+    /// Tôn trọng fail-soft: khi overlay đã bị tắt (.disabled) thì không bật lại pipeline.
+    private func ensureOffscreenScreenRunning() {
+        guard activeOverlayPerformanceMode != .disabled else { return }
+        stream.screen.startRunning()
+    }
+
+    /// Bật/tắt toàn bộ pipeline offscreen. Tắt = về .passthrough + dừng DisplayLink để
+    /// thực sự cắt chi phí (pool ARGB, readback CIContext mỗi frame trên main run loop)
+    /// khi fail-soft .disabled; bật = .offscreen + chạy loop nếu đã có camera.
+    private func setOffscreenPipelineEnabled(_ enabled: Bool) {
+        var mixerSettings = stream.videoMixerSettings
+        let target: IOVideoMixerSettings.Mode = enabled ? .offscreen : .passthrough
+        if mixerSettings.mode != target {
+            mixerSettings.mode = target
+            stream.videoMixerSettings = mixerSettings
+        }
+        if enabled {
+            if currentCamera != nil {
+                stream.screen.startRunning()
+            }
+        } else {
+            stream.screen.stopRunning()
         }
     }
 
@@ -1527,7 +1630,10 @@ private final class LiveScoreboardVideoEffect: VideoEffect {
 
         filter.setValue(overlay, forKey: kCIInputImageKey)
         filter.setValue(image, forKey: kCIInputBackgroundImageKey)
-        return filter.outputImage ?? image
+        // CISourceOverCompositing trả về UNION extent (overlay scale theo size/renderSize có
+        // sai số float → có thể lớn hơn input 1px). ScreenRendererByCPU.draw của HaishinKit
+        // KHÔNG clip → ghi tràn buffer. Crop về đúng extent input để an toàn.
+        return (filter.outputImage ?? image).cropped(to: image.extent)
     }
 }
 
