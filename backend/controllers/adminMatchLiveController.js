@@ -173,62 +173,60 @@ function getFacebookOwnerBucketKey(page) {
 }
 
 async function preflightFacebookOwnerBuckets({ allPages, matchId }) {
-  const pagesByBucket = new Map();
-  const busyBuckets = new Map();
+  // Facebook cho phép mỗi PAGE có 1 live đồng thời, và các page KHÁC NHAU của
+  // cùng 1 user token vẫn có thể live song song. Trước đây preflight tính busy
+  // theo BUCKET (owner) — chỉ cần 1 page trong nhóm bận, mọi page cùng chủ đều
+  // bị skip → user chọn PT02 nhưng vẫn báo lỗi vì PT01 (sibling) đang live.
+  // Nay siết lại: busy tính theo TỪNG PAGE (busyPages) — chỉ skip đúng page
+  // đang bận, sibling khả dụng vẫn được thử.
+  const busyPages = new Map();
   const targetMatchId = matchId ? String(matchId) : "";
 
   for (const page of allPages || []) {
-    const bucketKey = getFacebookOwnerBucketKey(page);
-    if (!pagesByBucket.has(bucketKey)) pagesByBucket.set(bucketKey, []);
-    pagesByBucket.get(bucketKey).push(page);
-  }
+    const pid = String(page?.pageId || "");
+    if (!pid) continue;
 
-  for (const [bucketKey, bucketPages] of pagesByBucket.entries()) {
-    const locallyBusyPage = bucketPages.find((page) => {
-      if (!page?.isBusy) return false;
-      const busyMatchId = page?.busyMatch ? String(page.busyMatch) : "";
-      return !targetMatchId || busyMatchId !== targetMatchId;
-    });
-
-    if (locallyBusyPage) {
-      busyBuckets.set(bucketKey, {
+    // 1) Bận trong pool nội bộ (đang giữ cho match KHÁC)
+    const busyMatchId = page?.busyMatch ? String(page.busyMatch) : "";
+    const locallyBusy =
+      !!page?.isBusy && (!targetMatchId || busyMatchId !== targetMatchId);
+    if (locallyBusy) {
+      busyPages.set(pid, {
         reason: "pool_busy",
-        pageId: locallyBusyPage.pageId,
-        pageName: locallyBusyPage.pageName || locallyBusyPage.pageId,
+        pageId: pid,
+        pageName: page.pageName || pid,
       });
       continue;
     }
 
-    for (const page of bucketPages) {
-      let pageAccessToken = null;
-      try {
-        pageAccessToken = await getValidPageToken(page.pageId);
-      } catch {
-        continue;
-      }
+    // 2) Hỏi Graph API: page này đang có live/prepared thật hay không
+    let pageAccessToken = null;
+    try {
+      pageAccessToken = await getValidPageToken(pid);
+    } catch {
+      continue; // preflight bỏ qua page thiếu token; create step vẫn báo lỗi rõ nếu đến lượt
+    }
 
-      try {
-        const state = await getPageLiveState({
-          pageId: page.pageId,
-          pageAccessToken,
+    try {
+      const state = await getPageLiveState({
+        pageId: pid,
+        pageAccessToken,
+      });
+      if (state.busy) {
+        busyPages.set(pid, {
+          reason: "graph_busy",
+          pageId: pid,
+          pageName: page.pageName || pid,
+          liveCount: state.liveNow?.length || 0,
+          preparedCount: state.prepared?.length || 0,
         });
-        if (state.busy) {
-          busyBuckets.set(bucketKey, {
-            reason: "graph_busy",
-            pageId: page.pageId,
-            pageName: page.pageName || page.pageId,
-            liveCount: state.liveNow?.length || 0,
-            preparedCount: state.prepared?.length || 0,
-          });
-          break;
-        }
-      } catch {
-        // ignore preflight failures here; create step will still validate
       }
+    } catch {
+      // ignore preflight failures — create step vẫn validate
     }
   }
 
-  return { busyBuckets };
+  return { busyPages };
 }
 
 function isBusyCreateError(err) {
@@ -2226,7 +2224,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
       });
     }
 
-    const { busyBuckets } = await preflightFacebookOwnerBuckets({
+    const { busyPages } = await preflightFacebookOwnerBuckets({
       allPages: allEnabledPages,
       matchId: match._id,
     });
@@ -2238,7 +2236,6 @@ export const createFacebookLiveForMatch = async (req, res) => {
     let liveId = null;
     let liveInfo = null;
     const failedPages = [];
-    const skippedBuckets = new Set();
 
     console.log(
       `[FB Live] Có ${candidatePages.length} pages để thử cho match ${matchId}`
@@ -2246,19 +2243,16 @@ export const createFacebookLiveForMatch = async (req, res) => {
 
     for (const candidatePage of candidatePages) {
       const currentPageId = candidatePage.pageId;
-      const bucketKey = getFacebookOwnerBucketKey(candidatePage);
-      if (skippedBuckets.has(bucketKey)) continue;
 
-      const bucketBusy = busyBuckets.get(bucketKey);
-      if (bucketBusy) {
-        skippedBuckets.add(bucketKey);
+      const pageBusy = busyPages.get(String(currentPageId));
+      if (pageBusy) {
         failedPages.push({
-          pageId: bucketBusy.pageId,
-          pageName: bucketBusy.pageName,
+          pageId: pageBusy.pageId,
+          pageName: pageBusy.pageName,
           error:
-            bucketBusy.reason === "pool_busy"
-              ? "Page owner đang bận trên page khác trong pool."
-              : `Page owner đang có live/prepared trên Facebook (live=${bucketBusy.liveCount || 0}, prepared=${bucketBusy.preparedCount || 0}).`,
+            pageBusy.reason === "pool_busy"
+              ? "Page đang bận trong pool (giữ cho trận khác)."
+              : `Page đang có live/prepared trên Facebook (live=${pageBusy.liveCount || 0}, prepared=${pageBusy.preparedCount || 0}). Kết thúc live cũ hoặc chọn page khác.`,
         });
         continue;
       }
@@ -2362,7 +2356,16 @@ export const createFacebookLiveForMatch = async (req, res) => {
         });
 
         if (isBusyCreateError(error)) {
-          skippedBuckets.add(bucketKey);
+          // Page bận theo lỗi Graph create-live → nhớ trong busyPages để không
+          // thử lại trong vòng lặp này. Không skip theo bucket (owner) — page
+          // sibling khác có thể vẫn tạo live được.
+          busyPages.set(String(currentPageId), {
+            reason: "graph_busy",
+            pageId: currentPageId,
+            pageName: candidatePage.pageName || currentPageId,
+            liveCount: 0,
+            preparedCount: 0,
+          });
         }
 
         continue;
