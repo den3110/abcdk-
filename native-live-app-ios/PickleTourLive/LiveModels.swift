@@ -848,6 +848,10 @@ struct RecordingMultipartCompleteRequest: Codable {
 
 struct FinalizeMatchRecordingRequest: Codable {
     var recordingId: String
+    /// Backend: bỏ các segment không bao giờ upload được (đánh dấu aborted) và xuất từ
+    /// những segment đã upload — dùng khi client không còn gì để tải lên nhưng server
+    /// vẫn báo pending (409 "Cannot finalize recording until all segments are uploaded").
+    var abandonFailedSegments: Bool?
 }
 
 struct LiveOverlaySnapshot: Codable, Equatable {

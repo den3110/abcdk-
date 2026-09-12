@@ -487,11 +487,14 @@ final class LiveAPIClient {
         try await request(path: "api/live/recordings/v2/segments/multipart/complete", method: "POST", body: body)
     }
 
-    func finalizeRecording(recordingId: String) async throws -> MatchRecordingResponse {
+    func finalizeRecording(recordingId: String, abandonFailedSegments: Bool = false) async throws -> MatchRecordingResponse {
         try await request(
             path: "api/live/recordings/v2/finalize",
             method: "POST",
-            body: FinalizeMatchRecordingRequest(recordingId: recordingId)
+            body: FinalizeMatchRecordingRequest(
+                recordingId: recordingId,
+                abandonFailedSegments: abandonFailedSegments ? true : nil
+            )
         )
     }
 
@@ -1442,8 +1445,32 @@ actor LiveRecordingUploadCoordinator {
             return nil
         }
 
-        let response = try await apiClient.finalizeRecording(recordingId: finalize.recordingId)
-        return response.recording
+        do {
+            let response = try await apiClient.finalizeRecording(recordingId: finalize.recordingId)
+            return response.recording
+        } catch LiveAPIError.server(let statusCode, let message) {
+            switch statusCode {
+            case 409:
+                // Server còn segment "pending" nhưng client KHÔNG còn gì để tải lên (queue cục bộ
+                // trống — file segment rỗng/lỗi từ phiên trước). Không thể bao giờ hoàn tất theo
+                // cách thường → nhờ server bỏ các segment đó và chốt từ phần đã upload. Trước đây
+                // vòng upload retry 409 vô hạn → banner "Cannot finalize recording…" mỗi lần mở app.
+                let response = try await apiClient.finalizeRecording(
+                    recordingId: finalize.recordingId,
+                    abandonFailedSegments: true
+                )
+                return response.recording
+            case 400, 404:
+                // Không có segment nào đã upload / recording không tồn tại → không thể chốt,
+                // gỡ khỏi hàng đợi (caller xoá pending finalize khi không ném lỗi) thay vì retry mãi.
+                #if DEBUG
+                print("[PTLive recording] bỏ finalize \(finalize.recordingId): HTTP \(statusCode) \(message)")
+                #endif
+                return nil
+            default:
+                throw LiveAPIError.server(statusCode: statusCode, message: message)
+            }
+        }
     }
 
     private func nextPendingSegment() -> PendingRecordingSegment? {
