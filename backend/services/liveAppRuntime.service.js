@@ -401,19 +401,18 @@ function buildRuntimeRoundLabel(match, roundCode = inferRoundCode(match)) {
     .trim()
     .toLowerCase();
   if (!bracketType || bracketType === "group") return "";
-  if (bracketType === "roundelim") {
-    const ordinal = buildRoundElimOrdinalLabel(match, roundCode);
-    if (ordinal) return ordinal;
-  }
 
   // Per-match roundName ưu tiên tuyệt đối (user tự set)
   const explicitRoundName = firstText(match?.roundName);
   if (explicitRoundName) return explicitRoundName;
 
-  // KO family: nếu bracket có tên riêng (user tự đặt) thì "Vòng {N} - {tên}"
-  // → Match "Vòng 1" của bracket "Playoff" ra "Vòng 1 - Playoff", thay vì auto
-  // codeToRoundLabel("R2") = "Chung kết" (khi drawSize=2 nhưng user coi là playoff).
-  if (KO_FAMILY_BRACKET_TYPES.has(bracketType)) {
+  // Bracket có tên riêng (user tự đặt "Playoff"/"Pre-Qualifying"/…) → hiển thị
+  // "Vòng {N} - {tên bracket}" cho cả KO family và roundElim. Nếu tên là auto-
+  // label (Chung kết/Bán kết/Tứ kết/Vòng N/Nhánh…) hoặc thiếu round hợp lệ,
+  // fallback về ordinal/codeToRoundLabel như cũ.
+  const supportsBracketNameLabel =
+    KO_FAMILY_BRACKET_TYPES.has(bracketType) || bracketType === "roundelim";
+  if (supportsBracketNameLabel) {
     const bracketName = firstText(match?.bracket?.name);
     const roundNo = Number(match?.round);
     if (
@@ -424,6 +423,11 @@ function buildRuntimeRoundLabel(match, roundCode = inferRoundCode(match)) {
     ) {
       return `Vòng ${roundNo} - ${bracketName}`;
     }
+  }
+
+  if (bracketType === "roundelim") {
+    const ordinal = buildRoundElimOrdinalLabel(match, roundCode);
+    if (ordinal) return ordinal;
   }
 
   return codeToRoundLabel(roundCode);

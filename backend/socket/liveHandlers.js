@@ -637,17 +637,14 @@ export const toDTO = (matchDoc) => {
       .trim()
       .toLowerCase();
     if (!bracketTypeValue || bracketTypeValue === "group") return "";
-    if (bracketTypeValue === "roundelim") {
-      const ordinal = overlayRoundElimOrdinalLabel();
-      if (ordinal) return ordinal;
-    }
 
     // Per-match roundName ưu tiên tuyệt đối
     const byName = readOverlayText(roundName);
     if (byName) return byName;
 
-    // KO family: nếu bracket có tên riêng do user đặt → "Vòng {N} - {tên}"
-    // (VD "Vòng 1 - Playoff" khi bracket.name="Playoff", trận Vòng 1)
+    // Bracket có tên riêng do user đặt → "Vòng {N} - {tên}" cho cả KO family
+    // và roundElim (VD "Vòng 1 - Pre-Qualifying" khi bracket.name="Pre-Qualifying",
+    // "Vòng 1 - Playoff" khi bracket.name="Playoff").
     const koFamily = [
       "po",
       "playoff",
@@ -662,7 +659,9 @@ export const toDTO = (matchDoc) => {
       "double_elimination",
       "double_elim",
     ];
-    if (koFamily.includes(bracketTypeValue)) {
+    const supportsBracketNameLabel =
+      koFamily.includes(bracketTypeValue) || bracketTypeValue === "roundelim";
+    if (supportsBracketNameLabel) {
       const bracketName = String(bracket?.name || "").trim();
       const roundNo = Number(m?.round);
       const isAutoName =
@@ -677,6 +676,11 @@ export const toDTO = (matchDoc) => {
       ) {
         return `Vòng ${roundNo} - ${bracketName}`;
       }
+    }
+
+    if (bracketTypeValue === "roundelim") {
+      const ordinal = overlayRoundElimOrdinalLabel();
+      if (ordinal) return ordinal;
     }
 
     return overlayCodeToRoundLabel(roundCode);
