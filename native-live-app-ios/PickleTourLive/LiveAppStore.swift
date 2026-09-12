@@ -99,6 +99,7 @@ final class LiveAppStore: ObservableObject {
     private var heartbeatTask: Task<Void, Never>?
     private var runtimePollTask: Task<Void, Never>?
     private var mlpOverlayTask: Task<Void, Never>?
+    private var armedStartWatchdogTask: Task<Void, Never>?
     private var setupMatchHydrationTask: Task<Void, Never>?
     private var liveDeviceTelemetryTask: Task<Void, Never>?
     private var goLiveCountdownTask: Task<Void, Never>?
@@ -640,6 +641,8 @@ final class LiveAppStore: ObservableObject {
         waitingForNextMatch = false
         goLiveArmed = false
         recordOnlyArmed = false
+        armedStartWatchdogTask?.cancel()
+        armedStartWatchdogTask = nil
         defer { isWorking = false }
 
         do {
@@ -1858,6 +1861,7 @@ final class LiveAppStore: ObservableObject {
                 self.bannerMessage = self.liveMode == .recordOnly
                     ? "Đã armed chế độ ghi hình. App sẽ chờ trận trên sân."
                     : "Đã armed phiên live. App sẽ chờ trận trên sân."
+                self.startArmedStartWatchdog()
                 return
             }
 
@@ -1868,6 +1872,7 @@ final class LiveAppStore: ObservableObject {
                 self.bannerMessage = self.liveMode == .recordOnly
                     ? "Đã armed ghi hình. App sẽ tự bắt đầu khi trận chuyển LIVE."
                     : "Đã armed phiên live. App sẽ tự bắt đầu khi trận chuyển LIVE."
+                self.startArmedStartWatchdog()
                 return
             }
 
@@ -2607,6 +2612,8 @@ final class LiveAppStore: ObservableObject {
                     self.streamingService.overlaySnapshot = enrichedSnapshot
                 }
                 self.updateOverlayHealthState()
+                // autoStartDelayReason "chờ snapshot overlay" vừa được gỡ → thử auto-start ngay
+                self.maybeAutoStartArmedSession()
             }
         }
 
@@ -2971,6 +2978,50 @@ final class LiveAppStore: ObservableObject {
         await refreshCourtRuntime(courtId: courtId)
         await startRuntimePolling(for: courtId)
         startMlpOverlayPolling(for: courtId)
+        startArmedStartWatchdog()
+    }
+
+    /// Android `armedStartWatchdog`: khi còn ý định auto-start (armed hoặc đang chờ trận), cứ 2s
+    /// kiểm tra lại. Poll runtime sân KHÔNG cập nhật status của activeMatch, nên khi đang chờ
+    /// trận chuyển LIVE thì tự làm mới match runtime; snapshot overlay thiếu thì xin lại; rồi
+    /// gọi maybeAutoStartArmedSession(). Tự dừng khi đã vào phiên hoặc hết ý định.
+    private func startArmedStartWatchdog() {
+        guard armedStartWatchdogTask == nil else { return }
+        armedStartWatchdogTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                guard let self, !Task.isCancelled else { break }
+                let wanted =
+                    (self.goLiveArmed || self.recordOnlyArmed || self.isWaitingForActivation)
+                    && !self.matchesLiveSessionState
+                    && !self.streamingService.isRecordingLocally
+                guard wanted else { break }
+                await self.armedStartWatchdogTick()
+            }
+            self?.armedStartWatchdogTask = nil
+        }
+    }
+
+    private func armedStartWatchdogTick() async {
+        guard !isWorking, !isSwitchingMatch else { return }
+        if let match = activeMatch, shouldWaitForMatchToBeLive(match) {
+            if
+                let refreshed = try? await environment.apiClient.getMatchRuntime(
+                    matchId: match.id,
+                    userMatch: launchTarget.isUserMatchLaunch
+                ),
+                refreshed.id == activeMatch?.id
+            {
+                activeMatch = refreshed
+                if refreshed.status?.trimmedNilIfBlank?.lowercased() == "live" {
+                    lastHandledTerminalMatchId = nil
+                }
+            }
+        }
+        if activeMatch != nil, overlaySnapshot == nil || socketPayloadStale {
+            await refreshOverlay(force: false)
+        }
+        maybeAutoStartArmedSession()
     }
 
     private func startRuntimePolling(for courtId: String) async {
@@ -4321,6 +4372,8 @@ final class LiveAppStore: ObservableObject {
         mlpOverlayTask?.cancel()
         mlpOverlayTask = nil
         streamingService.mlpOverlay = nil
+        armedStartWatchdogTask?.cancel()
+        armedStartWatchdogTask = nil
     }
 
     private func cancelRecordingUploads() {
@@ -4385,16 +4438,57 @@ final class LiveAppStore: ObservableObject {
             errorMessage = "Trận đã kết thúc. App đang đóng phiên hiện tại của trận này."
         }
 
+        // Chế độ sân (Android `autoGoLive`): ý định live/ghi hình SỐNG XUYÊN qua lúc trận kết
+        // thúc — trận kế tiếp trên sân sẽ tự GO LIVE, không bắt operator bấm lại. Chỉ thao tác
+        // dừng chủ động của operator mới tắt armed (requestStop → stopLive).
+        let continueOnCourt =
+            currentCourtId?.trimmedNilIfBlank != nil && launchTarget.launchMode == .tournamentCourt
+        let armedMode = liveMode
+
         if hasActiveLivestreamSession || streamingService.isRecordingLocally || activeRecording != nil || liveStartedAt != nil {
             await stopLive()
-            if currentCourtId?.trimmedNilIfBlank != nil, queuedCourtMatchId?.trimmedNilIfBlank == nil {
-                waitingForCourt = true
-                waitingForMatchLive = false
-                waitingForNextMatch = true
-                overlaySnapshot = nil
-                streamingService.overlaySnapshot = nil
-                bannerMessage = "Trận đã kết thúc. App đang chờ trận kế tiếp trên sân."
+            // stopLive() → resumeCourtWaitingLoops() có thể ĐÃ chuyển sang trận mới (admin gán
+            // trong lúc trận cũ đang đóng). Chỉ xoá overlay / dựng cờ "chờ trận" khi vẫn còn đứng
+            // ở trận vừa kết thúc — trước đây xoá mù → mất overlay trận mới + autoStartDelayReason
+            // "chờ snapshot overlay" chặn auto-start mãi.
+            let stillOnFinishedMatch = activeMatch?.id == matchId
+            if continueOnCourt {
+                goLiveArmed = armedMode.includesLivestream
+                recordOnlyArmed = armedMode == .recordOnly
             }
+            if currentCourtId?.trimmedNilIfBlank != nil, queuedCourtMatchId?.trimmedNilIfBlank == nil {
+                if stillOnFinishedMatch {
+                    waitingForCourt = true
+                    waitingForMatchLive = false
+                    waitingForNextMatch = true
+                    overlaySnapshot = nil
+                    streamingService.overlaySnapshot = nil
+                    bannerMessage = continueOnCourt
+                        ? "Trận đã kết thúc. App đang chờ trận kế tiếp trên sân và sẽ tự bắt đầu."
+                        : "Trận đã kết thúc. App đang chờ trận kế tiếp trên sân."
+                } else {
+                    waitingForCourt = false
+                    waitingForNextMatch = false
+                    bannerMessage = continueOnCourt
+                        ? "Đã chuyển sang trận kế tiếp. App sẽ tự bắt đầu khi trận chuyển LIVE."
+                        : "Đã chuyển sang trận kế tiếp."
+                }
+            }
+            if continueOnCourt {
+                startArmedStartWatchdog()
+                maybeAutoStartArmedSession()
+            }
+            return
+        }
+
+        // Đang armed/chờ mà trận kết thúc trước khi kịp bắt đầu: giữ ý định cho trận kế tiếp.
+        if continueOnCourt {
+            goLiveArmed = armedMode.includesLivestream
+            recordOnlyArmed = armedMode == .recordOnly
+            waitingForCourt = true
+            waitingForMatchLive = false
+            waitingForNextMatch = true
+            startArmedStartWatchdog()
             return
         }
 
