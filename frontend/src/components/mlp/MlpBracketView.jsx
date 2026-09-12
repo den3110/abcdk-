@@ -269,24 +269,31 @@ function DualCard({ dual, onOpen, compact = false }) {
 
 // Compact BXH row cho pool card.
 function StandingsRow({ row, rank }) {
-  const rankBg =
+  // Tint mờ (rgba) + viền trái theo hạng — đọc rõ trên CẢ light lẫn dark (v3).
+  const medal =
     rank === 1
-      ? "#FEF3C7"
+      ? { bg: "rgba(245,158,11,0.16)", bd: "#F59E0B" }
       : rank === 2
-        ? "#F1F5F9"
+        ? { bg: "rgba(148,163,184,0.18)", bd: "#94A3B8" }
         : rank === 3
-          ? "#FEE2E2"
-          : "transparent";
+          ? { bg: "rgba(234,88,12,0.16)", bd: "#EA580C" }
+          : { bg: "transparent", bd: "transparent" };
   return (
     <Stack
       direction="row"
       alignItems="center"
       spacing={1}
-      sx={{ bgcolor: rankBg, p: 0.5, borderRadius: 1 }}
+      sx={{
+        bgcolor: medal.bg,
+        p: 0.5,
+        borderRadius: 1,
+        borderLeft: "3px solid",
+        borderColor: medal.bd,
+      }}
     >
       <Typography
         fontWeight={900}
-        sx={{ minWidth: 22, textAlign: "center", fontSize: 12 }}
+        sx={{ minWidth: 22, textAlign: "center", fontSize: 12, color: "text.secondary" }}
       >
         {rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`}
       </Typography>
@@ -304,12 +311,12 @@ function StandingsRow({ row, rank }) {
         {(row?.shortName || row?.name || "?").charAt(0).toUpperCase()}
       </Avatar>
       <Typography
-        sx={{ flex: 1, fontSize: 12, fontWeight: 700 }}
+        sx={{ flex: 1, fontSize: 12, fontWeight: 700, color: "text.primary" }}
         noWrap
       >
         {row?.name}
       </Typography>
-      <Typography variant="caption" sx={{ fontWeight: 700 }}>
+      <Typography variant="caption" sx={{ fontWeight: 700, color: "text.secondary" }}>
         {row?.wins || 0}-{row?.losses || 0}
       </Typography>
     </Stack>
