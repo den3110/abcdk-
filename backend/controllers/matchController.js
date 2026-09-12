@@ -20,6 +20,7 @@ import {
 } from "../services/liveSessionLease.service.js";
 import { publishFbVodDriveMonitorUpdate } from "../services/fbVodDriveMonitorEvents.service.js";
 import { scheduleFacebookVodFallbackForMatch } from "../services/liveRecordingFacebookVodFallback.service.js";
+import { fbGoLive } from "../services/facebookLive.service.js";
 import { buildRecordingPlaybackUrl } from "../services/liveRecordingV2Export.service.js";
 import { queueLiveRecordingExportsForEndedMatch } from "../services/liveRecordingV2Transition.service.js";
 import { attachPublicStreamsToMatch } from "../services/publicStreams.service.js";
@@ -3079,6 +3080,25 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
         ? "UserMatch kh?ng t?n t?i"
         : "Match kh?ng t?n t?i"
     );
+  }
+
+  // Như trang admin FB Live Test: ~8s sau khi stream đã chảy, ép live sang LIVE_NOW cho chắc.
+  // Facebook có thể vẫn để UNPUBLISHED dù đã có ingest → viewer thấy "video không khả dụng".
+  // App-path trước đây không bao giờ gọi fbGoLive (chỉ admin live-test gọi).
+  if (platform === "facebook" || platform === "all") {
+    try {
+      const targetDoc = await getLiveTargetDoc(id, matchKind);
+      const { liveVideoId, pageAccessToken } = pickFacebookMeta(targetDoc);
+      if (liveVideoId && pageAccessToken) {
+        setTimeout(() => {
+          fbGoLive({ liveVideoId, pageAccessToken }).catch((e) =>
+            console.warn("[FB] go_live (LIVE_NOW) failed:", liveVideoId, e?.message || e)
+          );
+        }, 8000);
+      }
+    } catch (e) {
+      console.warn("[FB] go_live schedule error:", e?.message || e);
+    }
   }
 
   const live = result.live || (await getCurrentLiveState(id, matchKind));

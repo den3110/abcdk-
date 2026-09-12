@@ -688,6 +688,23 @@ function normalizeFacebookWatchLiveUrl(url) {
 }
 
 function buildFacebookLiveWatchUrl(fb = {}) {
+  // Ưu tiên permalink LIVE thật của Facebook (raw_permalink_url — như admin live-test),
+  // rồi permalink/watch_url không phải dạng cũ, rồi video permalink. Dạng
+  // `facebook.com/watch/live/?v=<liveId>` là format cũ FB không còn resolve
+  // ("Video trực tiếp không khả dụng") → chỉ fallback cuối cùng.
+  const legacyWatchLive = /facebook\.com\/(?:watch\/)?live\/?\?/i;
+  const permalink = [
+    fb?.raw_permalink_url,
+    fb?.rawPermalinkUrl,
+    fb?.permalink_url,
+    fb?.permalinkUrl,
+    fb?.watch_url,
+    fb?.watchUrl,
+    fb?.video_permalink_url,
+    fb?.videoPermalinkUrl,
+  ].find((u) => isNonEmptyString(u) && !legacyWatchLive.test(u));
+  if (permalink) return permalink.trim();
+
   const explicitWatch = normalizeFacebookWatchLiveUrl(
     fb?.watch_url || fb?.watchUrl,
   );

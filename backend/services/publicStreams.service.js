@@ -85,19 +85,19 @@ function isFacebookVideoPermalinkUrl(url) {
 }
 
 function buildFacebookWatchLiveUrl({ liveId, watchUrl } = {}) {
+  // Ưu tiên link thật Facebook đã trả (permalink live / watch/?v=<videoId>) — backend giờ lưu
+  // watch_url = permalink live như admin live-test. Dạng `watch/live/?v=<liveId>` là format cũ
+  // FB không còn resolve ("Video trực tiếp không khả dụng") → chỉ fallback khi không có gì khác.
+  const normalizedWatchUrl = asTrimmed(watchUrl);
+  const isLegacyWatchLive = /facebook\.com\/(?:watch\/)?live\/?\?/i.test(normalizedWatchUrl);
+  if (normalizedWatchUrl && isFacebookUrl(normalizedWatchUrl) && !isLegacyWatchLive) {
+    return normalizedWatchUrl;
+  }
+
   const normalizedLiveId =
     asTrimmed(liveId) || extractFacebookWatchVideoId(watchUrl);
   if (normalizedLiveId) {
     return `https://www.facebook.com/watch/live/?v=${encodeURIComponent(normalizedLiveId)}`;
-  }
-
-  const normalizedWatchUrl = asTrimmed(watchUrl);
-  if (
-    normalizedWatchUrl &&
-    isFacebookUrl(normalizedWatchUrl) &&
-    !isFacebookVideoPermalinkUrl(normalizedWatchUrl)
-  ) {
-    return normalizedWatchUrl;
   }
 
   return "";

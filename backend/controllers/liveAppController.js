@@ -1,4 +1,5 @@
 import { createFacebookLiveForMatch } from "./adminMatchLiveController.js";
+import { fbGetLiveVideo } from "../services/facebookLive.service.js";
 import IORedis from "ioredis";
 import Match from "../models/matchModel.js";
 import UserMatch from "../models/userMatchModel.js";
@@ -45,31 +46,40 @@ function buildFacebookPageVideoUrl(pageId, videoId, liveId) {
     : "";
 }
 
+// Dạng `facebook.com/watch/live/?v=<liveId>` là format cũ, Facebook không còn resolve
+// (mở link → "Video trực tiếp không khả dụng").
+function isLegacyFacebookWatchLiveUrl(url) {
+  return /facebook\.com\/(?:watch\/)?live\/?\?/i.test(String(url || ""));
+}
+
 function resolveFacebookReuseUrls(facebookLive = {}, metaFacebook = {}) {
   const pageId = asTrimmed(facebookLive?.pageId || metaFacebook?.pageId);
   const liveId = asTrimmed(facebookLive?.id || metaFacebook?.liveId);
   const videoId = asTrimmed(facebookLive?.videoId || metaFacebook?.videoId);
-  const watchUrl =
-    asTrimmed(
-      facebookLive?.watch_url ||
-        facebookLive?.watchUrl ||
-        metaFacebook?.watch_url ||
-        metaFacebook?.watchUrl
-    ) || buildFacebookWatchUrl(liveId);
-  const permalinkUrl =
-    asTrimmed(
-      facebookLive?.raw_permalink_url ||
-        facebookLive?.rawPermalinkUrl ||
-        facebookLive?.permalink_url ||
-        facebookLive?.permalinkUrl ||
-        metaFacebook?.permalink_url ||
-        metaFacebook?.permalinkUrl ||
-        metaFacebook?.rawPermalink
-    ) || buildFacebookPageVideoUrl(pageId, videoId, liveId) || watchUrl;
+  // Ưu tiên permalink LIVE thật của Facebook (như admin live-test), rồi permalink/watch_url
+  // không phải dạng cũ, rồi video permalink; dạng cũ chỉ là fallback cuối.
+  const best = [
+    facebookLive?.raw_permalink_url,
+    facebookLive?.rawPermalinkUrl,
+    metaFacebook?.rawPermalink,
+    facebookLive?.permalink_url,
+    facebookLive?.permalinkUrl,
+    metaFacebook?.permalink_url,
+    metaFacebook?.permalinkUrl,
+    facebookLive?.watch_url,
+    facebookLive?.watchUrl,
+    metaFacebook?.watch_url,
+    metaFacebook?.watchUrl,
+    facebookLive?.video_permalink_url,
+    facebookLive?.videoPermalinkUrl,
+  ]
+    .map(asTrimmed)
+    .find((u) => u && !isLegacyFacebookWatchLiveUrl(u));
+  const url = best || buildFacebookPageVideoUrl(pageId, videoId, liveId) || buildFacebookWatchUrl(liveId);
 
   return {
-    watchUrl: watchUrl || null,
-    permalinkUrl: permalinkUrl || null,
+    watchUrl: url || null,
+    permalinkUrl: url || null,
   };
 }
 
@@ -274,16 +284,42 @@ export const createLiveSessionForLiveApp = async (req, res) => {
       return;
     }
 
+    // Hành xử như trang admin FB Live Test (không bao giờ dính "video không khả dụng"):
+    // mặc định TẠO LIVE MỚI. Chỉ tái dùng live vừa tạo (<60s) VÀ phải hỏi Graph xác nhận
+    // live còn nhận stream. KHÔNG tin status "LIVE" trong DB: phiên app chết không gọi
+    // /live/end để lại status LIVE tới ~5 phút → tái dùng key đó = đẩy vào live FB đã kết thúc.
     const fbStatus = String(fbLive?.status || "CREATED").toUpperCase();
     const createdAtMs = fbLive?.createdAt ? new Date(fbLive.createdAt).getTime() : 0;
     const createdAtOk = Number.isFinite(createdAtMs) && createdAtMs > 0;
     const maxReuseMs = 60_000;
     const freshEnough = createdAtOk && Date.now() - createdAtMs <= maxReuseMs;
-    const allowReuse =
+    let allowReuse =
       !forceNew &&
       fbStatus !== "ENDED" &&
       fbStatus !== "STOPPED" &&
-      (fbStatus === "LIVE" || freshEnough);
+      fbStatus !== "STALE" &&
+      freshEnough &&
+      !!fbLive?.id;
+
+    if (allowReuse) {
+      const reusePageToken = fbLive?.pageAccessToken || metaFb?.pageAccessToken || null;
+      const info = reusePageToken
+        ? await fbGetLiveVideo({
+            liveVideoId: fbLive.id,
+            pageAccessToken: reusePageToken,
+            fields: "id,status,secure_stream_url",
+          }).catch(() => null)
+        : null;
+      const graphStatus = String(info?.status || "").toUpperCase();
+      allowReuse = ["LIVE", "LIVE_NOW", "UNPUBLISHED", "SCHEDULED_UNPUBLISHED"].includes(graphStatus);
+      if (!allowReuse) {
+        // Đánh dấu để không tái dùng nữa (và để thấy rõ trong DB vì sao tạo live mới).
+        await MatchModel.updateOne(
+          { _id: matchId },
+          { $set: { "facebookLive.status": "STALE" } }
+        ).catch(() => null);
+      }
+    }
 
     if (
       allowReuse &&
@@ -293,6 +329,7 @@ export const createLiveSessionForLiveApp = async (req, res) => {
       const reuseUrls = resolveFacebookReuseUrls(fbLive, metaFb);
       payload = {
         facebook: {
+          liveId: fbLive.id || null,
           secure_stream_url: fbLive.secure_stream_url || null,
           server_url: fbLive.server_url || null,
           stream_key: fbLive.stream_key || null,

@@ -120,8 +120,9 @@ test("live matches only expose Facebook stream even when recording segments exis
 });
 
 test("live Facebook streams expose watch-live URL instead of stale video permalink", () => {
+  // watch_url thật (watch/?v=) được giữ nguyên; dạng cũ watch/live/?v= chỉ là fallback.
   const canonical =
-    "https://www.facebook.com/watch/live/?v=1539770281020226";
+    "https://www.facebook.com/watch/?v=1539770281020226";
   const staleVideoUrl =
     "https://www.facebook.com/798598129845131/videos/1983652052293380";
   const payload = attachPublicStreamsToMatch({

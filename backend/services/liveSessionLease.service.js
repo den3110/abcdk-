@@ -878,12 +878,22 @@ async function expireLeaseById(leaseId) {
 
   const meta = pickFacebookMeta(target);
   const pageId = meta.pageId || lease.pageId || null;
-  const liveVideoId = meta.liveVideoId || lease.liveVideoId || null;
+  // Chỉ end ĐÚNG live mà lease này sở hữu. Nếu trận đã có live MỚI (id khác — app tạo
+  // live mới mỗi lần go-live như admin live-test) thì lease cũ hết hạn KHÔNG được
+  // end_live_video live mới đang phát (viewer sẽ thấy "video không khả dụng").
+  const leaseLiveVideoId = lease.liveVideoId ? String(lease.liveVideoId) : null;
+  const replacedByNewerLive =
+    !!leaseLiveVideoId && !!meta.liveVideoId && String(meta.liveVideoId) !== leaseLiveVideoId;
+  const liveVideoId = replacedByNewerLive ? null : (leaseLiveVideoId || meta.liveVideoId || null);
   const pageAccessToken = meta.pageAccessToken || null;
 
   let endResult = {
     skipped: true,
-    reason: target ? "missing_liveVideoId_or_pageAccessToken" : "missing_target_doc",
+    reason: replacedByNewerLive
+      ? "replaced_by_newer_live"
+      : target
+        ? "missing_liveVideoId_or_pageAccessToken"
+        : "missing_target_doc",
   };
 
   if (liveVideoId && pageAccessToken) {

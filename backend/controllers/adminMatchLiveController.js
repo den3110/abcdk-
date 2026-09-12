@@ -1444,7 +1444,6 @@ async function fbGetLiveVideoStable({
   pageAccessToken,
   fields = FB_LIVE_FIELDS,
 }) {
-  console.log(124)
   const delays = [1500, 2500, 4000];
   let last = null;
 
@@ -1459,14 +1458,14 @@ async function fbGetLiveVideoStable({
       });
 
       last = info;
-      console.log(info)
       const livePermalink = info?.permalink_url || null;
       const videoPermalink = info?.video?.permalink_url || null;
+      const videoId = info?.video?.id || null;
 
-      // Chỉ cần 1 trong 2 có là đủ “ổn”
-      if (livePermalink || videoPermalink) break;
+      // Đủ "ổn" khi đã có permalink VÀ video.id (để lưu link video bền + embed_html).
+      // Trước đây break ngay khi có permalink → video.id/embed_html thường còn null.
+      if (videoId && (livePermalink || videoPermalink)) break;
     } catch (e) {
-      console.log(e)
       // ignore -> thử lại
     }
   }
@@ -1475,21 +1474,24 @@ async function fbGetLiveVideoStable({
 }
 
 /**
- * ✅ Quy tắc URL (FIX triệt để):
- * - share/canonical ưu tiên LIVE permalink (info.permalink_url)
- * - fallback watch bằng liveId (ổn định ngay sau create)
- * - videoPermalink chỉ để lưu thêm/đổi sau (không ưu tiên ở thời điểm vừa create)
+ * ✅ Quy tắc URL:
+ * - share/canonical ƯU TIÊN permalink thật do Facebook trả về cho live (info.permalink_url),
+ *   rồi tới video permalink.
+ * - Dạng `facebook.com/watch/live/?v=<liveId>` là format CŨ, Facebook không còn resolve
+ *   (mở link → "Video trực tiếp không khả dụng") → chỉ giữ làm fallback cuối cùng.
+ *   Trang admin FB Live Test dùng đúng permalink FB nên không bao giờ dính lỗi này.
  */
 function buildFacebookUrls({ liveId, livePermalink, videoPermalink }) {
   const livePermalinkFull = livePermalink ? toFullUrl(livePermalink) : null;
   const videoPermalinkFull = videoPermalink ? toFullUrl(videoPermalink) : null;
 
-  const watchUrl = liveId
+  const legacyWatchUrl = liveId
     ? `https://www.facebook.com/watch/live/?v=${encodeURIComponent(liveId)}`
     : null;
 
-  const shareUrl = watchUrl || livePermalinkFull || videoPermalinkFull;
-  const canonicalVideoUrl = watchUrl || livePermalinkFull || videoPermalinkFull;
+  const watchUrl = livePermalinkFull || videoPermalinkFull || legacyWatchUrl;
+  const shareUrl = watchUrl;
+  const canonicalVideoUrl = watchUrl;
 
   return {
     watchUrl,
