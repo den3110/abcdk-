@@ -48,6 +48,7 @@ import {
   useUnsubscribeTopicMutation,
 } from "../../slices/subscriptionApiSlice.js";
 import { useGetReviewSummaryQuery } from "../../slices/reviewApiSlice.js";
+import { useListMlpTeamsQuery } from "../../slices/mlpApiSlice.js";
 import { useSelector } from "react-redux";
 import { Star, Bell } from "lucide-react";
 import { useLanguage } from "../../context/LanguageContext.jsx";
@@ -140,6 +141,41 @@ function TeamCard({ r, single }) {
   );
 }
 
+/* thẻ một ĐỘI MLP đã đăng ký (team vs team) */
+function MlpTeamCard({ tm }) {
+  const players = Array.isArray(tm?.players) ? tm.players : [];
+  const capId = tm?.captain?._id || tm?.captain;
+  const nameOf = (p) => String(p?.nickname || p?.name || "—").trim();
+  const color = tm?.color || "#7FB3FF";
+  return (
+    <div style={{ borderRadius: 16, border: "1px solid var(--color-border)", background: "var(--color-background-surface)", padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", borderTop: `3px solid ${color}` }}>
+        <span style={{ width: 12, height: 12, borderRadius: 3, background: color, flexShrink: 0 }} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ color: "var(--pk-text-strong)", fontWeight: 750, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tm?.name || "Đội"}</div>
+          <div style={{ color: "#8F959C", fontSize: 12.5 }}>{players.length} VĐV</div>
+        </div>
+        <Badge variant="neutral" label={`${players.length} VĐV`} />
+      </div>
+      <div style={{ padding: "6px 14px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
+        {players.map((p) => {
+          const isCap = String(p?._id) === String(capId);
+          return (
+            <div key={p?._id || nameOf(p)} style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <Avatar size="small" src={p?.avatar || undefined} name={nameOf(p)} />
+              <span style={{ color: "var(--pk-text)", fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                {nameOf(p)}
+                {p?.gender === "female" ? " ♀" : p?.gender === "male" ? " ♂" : ""}
+              </span>
+              {isCap && <Badge variant="warning" label="Đội trưởng" />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ================================= PAGE ================================= */
 export default function TournamentDetailPage() {
   // `t` = dữ liệu giải; hàm dịch dùng alias `tr` để tránh shadow.
@@ -151,12 +187,21 @@ export default function TournamentDetailPage() {
   const [ruleOpen, setRuleOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  const isMlp = String(t?.tournamentMode || "").toLowerCase() === "mlp";
+  const { data: mlpResp } = useListMlpTeamsQuery(
+    { tourId: id },
+    { skip: !isMlp || !id }
+  );
+  const mlpTeams = Array.isArray(mlpResp?.items) ? mlpResp.items : [];
+
   const regs = Array.isArray(regsRaw) ? regsRaw : [];
   const st = statusOf(t);
   const meta = STATUS_META[st];
   const single = String(t?.eventType || "").toLowerCase() === "single";
   const cap = Number(t?.maxPairs || 0);
-  const regCount = Number(t?.stats?.registrationsCount ?? regs.length);
+  const regCount = isMlp
+    ? mlpTeams.length
+    : Number(t?.stats?.registrationsCount ?? regs.length);
   const pct = cap ? Math.min(100, Math.round((regCount / cap) * 100)) : 0;
   const dLeft = st === "upcoming" ? daysUntil(t?.registrationDeadline || t?.startDate) : null;
   const fee = t?.isFreeRegistration ? tr("v3.tournamentDetail.free") : fmtMoney(t?.registrationFee ?? t?.entryFee);
@@ -511,7 +556,20 @@ export default function TournamentDetailPage() {
                     <span style={{ padding: "2px 10px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, background: "rgba(255,255,255,.07)", color: "var(--pk-text)" }}>{regCount}</span>
                   )}
                 </div>
-                {regs.length ? (
+                {isMlp ? (
+                  mlpTeams.length ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))", gap: 14, marginTop: 18 }}>
+                      {mlpTeams.map((tm) => (
+                        <MlpTeamCard key={tm._id} tm={tm} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 18, borderRadius: 16, border: "1px dashed rgba(255,255,255,.14)", padding: "34px 0", textAlign: "center" }}>
+                      <div style={{ display: "flex", justifyContent: "center", opacity: 0.5 }}><PickleMark size={34} /></div>
+                      <div style={{ marginTop: 12 }}><Text type="body" color="secondary">{tr("v3.tournamentDetail.noTeams")}</Text></div>
+                    </div>
+                  )
+                ) : regs.length ? (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(310px, 1fr))", gap: 14, marginTop: 18 }}>
                     {regs.map((r) => (
                       <TeamCard key={r._id} r={r} single={single} />
