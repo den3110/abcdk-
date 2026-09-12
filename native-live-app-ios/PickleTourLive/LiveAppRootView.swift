@@ -4825,7 +4825,7 @@ private struct TournamentLogoView: View {
 
     var body: some View {
         Group {
-            if let url = URL(string: urlString?.trimmedNilIfBlank ?? "") {
+            if let url = URL(string: urlString?.trimmedNilIfBlank?.httpsUpgraded ?? "") {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case let .success(image):

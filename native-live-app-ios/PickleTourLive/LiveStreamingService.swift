@@ -1239,7 +1239,12 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     @objc
-    private func handleRTMPStatus(_ notification: Notification) {
+    private nonisolated func handleRTMPStatus(_ notification: Notification) {
+        // HaishinKit gọi listener này trên THREAD NỀN của nó. Class là @MainActor và tất cả
+        // nhánh dưới đây mutate @Published (connectionState, diagnostics, recovery state…),
+        // nên BẮT BUỘC nhảy về main actor. Nếu mutate thẳng trên thread nền sẽ dính
+        // "Publishing changes from background threads is not allowed" → undefined behavior
+        // → app đứng hình rồi crash (đúng lỗi user gặp sau khi RTMP "Connection is ready").
         let event = Event.from(notification)
         guard
             let data = event.data as? ASObject,
@@ -1247,7 +1252,13 @@ final class LiveStreamingService: NSObject, ObservableObject {
         else {
             return
         }
+        Task { @MainActor [weak self] in
+            self?.processRTMPStatus(code: code)
+        }
+    }
 
+    @MainActor
+    private func processRTMPStatus(code: String) {
         switch code {
         case RTMPConnection.Code.connectSuccess.rawValue:
             clearLocalRTMPCloseSuppression()
@@ -1352,7 +1363,15 @@ final class LiveStreamingService: NSObject, ObservableObject {
     }
 
     @objc
-    private func handleRTMPError(_ notification: Notification) {
+    private nonisolated func handleRTMPError(_ notification: Notification) {
+        // Xem ghi chú ở handleRTMPStatus: phải nhảy về main actor trước khi mutate @Published.
+        Task { @MainActor [weak self] in
+            self?.processRTMPError()
+        }
+    }
+
+    @MainActor
+    private func processRTMPError() {
         if shouldIgnoreRTMPFailureAfterLocalClose() && pendingStartContinuation == nil {
             acknowledgeLocalRTMPCloseEvent()
             cancelPublishTimeout()
@@ -1903,7 +1922,13 @@ private final class LiveScoreboardOverlayRenderer {
     }
 
     private static func loadRemoteImage(from rawURL: String?) async -> UIImage? {
-        guard let urlString = rawURL?.trimmedNilIfBlank else { return nil }
+        guard let rawTrimmed = rawURL?.trimmedNilIfBlank else { return nil }
+        // ATS chặn http:// → logo giải, web logo, sponsor không tải được (log: "does not
+        // conform to ATS policy" cho các URL http://pickletour.vn/uploads/...). Nâng
+        // http→https (server đã phục vụ https) để branding/sponsor hiển thị như bản Android.
+        let urlString = rawTrimmed.hasPrefix("http://")
+            ? "https://" + rawTrimmed.dropFirst("http://".count)
+            : rawTrimmed
         let cacheKey = NSString(string: urlString)
         if let cached = remoteImageCache.object(forKey: cacheKey) {
             return cached

@@ -2,6 +2,33 @@ import Combine
 import CoreGraphics
 import Foundation
 
+/// Giải mã "mềm": nếu một field lệch kiểu so với model (ví dụ backend trả object
+/// thay vì Bool/Array), field đó về nil thay vì làm hỏng TOÀN BỘ payload.
+/// Khắc phục lỗi thực tế trên iOS: `api/overlay/match/:id` trả `sets` dạng object và
+/// presence trả `occupied` dạng object → JSONDecoder ném lỗi ở field đó nên mất luôn
+/// overlay + presence (Android dùng Gson vốn bỏ qua field lệch kiểu nên không dính).
+@propertyWrapper
+struct Lenient<Value: Decodable>: Decodable {
+    var wrappedValue: Value?
+    init(wrappedValue: Value?) { self.wrappedValue = wrappedValue }
+    init(from decoder: Decoder) throws {
+        wrappedValue = try? Value(from: decoder)
+    }
+}
+
+extension Lenient: Encodable where Value: Encodable {
+    func encode(to encoder: Encoder) throws { try wrappedValue?.encode(to: encoder) }
+}
+extension Lenient: Equatable where Value: Equatable {}
+extension Lenient: Hashable where Value: Hashable {}
+
+extension KeyedDecodingContainer {
+    /// Được synthesized Codable gọi cho field bọc @Lenient; thiếu key hoặc lệch kiểu → nil.
+    func decode<T>(_ type: Lenient<T>.Type, forKey key: Key) throws -> Lenient<T> {
+        (try? decodeIfPresent(type, forKey: key)) ?? Lenient(wrappedValue: nil)
+    }
+}
+
 struct AuthSession: Codable, Equatable {
     var accessToken: String
     var refreshToken: String?
@@ -127,7 +154,7 @@ struct CourtClusterListResponse: Codable {
 }
 
 struct RuntimePresenceHints: Codable, Equatable {
-    var occupied: Bool?
+    @Lenient var occupied: Bool?
     var screenState: String?
     var heartbeatIntervalMs: Int?
 }
@@ -138,7 +165,7 @@ struct RuntimeLeaseHints: Codable, Equatable {
 }
 
 struct CourtLiveScreenPresence: Codable, Equatable, Hashable {
-    var occupied: Bool?
+    @Lenient var occupied: Bool?
     var status: String?
     var screenState: String?
     var matchId: String?
@@ -502,7 +529,7 @@ struct CourtPresenceRequest: Codable {
 struct CourtPresenceResponse: Codable, Equatable {
     var ok: Bool
     var leaseId: String?
-    var occupied: Bool?
+    @Lenient var occupied: Bool?
     var screenState: String?
     var expiresAt: String?
     var previewReleaseAt: String?
@@ -816,7 +843,7 @@ struct LiveOverlaySnapshot: Codable, Equatable {
     var breakNote: String?
     var seedA: Int?
     var seedB: Int?
-    var sets: [SetScore]?
+    @Lenient var sets: [SetScore]?
     var sponsorLogoURLs: [String]?
     var webLogoURL: String?
 
@@ -1624,6 +1651,11 @@ extension String {
     var trimmedNilIfBlank: String? {
         let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Nâng http→https để qua được ATS (iOS chặn http). Server pickletour.vn phục vụ https.
+    var httpsUpgraded: String {
+        hasPrefix("http://") ? "https://" + dropFirst("http://".count) : self
     }
 }
 
