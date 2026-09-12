@@ -44,6 +44,9 @@ final class MatchSocketCoordinator {
     private var token: String?
     private var joinedMatchId: String?
     private var desiredMatchId: String?
+    /// Gate version như Android: bỏ payload có liveVersion < bản đã áp (bằng thì nhận).
+    private var lastAppliedVersion: Int = -1
+    private var lastSnapshotRequestAt: Date?
 
     init(tokenProvider: @escaping () -> String?) {
         self.tokenProvider = tokenProvider
@@ -83,6 +86,7 @@ final class MatchSocketCoordinator {
         }
         joinedMatchId = nil
         desiredMatchId = nil
+        lastAppliedVersion = -1
         onActiveMatchChange?(nil)
     }
 
@@ -150,6 +154,7 @@ final class MatchSocketCoordinator {
             guard let self else { return }
             let matchId = (data.first as? [String: Any])?["matchId"] as? String
             self.joinedMatchId = matchId?.trimmedNilIfBlank
+            self.lastAppliedVersion = -1 // room mới → bỏ gate version cũ
             self.onActiveMatchChange?(self.joinedMatchId)
         }
 
@@ -173,40 +178,88 @@ final class MatchSocketCoordinator {
     /// status:updated…) → xin snapshot đầy đủ như Android.
     private static let informativeMatchKeys = ["gameScores", "currentGame", "scoreA", "scoreB", "teamAName", "teamBName", "serve", "sets"]
 
-    private func handleMatchPayload(_ payload: Any?) {
-        onPayloadTimestamp?(Date())
-
-        // `match:update` là envelope {type, matchId, bracketId, data: DTO} → bóc `data`.
-        var body = payload as? [String: Any]
-        if let raw = body, let wrapped = raw["data"] as? [String: Any],
-           !Self.informativeMatchKeys.contains(where: { raw[$0] != nil }) {
-            body = wrapped
+    /// Xin server gửi lại `match:snapshot` (DTO đầy đủ). Throttle 600ms như Android
+    /// (server cũng giới hạn 500ms/socket + dedupe 750ms).
+    func requestSnapshot(reason: String, minIntervalMs: Int = 600) {
+        guard socket?.status == .connected,
+              let matchId = (joinedMatchId ?? desiredMatchId)?.trimmedNilIfBlank else { return }
+        let now = Date()
+        if minIntervalMs > 0, let last = lastSnapshotRequestAt,
+           now.timeIntervalSince(last) * 1000 < Double(minIntervalMs) {
+            return
         }
-        let effectivePayload: Any? = body ?? payload
+        lastSnapshotRequestAt = now
+        socket?.emit("match:snapshot:request", ["matchId": matchId, "reason": reason])
+    }
 
-        // Patch-only: không có gì để vẽ → xin `match:snapshot` mới (server trả DTO đầy đủ).
-        if let raw = body, !Self.informativeMatchKeys.contains(where: { raw[$0] != nil }) {
-            if let matchId = (joinedMatchId ?? desiredMatchId)?.trimmedNilIfBlank {
-                socket?.emit("match:snapshot:request", ["matchId": matchId])
+    /// `_id` có thể là String, NSNumber hoặc {"$oid": ...}.
+    private static func idString(_ value: Any?) -> String? {
+        if let string = value as? String { return string.trimmedNilIfBlank }
+        if let number = value as? NSNumber { return number.stringValue }
+        if let dict = value as? [String: Any] { return idString(dict["$oid"] ?? dict["_id"] ?? dict["id"]) }
+        return nil
+    }
+
+    /// Socket.IO-Swift giao số dạng NSNumber (Int/Double) hoặc chuỗi số.
+    private static func intValue(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        if let string = value as? String { return Int(string.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        return nil
+    }
+
+    private func handleMatchPayload(_ payload: Any?) {
+        guard let root = payload as? [String: Any] else { return }
+        let hasInfo: ([String: Any]) -> Bool = { dict in
+            Self.informativeMatchKeys.contains { dict[$0] != nil }
+        }
+
+        // Android: match = obj.match ?? obj.data ?? obj — bóc envelope của `match:update`
+        // ({type, matchId, bracketId, tournamentId, data: DTO}).
+        var body = root
+        if !hasInfo(root) {
+            if let wrapped = root["match"] as? [String: Any] {
+                body = wrapped
+            } else if let wrapped = root["data"] as? [String: Any] {
+                body = wrapped
             }
-            if let status = raw["status"] as? String {
-                onStatusChange?(status)
-            }
+        }
+
+        // Guard matchId: bỏ payload của trận khác (room cũ / chuyển trận trên cùng sân).
+        let payloadId = Self.idString(root["_id"]) ?? Self.idString(root["id"]) ?? Self.idString(root["matchId"])
+            ?? Self.idString(body["_id"]) ?? Self.idString(body["matchId"])
+        if let payloadId, let expected = (joinedMatchId ?? desiredMatchId)?.trimmedNilIfBlank, payloadId != expected {
             return
         }
 
-        // DTO trận giải KHÔNG có scoreA/scoreB → withDerivedLiveState() suy điểm từ
-        // gameScores/currentGame/serve đúng như Android (extractCurrentScore).
-        if let snapshot = SocketDecode.decode(LiveOverlaySnapshot.self, from: effectivePayload) {
-            onOverlaySnapshot?(snapshot.withDerivedLiveState())
-        } else if let match = SocketDecode.decode(MatchData.self, from: effectivePayload) {
-            onOverlaySnapshot?(LiveOverlaySnapshot(match: match).withDerivedLiveState())
-            onStatusChange?(match.status)
+        let status = (body["status"] as? String) ?? (root["status"] as? String)
+
+        // Patch-only (match:patched, status:updated, winner:updated…): không có gì để vẽ → xin
+        // snapshot đầy đủ như Android. KHÔNG tính là "payload mới" để socketPayloadStale đúng.
+        guard hasInfo(body) else {
+            requestSnapshot(reason: "lightweight")
+            if let status { onStatusChange?(status) }
+            return
         }
 
-        if let raw = body, let status = raw["status"] as? String {
-            onStatusChange?(status)
+        // Gate version: bỏ payload cũ hơn bản đã áp (strict <, bằng thì nhận — Android).
+        let version = Self.intValue(root["version"]) ?? Self.intValue(root["liveVersion"])
+            ?? Self.intValue(body["version"]) ?? Self.intValue(body["liveVersion"])
+        if let version, lastAppliedVersion >= 0, version < lastAppliedVersion {
+            return
         }
+
+        onPayloadTimestamp?(Date())
+
+        // DTO trận giải KHÔNG có scoreA/scoreB → withDerivedLiveState() suy điểm từ
+        // gameScores/currentGame/serve đúng như Android (extractCurrentScore).
+        if let snapshot = SocketDecode.decode(LiveOverlaySnapshot.self, from: body) {
+            if let version { lastAppliedVersion = max(lastAppliedVersion, version) }
+            onOverlaySnapshot?(snapshot.withDerivedLiveState())
+        } else if let match = SocketDecode.decode(MatchData.self, from: body) {
+            if let version { lastAppliedVersion = max(lastAppliedVersion, version) }
+            onOverlaySnapshot?(LiveOverlaySnapshot(match: match).withDerivedLiveState())
+        }
+        if let status { onStatusChange?(status) }
     }
 }
 

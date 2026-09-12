@@ -407,7 +407,7 @@ struct MatchData: Codable, Identifiable, Equatable {
     var seedA: Int?
     var seedB: Int?
     var breakNote: String?
-    var gameScores: [SetScore]?
+    @Lenient var gameScores: [SetScore]?
     var video: String?
     var courtStationId: String?
     var courtStationName: String?
@@ -415,8 +415,9 @@ struct MatchData: Codable, Identifiable, Equatable {
     var courtClusterName: String?
     var tournament: TournamentInfo?
     var court: CourtInfo?
-    /// Chỉ true khi JSON boolean true (Android asBoolean); dạng object {note} → nil.
-    @Lenient var isBreak: Bool?
+    /// Runtime trả object {active, note, type}; dữ liệu cũ có thể là boolean — MatchBreakState
+    /// decode cả hai (Android seed đọc isBreak.active).
+    @Lenient var isBreak: MatchBreakState?
     var overlayNameStyle: String?
 
     var teamADisplayName: String {
@@ -973,13 +974,69 @@ struct LiveOverlaySnapshot: Codable, Equatable {
             scoreB: match.scoreB,
             serveSide: match.serveSide,
             serveCount: match.serveCount,
-            breakNote: match.breakNote,
+            breakNote: match.breakNote?.trimmedNilIfBlank ?? match.isBreak?.note?.trimmedNilIfBlank,
             seedA: match.seedA,
             seedB: match.seedB,
             sets: match.gameScores,
-            isBreak: match.isBreak,
+            isBreak: match.isBreak?.active,
             overlayNameStyle: match.overlayNameStyle?.trimmedNilIfBlank ?? match.tournament?.overlayNameStyle?.trimmedNilIfBlank
         )
+    }
+}
+
+/// `isBreak` từ runtime là object {active, note, type}; dữ liệu cũ/socket có thể là boolean.
+/// Android seed đọc isBreak.active (và note khi breakNote trống).
+struct MatchBreakState: Codable, Equatable {
+    var active: Bool?
+    var note: String?
+    var type: String?
+
+    enum CodingKeys: String, CodingKey { case active, note, type }
+
+    init(from decoder: Decoder) throws {
+        if let single = try? decoder.singleValueContainer(), let flag = try? single.decode(Bool.self) {
+            active = flag
+            note = nil
+            type = nil
+            return
+        }
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        active = try? container.decodeIfPresent(Bool.self, forKey: .active)
+        note = try? container.decodeIfPresent(String.self, forKey: .note)
+        type = try? container.decodeIfPresent(String.self, forKey: .type)
+    }
+}
+
+extension LiveOverlaySnapshot {
+    /// Android `current.copy(field = extracted ?: current.field)`: field có trong payload mới
+    /// thắng, thiếu thì giữ snapshot trước — activeMatch không bao giờ ghi đè field socket đã cho.
+    func merging(over previous: LiveOverlaySnapshot?) -> LiveOverlaySnapshot {
+        guard let p = previous else { return self }
+        var n = self
+        n.tournamentName = tournamentName?.trimmedNilIfBlank ?? p.tournamentName
+        n.courtName = courtName?.trimmedNilIfBlank ?? p.courtName
+        n.tournamentLogoURL = tournamentLogoURL?.trimmedNilIfBlank ?? p.tournamentLogoURL
+        n.stageName = stageName?.trimmedNilIfBlank ?? p.stageName
+        n.phaseText = phaseText?.trimmedNilIfBlank ?? p.phaseText
+        n.roundLabel = roundLabel?.trimmedNilIfBlank ?? p.roundLabel
+        n.teamAName = teamAName?.trimmedNilIfBlank ?? p.teamAName
+        n.teamBName = teamBName?.trimmedNilIfBlank ?? p.teamBName
+        n.scoreA = scoreA ?? p.scoreA
+        n.scoreB = scoreB ?? p.scoreB
+        n.serveSide = serveSide?.trimmedNilIfBlank ?? p.serveSide
+        n.serveCount = serveCount ?? p.serveCount
+        n.breakNote = breakNote?.trimmedNilIfBlank ?? p.breakNote
+        n.seedA = seedA ?? p.seedA
+        n.seedB = seedB ?? p.seedB
+        if n.sets?.isEmpty != false { n.sets = p.sets }
+        if n.sponsorLogoURLs?.isEmpty != false { n.sponsorLogoURLs = p.sponsorLogoURLs }
+        n.webLogoURL = webLogoURL?.trimmedNilIfBlank ?? p.webLogoURL
+        n.isBreak = isBreak ?? p.isBreak
+        n.overlayNameStyle = overlayNameStyle?.trimmedNilIfBlank ?? p.overlayNameStyle
+        if n.gameScores?.isEmpty != false { n.gameScores = p.gameScores }
+        n.currentGame = currentGame ?? p.currentGame
+        n.serve = serve ?? p.serve
+        return n
     }
 }
 

@@ -573,7 +573,10 @@ final class LiveAppStore: ObservableObject {
         if let config {
             overlayConfig = config
         }
-        if let enrichedSnapshot = enrichOverlaySnapshot(snapshot, config: config, match: activeMatch) {
+        // Endpoint overlay không có scoreA/scoreB (enrich tự suy từ gameScores); merge đè lên
+        // snapshot hiện tại để không mất field socket đã cung cấp.
+        let base = snapshot.map { $0.merging(over: overlaySnapshot) } ?? overlaySnapshot
+        if let enrichedSnapshot = enrichOverlaySnapshot(base, config: config, match: activeMatch) {
             overlaySnapshot = enrichedSnapshot
             streamingService.overlaySnapshot = enrichedSnapshot
         }
@@ -2047,7 +2050,11 @@ final class LiveAppStore: ObservableObject {
             next?.sets = resolvedMatch?.gameScores
         }
         if next?.isBreak == nil {
-            next?.isBreak = resolvedMatch?.isBreak
+            next?.isBreak = resolvedMatch?.isBreak?.active
+        }
+        if next?.breakNote?.trimmedNilIfBlank == nil {
+            next?.breakNote = resolvedMatch?.breakNote?.trimmedNilIfBlank
+                ?? resolvedMatch?.isBreak?.note?.trimmedNilIfBlank
         }
         if next?.overlayNameStyle?.trimmedNilIfBlank == nil {
             next?.overlayNameStyle = resolvedMatch?.overlayNameStyle?.trimmedNilIfBlank
@@ -2091,6 +2098,11 @@ final class LiveAppStore: ObservableObject {
                     lastSocketSelfHealAt = Date()
                     environment.matchSocket.connectIfNeeded()
                     environment.matchSocket.watch(matchId: matchId)
+                    // Đã join đúng room nhưng lâu không có payload có dữ liệu → xin snapshot
+                    // (Android keepalive/bootstrap burst).
+                    if socketConnected, socketPayloadStale {
+                        environment.matchSocket.requestSnapshot(reason: "health")
+                    }
                 }
             }
 
@@ -2576,9 +2588,14 @@ final class LiveAppStore: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 guard self.session?.accessToken.trimmedNilIfBlank != nil else { return }
-                let enrichedSnapshot = self.enrichOverlaySnapshot(snapshot, match: self.activeMatch) ?? snapshot
-                self.overlaySnapshot = enrichedSnapshot
-                self.streamingService.overlaySnapshot = enrichedSnapshot
+                // Android: field có trong payload mới thắng, thiếu thì giữ snapshot trước;
+                // activeMatch chỉ điền chỗ còn trống (không bao giờ ghi đè dữ liệu socket).
+                let merged = snapshot.merging(over: self.overlaySnapshot)
+                let enrichedSnapshot = self.enrichOverlaySnapshot(merged, match: self.activeMatch) ?? merged
+                if enrichedSnapshot != self.overlaySnapshot {
+                    self.overlaySnapshot = enrichedSnapshot
+                    self.streamingService.overlaySnapshot = enrichedSnapshot
+                }
                 self.updateOverlayHealthState()
             }
         }
@@ -2655,7 +2672,11 @@ final class LiveAppStore: ObservableObject {
                 }
 
                 if let currentMatch = payload.currentMatch, currentMatch.id == self.activeMatch?.id {
-                    self.activeMatch = currentMatch
+                    // Android chỉ cập nhật status: DTO station không có scoreA/scoreB/seed/logo,
+                    // ghi đè activeMatch sẽ làm enrich mất dữ liệu seed từ runtime.
+                    if let status = currentMatch.status?.trimmedNilIfBlank {
+                        self.activeMatch?.status = status
+                    }
                     self.maybeAutoStartArmedSession()
                 }
 
