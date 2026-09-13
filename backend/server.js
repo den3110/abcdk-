@@ -391,16 +391,13 @@ app.use("/api/command-palette", commandPaletteRoutes);
 app.use("/api/observer", observerRoutes);
 app.use("/api/identity-security", identitySecurityRoutes);
 
-// Dashboard giám sát máy live (phục vụ tại observer.pickletour.vn/ hoặc /observer/live-devices)
-const observerLiveDashboardPath = path.join(
-  process.cwd(),
-  "backend",
-  "public",
-  "observer-live",
-  "index.html"
-);
+// Dashboard giám sát máy live (phục vụ tại observer.pickletour.vn/ hoặc /observer/live-devices).
+// CSP helmet là `script-src 'self'` → JS phải ở FILE riêng (app.js), không inline. Static phục
+// vụ app.js/style.css; route riêng trả index.html cho /observer/live-devices.
+const observerLiveDir = path.join(process.cwd(), "backend", "public", "observer-live");
+app.use("/observer", express.static(observerLiveDir));
 const serveObserverLiveDashboard = (_req, res) => {
-  res.sendFile(observerLiveDashboardPath, (err) => {
+  res.sendFile(path.join(observerLiveDir, "index.html"), (err) => {
     if (err) res.status(404).send("Observer dashboard not found");
   });
 };
