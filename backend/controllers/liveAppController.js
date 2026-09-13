@@ -2,6 +2,7 @@ import { createFacebookLiveForMatch } from "./adminMatchLiveController.js";
 import {
   fbGetLiveVideo,
   fbCreateLiveOnPage,
+  fbGoLive,
 } from "../services/facebookLive.service.js";
 import { getValidPageToken } from "../services/fbTokenService.js";
 import IORedis from "ioredis";
@@ -519,6 +520,41 @@ async function buildLiveTitleDesc(matchId, isUserMatch) {
   }
 }
 
+// Nền: chờ app bắt đầu đẩy ingest rồi ÉP LIVE_NOW cho từng FB live của đa đích.
+// Lý do: đường 1-đích ép fbGoLive ~8s sau /live/start (đọc match.facebookLive). Đường
+// đa đích tạo live trực tiếp (không lưu facebookLive), nên app KHÔNG bao giờ gọi fbGoLive
+// cho các đích này → Facebook để UNPUBLISHED dù đã có ingest → viewer thấy "không live".
+// Ingest-aware: chỉ transition khi FB báo has_video (chịu được court-mode tạo sớm đẩy muộn).
+async function scheduleFacebookAutoGoLive({ liveVideoId, pageAccessToken }) {
+  if (!liveVideoId || !pageAccessToken) return;
+  const MAX_ATTEMPTS = 45; // ~90s cửa sổ (2s/nhịp)
+  const INTERVAL_MS = 2000;
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    await new Promise((r) => setTimeout(r, INTERVAL_MS));
+    let info = null;
+    try {
+      info = await fbGetLiveVideo({
+        liveVideoId,
+        pageAccessToken,
+        fields: "status,ingest_streams",
+      });
+    } catch {
+      continue;
+    }
+    const status = String(info?.status || "").toUpperCase();
+    if (status === "LIVE" || status === "VOD") return; // đã lên sóng / kết thúc
+    const hasVideo =
+      Array.isArray(info?.ingest_streams) &&
+      info.ingest_streams.some((s) => s?.has_video || s?.is_master);
+    // Có ingest mà FB vẫn để UNPUBLISHED → ép LIVE_NOW. Idempotent, lặp tới khi status=LIVE.
+    if (hasVideo) {
+      await fbGoLive({ liveVideoId, pageAccessToken }).catch((e) =>
+        console.warn("[live-app] multi fbGoLive failed:", liveVideoId, e?.message || e)
+      );
+    }
+  }
+}
+
 async function createOneFacebookTarget({ pageId, title, description }) {
   const normalizedPageId = asTrimmed(pageId);
   if (!normalizedPageId) {
@@ -563,6 +599,13 @@ async function createOneFacebookTarget({ pageId, title, description }) {
       : buildFacebookWatchUrl(liveId);
     if (!secure && !(server && streamKey)) {
       return { ok: false, platform: "facebook", pageId: normalizedPageId, error: "Không nhận được RTMP URL từ Facebook" };
+    }
+    // Fire-and-forget: khi app bắt đầu đẩy ingest → ép LIVE_NOW (đường đa đích không đi qua
+    // notifyStreamStarted/match.facebookLive nên phải tự lo transition ở đây).
+    if (liveId) {
+      scheduleFacebookAutoGoLive({ liveVideoId: liveId, pageAccessToken }).catch((e) =>
+        console.warn("[live-app] scheduleFacebookAutoGoLive error:", e?.message || e)
+      );
     }
     return {
       ok: true,
