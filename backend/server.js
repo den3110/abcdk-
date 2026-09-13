@@ -276,6 +276,7 @@ const NON_API_PREFIXES = [
   "/favicon",
   "/dl",
   "/prerender", // SEO prerender endpoint — không prepend /api
+  "/observer", // dashboard giám sát máy live (observer.pickletour.vn)
 ];
 app.use((req, res, next) => {
   const url = req.url || "/";
@@ -389,6 +390,21 @@ app.use("/api/health", healthRoutes);
 app.use("/api/command-palette", commandPaletteRoutes);
 app.use("/api/observer", observerRoutes);
 app.use("/api/identity-security", identitySecurityRoutes);
+
+// Dashboard giám sát máy live (phục vụ tại observer.pickletour.vn/ hoặc /observer/live-devices)
+const observerLiveDashboardPath = path.join(
+  process.cwd(),
+  "backend",
+  "public",
+  "observer-live",
+  "index.html"
+);
+const serveObserverLiveDashboard = (_req, res) => {
+  res.sendFile(observerLiveDashboardPath, (err) => {
+    if (err) res.status(404).send("Observer dashboard not found");
+  });
+};
+app.get(["/observer", "/observer/", "/observer/live-devices"], serveObserverLiveDashboard);
 
 // ===== Geo proxy for language detection (avoids browser CORS issues) =====
 const geoCache = new Map();
