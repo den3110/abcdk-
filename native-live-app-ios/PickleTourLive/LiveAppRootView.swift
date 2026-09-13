@@ -2164,11 +2164,70 @@ private struct LiveStreamScreen: View {
                         .foregroundStyle(LivePalette.textSecondary)
                     }
                 }
+
+                multiDestinationSection
             }
             .onAppear {
                 if store.facebookPages.isEmpty, !store.facebookPagesLoading {
                     store.loadFacebookPages()
                 }
+            }
+        }
+    }
+
+    // Phát ĐA ĐÍCH: chọn thêm page FB phụ + toggle YouTube. Đích chính là lựa chọn ở trên.
+    @ViewBuilder
+    private var multiDestinationSection: some View {
+        let primaryFbPageId = store.launchTarget.pageId?.trimmedNilIfBlank
+        let extraPages = store.facebookPages.filter { $0.pageId != primaryFbPageId }
+        VStack(alignment: .leading, spacing: 8) {
+            Divider().overlay(LivePalette.textSecondary.opacity(0.2))
+            Text("Phát nhiều đích cùng lúc (beta)")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(LivePalette.textSecondary)
+            Text("Điện thoại đẩy song song nhiều luồng — băng thông upload nhân theo số đích. Wifi/4G yếu nên giữ 2–3 đích.")
+                .font(.system(size: 11))
+                .foregroundStyle(LivePalette.textSecondary)
+
+            if store.selectedPlatform != "youtube" {
+                Toggle(isOn: Binding(
+                    get: { store.alsoStreamYouTube },
+                    set: { store.alsoStreamYouTube = $0 }
+                )) {
+                    Text("Phát thêm lên YouTube").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                }
+                .tint(LivePalette.accent)
+            }
+
+            if !extraPages.isEmpty {
+                Text(store.selectedPlatform == "youtube" ? "Phát thêm Facebook Page:" : "Facebook Page phụ:")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LivePalette.textSecondary)
+                ForEach(extraPages) { page in
+                    let on = store.additionalFacebookPageIds.contains(page.pageId)
+                    Button {
+                        store.toggleAdditionalFacebookPage(page.pageId)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: on ? "checkmark.square.fill" : "square")
+                                .foregroundStyle(on ? LivePalette.accent : LivePalette.textSecondary)
+                            Text(page.displayName).font(.system(size: 14)).foregroundStyle(.white)
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                }
+            }
+
+            let total = store.multiLiveTargets.count
+            if total > 1 {
+                Text("Sẽ phát \(total) đích cùng lúc.")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(LivePalette.accent)
+            } else if store.alsoStreamYouTube || !store.additionalFacebookPageIds.isEmpty {
+                Text("Cần chọn 1 đích chính cụ thể (không phải 'Mặc định') để phát đa đích.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.orange)
             }
         }
     }

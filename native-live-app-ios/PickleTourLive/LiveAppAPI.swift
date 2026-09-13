@@ -298,6 +298,20 @@ final class LiveAPIClient {
         )
     }
 
+    // Tạo live đa đích: N (page/nền tảng) cùng lúc. App tự mở N publish RTMP từ mảng trả về.
+    func createMultiLiveSession(
+        matchId: String,
+        targets: [MultiLiveTargetRequestItem],
+        userMatch: Bool
+    ) async throws -> CreateMultiLiveResponse {
+        try await request(
+            path: "api/live-app/matches/\(matchId)/live/create-multi",
+            method: "POST",
+            body: CreateMultiLiveRequest(targets: targets),
+            extraHeaders: userMatch ? ["x-pkt-match-kind": "user"] : [:]
+        )
+    }
+
     func createLiveSession(matchId: String, pageId: String?, platform: String? = nil, force: Bool = false) async throws -> LiveSession {
         let query = force ? [URLQueryItem(name: "force", value: "1")] : []
         return try await request(

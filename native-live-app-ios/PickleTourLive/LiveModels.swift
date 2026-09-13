@@ -475,6 +475,24 @@ struct FacebookLive: Codable, Equatable {
     var pageName: String?
     var pageId: String?
 
+    init(
+        secureStreamURL: String? = nil,
+        serverURL: String? = nil,
+        streamKey: String? = nil,
+        watchURL: String? = nil,
+        permalinkURL: String? = nil,
+        pageName: String? = nil,
+        pageId: String? = nil
+    ) {
+        self.secureStreamURL = secureStreamURL
+        self.serverURL = serverURL
+        self.streamKey = streamKey
+        self.watchURL = watchURL
+        self.permalinkURL = permalinkURL
+        self.pageName = pageName
+        self.pageId = pageId
+    }
+
     var resolvedRTMPURL: String? {
         if let secureStreamURL, !secureStreamURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return secureStreamURL
@@ -540,6 +558,48 @@ struct StreamNotifyResponse: Codable, Equatable {
 struct CreateLiveRequest: Codable {
     var pageId: String?
     var platform: String?
+}
+
+// ===== Đa đích (multi-destination) =====
+struct MultiLiveTargetRequestItem: Codable, Equatable {
+    var platform: String     // "facebook" | "youtube"
+    var pageId: String?      // chỉ facebook
+}
+
+struct CreateMultiLiveRequest: Codable {
+    var targets: [MultiLiveTargetRequestItem]
+}
+
+struct MultiLiveTargetResult: Codable, Equatable {
+    enum CodingKeys: String, CodingKey {
+        case ok, platform, pageId, error
+        case liveId
+        case secureStreamURL = "secure_stream_url"
+        case serverURL = "server_url"
+        case streamKey = "stream_key"
+        case watchURL = "watch_url"
+    }
+    var ok: Bool?
+    var platform: String?
+    var pageId: String?
+    var liveId: String?
+    var secureStreamURL: String?
+    var serverURL: String?
+    var streamKey: String?
+    var watchURL: String?
+    var error: String?
+
+    var resolvedRTMPURL: String? {
+        if let s = secureStreamURL?.trimmedNilIfBlank { return s }
+        guard let base = serverURL?.trimmedNilIfBlank, let key = streamKey?.trimmedNilIfBlank else { return nil }
+        return "\(base.trimmingCharacters(in: CharacterSet(charactersIn: "/")))/\(key)"
+    }
+}
+
+struct CreateMultiLiveResponse: Codable, Equatable {
+    var ok: Bool?
+    var count: Int?
+    var targets: [MultiLiveTargetResult]
 }
 
 struct CourtPresenceRequest: Codable {

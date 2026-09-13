@@ -57,6 +57,9 @@ final class LiveAppStore: ObservableObject {
     @Published var facebookPages: [FacebookPage] = []
     @Published var facebookPagesLoading = false
     @Published var selectedPlatform: String = "facebook" // "facebook" | "youtube"
+    // Đa đích: page FB PHỤ (ngoài page chính) + có phát thêm YouTube không.
+    @Published var additionalFacebookPageIds: [String] = []
+    @Published var alsoStreamYouTube: Bool = false
     @Published var liveMode: LiveStreamMode = .streamAndRecord
     @Published var selectedQuality: LiveQualityPreset = .balanced1080
 
@@ -708,22 +711,70 @@ final class LiveAppStore: ObservableObject {
                 return
             }
 
-            let liveSession = try await environment.apiClient.createLiveSession(
-                matchId: activeMatch.id,
-                pageId: launchTarget.pageId,
-                platform: selectedPlatform,
-                // Luôn tạo live MỚI như trang admin FB Live Test (không tái dùng live/stream key
-                // của phiên trước — key của live FB đã kết thúc → "Video trực tiếp không khả dụng").
-                force: true,
-                userMatch: launchTarget.isUserMatchLaunch
-            )
-            self.liveSession = liveSession
+            let destination: RTMPDestination
+            if isMultiDestination {
+                // ĐA ĐÍCH: tạo N live, đích đầu tiên OK làm chính, phần còn lại làm đích phụ.
+                let multi = try await environment.apiClient.createMultiLiveSession(
+                    matchId: activeMatch.id,
+                    targets: multiLiveTargets,
+                    userMatch: launchTarget.isUserMatchLaunch
+                )
+                let okTargets = multi.targets.filter { $0.ok == true && $0.resolvedRTMPURL != nil }
+                guard
+                    let primary = okTargets.first,
+                    let primaryURL = primary.resolvedRTMPURL,
+                    let primaryDest = RTMPDestination.parse(from: primaryURL)
+                else {
+                    let detail = multi.targets
+                        .filter { $0.ok != true }
+                        .map { "• \(labelForTarget($0)): \($0.error ?? "lỗi không rõ")" }
+                        .joined(separator: "\n")
+                    throw LiveAPIError.server(
+                        statusCode: 0,
+                        message: "Không tạo được đích live nào." + (detail.isEmpty ? "" : "\n\n" + detail)
+                    )
+                }
+                // Đích phụ = các đích OK còn lại
+                let secondaries: [(destination: RTMPDestination, label: String)] = okTargets
+                    .dropFirst()
+                    .compactMap { t in
+                        guard let u = t.resolvedRTMPURL, let d = RTMPDestination.parse(from: u) else { return nil }
+                        return (d, labelForTarget(t))
+                    }
+                streamingService.setSecondaryDestinations(secondaries)
+                // liveSession cho UI: dùng watch link đích chính
+                self.liveSession = LiveSession(
+                    facebook: (primary.platform ?? "") == "facebook"
+                        ? FacebookLive(watchURL: primary.watchURL, pageId: primary.pageId) : nil,
+                    youtube: (primary.platform ?? "") == "youtube"
+                        ? FacebookLive(watchURL: primary.watchURL) : nil,
+                    platform: primary.platform
+                )
+                let failed = multi.targets.filter { $0.ok != true }
+                if !failed.isEmpty {
+                    bannerMessage = "Đã live \(okTargets.count) đích. \(failed.count) đích lỗi: " +
+                        failed.map { labelForTarget($0) }.joined(separator: ", ")
+                }
+                destination = primaryDest
+            } else {
+                let liveSession = try await environment.apiClient.createLiveSession(
+                    matchId: activeMatch.id,
+                    pageId: launchTarget.pageId,
+                    platform: selectedPlatform,
+                    // Luôn tạo live MỚI như trang admin FB Live Test (không tái dùng live/stream key
+                    // của phiên trước — key của live FB đã kết thúc → "Video trực tiếp không khả dụng").
+                    force: true,
+                    userMatch: launchTarget.isUserMatchLaunch
+                )
+                self.liveSession = liveSession
 
-            guard
-                let rawURL = liveSession.primaryTarget?.resolvedRTMPURL,
-                let destination = RTMPDestination.parse(from: rawURL)
-            else {
-                throw LiveAPIError.server(statusCode: 0, message: "Không nhận được RTMP URL hợp lệ.")
+                guard
+                    let rawURL = liveSession.primaryTarget?.resolvedRTMPURL,
+                    let parsed = RTMPDestination.parse(from: rawURL)
+                else {
+                    throw LiveAPIError.server(statusCode: 0, message: "Không nhận được RTMP URL hợp lệ.")
+                }
+                destination = parsed
             }
 
             try await streamingService.startPublishing(to: destination)
@@ -3129,6 +3180,51 @@ final class LiveAppStore: ObservableObject {
     /// Chọn fanpage sẽ live cho sân hiện tại. Áp dụng cho lần go-live KẾ TIẾP
     /// (không đổi bản đang live). Lưu theo court station để mở lại sân vẫn nhớ.
     /// nil → dùng trang mặc định của giải/hệ thống.
+    // ===== Đa đích =====
+    /// Danh sách đích live (page chính + page phụ + YouTube add-on). >1 phần tử = đa đích.
+    var multiLiveTargets: [MultiLiveTargetRequestItem] {
+        var items: [MultiLiveTargetRequestItem] = []
+        var seenFb = Set<String>()
+        if selectedPlatform == "youtube" {
+            items.append(MultiLiveTargetRequestItem(platform: "youtube", pageId: nil))
+        } else if let pid = launchTarget.pageId?.trimmedNilIfBlank {
+            items.append(MultiLiveTargetRequestItem(platform: "facebook", pageId: pid))
+            seenFb.insert(pid)
+        }
+        for raw in additionalFacebookPageIds {
+            guard let p = raw.trimmedNilIfBlank, !seenFb.contains(p) else { continue }
+            items.append(MultiLiveTargetRequestItem(platform: "facebook", pageId: p))
+            seenFb.insert(p)
+        }
+        if alsoStreamYouTube && selectedPlatform != "youtube" {
+            items.append(MultiLiveTargetRequestItem(platform: "youtube", pageId: nil))
+        }
+        return items
+    }
+
+    /// Đa đích chỉ dùng khi có >1 đích VÀ page chính đã chọn cụ thể (multi FB cần pageId rõ).
+    var isMultiDestination: Bool { multiLiveTargets.count > 1 }
+
+    func toggleAdditionalFacebookPage(_ pageId: String) {
+        let p = pageId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !p.isEmpty else { return }
+        if let idx = additionalFacebookPageIds.firstIndex(of: p) {
+            additionalFacebookPageIds.remove(at: idx)
+        } else {
+            additionalFacebookPageIds.append(p)
+        }
+    }
+
+    func labelForTarget(_ t: MultiLiveTargetResult) -> String {
+        if (t.platform ?? "").lowercased() == "youtube" { return "YouTube" }
+        if let pid = t.pageId?.trimmedNilIfBlank,
+           let page = facebookPages.first(where: { $0.pageId == pid }),
+           let name = page.pageName.trimmedNilIfBlank {
+            return name
+        }
+        return t.pageId?.trimmedNilIfBlank ?? "Facebook"
+    }
+
     func selectFacebookPage(_ pageId: String?) {
         let pid = pageId?.trimmedNilIfBlank
         launchTarget.pageId = pid

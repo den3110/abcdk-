@@ -117,6 +117,10 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private let stream: RTMPStream
     private let overlayEffect = LiveScoreboardVideoEffect()
     private var recorder = IOStreamRecorder()
+
+    // Đích phụ đa nền tảng (ngoài stream chính). Đăng ký observer lên stream chính khi publish.
+    private var secondaryOutputs: [SecondaryRTMPOutput] = []
+    private var pendingSecondaryDestinations: [(destination: RTMPDestination, label: String)] = []
     private lazy var recorderProxy: StreamRecorderDelegateProxy = {
         let proxy = StreamRecorderDelegateProxy()
         proxy.onFinishWriting = { [weak self] writer in
@@ -313,6 +317,42 @@ final class LiveStreamingService: NSObject, ObservableObject {
         }
     }
 
+    /// Đặt danh sách đích phụ (ngoài đích chính) TRƯỚC khi gọi startPublishing. Rỗng = chỉ 1 đích.
+    func setSecondaryDestinations(_ destinations: [(destination: RTMPDestination, label: String)]) {
+        pendingSecondaryDestinations = destinations
+    }
+
+    /// Khởi động các đích phụ: mỗi cái 1 RTMPStream .passthrough, observer lên stream chính để
+    /// nhận frame đã composite. Gọi khi stream chính đã publish (.live).
+    private func startSecondaryOutputsIfNeeded() {
+        guard !pendingSecondaryDestinations.isEmpty else { return }
+        stopSecondaryOutputs()
+        let bitrate = stats.quality.videoBitrate
+        let size = stream.videoSettings.videoSize
+        for item in pendingSecondaryDestinations {
+            let out = SecondaryRTMPOutput(
+                destination: item.destination,
+                label: item.label,
+                videoBitrate: bitrate,
+                videoSize: size
+            )
+            stream.addObserver(out)
+            secondaryOutputs.append(out)
+            out.start()
+            appendDiagnostic("Đích phụ '\(item.label)' → kết nối \(item.destination.connectURL)")
+        }
+    }
+
+    private func stopSecondaryOutputs() {
+        for out in secondaryOutputs {
+            stream.removeObserver(out)
+            out.stop()
+        }
+        secondaryOutputs.removeAll()
+    }
+
+    var secondaryOutputCount: Int { secondaryOutputs.count }
+
     func startPublishing(to destination: RTMPDestination) async throws {
         let operationGeneration = lifecycleGeneration
         if case .live = connectionState {
@@ -365,6 +405,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
         pendingPublishName = nil
         resolvePendingStart(with: nil)
         currentDestination = nil
+        stopSecondaryOutputs()
+        pendingSecondaryDestinations.removeAll()
         stream.close()
         connection.close()
         connectionState = currentCamera == nil ? .stopped : .previewReady
@@ -384,6 +426,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
         statsTimer = nil
         stats.currentBitrate = 0
         resetTorchState()
+        stopSecondaryOutputs()
+        pendingSecondaryDestinations.removeAll()
         stream.attachCamera(nil)
         stream.attachAudio(nil)
         // Dừng DisplayLink của Screen offscreen khi thả preview (tránh render loop chạy nền).
@@ -1434,6 +1478,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
             connectionState = .live
             resolvePendingStart(with: nil)
             clearRecoveryIfNeeded()
+            // Đích chính đã lên sóng → khởi động các đích phụ (đăng ký observer + connect).
+            startSecondaryOutputsIfNeeded()
         case RTMPConnection.Code.connectClosed.rawValue,
             RTMPStream.Code.connectClosed.rawValue:
             if shouldIgnoreRTMPFailureAfterLocalClose() && pendingStartContinuation == nil {
@@ -2684,4 +2730,88 @@ private extension DateFormatter {
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
+}
+
+// ============================================================================
+// ĐA ĐÍCH iOS (multi-destination): stream chính vẫn sở hữu camera + overlay +
+// encode. Mỗi đích phụ là 1 RTMPStream KHÔNG camera, chạy .passthrough (chỉ encode
+// frame được append). Nó đăng ký IOStreamObserver lên stream chính → nhận frame
+// video ĐÃ composite overlay + audio → append vào chính nó → tự encode + publish.
+// Kết quả: 1 lần capture + 1 lần composite overlay, N lần encode (mỗi đích 1 encode
+// phần cứng qua VideoToolbox), N kết nối RTMP song song. KHÔNG mở camera thứ 2.
+// ============================================================================
+final class SecondaryRTMPOutput: NSObject, IOStreamObserver {
+    let destination: RTMPDestination
+    let label: String
+    private let connection = RTMPConnection()
+    let stream: RTMPStream
+    private var didPublish = false
+    private var stopped = false
+
+    init(destination: RTMPDestination, label: String, videoBitrate: Int, videoSize: CGSize) {
+        self.destination = destination
+        self.label = label
+        self.stream = RTMPStream(connection: connection)
+        super.init()
+
+        // .passthrough: KHÔNG chạy offscreen render; chỉ encode buffer được append từ stream chính.
+        stream.videoMixerSettings.mode = .passthrough
+        var v = stream.videoSettings
+        v.bitRate = max(0, videoBitrate)
+        v.maxKeyFrameIntervalDuration = 2
+        if videoSize.width > 0, videoSize.height > 0 { v.videoSize = videoSize }
+        stream.videoSettings = v
+        var a = stream.audioSettings
+        a.bitRate = 128_000
+        stream.audioSettings = a
+
+        connection.addEventListener(.rtmpStatus, selector: #selector(onStatus(_:)), observer: self)
+        stream.addEventListener(.rtmpStatus, selector: #selector(onStatus(_:)), observer: self)
+    }
+
+    func start() {
+        stopped = false
+        didPublish = false
+        connection.connect(destination.connectURL)
+    }
+
+    func stop() {
+        stopped = true
+        stream.close()
+        connection.close()
+    }
+
+    // Nhận buffer từ stream chính (thread nền HaishinKit). append() tự dispatch vào lockQueue riêng,
+    // an toàn thread; chỉ forward, không chạm @Published nên không cần main actor.
+    func stream(_ stream: IOStream, didOutput video: CMSampleBuffer) {
+        guard !stopped else { return }
+        self.stream.append(video)
+    }
+
+    func stream(_ stream: IOStream, didOutput audio: AVAudioBuffer, when: AVAudioTime) {
+        guard !stopped else { return }
+        self.stream.append(audio, when: when)
+    }
+
+    @objc
+    private func onStatus(_ notification: Notification) {
+        let event = Event.from(notification)
+        guard let data = event.data as? ASObject, let code = data["code"] as? String else { return }
+        switch code {
+        case RTMPConnection.Code.connectSuccess.rawValue:
+            guard !didPublish, !stopped else { return }
+            didPublish = true
+            stream.publish(destination.publishName)
+        case RTMPConnection.Code.connectClosed.rawValue,
+             RTMPStream.Code.connectClosed.rawValue:
+            didPublish = false
+        default:
+            break
+        }
+    }
+
+    deinit {
+        connection.removeEventListener(.rtmpStatus, selector: #selector(onStatus(_:)), observer: self)
+        stream.removeEventListener(.rtmpStatus, selector: #selector(onStatus(_:)), observer: self)
+    }
 }
