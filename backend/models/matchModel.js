@@ -342,6 +342,20 @@ const matchSchema = new Schema(
       pageAccessToken: {type: String, trim: true}
     },
 
+    // Đa đích (multi-destination): danh sách nền tảng/page đang phát song song từ app native.
+    liveTargets: {
+      type: [
+        {
+          platform: { type: String, trim: true }, // facebook | youtube
+          pageId: { type: String, trim: true, default: null },
+          liveId: { type: String, trim: true, default: null },
+          watchUrl: { type: String, trim: true, default: null },
+          createdAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: undefined,
+    },
+
     facebookLiveConfig: {
       mode: {
         type: String,

@@ -1,6 +1,7 @@
 import express from "express";
 import {
   createLiveSessionForLiveApp,
+  createMultiLiveSessionForLiveApp,
   getCourtRuntimeForLiveApp,
   getMatchRuntimeForLiveApp,
   listLiveAppFacebookPages,
@@ -25,6 +26,7 @@ const router = express.Router();
 
 router.get("/version", getLiveAppVersion);
 router.post("/matches/:matchId/live/create", protectLiveApp, createLiveSessionForLiveApp);
+router.post("/matches/:matchId/live/create-multi", protectLiveApp, createMultiLiveSessionForLiveApp);
 router.get("/bootstrap", protectLiveApp, getLiveAppBootstrap);
 router.get("/facebook-pages", protectLiveApp, listLiveAppFacebookPages);
 router.get("/clusters", protectLiveApp, listLiveAppCourtClusters);

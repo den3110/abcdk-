@@ -1,5 +1,9 @@
 import { createFacebookLiveForMatch } from "./adminMatchLiveController.js";
-import { fbGetLiveVideo } from "../services/facebookLive.service.js";
+import {
+  fbGetLiveVideo,
+  fbCreateLiveOnPage,
+} from "../services/facebookLive.service.js";
+import { getValidPageToken } from "../services/fbTokenService.js";
 import IORedis from "ioredis";
 import Match from "../models/matchModel.js";
 import UserMatch from "../models/userMatchModel.js";
@@ -472,6 +476,235 @@ export const createLiveSessionForLiveApp = async (req, res) => {
       permalink_url,
     },
   });
+};
+
+// ============================================================================
+// ĐA ĐÍCH (multi-destination): app native encode 1 lần rồi đẩy N luồng RTMP song
+// song lên nhiều Facebook Page và/hoặc YouTube cùng lúc (client-side fan-out).
+// Endpoint này CHỈ tạo N live trên nền tảng + trả N cặp (server_url, stream_key);
+// việc mở N kết nối RTMP là do app làm. Additive — không đụng đường 1-đích cũ.
+// ============================================================================
+
+function splitServerAndKeyLocal(secureUrl) {
+  const s = asTrimmed(secureUrl);
+  if (!s) return { server: "", streamKey: "" };
+  const idx = s.lastIndexOf("/");
+  if (idx <= 0) return { server: s, streamKey: "" };
+  return { server: s.slice(0, idx + 1), streamKey: s.slice(idx + 1) };
+}
+
+async function buildLiveTitleDesc(matchId, isUserMatch) {
+  try {
+    if (isUserMatch) {
+      const um = await UserMatch.findById(matchId)
+        .select("title customLeague code labelKey")
+        .lean();
+      const t =
+        (um?.customLeague?.name || um?.title || "Trận đấu") +
+        " – " +
+        (um?.labelKey || um?.code || "Live");
+      return { title: t.slice(0, 250), description: "Trực tiếp trên PickleTour." };
+    }
+    const m = await Match.findById(matchId)
+      .populate("tournament", "name")
+      .select("tournament roundLabel labelKey code")
+      .lean();
+    const t =
+      (m?.tournament?.name || "PickleTour") +
+      " – " +
+      (m?.roundLabel || m?.labelKey || m?.code || "Live");
+    return { title: t.slice(0, 250), description: "Trực tiếp trận đấu trên PickleTour." };
+  } catch {
+    return { title: "PickleTour Live", description: "Trực tiếp trên PickleTour." };
+  }
+}
+
+async function createOneFacebookTarget({ pageId, title, description }) {
+  const normalizedPageId = asTrimmed(pageId);
+  if (!normalizedPageId) {
+    return { ok: false, platform: "facebook", error: "Thiếu pageId" };
+  }
+  let pageAccessToken;
+  try {
+    pageAccessToken = await getValidPageToken(normalizedPageId);
+  } catch (e) {
+    return {
+      ok: false,
+      platform: "facebook",
+      pageId: normalizedPageId,
+      error: `Token page lỗi/hết hạn: ${e?.message || e}`,
+    };
+  }
+  try {
+    const live = await fbCreateLiveOnPage({
+      pageId: normalizedPageId,
+      pageAccessToken,
+      title,
+      description,
+      status: "LIVE_NOW",
+    });
+    const liveId = live?.liveVideoId || live?.id;
+    // Poll ngắn để chắc chắn có secure_stream_url + permalink thật
+    let info = null;
+    for (let i = 0; i < 6; i++) {
+      info = await fbGetLiveVideo({
+        liveVideoId: liveId,
+        pageAccessToken,
+        fields: "id,status,permalink_url,secure_stream_url,stream_url",
+      }).catch(() => null);
+      if (info?.secure_stream_url || info?.stream_url) break;
+      await new Promise((r) => setTimeout(r, 700));
+    }
+    const secure = info?.secure_stream_url || live?.secure_stream_url || info?.stream_url || "";
+    const { server, streamKey } = splitServerAndKeyLocal(secure);
+    const permalink = info?.permalink_url || live?.permalink_url || "";
+    const watchUrl = permalink
+      ? (permalink.startsWith("http") ? permalink : `https://www.facebook.com${permalink}`)
+      : buildFacebookWatchUrl(liveId);
+    if (!secure && !(server && streamKey)) {
+      return { ok: false, platform: "facebook", pageId: normalizedPageId, error: "Không nhận được RTMP URL từ Facebook" };
+    }
+    return {
+      ok: true,
+      platform: "facebook",
+      pageId: normalizedPageId,
+      liveId: asTrimmed(liveId) || null,
+      secure_stream_url: secure || null,
+      server_url: server || null,
+      stream_key: streamKey || null,
+      watch_url: watchUrl || null,
+      permalink_url: watchUrl || null,
+    };
+  } catch (e) {
+    return { ok: false, platform: "facebook", pageId: normalizedPageId, error: e?.message || String(e) };
+  }
+}
+
+async function createOneYouTubeTarget({ title, description }) {
+  const refreshToken = await getCfgStr("YOUTUBE_REFRESH_TOKEN", "");
+  if (!refreshToken) {
+    return { ok: false, platform: "youtube", error: "Chưa kết nối kênh YouTube (Admin → YouTube Live)." };
+  }
+  try {
+    const accessExpiresAt = await getCfgStr("YOUTUBE_ACCESS_EXPIRES_AT", "");
+    const privacy = (await getCfgStr("YT_BROADCAST_PRIVACY", "public")).trim() || "public";
+    const ytProvider = new YouTubeProvider({ refreshToken, accessToken: "", expiresAt: accessExpiresAt || "" });
+    const r = await ytProvider.createLive({
+      title: String(title || "PickleTour Live").slice(0, 120),
+      description: description || "Trực tiếp trận đấu trên PickleTour.",
+      privacy,
+      dedicatedStream: true,
+    });
+    if (!r?.serverUrl || !r?.streamKey) {
+      return { ok: false, platform: "youtube", error: "Không nhận được RTMP URL từ YouTube" };
+    }
+    return {
+      ok: true,
+      platform: "youtube",
+      liveId: r.platformLiveId || null,
+      secure_stream_url: null,
+      server_url: r.serverUrl,
+      stream_key: r.streamKey,
+      watch_url: r.permalinkUrl || null,
+      permalink_url: r.permalinkUrl || null,
+    };
+  } catch (e) {
+    return { ok: false, platform: "youtube", error: e?.message || String(e) };
+  }
+}
+
+// POST /api/live-app/matches/:matchId/live/create-multi
+// body: { targets: [{ platform:"facebook", pageId:"..." }, { platform:"youtube" }] }
+export const createMultiLiveSessionForLiveApp = async (req, res) => {
+  const matchId = asTrimmed(req.params?.matchId);
+  if (!matchId) return res.status(400).json({ message: "matchId is required" });
+
+  const rawTargets = Array.isArray(req.body?.targets) ? req.body.targets : [];
+  // Chuẩn hoá + khử trùng lặp (facebook theo pageId, youtube 1 kênh hệ thống)
+  const seen = new Set();
+  const targets = [];
+  for (const t of rawTargets) {
+    const platform = asTrimmed(t?.platform).toLowerCase();
+    if (platform === "facebook") {
+      const pageId = asTrimmed(t?.pageId);
+      if (!pageId) continue;
+      const key = `fb:${pageId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      targets.push({ platform, pageId });
+    } else if (platform === "youtube") {
+      if (seen.has("yt")) continue;
+      seen.add("yt");
+      targets.push({ platform });
+    }
+  }
+  if (!targets.length) {
+    return res.status(400).json({ message: "targets rỗng (cần ít nhất 1 facebook pageId hoặc youtube)" });
+  }
+  if (targets.length > 6) {
+    return res.status(400).json({ message: "Tối đa 6 đích cùng lúc" });
+  }
+
+  const isUserMatch = matchKindIsUser(req);
+  const { title, description } = await buildLiveTitleDesc(matchId, isUserMatch);
+
+  const lock = await acquireRedisLock(`lock:live-app:create-multi:${matchId}`, 30000, 15000);
+  try {
+    // Tạo tuần tự để tránh Facebook rate-limit khi tạo nhiều live gần nhau.
+    const results = [];
+    for (const t of targets) {
+      if (t.platform === "facebook") {
+        results.push(await createOneFacebookTarget({ pageId: t.pageId, title, description }));
+      } else {
+        results.push(await createOneYouTubeTarget({ title, description }));
+      }
+    }
+
+    const okTargets = results.filter((r) => r.ok);
+    if (!okTargets.length) {
+      return res.status(409).json({
+        message: "Không tạo được live trên bất kỳ đích nào.",
+        targets: results,
+        hint: "Kiểm tra token page / kết nối YouTube.",
+      });
+    }
+
+    // Lưu để dừng/cập nhật link về sau (mảng đích). Đích đầu tiên OK làm link chính hiển thị.
+    try {
+      const primary = okTargets[0];
+      const M = isUserMatch ? UserMatch : Match;
+      await M.updateOne(
+        { _id: matchId },
+        {
+          $set: {
+            liveTargets: okTargets.map((r) => ({
+              platform: r.platform,
+              pageId: r.pageId || null,
+              liveId: r.liveId || null,
+              watchUrl: r.watch_url || null,
+              createdAt: new Date(),
+            })),
+          },
+        }
+      ).catch(() => null);
+      await applyLatestLiveLinkToMatch({
+        matchId,
+        isUserMatch,
+        platform: primary.platform,
+        watchUrl: primary.watch_url || primary.permalink_url || null,
+      });
+    } catch (e) {
+      console.error("[live-app] create-multi persist error", e?.message || e);
+    }
+
+    return res.json({
+      ok: true,
+      count: okTargets.length,
+      targets: results, // gồm cả đích lỗi để app hiện chi tiết
+    });
+  } finally {
+    if (lock) await lock();
+  }
 };
 
 export const getCourtRuntimeForLiveApp = async (req, res) => {
