@@ -1,3 +1,44 @@
+> ## 🆕 Session 2026-09-13 — Native Live: fix chuyển trận/FGS/chạy 10h + Observer tự chủ + Icon mới + LIVE ĐA ĐÍCH (multi-destination)
+>
+> **HEAD:** backend+native `abcdk-` master **`59563738`** (ĐÃ push + deploy VPS) · admin `abcde` `6f899fb` (không đổi) · mobile `pickletour-app` **nhánh `feat/ui-v2-modern`** `e4dacfb` (1.1.16/46, không đổi phiên này). **Backend ĐÃ DEPLOY** (VPS ở `59563738`). Repo `abcdk-` chứa `native-live-app` (Android, APK v21) + `native-live-app-ios` (iOS, build Xcode).
+>
+> ⚠️ **iOS chưa build TestFlight, Android APK v21 ở `~/Desktop/pickletour-live-android/pickletour-live-v1.2026.09.13.021.apk`** — user tự build/cài. Build Android: `cd native-live-app && JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home ./gradlew :app:assembleRelease` (variant **release**, debug FAIL vì google-services thiếu client `.debug`). iOS: `xcodebuild -workspace native-live-app-ios/PickleTourLive.xcworkspace -scheme PickleTourLive -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO build`. **Toàn bộ thay đổi native phiên này CHỈ verify COMPILE, CHƯA test máy thật.**
+>
+> ### 🎬 A) Native live — fix chuyển trận + tự GO LIVE (2 app)
+> - **Overlay sai tên vòng** ("Chung kết" thay vì "Vòng 1 - Pre-Qualifying"): match `6a8d1136e8e61368e74e8aca` bracket thật `name="Pre-Qualifying" type="roundElim"`. Fix 3 nơi cùng suy `stageName`: `buildRuntimeRoundLabel` (liveAppRuntime), `toRealtimePublicMatchDTO.roundLabel` (liveHandlers), `computeStageInfoForMatchDoc` (refereeController) → ưu tiên `bracket.name` (không phải auto label) → "Vòng {N} - {tên bracket}" cho cả KO family + roundElim.
+> - **FB tạo live fail "PT01 busy" khi chọn PT02/PT03**: `preflightFacebookOwnerBuckets` tính busy theo BUCKET (owner) → 1 page bận cả owner bị skip. Sửa thành **busy theo TỪNG PAGE** (`busyPages`). iOS/Android hiện chi tiết `failedPages`+`hint`.
+> - **App không tự chuyển trận mới + không tự GO LIVE**: 3 lỗ hổng — (1) `stopLive` huỷ vòng poll sân không bật lại → thêm `resumeCourtWaitingLoops` (iOS) / poll sống (Android); (2) backend không publish `court-station:update` khi trận **start** (chỉ khi gán) → `matchLiveSync` publish khi event start + `patchWinner` gọi `advanceCourtStationQueueOnMatchFinished` (dọn currentMatch sân **manual**, trước chỉ queue); (3) iOS giữ `goLiveArmed` xuyên trận kết thúc (chế độ sân) + `armedStartWatchdog` 2s (parity Android autoGoLive) tự làm mới match runtime + xin snapshot → tự start. Banner "cancelled" = CancellationError bị hiện → lọc `isCancellation`.
+>
+> ### 🛡 B) Audit chạy liên tục 10 tiếng (2 agent soi iOS + Android) — đã vá
+> - **iOS CRITICAL**: (1) upload loop XOAY NÓNG CPU khi mọi segment backoff (break→respawn) → ngủ tới lượt retry. (2) **Recorder "nhiễm độc" vĩnh viễn**: HaishinKit 1.9.9 `finishWriting` guard-fail không xoá writer/writerInputs → 1 lần gián đoạn audio làm mất ghi hình cả ngày im lặng → `recorder` thành `var` + `rebuildRecorder()`. (3) RTMP `.failed` giữa trận tự hồi (`recoverExpiredStreamLease`). (4) đo storage mỗi nhịp heartbeat, đầy → dừng ghi hình giữ live. (5) clamp poll interval ≤60s.
+> - **Android HIGH**: (1) segment bỏ rơi (retry≥25) không xoá file + không quét mồ côi → tích tới hardBlock 512MB → xoá khi abandon + `sweepOrphanSegmentFiles()` lúc khởi động. (2) chỉ-ghi-hình tái tạo GL filter mỗi lần xoay segment → không ép `forceRecreate` khi `segment_rotate`. (3) 3 socket forced-reconnect cố định 3s → **backoff 3s→60s**.
+>
+> ### 🔧 C) Android: Foreground Service + thread camera (fix ANR + treo máy 10h)
+> - **`LiveSessionForegroundService`** (type `camera|microphone`, notification IMPORTANCE_LOW, partial wake lock 14h, START_NOT_STICKY). Không có FGS thì Android 11+ thu hồi camera khi rời foreground → màn tắt/cuộc gọi/bấm Home rớt live. Bật ngay từ ARMED (foreground). Manifest thêm `FOREGROUND_SERVICE_CAMERA/MICROPHONE` (Android 14), `POST_NOTIFICATIONS`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`. Xin 1 lần sau camera/mic.
+> - **cameraDispatcher** (single-thread): `stopRecord/startRecord/prepareVideo` (MediaMuxer chặn 100–800ms) chuyển khỏi Main → hết jank/ANR mỗi lần xoay segment.
+>
+> ### 📡 D) Observer TỰ CHỦ trong backend chính (thay observer VPS Go đã mất source)
+> - Port `observer-vps/internal/observer/live_device.go` → Node: model `LiveDeviceState` (TTL 3 ngày) + `liveDeviceObserverController` (ingest heartbeat/event qua **protectLiveApp** = Bearer session token; list/summary + detectUnexpectedDisconnect). Route `/api/observer/ingest/live-devices/*` + `/read/live-devices`.
+> - **Dashboard** `backend/public/observer-live/index.html` (JS/CSS **file riêng** vì CSP `script-src 'self'` chặn inline) tại **`https://observer.pickletour.vn/observer/live-devices`** (nginx `/etc/nginx/sites-available/observer-pickletour` → 127.0.0.1:5001 + certbot). Read-key = env `OBSERVER_READ_API_KEY` (`pt_obs_read_...`).
+> - **Trang admin** `/admin/observer-vps`: `adminObserverController` đọc live-devices TRỰC TIẾP Mongo local (không proxy box Go chết).
+> - **Bật app**: `SystemSettings.links.liveObserverUrl = "https://observer.pickletour.vn"` (đã set, app nhận qua `/live-app/bootstrap`). Memory `[[observer-live-devices]]`.
+>
+> ### 🎨 E) Icon app mới "PickleTour Live" (2 app)
+> - Nguồn `~/Desktop/anhlivepic.png` (logo tròn) → ImageMagick sinh iOS AppIcon (18 size, nền navy #0A1834 bỏ alpha) + Android mipmap 5 density + adaptive (foreground 66% safe-zone, bg navy). Script `scratchpad/gen-icons.sh`.
+>
+> ### 🌐 F) ⭐ LIVE ĐA ĐÍCH — nhiều FB page + YouTube CÙNG LÚC (client-side fan-out)
+> - **Backend (deployed):** `POST /api/live-app/matches/:id/live/create-multi` (protectLiveApp) — body `{targets:[{platform:"facebook",pageId},{platform:"youtube"}]}` (tối đa 6) → tạo tuần tự N live (FB `getValidPageToken`+`fbCreateLiveOnPage`+poll; YT `YouTubeProvider.createLive(dedicatedStream)`) → trả `{targets:[{ok,server_url,stream_key,secure_stream_url,watch_url,error}]}`. Lưu `match.liveTargets[]`. Additive.
+> - **iOS:** stream chính giữ camera+overlay+encode; đích phụ = `SecondaryRTMPOutput` (RTMPStream `.passthrough` không camera) đăng ký `IOStreamObserver` → nhận frame đã composite → `append()` → tự encode+publish. 1 capture+composite, N encode. `setSecondaryDestinations()`.
+> - **Android:** Pedro **`MultiCamera2`** (1 camera→N output). Migrate `RtmpCamera2`→`MultiCamera2`, slot 0 = đích chính (logic cũ KHÔNG đổi), slot 1..3 additive (`SecondaryConnectChecker` best-effort + retry). `setSecondaryUrls()` trước startStream.
+> - **UI (2 app):** mục "Phát nhiều đích cùng lúc" trong Cài đặt fanpage — toggle YouTube + checkbox page FB phụ + cảnh báo băng thông × N. Điều kiện: đích chính chọn page CỤ THỂ (không "Mặc định").
+> - ⚠️ **GOTCHA**: băng thông upload × N (3×1080p ~12Mbps) — wifi/4G sân yếu giữ 2–3 đích. **CHƯA test máy thật** (chỉ compile). Đích phụ lỗi không hạ chính. iOS recover lease chưa dựng lại đích phụ (Android có). Memory `[[native-live-multidestination]]`.
+>
+> ### ✅ Cần làm session sau
+> 1. **Build TestFlight iOS** + **cài APK Android v21** rồi TEST MÁY THẬT: chuyển trận tự GO LIVE, chạy dài (nhiệt/pin/đĩa), FGS Android (tắt màn/cuộc gọi/Home), **đa đích 2–3 page/YT** (kiểm nhiệt máy sau 30' vì N encode iOS; kiểm đường 1-đích Android còn nguyên sau khi migrate MultiCamera2).
+> 2. Mở dashboard giám sát `https://observer.pickletour.vn/observer/live-devices` (key `pt_obs_read_...`) hoặc `/admin/observer-vps` khi treo máy giải.
+>
+> ---
+>
 > ## 🆕 Session 2026-09-12→13 — Native Live iOS đồng bộ Android + FB "video không khả dụng" + recorder audio 48kHz + finalize 409
 >
 > **HEAD:** backend `abcdk-` master `5269fed5` · admin `abcde` master (không đổi phiên này) · mobile (không đổi). Repo `abcdk-` chứa cả `native-live-app` (Android) và `native-live-app-ios` (iOS). **⚠️ CHƯA DEPLOY BACKEND** — user cần chạy:
