@@ -189,6 +189,51 @@ class LiveStreamViewModel(
     val selectedPageId: StateFlow<String?> = _selectedPageId.asStateFlow()
     private val _facebookPagesLoading = MutableStateFlow(false)
     val facebookPagesLoading: StateFlow<Boolean> = _facebookPagesLoading.asStateFlow()
+
+    // ĐA ĐÍCH: page FB PHỤ (ngoài page chính) + phát thêm YouTube.
+    private val _additionalFacebookPageIds = MutableStateFlow<List<String>>(emptyList())
+    val additionalFacebookPageIds: StateFlow<List<String>> = _additionalFacebookPageIds.asStateFlow()
+    private val _alsoStreamYouTube = MutableStateFlow(false)
+    val alsoStreamYouTube: StateFlow<Boolean> = _alsoStreamYouTube.asStateFlow()
+
+    fun toggleAdditionalFacebookPage(id: String) {
+        val p = id.trim()
+        if (p.isEmpty()) return
+        val cur = _additionalFacebookPageIds.value
+        _additionalFacebookPageIds.value = if (cur.contains(p)) cur - p else cur + p
+    }
+
+    fun setAlsoStreamYouTube(on: Boolean) { _alsoStreamYouTube.value = on }
+
+    /** Danh sách đích (page chính + page phụ + YouTube add-on). >1 = đa đích. */
+    fun multiTargets(): List<MultiLiveTargetRequest> {
+        val items = mutableListOf<MultiLiveTargetRequest>()
+        val seenFb = HashSet<String>()
+        if (livePlatform == "youtube") {
+            items.add(MultiLiveTargetRequest(platform = "youtube"))
+        } else {
+            pageId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                items.add(MultiLiveTargetRequest(platform = "facebook", pageId = it)); seenFb.add(it)
+            }
+        }
+        for (raw in _additionalFacebookPageIds.value) {
+            val p = raw.trim()
+            if (p.isNotEmpty() && seenFb.add(p)) items.add(MultiLiveTargetRequest(platform = "facebook", pageId = p))
+        }
+        if (_alsoStreamYouTube.value && livePlatform != "youtube") {
+            items.add(MultiLiveTargetRequest(platform = "youtube"))
+        }
+        return items
+    }
+
+    fun isMultiDestination(): Boolean = multiTargets().size > 1
+
+    fun labelForMultiTarget(t: MultiLiveTargetResult): String {
+        if ((t.platform ?: "").lowercase() == "youtube") return "YouTube"
+        val pid = t.pageId?.trim()
+        val page = _facebookPages.value.firstOrNull { it.pageId == pid }
+        return page?.pageName?.takeIf { it.isNotBlank() } ?: (pid ?: "Facebook")
+    }
     // Chọn nền tảng live: "facebook" | "youtube"
     private val _selectedPlatform = MutableStateFlow("facebook")
     val selectedPlatform: StateFlow<String> = _selectedPlatform.asStateFlow()
@@ -2937,6 +2982,51 @@ class LiveStreamViewModel(
         ) {
             var keepRequestingLiveSession = false
             recordingCoordinator.setLiveCriticalPathBusy(true)
+
+            // ĐA ĐÍCH: tạo N live, đích OK đầu tiên làm chính, phần còn lại đẩy song song (slot phụ).
+            if (isMultiDestination()) {
+                try {
+                    repository.createMultiLiveSession(targetMatchId, multiTargets()).onSuccess { resp ->
+                        if (!isSessionCurrent(sessionEpoch) || this@LiveStreamViewModel.matchId != targetMatchId) return@onSuccess
+                        val okTargets = resp.targets.filter { it.ok == true && it.buildRtmpUrl() != null }
+                        val primary = okTargets.firstOrNull()
+                        val primaryUrl = primary?.buildRtmpUrl()
+                        if (primaryUrl == null) {
+                            val detail = resp.targets.filter { it.ok != true }
+                                .joinToString("\n") { "• ${labelForMultiTarget(it)}: ${it.error ?: "lỗi"}" }
+                            _errorMessage.value = "Không tạo được đích live nào." + if (detail.isBlank()) "" else "\n$detail"
+                            _loading.value = false
+                            return@onSuccess
+                        }
+                        streamManager.setSecondaryUrls(okTargets.drop(1).mapNotNull { it.buildRtmpUrl() })
+                        _facebookLive.value = FacebookLive(watchUrl = primary.watchUrl, pageId = primary.pageId)
+                        _rtmpUrl.value = primaryUrl
+                        activeLiveMatchId = targetMatchId
+                        ensureStreamClientSessionId()
+                        _loading.value = false
+                        val failed = resp.targets.filter { it.ok != true }
+                        if (failed.isNotEmpty()) {
+                            _lastSocketError.value = "Đã live ${okTargets.size} đích. ${failed.size} đích lỗi: " +
+                                failed.joinToString(", ") { labelForMultiTarget(it) }
+                        }
+                        if (!runGoLiveCountdown(targetMatchId)) return@onSuccess
+                        streamManager.startStream(primaryUrl)
+                        if (mode?.includesRecording == true) {
+                            maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = true)
+                        } else {
+                            cancelPrimaryStartRetry()
+                        }
+                    }.onFailure {
+                        _errorMessage.value = it.message ?: "Không tạo được live đa đích."
+                        _loading.value = false
+                    }
+                } finally {
+                    recordingCoordinator.setLiveCriticalPathBusy(false)
+                }
+                return@launchGuarded
+            }
+
+            streamManager.setSecondaryUrls(emptyList()) // đường 1-đích: xoá đích phụ cũ
             repository.createLiveSession(targetMatchId, targetPageId, platform = targetPlatform, forceNew = false).onSuccess { session ->
                 if (!isSessionCurrent(sessionEpoch) || this@LiveStreamViewModel.matchId != targetMatchId) return@onSuccess
                 _facebookLive.value = session.primaryTarget() ?: FacebookLive()

@@ -303,6 +303,43 @@ data class FacebookLive(
     }
 }
 
+/* ===================== Đa đích (multi-destination) ===================== */
+
+data class MultiLiveTargetRequest(
+    val platform: String,          // "facebook" | "youtube"
+    val pageId: String? = null,    // chỉ facebook
+)
+
+data class CreateMultiLiveRequest(
+    val targets: List<MultiLiveTargetRequest> = emptyList(),
+)
+
+data class MultiLiveTargetResult(
+    val ok: Boolean? = null,
+    val platform: String? = null,
+    val pageId: String? = null,
+    val liveId: String? = null,
+    @SerializedName("secure_stream_url") val secureStreamUrl: String? = null,
+    @SerializedName("server_url") val serverUrl: String? = null,
+    @SerializedName("stream_key") val streamKey: String? = null,
+    @SerializedName("watch_url") val watchUrl: String? = null,
+    val error: String? = null,
+) {
+    fun buildRtmpUrl(): String? {
+        if (!secureStreamUrl.isNullOrBlank()) return secureStreamUrl
+        if (!serverUrl.isNullOrBlank() && !streamKey.isNullOrBlank()) {
+            return "${serverUrl.trimEnd('/')}/$streamKey"
+        }
+        return null
+    }
+}
+
+data class CreateMultiLiveResponse(
+    val ok: Boolean? = null,
+    val count: Int? = null,
+    val targets: List<MultiLiveTargetResult> = emptyList(),
+)
+
 /* ===================== Overlay Config ===================== */
 
 data class OverlayConfig(

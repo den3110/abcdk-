@@ -389,6 +389,27 @@ class LiveRepository(
         }
     }
 
+    /** Tạo live đa đích: N (page/nền tảng) cùng lúc. App tự mở N publish RTMP từ mảng trả về. */
+    suspend fun createMultiLiveSession(
+        matchId: String,
+        targets: List<MultiLiveTargetRequest>,
+    ): Result<CreateMultiLiveResponse> {
+        return try {
+            val resp = api.createMultiLiveSession(matchId, CreateMultiLiveRequest(targets))
+            if (resp.isSuccessful && resp.body() != null) {
+                Result.success(resp.body()!!)
+            } else {
+                val raw = runCatching { resp.errorBody()?.string() }.getOrNull()
+                val msg = composeCreateLiveErrorMessage(raw) ?: parseErrorMessage(raw)
+                    ?: "Không tạo được live đa đích (${resp.code()})."
+                Result.failure(Exception(msg))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "createMultiLiveSession error", e)
+            Result.failure(e)
+        }
+    }
+
     /** Notify backend stream started */
     suspend fun notifyStreamStarted(matchId: String, clientSessionId: String, platform: String = "facebook"): Result<StreamNotifyResponse> {
         return try {

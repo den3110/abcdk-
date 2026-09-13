@@ -1,6 +1,8 @@
 package com.pkt.live.data.api
 
 import com.pkt.live.data.model.CreateLiveRequest
+import com.pkt.live.data.model.CreateMultiLiveRequest
+import com.pkt.live.data.model.CreateMultiLiveResponse
 import com.pkt.live.data.model.AdminCourtData
 import com.pkt.live.data.model.AdminCourtListResponse
 import com.pkt.live.data.model.CourtClusterData
@@ -113,6 +115,12 @@ interface PickleTourApi {
         @Query("force") force: Int? = null,
         @Body body: CreateLiveRequest = CreateLiveRequest(),
     ): Response<LiveSession>
+
+    @POST("api/live-app/matches/{matchId}/live/create-multi")
+    suspend fun createMultiLiveSession(
+        @Path("matchId") matchId: String,
+        @Body body: CreateMultiLiveRequest,
+    ): Response<CreateMultiLiveResponse>
 
     @POST("api/matches/{matchId}/live/start")
     suspend fun notifyStreamStarted(

@@ -66,6 +66,9 @@ fun StreamControls(
     val selectedPageId by viewModel.selectedPageId.collectAsState()
     val facebookPagesLoading by viewModel.facebookPagesLoading.collectAsState()
     val selectedPlatform by viewModel.selectedPlatform.collectAsState()
+    val additionalFacebookPageIds by viewModel.additionalFacebookPageIds.collectAsState()
+    val alsoStreamYouTube by viewModel.alsoStreamYouTube.collectAsState()
+    val multiTargetCount = viewModel.multiTargets().size
     val orientationMode by viewModel.orientationMode.collectAsState()
     val zoomLevel by viewModel.zoomLevel.collectAsState()
     val fallbackColorArgb by viewModel.fallbackColorArgb.collectAsState()
@@ -402,6 +405,11 @@ fun StreamControls(
             onSelectPlatform = { viewModel.selectPlatform(it) },
             onSelectFacebookPage = { viewModel.selectFacebookPage(it) },
             onReloadFacebookPages = { viewModel.loadFacebookPages() },
+            additionalFacebookPageIds = additionalFacebookPageIds,
+            alsoStreamYouTube = alsoStreamYouTube,
+            multiTargetCount = multiTargetCount,
+            onToggleAdditionalPage = { viewModel.toggleAdditionalFacebookPage(it) },
+            onToggleYouTube = { viewModel.setAlsoStreamYouTube(it) },
             onDismiss = { showSettings = false },
         )
     }
@@ -918,6 +926,11 @@ fun LiveSettingsDialog(
     onSelectPlatform: (String) -> Unit,
     onSelectFacebookPage: (String?) -> Unit,
     onReloadFacebookPages: () -> Unit,
+    additionalFacebookPageIds: List<String>,
+    alsoStreamYouTube: Boolean,
+    multiTargetCount: Int,
+    onToggleAdditionalPage: (String) -> Unit,
+    onToggleYouTube: (Boolean) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val waitingForActivation = waitingForCourt || waitingForMatchLive || waitingForNextMatch
@@ -1157,6 +1170,58 @@ fun LiveSettingsDialog(
                         )
                     }
                 }
+                }
+
+                // ===== ĐA ĐÍCH: phát nhiều page + YouTube cùng lúc =====
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        "Phát nhiều đích cùng lúc (beta)",
+                        color = LiveColors.TextSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Điện thoại đẩy song song nhiều luồng — băng thông upload nhân theo số đích. Wifi/4G yếu nên giữ 2–3 đích.",
+                        color = LiveColors.TextSecondary,
+                        fontSize = 11.sp,
+                    )
+                    if (selectedPlatform != "youtube") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text("Phát thêm lên YouTube", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Switch(checked = alsoStreamYouTube, onCheckedChange = onToggleYouTube)
+                        }
+                    }
+                    val extraPages = facebookPages.filter { it.pageId != selectedPageId }
+                    if (extraPages.isNotEmpty()) {
+                        Text(
+                            if (selectedPlatform == "youtube") "Phát thêm Facebook Page:" else "Facebook Page phụ:",
+                            color = LiveColors.TextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        extraPages.forEach { page ->
+                            val on = additionalFacebookPageIds.contains(page.pageId)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onToggleAdditionalPage(page.pageId) },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Checkbox(checked = on, onCheckedChange = { onToggleAdditionalPage(page.pageId) })
+                                Text(page.pageName.ifBlank { page.pageId }, color = Color.White, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                    if (multiTargetCount > 1) {
+                        Text("Sẽ phát $multiTargetCount đích cùng lúc.", color = LiveColors.AccentGreen, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    } else if (alsoStreamYouTube || additionalFacebookPageIds.isNotEmpty()) {
+                        Text("Cần chọn 1 đích chính cụ thể (không phải 'Mặc định') để phát đa đích.", color = Color(0xFFFFB74D), fontSize = 11.sp)
+                    }
                 }
 
                 Row(

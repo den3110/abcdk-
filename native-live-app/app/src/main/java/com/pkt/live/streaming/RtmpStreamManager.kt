@@ -22,7 +22,8 @@ import android.content.res.Configuration
 import com.pedro.common.ConnectChecker
 import com.pedro.encoder.input.video.CameraHelper
 import com.pedro.encoder.input.gl.render.filters.`object`.ImageObjectFilterRender
-import com.pedro.library.rtmp.RtmpCamera2
+import com.pedro.library.multiple.MultiCamera2
+import com.pedro.library.multiple.MultiType
 import com.pedro.library.view.GlInterface
 import com.pedro.library.view.OpenGlView
 import com.pedro.encoder.utils.gl.TranslateTo
@@ -67,6 +68,8 @@ class RtmpStreamManager(
 
     companion object {
         private const val TAG = "RtmpStream"
+        // Số slot RTMP của MultiCamera2 (1 chính + tối đa 3 phụ). Cố định lúc tạo camera.
+        private const val MAX_RTMP_OUTPUTS = 4
         private const val MAX_RECONNECT_ATTEMPTS = 3
         private const val AUTO_QUALITY_COOLDOWN_MS = 75_000L
         private const val AUTO_QUALITY_LIVE_GRACE_MS = 35_000L
@@ -104,7 +107,21 @@ class RtmpStreamManager(
         private const val FAIL_SOFT_IMMINENT_THRESHOLD = 2
     }
 
-    private var rtmpCamera: RtmpCamera2? = null
+    private var rtmpCamera: MultiCamera2? = null
+
+    // ĐA ĐÍCH: MultiCamera2 có N slot RTMP. Slot 0 = đích CHÍNH (mọi logic cũ = index 0, không đổi
+    // hành vi 1-đích). Slot 1..MAX-1 = đích phụ, additive. ConnectChecker[0] = manager (this),
+    // còn lại là checker phụ chỉ log/theo dõi (lỗi đích phụ KHÔNG hạ đích chính).
+    private val secondaryUrls = java.util.concurrent.CopyOnWriteArrayList<String>()
+    private val activeSecondaryIndices = java.util.concurrent.CopyOnWriteArraySet<Int>()
+    private val secondaryConnected = java.util.concurrent.ConcurrentHashMap<Int, Boolean>()
+
+    private fun buildMultiCamera(surface: OpenGlView): MultiCamera2 {
+        val checkers = Array<com.pedro.common.ConnectChecker>(MAX_RTMP_OUTPUTS) { idx ->
+            if (idx == 0) this@RtmpStreamManager else SecondaryConnectChecker(idx)
+        }
+        return MultiCamera2(surface, checkers, emptyArray(), emptyArray(), emptyArray())
+    }
     private var surfaceView: OpenGlView? = null
     private var surfaceCallback: SurfaceHolder.Callback? = null
     private var currentUrl: String? = null
@@ -210,7 +227,7 @@ class RtmpStreamManager(
     private var isSurfaceValid = false
 
     private var overlayFilter: ImageObjectFilterRender? = null
-    private var overlayFilterOwner: RtmpCamera2? = null
+    private var overlayFilterOwner: MultiCamera2? = null
     private var overlayBitmap: android.graphics.Bitmap? = null
     private var webLogoFilter: ImageObjectFilterRender? = null
     private var sponsorFilter: ImageObjectFilterRender? = null
@@ -415,7 +432,7 @@ class RtmpStreamManager(
                         Log.d(TAG, "Camera already initialized")
                         return@withLock
                     }
-                    rtmpCamera = RtmpCamera2(surface, this@RtmpStreamManager)
+                    rtmpCamera = buildMultiCamera(surface)
                     Log.d(TAG, "Camera initialized")
                 } catch (e: Exception) {
                     Log.e(TAG, "Camera init failed", e)
@@ -425,12 +442,12 @@ class RtmpStreamManager(
         }
     }
 
-    private fun ensureCameraInitialized(): RtmpCamera2? {
+    private fun ensureCameraInitialized(): MultiCamera2? {
         if (rtmpCamera != null) return rtmpCamera
         val surface = surfaceView ?: return null
         if (!isSurfaceValid) return null
         return try {
-            rtmpCamera = RtmpCamera2(surface, this@RtmpStreamManager)
+            rtmpCamera = buildMultiCamera(surface)
             rtmpCamera
         } catch (e: Exception) {
             Log.e(TAG, "ensureCameraInitialized failed", e)
@@ -620,7 +637,7 @@ class RtmpStreamManager(
                     acquireWakeLock()
                     // Fix #3: Crashlytics breadcrumb before native RTMP call
                     FirebaseCrashlytics.getInstance().log("startStream: url=${rtmpUrl.take(60)}, quality=${currentQuality.label}")
-                    runCatching { cam.startStream(rtmpUrl) }
+                    runCatching { cam.startStream(MultiType.RTMP, 0, rtmpUrl) }
                         .recoverCatching { error ->
                             val message = error.message.orEmpty()
                             if (!message.contains("not prepared", ignoreCase = true)) throw error
@@ -631,10 +648,12 @@ class RtmpStreamManager(
                                 reason = "start_stream_retry",
                             )
                             if (!retryPrepared) throw error
-                            cam.startStream(rtmpUrl)
+                            cam.startStream(MultiType.RTMP, 0, rtmpUrl)
                         }
                         .getOrThrow()
                     Log.d(TAG, "Stream connecting to: ${maskUrl(rtmpUrl)}")
+                    // Đích chính đã startStream → khởi động các đích phụ (best-effort, không chặn).
+                    startSecondaryOutputsLocked(cam)
                 } catch (e: Exception) {
                     Log.e(TAG, "Start stream failed", e)
                     _state.value = StreamState.Error("Stream start failed: ${e.message}")
@@ -664,7 +683,7 @@ class RtmpStreamManager(
                     pendingNetworkReconnect.set(false)
                     rtmpCamera?.let { cam ->
                         if (cam.isStreaming) {
-                            cam.stopStream()
+                            stopAllOutputs(cam)
                         }
                     }
                     _state.value = if (rtmpCamera?.isOnPreview == true) StreamState.Previewing else StreamState.Stopped
@@ -965,7 +984,7 @@ class RtmpStreamManager(
             if (cam.isStreaming) {
                 // Fix #3: Crashlytics breadcrumb before native stop
                 FirebaseCrashlytics.getInstance().log("teardown:stopStream reason=$reason")
-                cam.stopStream()
+                stopAllOutputs(cam)
             }
             if (stopPreview && cam.isOnPreview) {
                 // Fix #3: Crashlytics breadcrumb before native stop
@@ -1117,7 +1136,7 @@ class RtmpStreamManager(
         }
     }
 
-    private fun prepareRecordingPipelineLocked(cam: RtmpCamera2, reason: String): Boolean {
+    private fun prepareRecordingPipelineLocked(cam: MultiCamera2, reason: String): Boolean {
         if (cam.isStreaming) return true
         autoPreviewAllowed = true
         val prepared = prepareStreamPipelineLocked(
@@ -1132,7 +1151,7 @@ class RtmpStreamManager(
     }
 
     private fun startRecordSegmentLocked(
-        cam: RtmpCamera2,
+        cam: MultiCamera2,
         outputPath: String,
         reason: String,
     ): Result<Unit> {
@@ -1347,7 +1366,7 @@ class RtmpStreamManager(
         recordOnlyOverlayDisabledUntilMs = 0L
     }
 
-    private fun isRecordOnlyOverlayFailSoftActiveLocked(cam: RtmpCamera2? = rtmpCamera): Boolean {
+    private fun isRecordOnlyOverlayFailSoftActiveLocked(cam: MultiCamera2? = rtmpCamera): Boolean {
         if (!recordOnlyOverlayDisabled) return false
         val activeRecordOnlyPreview = cam != null && cam.isOnPreview && !cam.isStreaming
         if (!activeRecordOnlyPreview) return false
@@ -1427,7 +1446,7 @@ class RtmpStreamManager(
         }
     }
 
-    private fun maybeSuspendRecordOnlyOverlayForCurrentPressureLocked(cam: RtmpCamera2) {
+    private fun maybeSuspendRecordOnlyOverlayForCurrentPressureLocked(cam: MultiCamera2) {
         if (!cam.isOnPreview || cam.isStreaming || !_recordingState.value.isRecording) return
         val now = System.currentTimeMillis()
         // Chỉ tạm ẩn overlay khi RAM tới hạn (hiếm) — KHÔNG vì nhiệt.
@@ -1864,7 +1883,7 @@ class RtmpStreamManager(
         runCatching { bitmap.recycle() }
     }
 
-    private fun prepareVideo(cam: RtmpCamera2, quality: Quality): Boolean {
+    private fun prepareVideo(cam: MultiCamera2, quality: Quality): Boolean {
         val portrait = isPortrait()
         val w = if (portrait) quality.height else quality.width
         val h = if (portrait) quality.width else quality.height
@@ -1882,7 +1901,7 @@ class RtmpStreamManager(
     }
 
     private fun prepareStreamPipelineLocked(
-        cam: RtmpCamera2,
+        cam: MultiCamera2,
         quality: Quality,
         reason: String,
     ): Boolean {
@@ -1918,7 +1937,7 @@ class RtmpStreamManager(
         return expectedUrl.isNullOrBlank() || activeUrl == expectedUrl
     }
 
-    private fun canApplyOverlayBitmapLocked(cam: RtmpCamera2?): Boolean {
+    private fun canApplyOverlayBitmapLocked(cam: MultiCamera2?): Boolean {
         if (isReleased || cam == null) return false
         if (isRecordOnlyOverlayFailSoftActiveLocked(cam)) return false
         val state = _state.value
@@ -1928,7 +1947,7 @@ class RtmpStreamManager(
     }
 
     private fun recordOnlyOverlayKeepAliveLocked(
-        cam: RtmpCamera2?,
+        cam: MultiCamera2?,
     ): RecordOnlyOverlayKeepAliveAction? {
         if (
             cam == null ||
@@ -2114,7 +2133,7 @@ class RtmpStreamManager(
                         pauseRecordingForBoundaryLocked("change_quality")
                     }
                     rtmpCamera?.let { cam ->
-                        if (cam.isStreaming) cam.stopStream()
+                        if (cam.isStreaming) stopAllOutputs(cam)
                         if (cam.isOnPreview) cam.stopPreview()
                     }
                     _previewReady.value = false
@@ -2160,10 +2179,11 @@ class RtmpStreamManager(
                             return@withLock
                         }
                         acquireWakeLock()
-                        runCatching { cam.startStream(streamUrl) }.onFailure {
+                        runCatching { cam.startStream(MultiType.RTMP, 0, streamUrl) }.onFailure {
                             releaseWakeLock()
                             _state.value = StreamState.Error("Không thể bắt đầu stream", recoverable = true)
                         }
+                        restartSecondaryOutputsLocked(cam)
                     }
 
                     if (!shouldResumeStream && (
@@ -2500,7 +2520,90 @@ class RtmpStreamManager(
         }
     }
 
-    // ==================== ConnectChecker callbacks ====================
+    // ==================== ĐA ĐÍCH: slot phụ ====================
+
+    /** Đặt danh sách URL RTMP đích PHỤ (đầy đủ rtmp(s)://.../key) TRƯỚC khi startStream. Rỗng = 1 đích. */
+    fun setSecondaryUrls(urls: List<String>) {
+        secondaryUrls.clear()
+        secondaryUrls.addAll(urls.filter { it.isNotBlank() }.take(MAX_RTMP_OUTPUTS - 1))
+    }
+
+    /** Dừng đích chính (slot 0) + mọi đích phụ đang chạy. */
+    private fun stopAllOutputs(cam: MultiCamera2) {
+        stopSecondaryOutputsLocked(cam)
+        runCatching { if (cam.isStreaming) cam.stopStream(MultiType.RTMP, 0) }
+            .onFailure { Log.w(TAG, "stop primary output failed", it) }
+    }
+
+    /** Khởi động các đích phụ (slot 1..N) sau khi đích chính đã startStream. Best-effort. */
+    private fun startSecondaryOutputsLocked(cam: MultiCamera2) {
+        if (secondaryUrls.isEmpty()) return
+        secondaryUrls.forEachIndexed { i, url ->
+            val slot = i + 1
+            if (slot >= MAX_RTMP_OUTPUTS) return@forEachIndexed
+            if (activeSecondaryIndices.contains(slot)) return@forEachIndexed
+            runCatching {
+                cam.startStream(MultiType.RTMP, slot, url)
+                activeSecondaryIndices.add(slot)
+                Log.d(TAG, "Secondary output slot=$slot → ${maskUrl(url)}")
+            }.onFailure { Log.e(TAG, "start secondary slot=$slot failed", it) }
+        }
+    }
+
+    /** Khi đích chính nối lại (reconnect/hard restart): đích phụ cũng rớt theo → dựng lại từ đầu. */
+    private fun restartSecondaryOutputsLocked(cam: MultiCamera2) {
+        if (secondaryUrls.isEmpty()) return
+        stopSecondaryOutputsLocked(cam)
+        startSecondaryOutputsLocked(cam)
+    }
+
+    private fun stopSecondaryOutputsLocked(cam: MultiCamera2) {
+        for (slot in activeSecondaryIndices.toList()) {
+            runCatching { cam.stopStream(MultiType.RTMP, slot) }
+                .onFailure { Log.w(TAG, "stop secondary slot=$slot failed", it) }
+        }
+        activeSecondaryIndices.clear()
+        secondaryConnected.clear()
+    }
+
+    /** ConnectChecker cho slot phụ: chỉ log/theo dõi, KHÔNG chạm state đích chính. */
+    private inner class SecondaryConnectChecker(private val index: Int) : com.pedro.common.ConnectChecker {
+        override fun onConnectionStarted(url: String) {
+            Log.d(TAG, "[multi $index] connecting ${maskUrl(url)}")
+        }
+        override fun onConnectionSuccess() {
+            secondaryConnected[index] = true
+            Log.d(TAG, "[multi $index] LIVE")
+        }
+        override fun onConnectionFailed(reason: String) {
+            secondaryConnected[index] = false
+            Log.w(TAG, "[multi $index] failed: $reason")
+            // Đích phụ lỗi: thử nối lại 1 lần sau 5s nếu đích chính còn live; không hạ đích chính.
+            val url = secondaryUrls.getOrNull(index - 1) ?: return
+            scope.launch {
+                delay(5_000)
+                cameraMutex.withLock {
+                    val cam = rtmpCamera ?: return@withLock
+                    if (!cam.isStreaming) return@withLock
+                    if (secondaryConnected[index] == true) return@withLock
+                    runCatching {
+                        runCatching { cam.stopStream(MultiType.RTMP, index) }
+                        cam.startStream(MultiType.RTMP, index, url)
+                        Log.d(TAG, "[multi $index] retry")
+                    }.onFailure { Log.w(TAG, "[multi $index] retry failed", it) }
+                }
+            }
+        }
+        override fun onNewBitrate(bitrate: Long) { /* bitrate đích chính đủ đại diện */ }
+        override fun onDisconnect() {
+            secondaryConnected[index] = false
+            Log.d(TAG, "[multi $index] disconnect")
+        }
+        override fun onAuthError() { Log.w(TAG, "[multi $index] auth error") }
+        override fun onAuthSuccess() { Log.d(TAG, "[multi $index] auth success") }
+    }
+
+    // ==================== ConnectChecker callbacks (đích chính, slot 0) ====================
 
     override fun onConnectionStarted(url: String) {
         if (isReleased) return
@@ -2648,8 +2751,9 @@ class RtmpStreamManager(
                     }
                     if (!cam.isStreaming) {
                         acquireWakeLock()
-                        cam.startStream(url)
+                        cam.startStream(MultiType.RTMP, 0, url)
                     }
+                    restartSecondaryOutputsLocked(cam)
                 } catch (e: Exception) {
                     Log.e(TAG, "Reconnect attempt failed", e)
                     _state.value = StreamState.Error("Reconnect failed: ${e.message}")
@@ -2825,7 +2929,7 @@ class RtmpStreamManager(
         try {
             rtmpCamera?.let { cam ->
                 FirebaseCrashlytics.getInstance().log("release: stopping camera")
-                if (cam.isStreaming) cam.stopStream()
+                if (cam.isStreaming) stopAllOutputs(cam)
                 if (cam.isOnPreview) cam.stopPreview()
             }
         } catch (e: Exception) {
@@ -2873,7 +2977,7 @@ class RtmpStreamManager(
                         markOverlayIssue("Mất mạng nên stream tạm dừng, overlay sẽ quay lại sau khi kết nối lại.")
                         try {
                             rtmpCamera?.let { cam ->
-                                if (cam.isStreaming) cam.stopStream()
+                                if (cam.isStreaming) stopAllOutputs(cam)
                             }
                         } catch (e: Exception) {
                             Log.e(TAG, "Network lost cleanup error (non-fatal)", e)
@@ -3085,7 +3189,7 @@ class RtmpStreamManager(
                     resetOverlayFiltersLocked(clearGlFilters = true)
                     rtmpCamera?.let { cam ->
                         FirebaseCrashlytics.getInstance().log("hardRestart:stop reason=$reason")
-                        if (cam.isStreaming) cam.stopStream()
+                        if (cam.isStreaming) stopAllOutputs(cam)
                         if (cam.isOnPreview) cam.stopPreview()
                     }
                     // Fix #12: Null out old camera before creating new one
@@ -3105,7 +3209,7 @@ class RtmpStreamManager(
 
                 try {
                     val surface = surfaceView ?: return@withLock
-                    rtmpCamera = RtmpCamera2(surface, this@RtmpStreamManager)
+                    rtmpCamera = buildMultiCamera(surface)
                     val cam = rtmpCamera ?: return@withLock
                     val audioPrepared = runCatching { cam.prepareAudio(128_000, 44100, true) }.isSuccess
                     val videoPrepared = prepareVideo(cam, currentQuality)
@@ -3121,7 +3225,8 @@ class RtmpStreamManager(
                     maybeResumeRecordingAfterBoundaryLocked("hard_restart_$reason")
                     delay(500)
                     _state.value = StreamState.Connecting(url)
-                    cam.startStream(url)
+                    cam.startStream(MultiType.RTMP, 0, url)
+                    restartSecondaryOutputsLocked(cam)
                     Log.w(TAG, "Hard restart: $reason")
                 } catch (e: Exception) {
                     Log.e(TAG, "Hard restart failed", e)
