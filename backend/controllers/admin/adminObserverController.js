@@ -2,6 +2,10 @@ import asyncHandler from "express-async-handler";
 import { getObserverAzureVmStatus } from "../../services/azureVmWorker.service.js";
 import { getObserverReadProxyConfig } from "../../services/observerConfig.service.js";
 import { fetchObserverJson } from "../../services/observerReadProxy.service.js";
+import {
+  queryLiveDevices,
+  queryLiveDeviceEvents,
+} from "../liveDeviceObserverController.js";
 import { getPrimaryLogSinkStats } from "../../services/primaryLogSink.service.js";
 import { getSmartLogNightlySyncState } from "../../services/smartLogNightlySync.service.js";
 import { getSmartLogRoutingState } from "../../services/smartLogPolicy.service.js";
@@ -179,56 +183,65 @@ export const getAdminObserverOverview = asyncHandler(async (req, res) => {
     });
   }
 
-  try {
-    const [health, summary, liveDevices, deviceEvents, errorEvents] =
-      await Promise.all([
-        fetchObserverJson("/healthz", { useReadKey: false }),
-        fetchObserverJson("/api/observer/read/summary", {
-          query: { source, minutes },
-        }),
-        fetchObserverJson("/api/observer/read/live-devices", {
-          query: { source, limit: deviceLimit, onlineOnly },
-        }),
-        fetchObserverJson("/api/observer/read/events", {
-          query: {
-            source,
-            deviceId,
-            category: "live_device",
-            limit: deviceEventLimit,
-          },
-        }),
-        fetchObserverJson("/api/observer/read/events", {
-          query: { source, deviceId, level: "error", limit: errorLimit },
-        }),
-      ]);
+  // Máy live giờ lưu NGAY trong backend chính (không còn observer VPS Go). Đọc trực tiếp Mongo
+  // local — không phụ thuộc OBSERVER_BASE_URL nữa nên box cũ chết cũng không làm trắng trang.
+  const [liveDevices, deviceEvents, errorEvents] = await Promise.all([
+    queryLiveDevices({ source, limit: deviceLimit, onlineOnly }).catch(() => null),
+    queryLiveDeviceEvents({ deviceId, limit: deviceEventLimit }).catch(() => null),
+    queryLiveDeviceEvents({ deviceId, limit: errorLimit, level: "error" }).catch(() => null),
+  ]);
 
-    return res.json({
-      ok: true,
-      source: source || null,
-      selectedDeviceId: deviceId || null,
-      windowMinutes: minutes,
-      observerAzureVm,
-      observerAvailability: buildObserverAvailability(observerAzureVm, "online"),
-      smartLogging: {
-        routing: getSmartLogRoutingState(),
-        primarySink: getPrimaryLogSinkStats(),
-        nightlySync: getSmartLogNightlySyncState(),
-      },
-      observerHealth: health,
-      summary,
-      liveDevices,
-      deviceEvents,
-      errorEvents,
-      proxiedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    return formatProxyError(res, error, {
-      observerAzureVm,
-      observerAvailability: buildObserverAvailability(
-        observerAzureVm,
-        "unreachable",
-        "Observer VPS chưa phản hồi qua server chính.",
-      ),
-    });
+  const empty = buildEmptyObserverPayload();
+  const liveDevicesPayload = liveDevices || empty.liveDevices;
+
+  // Server log (events/runtime/backups) vẫn có thể ở observer VPS ngoài — proxy best-effort,
+  // fail thì để null, KHÔNG chặn phần máy live.
+  let health = null;
+  let summary = null;
+  try {
+    [health, summary] = await Promise.all([
+      fetchObserverJson("/healthz", { useReadKey: false }).catch(() => null),
+      fetchObserverJson("/api/observer/read/summary", {
+        query: { source, minutes },
+      }).catch(() => null),
+    ]);
+  } catch {
+    // ignore — server-log observer là tuỳ chọn
   }
+
+  const observerReachable = Boolean(health || summary);
+
+  return res.json({
+    ok: true,
+    source: source || null,
+    selectedDeviceId: deviceId || null,
+    windowMinutes: minutes,
+    observerAzureVm,
+    observerAvailability: buildObserverAvailability(
+      observerAzureVm,
+      "online",
+      observerReachable ? "" : "Đọc trạng thái máy live trực tiếp từ backend chính.",
+    ),
+    smartLogging: {
+      routing: getSmartLogRoutingState(),
+      primarySink: getPrimaryLogSinkStats(),
+      nightlySync: getSmartLogNightlySyncState(),
+    },
+    observerHealth: health || {
+      ok: true,
+      service: "pickletour-observer-embedded",
+      now: new Date().toISOString(),
+    },
+    summary: summary || {
+      ...empty.summary,
+      liveDevices: {
+        counts: liveDevicesPayload.counts,
+        items: (liveDevicesPayload.items || []).slice(0, 12),
+      },
+    },
+    liveDevices: liveDevicesPayload,
+    deviceEvents: deviceEvents || empty.deviceEvents,
+    errorEvents: errorEvents || empty.errorEvents,
+    proxiedAt: new Date().toISOString(),
+  });
 });

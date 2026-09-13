@@ -395,19 +395,20 @@ function computeRow(row, now) {
   return { lastSeenAt, staleAfterMs, isOnline, crash };
 }
 
-export const listLiveDevices = asyncHandler(async (req, res) => {
-  const source = asStr(req.query.source);
-  const platform = asStr(req.query.platform);
-  const onlineOnly = ["true", "1"].includes(asStr(req.query.onlineOnly).toLowerCase());
-  const limit = clampInt(req.query.limit || 50, 1, 200);
-
+// Hàm đọc thuần (dùng chung cho HTTP handler + admin overview đọc local, không qua proxy).
+export async function queryLiveDevices({
+  source = "",
+  platform = "",
+  onlineOnly = false,
+  limit = 50,
+} = {}) {
   const filter = {};
-  if (source) filter.source = source;
-  if (platform) filter.platform = platform;
+  if (asStr(source)) filter.source = asStr(source);
+  if (asStr(platform)) filter.platform = asStr(platform);
 
   const rows = await LiveDeviceState.find(filter)
     .sort({ lastSeenAt: -1, _id: -1 })
-    .limit(limit)
+    .limit(clampInt(limit, 1, 200))
     .lean();
 
   const now = new Date();
@@ -491,22 +492,31 @@ export const listLiveDevices = asyncHandler(async (req, res) => {
     });
   }
 
-  return res.json({ ok: true, counts, items });
+  return { ok: true, counts, items };
+}
+
+export const listLiveDevices = asyncHandler(async (req, res) => {
+  const result = await queryLiveDevices({
+    source: req.query.source,
+    platform: req.query.platform,
+    onlineOnly: ["true", "1"].includes(asStr(req.query.onlineOnly).toLowerCase()),
+    limit: req.query.limit || 50,
+  });
+  return res.json(result);
 });
 
-// GET /read/live-devices/events?deviceId=&limit=
-export const listLiveDeviceEvents = asyncHandler(async (req, res) => {
-  const deviceId = asStr(req.query.deviceId);
-  const limit = clampInt(req.query.limit || 50, 1, 200);
+// Đọc thuần event máy live (dùng cho HTTP handler + admin overview local).
+export async function queryLiveDeviceEvents({ deviceId = "", limit = 50, level = "" } = {}) {
   const filter = { category: "live_device" };
-  if (deviceId) filter["payload.deviceId"] = deviceId;
+  if (asStr(deviceId)) filter["payload.deviceId"] = asStr(deviceId);
+  if (asStr(level)) filter.level = asStr(level).toLowerCase();
 
   const rows = await ObserverEvent.find(filter)
     .sort({ occurredAt: -1, _id: -1 })
-    .limit(limit)
+    .limit(clampInt(limit, 1, 200))
     .lean();
 
-  return res.json({
+  return {
     ok: true,
     items: rows.map((r) => ({
       id: asStr(r._id),
@@ -522,5 +532,21 @@ export const listLiveDeviceEvents = asyncHandler(async (req, res) => {
       stage: asStr(obj(r.payload).stage),
       severity: asStr(obj(r.payload).severity),
     })),
+  };
+}
+
+// GET /read/live-devices/events?deviceId=&limit=&level=
+export const listLiveDeviceEvents = asyncHandler(async (req, res) => {
+  const result = await queryLiveDeviceEvents({
+    deviceId: req.query.deviceId,
+    limit: req.query.limit || 50,
+    level: req.query.level,
   });
+  return res.json(result);
 });
+
+// Summary gọn (top máy live) cho admin overview.
+export async function queryLiveDeviceSummary({ source = "" } = {}) {
+  const result = await queryLiveDevices({ source, limit: 12 });
+  return { counts: result.counts, items: result.items };
+}
