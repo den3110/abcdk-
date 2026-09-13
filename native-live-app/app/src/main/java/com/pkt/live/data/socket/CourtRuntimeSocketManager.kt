@@ -25,7 +25,10 @@ class CourtRuntimeSocketManager(
     companion object {
         private const val TAG = "CourtRuntimeSocket"
         private const val FORCE_RECONNECT_DELAY_MS = 3_000L
+        private const val MAX_FORCE_RECONNECT_DELAY_MS = 60_000L
     }
+
+    private var forceReconnectAttempt = 0
 
     private var socket: Socket? = null
     private var currentToken: String? = null
@@ -304,12 +307,17 @@ class CourtRuntimeSocketManager(
 
     private fun scheduleReconnect(reason: String) {
         if (reconnectScheduled.getAndSet(true)) return
-        Log.d(TAG, "Scheduling forced reconnect in ${FORCE_RECONNECT_DELAY_MS}ms ($reason)")
+        // Backoff 3s→60s (trước cố định 3s → reconnect storm khi mạng sập lâu)
+        val delayMs = (FORCE_RECONNECT_DELAY_MS shl minOf(forceReconnectAttempt, 5))
+            .coerceAtMost(MAX_FORCE_RECONNECT_DELAY_MS)
+        forceReconnectAttempt++
+        Log.d(TAG, "Scheduling forced reconnect in ${delayMs}ms ($reason, attempt=$forceReconnectAttempt)")
         handler.removeCallbacks(reconnectRunnable)
-        handler.postDelayed(reconnectRunnable, FORCE_RECONNECT_DELAY_MS)
+        handler.postDelayed(reconnectRunnable, delayMs)
     }
 
     private fun cancelReconnect() {
+        forceReconnectAttempt = 0
         reconnectScheduled.set(false)
         handler.removeCallbacks(reconnectRunnable)
     }

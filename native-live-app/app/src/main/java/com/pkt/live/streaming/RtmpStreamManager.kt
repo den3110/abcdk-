@@ -1882,7 +1882,11 @@ class RtmpStreamManager(
             _previewReady.value = true
         }
 
-        setupOverlayFilterIfPossible(forceRecreate = true, reason = reason)
+        // Xoay segment ở chế độ chỉ-ghi-hình đi qua đây mỗi 6–10s: KHÔNG tái tạo GL filter mỗi lần
+        // (3.600–6.000 lần/ngày, mỗi lần cấp phát texture/shader) — chỉ ép tạo lại khi không phải
+        // rotate (start preview/stream, đổi camera...). setupOverlayFilterIfPossible tự tạo nếu chưa có.
+        val isSegmentRotate = reason.contains("segment_rotate")
+        setupOverlayFilterIfPossible(forceRecreate = !isSegmentRotate, reason = reason)
         scheduleOverlayRebindAfterPreview(quality, reason = reason)
         return true
     }

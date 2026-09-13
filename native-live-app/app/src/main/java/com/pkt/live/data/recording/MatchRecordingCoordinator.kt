@@ -244,6 +244,7 @@ class MatchRecordingCoordinator(
     init {
         if (!recordingDir.exists()) recordingDir.mkdirs()
         manifest = loadManifest()
+        sweepOrphanSegmentFiles()
         updateUiState(pendingUploads = manifest.pendingSegments.size)
         refreshStorageStatusAsync(null)
         ensureUploadLoop()
@@ -877,6 +878,9 @@ class MatchRecordingCoordinator(
                 )
                 persistManifestLocked()
                 abandoned.forEach {
+                    // Bỏ khỏi manifest thì phải XOÁ file — trước chỉ log, .mp4 nằm lại vĩnh viễn,
+                    // tích qua nhiều giải tới khi hết bộ nhớ (hardBlock) → không ghi hình được nữa.
+                    runCatching { File(it.localPath).takeIf { f -> f.exists() }?.delete() }
                     Log.w(
                         TAG,
                         "Abandoning stuck segment recordingId=${it.recordingId} " +
@@ -2741,6 +2745,38 @@ class MatchRecordingCoordinator(
             manifestFile.writeText(gson.toJson(manifest))
         } catch (error: Exception) {
             Log.e(TAG, "persistManifest failed", error)
+        }
+    }
+
+    /**
+     * Lúc khởi động: xoá .mp4 trong thư mục ghi hình không còn trong manifest và đã cũ >2h
+     * (manifest ghi hỏng / process chết giữa stopRecord và persist → file mồ côi không ai dọn).
+     * Quét cả filesDir lẫn getExternalFilesDir vì RtmpStreamManager ghi segment ở external.
+     */
+    private fun sweepOrphanSegmentFiles() {
+        val referenced = manifest.pendingSegments.map { File(it.localPath).absolutePath }.toHashSet()
+        val cutoff = System.currentTimeMillis() - 2 * 60 * 60 * 1000L
+        val dirs = listOfNotNull(
+            recordingDir,
+            appContext.getExternalFilesDir(null)?.let { File(it, "recordings-v2") },
+        ).distinctBy { it.absolutePath }
+        var removed = 0
+        var freedBytes = 0L
+        for (dir in dirs) {
+            val files = runCatching { dir.listFiles() }.getOrNull() ?: continue
+            for (f in files) {
+                if (!f.isFile || !f.name.endsWith(".mp4", ignoreCase = true)) continue
+                if (f.absolutePath in referenced) continue
+                if (f.lastModified() > cutoff) continue
+                val size = f.length()
+                if (runCatching { f.delete() }.getOrDefault(false)) {
+                    removed++
+                    freedBytes += size
+                }
+            }
+        }
+        if (removed > 0) {
+            Log.w(TAG, "Swept $removed orphan segment file(s), freed ${freedBytes / (1024 * 1024)} MB")
         }
     }
 

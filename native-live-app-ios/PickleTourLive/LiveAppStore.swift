@@ -2468,6 +2468,15 @@ final class LiveAppStore: ObservableObject {
                 }
                 if case .failed(let message) = state {
                     self.errorMessage = message
+                    // RTMP rớt giữa trận (đổi mạng, server đóng kênh): trước chỉ hiện lỗi; lease
+                    // heartbeat dừng vì shouldMaintainStreamLease=false ở .failed → không bao giờ tự
+                    // hồi, operator phải bấm tay. Tự tạo lại session + publish lại (throttle 10s).
+                    if self.liveStartedAt != nil, self.liveMode.includesLivestream,
+                       let matchId = self.activeMatch?.id.trimmedNilIfBlank {
+                        Task { @MainActor [weak self] in
+                            await self?.recoverExpiredStreamLease(for: matchId, reason: "rtmp_failed")
+                        }
+                    }
                 }
                 if case .reconnecting(let detail) = state {
                     self.streamingService.noteSocketSelfHeal(detail)
@@ -3053,7 +3062,7 @@ final class LiveAppStore: ObservableObject {
             guard let self else { return }
             while !Task.isCancelled {
                 await self.refreshCourtRuntime(courtId: courtId)
-                let intervalMs = UInt64(max(self.courtRuntime?.recommendedPollIntervalMs ?? 5_000, 2_000))
+                let intervalMs = UInt64(min(max(self.courtRuntime?.recommendedPollIntervalMs ?? 5_000, 2_000), 60_000))
                 try? await Task.sleep(nanoseconds: intervalMs * 1_000_000)
             }
         }
@@ -3300,6 +3309,15 @@ final class LiveAppStore: ObservableObject {
         heartbeatTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
+                // Bộ nhớ chỉ được đo lúc bấm start/foreground → offline cả ngày ghi 6s/segment có thể
+                // đầy đĩa → AVAssetWriter fail. Đo lại mỗi nhịp; hết chỗ thì dừng GHI HÌNH, live tiếp.
+                self.refreshStorageMetrics()
+                if self.liveMode.includesRecording, self.streamingService.isRecordingLocally, self.recordingStorageHardBlock {
+                    await self.streamingService.stopRecording()
+                    self.recordingStateText = "Dừng ghi hình: bộ nhớ gần đầy"
+                    self.errorMessage = "Bộ nhớ máy gần đầy — đã dừng ghi hình để giữ live. Hãy xoá bớt dữ liệu / chờ upload xong."
+                }
+
                 if let matchId = self.activeMatch?.id.trimmedNilIfBlank, self.shouldMaintainStreamLease {
                     let response = try? await (
                         self.streamLeaseId?.trimmedNilIfBlank == nil

@@ -1660,7 +1660,16 @@ actor LiveRecordingUploadCoordinator {
 
             let finalizations = manifest.pendingFinalizations
             if finalizations.isEmpty {
-                break
+                // Còn segment pending nhưng tất cả đang backoff: NGỦ tới lượt retry gần nhất.
+                // Trước đây `break` → defer thấy queue chưa rỗng → respawn loop ngay → break lại…
+                // = vòng xoay nóng CPU suốt lúc offline / mỗi lần 409 "MP4 not finalized" (tức gần
+                // như cả ngày) → máy nóng, encoder bị throttle.
+                guard !manifest.pendingSegments.isEmpty else { break }
+                let now = Self.nowMs()
+                let nextRetryMs = manifest.pendingSegments.compactMap { $0.nextRetryAtMs }.min() ?? now
+                let waitMs = min(max(2_000, nextRetryMs - now), 60_000)
+                try? await Task.sleep(nanoseconds: UInt64(waitMs) * 1_000_000)
+                continue
             }
 
             var progressed = false

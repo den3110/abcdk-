@@ -44,6 +44,7 @@ class MatchSocketManager(
         private const val TAG = "MatchSocket"
         private const val UPDATE_INTERVAL_MS = 50L
         private const val FORCE_RECONNECT_DELAY_MS = 3_000L
+        private const val MAX_FORCE_RECONNECT_DELAY_MS = 60_000L
         private const val SNAPSHOT_KEEPALIVE_INTERVAL_MS = 15_000L
         private const val SNAPSHOT_STALE_AFTER_MS = 12_000L
         private val JOIN_BOOTSTRAP_BURST_DELAYS_MS = listOf(250L, 900L, 1_800L)
@@ -423,15 +424,23 @@ class MatchSocketManager(
         }
     }
 
+    // Backoff luỹ thừa 3s→60s cho forced reconnect: trước cố định 3s → mạng/backend sập 1 tiếng
+    // = ~1200 lần dựng Manager/engine mới + spam lỗi. Reset về 0 khi connect lại.
+    private var forceReconnectAttempt = 0
+
     private fun scheduleReconnect(reason: String) {
         if (manualDisconnect.get()) return
         if (currentToken.isNullOrBlank()) return
         if (reconnectScheduled.getAndSet(true)) return
-        Log.d(TAG, "Scheduling forced socket reconnect in ${FORCE_RECONNECT_DELAY_MS}ms ($reason)")
-        parseHandler.postDelayed(reconnectRunnable, FORCE_RECONNECT_DELAY_MS)
+        val delayMs = (FORCE_RECONNECT_DELAY_MS shl minOf(forceReconnectAttempt, 5))
+            .coerceAtMost(MAX_FORCE_RECONNECT_DELAY_MS)
+        forceReconnectAttempt++
+        Log.d(TAG, "Scheduling forced socket reconnect in ${delayMs}ms ($reason, attempt=$forceReconnectAttempt)")
+        parseHandler.postDelayed(reconnectRunnable, delayMs)
     }
 
     private fun cancelReconnectSchedule() {
+        forceReconnectAttempt = 0
         reconnectScheduled.set(false)
         parseHandler.removeCallbacks(reconnectRunnable)
     }

@@ -116,7 +116,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private let connection = RTMPConnection()
     private let stream: RTMPStream
     private let overlayEffect = LiveScoreboardVideoEffect()
-    private let recorder = IOStreamRecorder()
+    private var recorder = IOStreamRecorder()
     private lazy var recorderProxy: StreamRecorderDelegateProxy = {
         let proxy = StreamRecorderDelegateProxy()
         proxy.onFinishWriting = { [weak self] writer in
@@ -1315,6 +1315,15 @@ final class LiveStreamingService: NSObject, ObservableObject {
                 appendDiagnostic(
                     "Segment #\(boundary.segmentIndex + 1) rỗng (writer chưa có sample) → mở segment mới (strike #\(recorderEmptySegmentStrikes))."
                 )
+                // HaishinKit 1.9.9: nhánh guard-fail của finishWriting (writer chưa .writing) KHÔNG xoá
+                // writer/writerInputs → segment kế tạo writer mới nhưng makeWriterInput trả input CŨ
+                // (gắn writer cũ) → isReadyForStartWriting=false mãi → MỌI segment sau đều rỗng: 1 lần
+                // gián đoạn audio (cuộc gọi, báo thức) làm mất ghi hình tới hết ngày trong im lặng.
+                // Dựng recorder mới trước khi mở segment kế.
+                rebuildRecorder()
+                if recorderEmptySegmentStrikes == 5 {
+                    onRecordingFailure?("Ghi hình liên tục rỗng (5 segment) — kiểm tra micro/bộ nhớ. Live vẫn tiếp tục.")
+                }
                 nextSession.segmentIndex = boundary.segmentIndex + 1
                 nextSession.segmentStartedAt = Date()
                 activeRecordingSession = nextSession
@@ -1339,6 +1348,19 @@ final class LiveStreamingService: NSObject, ObservableObject {
         )
         onRecordingFailure?(message)
         resolvePendingRecordingStop()
+    }
+
+    /// Thay IOStreamRecorder mới (giữ settings + delegate) khi writer bị kẹt input cũ.
+    private func rebuildRecorder() {
+        let settings = recorder.settings
+        recorder.delegate = nil
+        stream.removeObserver(recorder)
+        let fresh = IOStreamRecorder()
+        fresh.settings = settings
+        fresh.delegate = recorderProxy
+        stream.addObserver(fresh)
+        recorder = fresh
+        appendDiagnostic("Đã dựng lại recorder sau segment rỗng.")
     }
 
     private func resolvePendingRecordingStop() {
