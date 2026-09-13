@@ -2922,7 +2922,11 @@ const getTournaments = asyncHandler(async (req, res) => {
           {
             $match: {
               $expr: { $eq: ["$tournament", "$$tid"] },
-              status: "approved",
+              // Đội "pending" đã chiếm slot của giải (register controller
+              // dùng chính pending+approved để check cap), nên phải tính vào
+              // "đăng ký" hiển thị công khai — nếu không user thấy "0/32"
+              // sau khi vừa đăng ký (BTC chưa duyệt).
+              status: { $in: ["approved", "pending"] },
             },
           },
           { $group: { _id: null, c: { $sum: 1 } } },
@@ -3147,12 +3151,17 @@ const getTournamentById = asyncHandler(async (req, res) => {
   // Giải MLP đăng ký theo ĐỘI (collection mlpteams), không dùng registrations
   // → stats phải đếm team, nếu không FE hiện 0 đội dù đã có đội.
   if (String(tour.tournamentMode || "") === "mlp") {
+    // Đếm pending+approved (khớp cap check ở mlpController register).
+    // Waitlist riêng như cũ.
     [registrationsCount, waitlistedCount, paidCount] = await Promise.all([
-      MlpTeam.countDocuments({ tournament: id, status: "approved" }),
+      MlpTeam.countDocuments({
+        tournament: id,
+        status: { $in: ["approved", "pending"] },
+      }),
       MlpTeam.countDocuments({ tournament: id, status: "waitlisted" }),
       MlpTeam.countDocuments({
         tournament: id,
-        status: "approved",
+        status: { $in: ["approved", "pending"] },
         "payment.status": "paid",
       }),
     ]);

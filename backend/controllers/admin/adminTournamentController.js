@@ -1181,12 +1181,18 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
             },
           },
           // Giải MLP đăng ký theo ĐỘI (mlpteams), không dùng registrations.
+          // Đếm pending+approved (đội chờ duyệt đã giữ slot).
           {
             $lookup: {
               from: "mlpteams",
               let: { tid: "$_id" },
               pipeline: [
-                { $match: { $expr: { $eq: ["$tournament", "$$tid"] } } },
+                {
+                  $match: {
+                    $expr: { $eq: ["$tournament", "$$tid"] },
+                    status: { $in: ["approved", "pending"] },
+                  },
+                },
                 { $group: { _id: null, c: { $sum: 1 } } },
               ],
               as: "_mlpc",
