@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -250,6 +251,13 @@ class RtmpStreamManager(
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate + coroutineExceptionHandler)
+
+    // Thread camera riêng cho các lời gọi Pedro CHẶN: stopRecord = MediaMuxer.stop/release (100–800ms,
+    // lâu hơn khi đĩa chậm/đầy), startRecord/prepareVideo. Trước chạy trên Main mỗi lần xoay segment
+    // (6–10s × 10 tiếng) → jank định kỳ, có thể ANR. Single-thread giữ thứ tự; cameraMutex vẫn bảo vệ state.
+    private val cameraDispatcher =
+        Executors.newSingleThreadExecutor { r -> Thread(r, "pkt-camera").apply { isDaemon = true } }
+            .asCoroutineDispatcher()
 
     private val _state = MutableStateFlow<StreamState>(StreamState.Idle)
     val state: StateFlow<StreamState> = _state.asStateFlow()
@@ -694,7 +702,9 @@ class RtmpStreamManager(
                     if (activeRecordingMatchId == normalizedMatchId && activeRecordingId == normalizedRecordingId) {
                         return@withLock Result.success(Unit)
                     }
-                    stopCurrentRecordingLocked(isFinal = true, reason = "start_new_recording", resumeAfter = false)
+                    withContext(cameraDispatcher) {
+                        stopCurrentRecordingLocked(isFinal = true, reason = "start_new_recording", resumeAfter = false)
+                    }
                 }
 
                 resetRecordOnlyOverlayFailSoftLocked()
@@ -715,11 +725,13 @@ class RtmpStreamManager(
                 val outputPath = buildRecordingSegmentPath(normalizedMatchId, normalizedRecordingId, 0)
                     ?: return@withLock Result.failure(IllegalStateException("Không tạo được file ghi hình"))
 
-                startRecordSegmentLocked(
-                    cam = cam,
-                    outputPath = outputPath,
-                    reason = "start_recording",
-                ).getOrElse { error ->
+                withContext(cameraDispatcher) {
+                    startRecordSegmentLocked(
+                        cam = cam,
+                        outputPath = outputPath,
+                        reason = "start_recording",
+                    )
+                }.getOrElse { error ->
                     markRecordingError("Không bắt đầu được ghi hình: ${error.message}")
                     return@withLock Result.failure(error)
                 }
@@ -762,11 +774,13 @@ class RtmpStreamManager(
                     }
                     return@withLock Result.success(Unit)
                 }
-                stopCurrentRecordingLocked(
-                    isFinal = finalize,
-                    reason = reason,
-                    resumeAfter = false,
-                )
+                withContext(cameraDispatcher) {
+                    stopCurrentRecordingLocked(
+                        isFinal = finalize,
+                        reason = reason,
+                        resumeAfter = false,
+                    )
+                }
                 Result.success(Unit)
             } catch (e: Exception) {
                 markRecordingError("Không kết thúc được ghi hình: ${e.message}")
@@ -826,12 +840,14 @@ class RtmpStreamManager(
                 delay(delayMs)
                 cameraMutex.withLock {
                     if (!_recordingState.value.isRecording) return@withLock
-                    stopCurrentRecordingLocked(
-                        isFinal = false,
-                        reason = "segment_rotate",
-                        resumeAfter = true,
-                    )
-                    maybeResumeRecordingAfterBoundaryLocked("segment_rotate")
+                    withContext(cameraDispatcher) {
+                        stopCurrentRecordingLocked(
+                            isFinal = false,
+                            reason = "segment_rotate",
+                            resumeAfter = true,
+                        )
+                        maybeResumeRecordingAfterBoundaryLocked("segment_rotate")
+                    }
                 }
             }
         }

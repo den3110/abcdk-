@@ -7,6 +7,13 @@
     <uses-permission android:name="android.permission.FLASHLIGHT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Android 14 (targetSdk 34+): FGS phải khai báo đúng type + permission theo type -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Android 13+: hiện notification "đang live" của foreground service -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Treo máy 10 tiếng: xin miễn Doze/App Standby để socket + upload không bị bóp -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <uses-feature android:name="android.hardware.camera" android:required="true" />
@@ -22,6 +29,12 @@
         android:theme="@style/Theme.PickletourLive"
         android:hardwareAccelerated="true"
         android:largeHeap="true">
+
+        <!-- Giữ camera/mic/mạng cho phiên live khi màn hình tắt / có cuộc gọi / bấm Home -->
+        <service
+            android:name=".service.LiveSessionForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="camera|microphone" />
 
         <activity
             android:name="net.openid.appauth.RedirectUriReceiverActivity"

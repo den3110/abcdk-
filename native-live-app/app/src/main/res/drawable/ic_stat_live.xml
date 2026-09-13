@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+    <!-- Chấm live giữa + 2 vòng sóng: icon trạng thái notification (1 màu, hệ thống tự tint) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M12,9a3,3 0 1,0 0.001,0z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M7.76,16.24a6,6 0 0,1 0,-8.49l1.41,1.42a4,4 0 0,0 0,5.66zM16.24,16.24l-1.41,-1.41a4,4 0 0,0 0,-5.66l1.41,-1.42a6,6 0 0,1 0,8.49z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4.93,19.07A10,10 0 0,1 4.93,4.93l1.41,1.41a8,8 0 0,0 0,11.32zM19.07,19.07l-1.41,-1.41a8,8 0 0,0 0,-11.32l1.41,-1.41a10,10 0 0,1 0,14.14z" />
+</vector>

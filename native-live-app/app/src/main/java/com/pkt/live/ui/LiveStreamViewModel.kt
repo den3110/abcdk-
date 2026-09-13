@@ -259,6 +259,25 @@ class LiveStreamViewModel(
     val recordOnlyArmed: StateFlow<Boolean> = _recordOnlyArmed.asStateFlow()
     private val _goLiveArmed = MutableStateFlow(false)
     val goLiveArmed: StateFlow<Boolean> = _goLiveArmed.asStateFlow()
+
+    /**
+     * Có "ý định phiên" hay không: đang live / đang ghi hình / đã armed hoặc đang chờ trận để tự bắt
+     * đầu. Activity dùng để bật/tắt LiveSessionForegroundService. Bật ngay từ lúc armed (app còn
+     * foreground) để khi trận lên LIVE trong lúc màn hình tắt, quyền camera/mic đã sẵn — Android
+     * cấm start FGS camera từ background.
+     */
+    val foregroundSessionActive: StateFlow<Boolean> =
+        combine(
+            combine(_liveStartTime, streamManager.recordingState, _goLiveArmed, _recordOnlyArmed) {
+                liveStart, recording, goLive, recordOnly ->
+                liveStart != null || recording.isRecording || recording.pendingResume || goLive || recordOnly
+            },
+            _waitingForCourt,
+            _waitingForMatchLive,
+            _waitingForNextMatch,
+        ) { base, waitCourt, waitLive, waitNext ->
+            base || waitCourt || waitLive || waitNext
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
     private val _recoveryDialogDismissedAtMs = MutableStateFlow(0L)
     val operatorRecoveryDialog: StateFlow<OperatorRecoveryDialogState?> =
         combine(recoveryState, streamState, rtmpLastMessage, quality, _recoveryDialogDismissedAtMs) {

@@ -58,8 +58,8 @@ android {
         applicationId = "com.pkt.live"
         minSdk = 24
         targetSdk = 35
-        versionCode = 19
-        versionName = "v1.2026.09.13.019"
+        versionCode = 20
+        versionName = "v1.2026.09.13.020"
 
         // NDK crash reporting — captures native (JNI/C++) crashes from Pedro RTMP library
         ndk {

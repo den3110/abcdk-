@@ -4,7 +4,11 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.KeyEvent
@@ -18,7 +22,10 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import com.pkt.live.service.LiveSessionForegroundService
 import com.pedro.library.view.OpenGlView
 import com.pkt.live.R
 import com.pkt.live.data.auth.TokenStore
@@ -153,6 +160,21 @@ class LiveStreamActivity : AppCompatActivity() {
         // Check permissions
         checkAndRequestPermissions()
 
+        // Bật/tắt foreground service theo "ý định phiên" (live / ghi hình / armed chờ trận).
+        // Không có FGS, Android 11+ thu hồi camera ngay khi app rời foreground và Doze bóp mạng
+        // → treo máy 10 tiếng trên tripod là rớt live khi màn hình tắt / có cuộc gọi / bấm Home.
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.CREATED) {
+                viewModel.foregroundSessionActive.collect { active ->
+                    if (active) {
+                        LiveSessionForegroundService.start(this@LiveStreamActivity)
+                    } else {
+                        LiveSessionForegroundService.stop(this@LiveStreamActivity)
+                    }
+                }
+            }
+        }
+
         // Defer heavy init to after UI is attached (smoother transition)
         composeView.post {
             updateLiveCanvasBounds(resources.configuration.orientation)
@@ -164,6 +186,48 @@ class LiveStreamActivity : AppCompatActivity() {
         super.onResume()
         viewModel.onHostResumed()
         // Preview restart is now handled by LifecycleObserver in RtmpStreamManager
+        maybeRequestLongRunPermissions()
+    }
+
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        Log.d(TAG, "POST_NOTIFICATIONS granted=$granted")
+    }
+
+    /**
+     * Xin 1 lần (sau khi camera/mic đã xong): POST_NOTIFICATIONS (Android 13+, để notification FGS
+     * hiện) + miễn tối ưu pin (Doze không bóp socket/upload khi treo máy cả ngày). Từ chối cũng không
+     * chặn live — chỉ giảm độ bền khi màn hình tắt.
+     */
+    private fun maybeRequestLongRunPermissions() {
+        if (!contentReady) return
+        val camOk = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val micOk = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (!camOk || !micOk) return // để dialog camera/mic đi trước
+        val prefs = getSharedPreferences("live_long_run", MODE_PRIVATE)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !prefs.getBoolean("notif_asked", false)
+        ) {
+            prefs.edit().putBoolean("notif_asked", true).apply()
+            runCatching { notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+            return // battery prompt ở lần resume kế (tránh 2 dialog chồng nhau)
+        }
+
+        if (!prefs.getBoolean("battery_asked", false)) {
+            val pm = getSystemService(POWER_SERVICE) as? PowerManager
+            if (pm != null && !pm.isIgnoringBatteryOptimizations(packageName)) {
+                prefs.edit().putBoolean("battery_asked", true).apply()
+                runCatching {
+                    startActivity(
+                        Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                            .setData(Uri.parse("package:$packageName"))
+                    )
+                }.onFailure { Log.w(TAG, "battery optimization prompt unavailable", it) }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -222,6 +286,11 @@ class LiveStreamActivity : AppCompatActivity() {
             isFinishing = isFinishing,
             isChangingConfigurations = isChangingConfigurations,
         )
+        // Collector flow đã dừng ở destroy; backgroundExit tắt cờ bất đồng bộ → tự tắt service ở đây
+        // khi rời màn thật (không phải xoay màn hình) để không treo notification "đang live".
+        if (isFinishing) {
+            LiveSessionForegroundService.stop(applicationContext)
+        }
         super.onDestroy()
     }
 
