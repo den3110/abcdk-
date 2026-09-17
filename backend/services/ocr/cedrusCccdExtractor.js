@@ -346,7 +346,7 @@ function parseCccdFromText(text) {
   }
 
   const hometown = cleanValue(findByLabels(rawLines, LABELS.hometown, { maxJoin: 3 }));
-  const residence = cleanValue(findByLabels(rawLines, LABELS.residence, { maxJoin: 3 }));
+  const residence = cleanValue(findByLabels(rawLines, LABELS.residence, { maxJoin: 5 }));
   const issuePlace = cleanValue(findByLabels(rawLines, LABELS.issuePlace, { maxJoin: 1 }));
 
   return {
@@ -429,13 +429,10 @@ export async function cedrusExtractCccdProfileFieldsFromDataUrl(imageOrDataUrls)
   // Chuẩn hoá gender
   const g = normalizeSex(d.sex);
   const gender = g === "Nam" ? "male" : g === "Nữ" ? "female" : "unspecified";
-  // province: ưu tiên residence có nhiều thành phần; nếu residence bể/thiếu → hometown.
-  let province = pickProvince(d.residence);
-  if (!province || province.length < 2 || province === cleanAddressChunk(d.residence)) {
-    const fromHome = pickProvince(d.hometown);
-    if (fromHome) province = fromHome;
-  }
-  // Nếu vẫn chỉ có 1 chunk và không kèm "Tỉnh/TP" → giữ nguyên (tốt hơn rỗng)
+  // province: LUÔN lấy từ residence (nơi thường trú), KHÔNG fallback hometown.
+  // hometown là quê quán, có thể khác tỉnh cư trú → sai nghiệp vụ.
+  const province = pickProvince(d.residence);
+  // Nếu residence không tách được tỉnh → chấp nhận rỗng (an toàn hơn dùng sai).
 
   return {
     name: (d.fullName || r.fullName || "").trim(),
