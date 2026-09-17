@@ -34,5 +34,5 @@ export function normDOB(value) {
   const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (m2) return s;
   const d = new Date(s);
-  return Number.isNaN(d) ? null : ymdUTC(d);
+  return Number.isNaN(d.getTime()) ? null : ymdUTC(d);
 }

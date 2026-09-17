@@ -20,7 +20,7 @@ const CEDRUS_TIMEOUT_MS = Math.max(
   5000,
   Number(process.env.CEDRUS_OCR_TIMEOUT_MS || 45000),
 );
-const MAX_KYC_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_KYC_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_CCCD_IMAGES_PER_REQUEST = 2;
 
 function bufferFromDataUrl(dataUrl) {
@@ -151,6 +151,44 @@ const LABELS = {
   issuePlace: ["Nơi cấp", "Place of issue", "Noi cap"],
 };
 
+// Danh sách các cụm tiếng Anh song ngữ hay đi kèm label VN — cần strip
+// khỏi tail (tránh nhận nhầm value là "Full name" / "Date of birth").
+const EN_LABEL_HINTS_STRIP = [
+  "Full name",
+  "Date of birth",
+  "Sex",
+  "Nationality",
+  "Place of origin",
+  "Place of residence",
+  "Date of expiry",
+  "Date of issue",
+  "Place of issue",
+];
+
+function isPseudoValue(s) {
+  if (!s) return true;
+  const n = stripVN(String(s)).toLowerCase().trim();
+  if (n.length < 2) return true;
+  // Chỉ toàn ký tự tách + slash "/", ":"
+  if (/^[\s:.\-–—/|,]+$/.test(n)) return true;
+  // Chính là label EN đứng riêng (không kèm giá trị)
+  return EN_LABEL_HINTS_STRIP.some((l) => n === stripVN(l).toLowerCase());
+}
+
+function stripEnglishHint(tail) {
+  if (!tail) return "";
+  let t = tail;
+  for (const l of EN_LABEL_HINTS_STRIP) {
+    // strip prefix "/ Full name:" hoặc "Full name" ở đầu
+    const rx = new RegExp(
+      "^\\s*[/|]?\\s*" + l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*[:.\\-]*\\s*",
+      "i",
+    );
+    t = t.replace(rx, "");
+  }
+  return t.replace(/^[\s:.\-–—/|]+/, "").trim();
+}
+
 function findByLabels(lines, labels, opts = {}) {
   const { maxJoin = 2 } = opts;
   for (let i = 0; i < lines.length; i++) {
@@ -160,24 +198,28 @@ function findByLabels(lines, labels, opts = {}) {
       const key = stripVN(label).toLowerCase();
       const pos = norm.indexOf(key);
       if (pos === -1) continue;
-      // 1) Ưu tiên lấy phần đuôi cùng dòng
-      const tail = raw
-        .slice(pos + label.length)
-        .replace(/^[\s:.\-–—/|]+/, "")
-        .trim();
-      if (tail && tail.length >= 2) return tail;
-      // 2) Nếu không có, ghép các dòng tiếp theo (đến maxJoin dòng)
+      // 1) Ưu tiên tail cùng dòng — dùng key.length (bản normalized) để không lệch
+      //    khi label VN có dấu (dấu tổ hợp — cùng chiều dài ký tự nhưng khác cách
+      //    trình bày tuỳ nguồn).
+      let tail = raw.slice(pos + key.length);
+      // Nếu ký tự cuối của key bị dấu tổ hợp trong raw → có thể phải bù 1 ký tự.
+      // Đơn giản: chỉ giữ tail và strip EN hint / dấu.
+      tail = stripEnglishHint(tail.replace(/^[\s:.\-–—/|]+/, "").trim());
+      if (!isPseudoValue(tail)) return tail;
+      // 2) Ghép các dòng tiếp theo (đến maxJoin dòng)
       const parts = [];
       for (let j = 1; j <= maxJoin && i + j < lines.length; j++) {
         const nxt = lines[i + j].trim();
         if (!nxt) continue;
-        // Dừng khi gặp label khác
         const nxtNorm = stripVN(nxt).toLowerCase();
+        // Dừng khi gặp label khác (label thuộc set LABELS)
         const hitOther = Object.entries(LABELS).some(([k, arr]) => {
           if (arr === labels) return false;
           return arr.some((l) => nxtNorm.startsWith(stripVN(l).toLowerCase()));
         });
         if (hitOther) break;
+        // Bỏ qua dòng cả là pseudo (chỉ EN hint / dấu / rỗng)
+        if (isPseudoValue(nxt)) continue;
         parts.push(nxt);
       }
       if (parts.length) return parts.join(", ").replace(/\s+/g, " ").trim();
