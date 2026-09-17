@@ -12,6 +12,7 @@ import fetch from "node-fetch";
 import FormData from "form-data";
 import { stripVN } from "../../utils/cccdParsing.js";
 import { normId, normName, normDOB } from "./cccdCommon.js";
+import { tryQrCccdFromBuffers } from "./cccdQrDecoder.js";
 
 const CEDRUS_URL = String(
   process.env.CEDRUS_OCR_URL || "https://ocr.cedrus.dev",
@@ -420,6 +421,15 @@ function mergeCccdFields(a = {}, b = {}) {
  */
 export async function cedrusExtractFromDataUrl(imageOrDataUrls) {
   const bufs = await normalizeImageList(imageOrDataUrls);
+
+  // BƯỚC 0: THỬ QUÉT MÃ QR TRÊN ẢNH (CCCD gắn chip có QR chuẩn Bộ CA).
+  // Nếu quét được → dùng làm nguồn chính (chính xác 100%); OCR chỉ bù trường
+  // QR không có (expiry / issuePlace / nationality) hoặc khi QR không đọc được.
+  let qrData = null;
+  try {
+    qrData = await tryQrCccdFromBuffers(bufs);
+  } catch {}
+
   const ocrs = [];
   for (let i = 0; i < bufs.length; i++) {
     const b = bufs[i];
@@ -429,6 +439,18 @@ export async function cedrusExtractFromDataUrl(imageOrDataUrls) {
   const combinedText = ocrs.map((o) => o.text).join("\n");
   const parsedList = ocrs.map((o) => parseCccdFromText(o.text));
   const data = parsedList.reduce((acc, p) => mergeCccdFields(acc, p), {});
+
+  // MERGE QR (ƯU TIÊN) vào data OCR. QR chính xác hơn OCR nên ghi đè.
+  if (qrData) {
+    if (qrData.idNumber) data.idNumber = qrData.idNumber;
+    if (qrData.fullName) data.fullName = qrData.fullName;
+    if (qrData.dob) data.dob = qrData.dob;
+    if (qrData.sex) data.sex = qrData.sex;
+    // QR residence thường ĐẦY ĐỦ, giữ để pickProvince ăn đúng tỉnh cuối chuỗi.
+    if (qrData.residence) data.residence = qrData.residence;
+    if (qrData.issueDate) data.issueDate = qrData.issueDate;
+  }
+
   return {
     idNumber: normId(data.idNumber),
     fullName: data.fullName ? normName(data.fullName) : null,
@@ -437,10 +459,11 @@ export async function cedrusExtractFromDataUrl(imageOrDataUrls) {
     _usage: {
       provider: "cedrus",
       images: bufs.length,
-      // approx cost: 0 (dịch vụ tự host, không dùng token LLM)
+      qr: !!qrData,
     },
     raw: data,
     raw_text: combinedText,
+    qr: qrData ? { hit: true, source: "cccd-chip" } : { hit: false },
   };
 }
 
