@@ -246,6 +246,10 @@ import {
   searchPresenceUsers,
 } from "../controllers/admin/adminStatsController.js";
 import {
+  getAccessAnalyticsSummary,
+  listAccessAnalyticsUsers,
+} from "../controllers/admin/adminAccessAnalyticsController.js";
+import {
   getAdminPushDispatchDetail,
   getAdminPushSummary,
   listAdminPushDispatches,
@@ -1388,6 +1392,19 @@ router.post(
 );
 
 router.get("/stats/presence", protect, authorize("admin"), getPresenceSummary);
+router.get(
+  "/stats/access-analytics/summary",
+  protect,
+  authorize("admin"),
+  getAccessAnalyticsSummary,
+);
+router.get(
+  "/stats/access-analytics/users",
+  protect,
+  authorize("admin"),
+  listAccessAnalyticsUsers,
+);
+
 router.get(
   "/stats/presence/users",
   protect,
