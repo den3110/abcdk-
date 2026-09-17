@@ -248,18 +248,19 @@ function DreamBreakerPanel({ dual, tour, onPoint, onUndo, onStart }) {
   const rotate = cfg.rotationEveryPoints || 4;
   const target = cfg.pointsToWin || 21;
 
+  // MLP DreamBreaker: rotate theo TỔNG điểm A+B — cả 2 đội cùng xoay.
   const currentA = useMemo(() => {
     if (!db.lineupA?.length) return null;
-    const idx =
-      Math.floor(db.scoreA / rotate) % db.lineupA.length;
+    const combined = (db.scoreA || 0) + (db.scoreB || 0);
+    const idx = Math.floor(combined / rotate) % db.lineupA.length;
     return db.lineupA[idx];
-  }, [db.scoreA, db.lineupA, rotate]);
+  }, [db.scoreA, db.scoreB, db.lineupA, rotate]);
   const currentB = useMemo(() => {
     if (!db.lineupB?.length) return null;
-    const idx =
-      Math.floor(db.scoreB / rotate) % db.lineupB.length;
+    const combined = (db.scoreA || 0) + (db.scoreB || 0);
+    const idx = Math.floor(combined / rotate) % db.lineupB.length;
     return db.lineupB[idx];
-  }, [db.scoreB, db.lineupB, rotate]);
+  }, [db.scoreA, db.scoreB, db.lineupB, rotate]);
 
   if (!db.triggered) {
     return (

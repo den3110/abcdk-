@@ -3055,11 +3055,14 @@ export const startDreamBreaker = asyncHandler(async (req, res) => {
   res.json({ success: true, dual });
 });
 
-// Helper: xác định VĐV nào đang cầm vợt tại score X.
-function currentPlayerAt(scoreForSide, lineup, rotateEvery) {
+// Helper: xác định VĐV nào đang cầm vợt.
+// MLP DreamBreaker: rotation dựa trên TỔNG điểm cộng dồn (A+B). Khi tổng
+// điểm chạm mốc rotateEvery thì CẢ HAI đội cùng rotate sang VĐV tiếp theo
+// trong lineup (không tách riêng theo điểm của từng bên).
+function currentPlayerAt(combinedScore, lineup, rotateEvery) {
   if (!lineup?.length) return null;
   const rotationIdx =
-    Math.floor(Math.max(0, scoreForSide) / Math.max(1, rotateEvery)) %
+    Math.floor(Math.max(0, combinedScore) / Math.max(1, rotateEvery)) %
     lineup.length;
   return lineup[rotationIdx];
 }
@@ -3096,8 +3099,10 @@ export const scoreDreamBreakerPoint = asyncHandler(async (req, res) => {
   const winByTwo = !!cfg.winByTwo;
 
   const db = dual.dreamBreaker;
-  const playerA = currentPlayerAt(db.scoreA, db.lineupA, rotate);
-  const playerB = currentPlayerAt(db.scoreB, db.lineupB, rotate);
+  // Rotate theo tổng điểm cộng dồn (A+B) — cả 2 đội cùng xoay.
+  const combined = Number(db.scoreA || 0) + Number(db.scoreB || 0);
+  const playerA = currentPlayerAt(combined, db.lineupA, rotate);
+  const playerB = currentPlayerAt(combined, db.lineupB, rotate);
   db.points.push({
     scoredBy: side,
     playerAId: playerA,
@@ -3146,8 +3151,8 @@ export const scoreDreamBreakerPoint = asyncHandler(async (req, res) => {
     scoreA: db.scoreA,
     scoreB: db.scoreB,
     winner: db.winner,
-    currentPlayerA: currentPlayerAt(db.scoreA, db.lineupA, rotate),
-    currentPlayerB: currentPlayerAt(db.scoreB, db.lineupB, rotate),
+    currentPlayerA: currentPlayerAt(db.scoreA + db.scoreB, db.lineupA, rotate),
+    currentPlayerB: currentPlayerAt(db.scoreA + db.scoreB, db.lineupB, rotate),
   });
 });
 

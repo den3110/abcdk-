@@ -41,10 +41,12 @@ function teamBrief(team) {
   };
 }
 
-function rotationPlayerAt(scoreForSide, lineup, rotateEvery) {
+// MLP DreamBreaker: rotation theo TỔNG điểm cộng dồn (A+B). Cả 2 đội cùng
+// xoay khi tổng chạm rotateEvery — không tách riêng theo điểm mỗi bên.
+function rotationPlayerAt(combinedScore, lineup, rotateEvery) {
   if (!Array.isArray(lineup) || !lineup.length) return { player: null, idx: 0 };
   const idx =
-    Math.floor(Math.max(0, Number(scoreForSide || 0)) / Math.max(1, rotateEvery)) %
+    Math.floor(Math.max(0, Number(combinedScore || 0)) / Math.max(1, rotateEvery)) %
     lineup.length;
   return { player: lineup[idx], idx };
 }
@@ -197,13 +199,14 @@ export const getMlpCourtOverlay = asyncHandler(async (req, res) => {
     const lineupB = Array.isArray(db.lineupB) ? db.lineupB : [];
     const scoreA = Number(db.scoreA || 0);
     const scoreB = Number(db.scoreB || 0);
+    const combinedScore = scoreA + scoreB;
     const { player: currentAId, idx: currentAIdx } = rotationPlayerAt(
-      scoreA,
+      combinedScore,
       lineupA,
       rotate,
     );
     const { player: currentBId, idx: currentBIdx } = rotationPlayerAt(
-      scoreB,
+      combinedScore,
       lineupB,
       rotate,
     );
@@ -243,8 +246,10 @@ export const getMlpCourtOverlay = asyncHandler(async (req, res) => {
         winner: db.winner || null,
         target,
         rotate,
-        pointsInBlockA: scoreA % Math.max(1, rotate),
-        pointsInBlockB: scoreB % Math.max(1, rotate),
+        // Cả 2 side chung 1 block (rotate theo tổng điểm) — giữ 2 field
+        // để tương thích ngược với FE, giá trị bằng nhau.
+        pointsInBlockA: combinedScore % Math.max(1, rotate),
+        pointsInBlockB: combinedScore % Math.max(1, rotate),
       },
       teamA: {
         ...teamBrief(teamA),
