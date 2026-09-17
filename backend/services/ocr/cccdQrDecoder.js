@@ -7,49 +7,84 @@ import { createCanvas, loadImage } from "canvas";
 import jsQR from "jsqr";
 import { normId, normDOB } from "./cccdCommon.js";
 
-function drawRotated(img, deg) {
-  const w = img.width;
-  const h = img.height;
-  let cw = w;
-  let ch = h;
+function drawRotated(img, deg, scale = 1, srcRect = null) {
+  const sx = srcRect?.x || 0;
+  const sy = srcRect?.y || 0;
+  const sw = srcRect?.w || img.width;
+  const sh = srcRect?.h || img.height;
+  const dw = Math.max(1, Math.round(sw * scale));
+  const dh = Math.max(1, Math.round(sh * scale));
+  let cw = dw;
+  let ch = dh;
   if (deg === 90 || deg === 270) {
-    cw = h;
-    ch = w;
+    cw = dh;
+    ch = dw;
   }
   const canvas = createCanvas(cw, ch);
   const ctx = canvas.getContext("2d");
   if (deg === 0) {
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
   } else if (deg === 180) {
     ctx.setTransform(-1, 0, 0, -1, cw, ch);
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
   } else if (deg === 90) {
     ctx.setTransform(0, 1, -1, 0, cw, 0);
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
   } else if (deg === 270) {
     ctx.setTransform(0, -1, 1, 0, 0, ch);
-    ctx.drawImage(img, 0, 0);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, dw, dh);
   }
   return { canvas, ctx, cw, ch };
 }
 
+function tryJsQR(ctx, cw, ch) {
+  try {
+    const { data, width, height } = ctx.getImageData(0, 0, cw, ch);
+    const code = jsQR(data, width, height, { inversionAttempts: "attemptBoth" });
+    if (code?.data) return code.data;
+  } catch {}
+  return null;
+}
+
 /**
- * Decode QR from an image buffer, thử 4 chiều xoay.
+ * Decode QR from an image buffer.
+ * Chiến lược:
+ *   1. Fullscreen 4 orientation (0/180/90/270), ưu tiên fit chiều dài ~1024px.
+ *   2. Nếu chưa ra: quét 4 quadrant (góc), vì QR CCCD thường nằm ở góc.
+ *   3. Nếu vẫn chưa ra: thử scale 0.5x và 1.5x cho fullscreen.
  * Trả về string payload hoặc null.
  */
+const TARGET_LONG_EDGE = 1024;
 export async function decodeQrFromBuffer(buffer) {
   if (!buffer) return null;
   try {
     const img = await loadImage(buffer);
-    for (const deg of [0, 180, 90, 270]) {
-      try {
-        const { ctx, cw, ch } = drawRotated(img, deg);
-        const { data, width, height } = ctx.getImageData(0, 0, cw, ch);
-        const code = jsQR(data, width, height, {
-          inversionAttempts: "attemptBoth",
-        });
-        if (code?.data) return code.data;
-      } catch {}
+    const longEdge = Math.max(img.width, img.height);
+    const primaryScale =
+      longEdge > TARGET_LONG_EDGE ? TARGET_LONG_EDGE / longEdge : 1;
+
+    const attempts = [
+      // full scale primary
+      { scale: primaryScale, rect: null },
+      // full 0.6x (đề phòng jsQR yếu ở ảnh lớn)
+      { scale: primaryScale * 0.6, rect: null },
+      // full 1.4x (đề phòng ảnh gốc nhỏ, cần zoom lên)
+      { scale: Math.min(2, primaryScale * 1.4), rect: null },
+      // 4 quadrant (góc — nơi QR CCCD thường nằm)
+      { scale: 1, rect: { x: img.width * 0.5, y: 0, w: img.width * 0.5, h: img.height * 0.5 } },
+      { scale: 1, rect: { x: 0, y: 0, w: img.width * 0.5, h: img.height * 0.5 } },
+      { scale: 1, rect: { x: img.width * 0.5, y: img.height * 0.5, w: img.width * 0.5, h: img.height * 0.5 } },
+      { scale: 1, rect: { x: 0, y: img.height * 0.5, w: img.width * 0.5, h: img.height * 0.5 } },
+    ];
+
+    for (const { scale, rect } of attempts) {
+      for (const deg of [0, 180, 90, 270]) {
+        try {
+          const { ctx, cw, ch } = drawRotated(img, deg, scale, rect);
+          const payload = tryJsQR(ctx, cw, ch);
+          if (payload) return payload;
+        } catch {}
+      }
     }
   } catch {}
   return null;
