@@ -1,3 +1,14 @@
+> ## 🆕 Session 2026-09-17 — MLP DreamBreaker rotate combined + Admin Thống kê truy cập + MLP đếm đội pending
+>
+> **HEAD:** backend `abcdk-` master `c7c88fa1` · admin `abcde` master `711623a` · mobile `pickletour-app` **nhánh `feat/ui-v2-modern`** `ab6829b` (KHÔNG phải master). Đã deploy backend + web + admin + OTA iOS/Android.
+>
+> **Đã ship:**
+> 1. **⭐ Admin Thống kê truy cập** — trang mới `/admin/access-analytics` (icon insights). 3 card 1/7/30 ngày → uniqueUsers + tổng login + breakdown Web/App/Admin/Khác. Bấm ô mở dialog liệt kê user (search+filter+pagination). Endpoints `backend/controllers/admin/adminAccessAnalyticsController.js` (`/admin/stats/access-analytics/{summary,users}`), nguồn `AuthLog` + `inferAuthLogChannel`. Chi tiết root `../HANDOFF.md`.
+> 2. **⭐ MLP DreamBreaker rotate theo TỔNG điểm A+B** — trước đó chỉ đội ghi điểm rotate VĐV; giờ combined score chạm rotationEveryPoints → CẢ 2 đội cùng xoay (MLP chuẩn). Sửa `currentPlayerAt` (BE mlpController + mlpOverlayController + FE web + mobile). Chi tiết root `../HANDOFF.md`.
+> 3. **MLP: đếm cả đội `pending`** vào số đăng ký hiển thị (chờ BTC duyệt cũng đã chiếm slot). `getTournaments` list + admin list + `getTournamentById.stats` đổi `status:"approved"` → `status:{$in:["approved","pending"]}`. Giải RIVERSIDE Team 4 giờ hiện 1/32 thay vì 0/32.
+>
+> **⚠️ Nhắc:** mobile nhánh **`feat/ui-v2-modern`**. Backend restart bằng `pm2 restart server --update-env` sau khi git reset --hard.
+
 > ## 🆕 Session 2026-09-13 — Native Live: fix chuyển trận/FGS/chạy 10h + Observer tự chủ + Icon mới + LIVE ĐA ĐÍCH (multi-destination)
 >
 > **HEAD:** backend+native `abcdk-` master **`59563738`** (ĐÃ push + deploy VPS) · admin `abcde` `6f899fb` (không đổi) · mobile `pickletour-app` **nhánh `feat/ui-v2-modern`** `e4dacfb` (1.1.16/46, không đổi phiên này). **Backend ĐÃ DEPLOY** (VPS ở `59563738`). Repo `abcdk-` chứa `native-live-app` (Android, APK v21) + `native-live-app-ios` (iOS, build Xcode).
