@@ -4,6 +4,7 @@ import {
   createClaudeJsonMessage,
 } from "../../lib/anthropicClient.js";
 import { stripVN } from "../../utils/cccdParsing.js";
+import { normId as _normId, normName as _normName, normDOB as _normDOB } from "./cccdCommon.js";
 
 const MAX_KYC_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_CCCD_IMAGES_PER_REQUEST = 2;
@@ -43,51 +44,10 @@ const CCCD_JSON_SCHEMA = {
   strict: true,
 };
 
-export function normName(s = "") {
-  return stripVN(String(s).trim()).replace(/\s+/g, " ").toUpperCase();
-}
-
-export function normId(s = "") {
-  return String(s || "").replace(/\D+/g, "");
-}
-
-function pad2(n) {
-  return String(n).padStart(2, "0");
-}
-
-function ymdUTC(date) {
-  const y = date.getUTCFullYear();
-  const m = date.getUTCMonth() + 1;
-  const d = date.getUTCDate();
-  return `${y}-${pad2(m)}-${pad2(d)}`;
-}
-
-export function normDOB(value) {
-  if (value === null || value === undefined) return null;
-
-  if (value instanceof Date && !Number.isNaN(value)) {
-    return ymdUTC(value);
-  }
-
-  const s = String(value).trim();
-  if (!s) return null;
-
-  const m1 = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
-  if (m1) {
-    const d = Number(m1[1]);
-    const mo = Number(m1[2]);
-    const y = Number(m1[3]);
-    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
-      return `${y}-${pad2(mo)}-${pad2(d)}`;
-    }
-  }
-
-  const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m2) return s;
-
-  const d = new Date(s);
-  return Number.isNaN(d) ? null : ymdUTC(d);
-}
+// Re-export từ cccdCommon (giữ backward-compat các nơi khác đang import từ file này).
+export const normName = _normName;
+export const normId = _normId;
+export const normDOB = _normDOB;
 
 function normalizeCccdImageInput(value) {
   if (typeof value !== "string") return "";
@@ -151,7 +111,7 @@ function bufferToDataUrl(buffer, contentType = "image/jpeg") {
   return `data:${contentType};base64,${buffer.toString("base64")}`;
 }
 
-export async function openaiExtractFromDataUrl(imageOrDataUrls, detail = "low") {
+export async function _claudeExtractFromDataUrl(imageOrDataUrls, detail = "low") {
   const urls = normalizeImageList(imageOrDataUrls);
   const imageParts = urls.map((url) => ({
     type: "image_url",
@@ -270,7 +230,7 @@ export async function openaiExtractFromImageUrl(imageUrlOrArray, detail = "low")
   return openaiExtractFromDataUrl(processedUrls, detail);
 }
 
-export async function extractCccdProfileFieldsFromDataUrl(
+export async function _claudeExtractCccdProfileFieldsFromDataUrl(
   imageOrDataUrls,
   detail = "auto",
 ) {
@@ -349,4 +309,142 @@ export async function extractCccdProfileFieldsFromDataUrl(
     province: String(parsed.province || "").trim(),
     cccd: String(parsed.cccd || "").trim(),
   };
+}
+
+// ---------------------------- OCR PROVIDER DISPATCHER ----------------------------
+// PROVIDER: cedrus (mặc định, dùng https://ocr.cedrus.dev — không tốn token LLM)
+//           claude → chỉ dùng Claude (giữ hành vi cũ)
+//           auto   → thử Cedrus trước, fallback Claude nếu Cedrus lỗi HOẶC thiếu >=2 field
+//                    trọng yếu (idNumber/fullName/dob).
+// Env: CCCD_OCR_PROVIDER (mặc định "cedrus"),
+//      CCCD_OCR_FALLBACK_CLAUDE ("true" | "false" | "auto" — auto = mặc định true)
+//      CEDRUS_OCR_URL (mặc định https://ocr.cedrus.dev)
+
+import {
+  cedrusExtractFromDataUrl,
+  cedrusExtractCccdProfileFieldsFromDataUrl,
+} from "./cedrusCccdExtractor.js";
+
+function getProvider() {
+  return String(process.env.CCCD_OCR_PROVIDER || "cedrus").toLowerCase();
+}
+function isFallbackEnabled(defaultOn = true) {
+  const v = String(process.env.CCCD_OCR_FALLBACK_CLAUDE || "").toLowerCase();
+  if (v === "true" || v === "1") return true;
+  if (v === "false" || v === "0") return false;
+  return defaultOn;
+}
+function kycFieldsMissing(r) {
+  const miss = ["idNumber", "fullName", "dob"].filter((k) => !r?.[k]);
+  return miss.length;
+}
+function profileFieldsMissing(r) {
+  const miss = ["cccd", "name", "dob"].filter((k) => !r?.[k]);
+  return miss.length;
+}
+
+/**
+ * Public: KYC extract — giữ nguyên contract với call site cũ.
+ * Điều phối provider theo env; tự fallback Claude khi Cedrus fail.
+ */
+export async function openaiExtractFromDataUrl(imageOrDataUrls, detail = "low") {
+  const provider = getProvider();
+  if (provider === "claude") {
+    return _claudeExtractFromDataUrl(imageOrDataUrls, detail);
+  }
+  // cedrus | auto → thử Cedrus trước
+  try {
+    const r = await cedrusExtractFromDataUrl(imageOrDataUrls);
+    // Nếu auto và thiếu quá 1 field trọng yếu → fallback Claude
+    if (
+      (provider === "auto" || provider === "cedrus") &&
+      kycFieldsMissing(r) >= 2 &&
+      isFallbackEnabled(provider === "auto")
+    ) {
+      try {
+        const rc = await _claudeExtractFromDataUrl(imageOrDataUrls, detail);
+        // Merge: Cedrus giữ, Claude bù trường thiếu
+        const merged = { ...r };
+        for (const k of ["idNumber", "fullName", "dob", "issueDate"]) {
+          if (!merged[k] && rc[k]) merged[k] = rc[k];
+        }
+        merged.raw = { ...(rc.raw || {}), ...(r.raw || {}) };
+        for (const k of Object.keys(rc.raw || {})) {
+          if (!merged.raw[k] && rc.raw[k]) merged.raw[k] = rc.raw[k];
+        }
+        merged._usage = {
+          provider: "cedrus+claude",
+          cedrus: r._usage || null,
+          claude: rc._usage || null,
+        };
+        return merged;
+      } catch (e) {
+        console.warn(
+          "[cccd-provider] Claude fallback failed after Cedrus miss:",
+          String(e?.message || e),
+        );
+        return r;
+      }
+    }
+    return r;
+  } catch (err) {
+    console.warn(
+      "[cccd-provider] Cedrus fail (provider=%s): %s",
+      provider,
+      String(err?.message || err),
+    );
+    if (provider === "cedrus" && !isFallbackEnabled(false)) throw err;
+    // auto hoặc cedrus + fallback bật → dùng Claude
+    return _claudeExtractFromDataUrl(imageOrDataUrls, detail);
+  }
+}
+
+/**
+ * Public: extract 5 field profile — dispatcher tương tự.
+ */
+export async function extractCccdProfileFieldsFromDataUrl(
+  imageOrDataUrls,
+  detail = "auto",
+) {
+  const provider = getProvider();
+  if (provider === "claude") {
+    return _claudeExtractCccdProfileFieldsFromDataUrl(imageOrDataUrls, detail);
+  }
+  try {
+    const r = await cedrusExtractCccdProfileFieldsFromDataUrl(imageOrDataUrls);
+    if (
+      (provider === "auto" || provider === "cedrus") &&
+      profileFieldsMissing(r) >= 2 &&
+      isFallbackEnabled(provider === "auto")
+    ) {
+      try {
+        const rc = await _claudeExtractCccdProfileFieldsFromDataUrl(
+          imageOrDataUrls,
+          detail,
+        );
+        return {
+          name: r.name || rc.name,
+          dob: r.dob || rc.dob,
+          gender: r.gender && r.gender !== "unspecified" ? r.gender : rc.gender,
+          province: r.province || rc.province,
+          cccd: r.cccd || rc.cccd,
+        };
+      } catch (e) {
+        console.warn(
+          "[cccd-provider] Claude profile fallback failed:",
+          String(e?.message || e),
+        );
+        return r;
+      }
+    }
+    return r;
+  } catch (err) {
+    console.warn(
+      "[cccd-provider] Cedrus profile fail (provider=%s): %s",
+      provider,
+      String(err?.message || err),
+    );
+    if (provider === "cedrus" && !isFallbackEnabled(false)) throw err;
+    return _claudeExtractCccdProfileFieldsFromDataUrl(imageOrDataUrls, detail);
+  }
 }
