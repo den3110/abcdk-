@@ -85,23 +85,19 @@ function extToFilename(contentType, idx) {
   return `cccd_${idx}.${ext}`;
 }
 
-async function runCedrusOcr(buffer, contentType, idx = 0) {
+async function runCedrusOcrOnce(buffer, contentType, idx = 0) {
   const form = new FormData();
   form.append("file", buffer, {
     filename: extToFilename(contentType, idx),
     contentType,
   });
-
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), CEDRUS_TIMEOUT_MS);
   try {
     const r = await fetch(`${CEDRUS_URL}/upload`, {
       method: "POST",
       body: form,
-      headers: {
-        Accept: "application/json",
-        ...form.getHeaders(),
-      },
+      headers: { Accept: "application/json", ...form.getHeaders() },
       signal: controller.signal,
     });
     const status = r.status;
@@ -125,6 +121,30 @@ async function runCedrusOcr(buffer, contentType, idx = 0) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+const CEDRUS_RETRIES = Math.max(0, Number(process.env.CEDRUS_OCR_RETRIES || 2));
+async function runCedrusOcr(buffer, contentType, idx = 0) {
+  let lastErr;
+  for (let attempt = 0; attempt <= CEDRUS_RETRIES; attempt++) {
+    try {
+      return await runCedrusOcrOnce(buffer, contentType, idx);
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err?.message || err);
+      const retriable =
+        /ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|fetch failed|socket hang up|timeout|aborted|non-JSON|HTTP 5\d\d/i.test(
+          msg,
+        );
+      if (!retriable || attempt === CEDRUS_RETRIES) throw err;
+      const backoff = 800 * Math.pow(2, attempt);
+      console.warn(
+        `[cedrus] attempt ${attempt + 1}/${CEDRUS_RETRIES + 1} failed (${msg.slice(0, 100)}), retry sau ${backoff}ms`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, backoff));
+    }
+  }
+  throw lastErr;
 }
 
 // ---------- PARSER ----------
@@ -286,15 +306,37 @@ function cleanValue(v) {
     .trim() || null;
 }
 
+// Tiêu đề CCCD chuẩn — không được nhận nhầm thành họ tên khi fallback dòng HOA.
+const CCCD_HEADER_PATTERNS = [
+  /^cong hoa/i,
+  /^socialist republic/i,
+  /^can cuoc/i,
+  /^citizen identity/i,
+  /^doc lap/i,
+  /^independence/i,
+  /^signature/i,
+  /^gioi tinh/i,
+  /^sex/i,
+  /^national/i,
+  /^nationality/i,
+  /^ho va ten/i,
+  /^full name/i,
+];
+function isCccdHeader(s) {
+  const n = stripVN(String(s || "")).toLowerCase().trim();
+  return CCCD_HEADER_PATTERNS.some((rx) => rx.test(n));
+}
+
 function pickFullName(lines) {
   const v = findByLabels(lines, LABELS.fullName, { maxJoin: 1 });
-  if (v) return cleanValue(v);
-  // fallback: dòng viết HOA hết, không chứa số, không phải label
+  if (v && !isCccdHeader(v)) return cleanValue(v);
+  // fallback: dòng viết HOA hết, không chứa số, không phải label, không phải tiêu đề
   for (const raw of lines) {
     const s = raw.trim();
     if (!s || s.length < 4) continue;
     if (/\d/.test(s)) continue;
     if (s !== s.toUpperCase()) continue;
+    if (isCccdHeader(s)) continue;
     const norm = stripVN(s).toLowerCase();
     const isLabel = Object.values(LABELS).some((arr) =>
       arr.some((l) => norm.startsWith(stripVN(l).toLowerCase())),
