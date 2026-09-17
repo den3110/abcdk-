@@ -178,10 +178,13 @@ function isPseudoValue(s) {
 function stripEnglishHint(tail) {
   if (!tail) return "";
   let t = tail;
+  // OCR thường nhận nhầm ký hiệu ở đầu label ("|" → "1"/"l"/"I"),
+  // cho phép các ký tự nhiễu trước tên label.
   for (const l of EN_LABEL_HINTS_STRIP) {
-    // strip prefix "/ Full name:" hoặc "Full name" ở đầu
     const rx = new RegExp(
-      "^\\s*[/|]?\\s*" + l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*[:.\\-]*\\s*",
+      "^\\s*[/|IlL1\\d]{0,3}\\s*" +
+        l.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") +
+        "\\s*[:.\\-]*\\s*",
       "i",
     );
     t = t.replace(rx, "");
@@ -190,7 +193,7 @@ function stripEnglishHint(tail) {
 }
 
 function findByLabels(lines, labels, opts = {}) {
-  const { maxJoin = 2 } = opts;
+  const { maxJoin = 2, joinAlways = false } = opts;
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
     const norm = stripVN(raw).toLowerCase();
@@ -198,27 +201,24 @@ function findByLabels(lines, labels, opts = {}) {
       const key = stripVN(label).toLowerCase();
       const pos = norm.indexOf(key);
       if (pos === -1) continue;
-      // 1) Ưu tiên tail cùng dòng — dùng key.length (bản normalized) để không lệch
-      //    khi label VN có dấu (dấu tổ hợp — cùng chiều dài ký tự nhưng khác cách
-      //    trình bày tuỳ nguồn).
+      // Tail cùng dòng — dùng key.length (bản normalized).
       let tail = raw.slice(pos + key.length);
-      // Nếu ký tự cuối của key bị dấu tổ hợp trong raw → có thể phải bù 1 ký tự.
-      // Đơn giản: chỉ giữ tail và strip EN hint / dấu.
       tail = stripEnglishHint(tail.replace(/^[\s:.\-–—/|]+/, "").trim());
-      if (!isPseudoValue(tail)) return tail;
-      // 2) Ghép các dòng tiếp theo (đến maxJoin dòng)
+      // Với label địa chỉ (joinAlways): LUÔN ghép các dòng tiếp theo để lấy đủ
+      // số nhà → phường → quận → tỉnh. Với label khác: nếu tail có value thì trả.
+      if (!joinAlways && !isPseudoValue(tail)) return tail;
       const parts = [];
+      if (!isPseudoValue(tail)) parts.push(tail);
       for (let j = 1; j <= maxJoin && i + j < lines.length; j++) {
         const nxt = lines[i + j].trim();
         if (!nxt) continue;
         const nxtNorm = stripVN(nxt).toLowerCase();
-        // Dừng khi gặp label khác (label thuộc set LABELS)
+        // Dừng khi gặp label khác (thuộc set LABELS)
         const hitOther = Object.entries(LABELS).some(([k, arr]) => {
           if (arr === labels) return false;
           return arr.some((l) => nxtNorm.startsWith(stripVN(l).toLowerCase()));
         });
         if (hitOther) break;
-        // Bỏ qua dòng cả là pseudo (chỉ EN hint / dấu / rỗng)
         if (isPseudoValue(nxt)) continue;
         parts.push(nxt);
       }
@@ -345,8 +345,8 @@ function parseCccdFromText(text) {
     }
   }
 
-  const hometown = cleanValue(findByLabels(rawLines, LABELS.hometown, { maxJoin: 3 }));
-  const residence = cleanValue(findByLabels(rawLines, LABELS.residence, { maxJoin: 5 }));
+  const hometown = cleanValue(findByLabels(rawLines, LABELS.hometown, { maxJoin: 4, joinAlways: true }));
+  const residence = cleanValue(findByLabels(rawLines, LABELS.residence, { maxJoin: 6, joinAlways: true }));
   const issuePlace = cleanValue(findByLabels(rawLines, LABELS.issuePlace, { maxJoin: 1 }));
 
   return {
