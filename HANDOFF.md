@@ -1,4 +1,6 @@
 > ## 🆕 Session 2026-09-17 — MLP DreamBreaker rotate combined + Admin Thống kê truy cập + MLP đếm đội pending
+> - **⭐ CCCD OCR chuyển sang Cedrus (tự host) — tiết kiệm token Claude:** endpoint public `POST https://ocr.cedrus.dev/upload` (multipart `file`) trả `{ ocr_result, ocr_boxes }`. Tạo `backend/services/ocr/cedrusCccdExtractor.js` (parser tiếng Việt + label song ngữ, tách dòng, phân biệt DOB vs expiry) + `cccdCommon.js` (helpers). Sửa `claudeCccdExtractor.js`: `openaiExtractFromDataUrl` & `extractCccdProfileFieldsFromDataUrl` trở thành DISPATCHER theo env `CCCD_OCR_PROVIDER=cedrus|claude|auto` (default `cedrus`). Fallback Claude khi Cedrus fail hoặc thiếu ≥2 field trọng yếu (bật/tắt bằng `CCCD_OCR_FALLBACK_CLAUDE`). **Call sites không phải sửa** (userController, cccd.controller, telegramNotifyKyc, openaiRoutes). Env mới: `CEDRUS_OCR_URL` (default `https://ocr.cedrus.dev`), `CEDRUS_OCR_TIMEOUT_MS` (45s). Đã verify prod: `/api/cccd/extract-openai` trả `_usage.provider="cedrus"`.
+
 >
 > **HEAD:** backend `abcdk-` master `c7c88fa1` · admin `abcde` master `711623a` · mobile `pickletour-app` **nhánh `feat/ui-v2-modern`** `ab6829b` (KHÔNG phải master). Đã deploy backend + web + admin + OTA iOS/Android.
 >
