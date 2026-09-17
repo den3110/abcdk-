@@ -405,19 +405,37 @@ export async function cedrusExtractFromDataUrl(imageOrDataUrls) {
 /**
  * Extract 5 field profile theo cùng contract với extractCccdProfileFieldsFromDataUrl (Claude).
  */
+function cleanAddressChunk(v) {
+  if (!v) return "";
+  return String(v)
+    // Bóc các prefix EN dính vào đầu chuỗi (I Place of residence: 15 …)
+    .replace(/^[^\p{L}\d]*(?:Place of residence|Place of origin|Nơi cư trú|Nơi thường trú|Quê quán)\s*[:.\-]?\s*/iu, "")
+    .replace(/^[\s:.\-–—/|]+/, "")
+    .trim();
+}
+function pickProvince(rawAddr) {
+  const cleaned = cleanAddressChunk(rawAddr);
+  if (!cleaned) return "";
+  const parts = cleaned.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) return "";
+  // Ưu tiên phần bắt đầu bằng "Tỉnh"/"Thành phố"/"TP"; nếu không có → phần cuối
+  const withPrefix = parts.find((p) => /^(?:tỉnh|thành phố|tp\.?)\s+/i.test(stripVN(p)));
+  return (withPrefix || parts[parts.length - 1] || "").trim();
+}
+
 export async function cedrusExtractCccdProfileFieldsFromDataUrl(imageOrDataUrls) {
   const r = await cedrusExtractFromDataUrl(imageOrDataUrls);
   const d = r.raw || {};
   // Chuẩn hoá gender
   const g = normalizeSex(d.sex);
   const gender = g === "Nam" ? "male" : g === "Nữ" ? "female" : "unspecified";
-  // province: lấy phần cuối cùng của residence hoặc hometown (thường là tỉnh/thành)
-  const rawAddr = d.residence || d.hometown || "";
-  const parts = String(rawAddr)
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const province = parts.length ? parts[parts.length - 1] : "";
+  // province: ưu tiên residence có nhiều thành phần; nếu residence bể/thiếu → hometown.
+  let province = pickProvince(d.residence);
+  if (!province || province.length < 2 || province === cleanAddressChunk(d.residence)) {
+    const fromHome = pickProvince(d.hometown);
+    if (fromHome) province = fromHome;
+  }
+  // Nếu vẫn chỉ có 1 chunk và không kèm "Tỉnh/TP" → giữ nguyên (tốt hơn rỗng)
 
   return {
     name: (d.fullName || r.fullName || "").trim(),
