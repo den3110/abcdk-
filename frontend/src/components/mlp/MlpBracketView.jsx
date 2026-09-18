@@ -4,6 +4,9 @@
 // - Nếu flat mode: render duals theo round như cũ.
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
+import { useState } from "react";
+import MlpTeamPoolsDialog from "./MlpTeamPoolsDialog";
 import {
   Alert,
   Avatar,
@@ -481,6 +484,17 @@ function KnockoutBracket({ rounds, onOpenDual }) {
 
 export default function MlpBracketView({ tourId, tour }) {
   const navigate = useNavigate();
+  const userInfo = useSelector((st) => st?.auth?.userInfo);
+  const canManage = (() => {
+    if (!userInfo) return false;
+    if (userInfo?.role === "admin" || userInfo?.isAdmin) return true;
+    const uid = String(userInfo?._id || userInfo?.id || "");
+    if (!uid || !tour) return false;
+    if (String(tour?.createdBy?._id ?? tour?.createdBy) === uid) return true;
+    const mgrs = Array.isArray(tour?.managers) ? tour.managers : [];
+    return mgrs.some((m) => String(m?.user?._id ?? m?.user ?? m) === uid);
+  })();
+  const [poolsDlgOpen, setPoolsDlgOpen] = useState(false);
   const { data: dualsResp, isLoading: dLoading } = useListMlpDualsQuery(
     { tourId },
     { skip: !tourId, refetchOnFocus: true },
@@ -568,7 +582,20 @@ export default function MlpBracketView({ tourId, tour }) {
   };
 
   return (
-    <Box sx={{ p: { xs: 1.5, md: 3 } }}>
+    <>
+      {canManage ? (
+        <Box sx={{ display: "flex", justifyContent: "flex-end", px: { xs: 1.5, md: 3 }, pt: { xs: 1.5, md: 3 } }}>
+          <Button
+            variant="outlined"
+            color="secondary"
+            size="small"
+            onClick={() => setPoolsDlgOpen(true)}
+          >
+            Thêm / Chuyển đội
+          </Button>
+        </Box>
+      ) : null}
+      <Box sx={{ p: { xs: 1.5, md: 3 } }}>
       {/* Header */}
       <Stack
         direction={{ xs: "column", md: "row" }}
@@ -737,5 +764,11 @@ export default function MlpBracketView({ tourId, tour }) {
         </Grid>
       )}
     </Box>
+      <MlpTeamPoolsDialog
+        open={poolsDlgOpen}
+        onClose={() => setPoolsDlgOpen(false)}
+        tourId={tourId}
+      />
+    </>
   );
 }

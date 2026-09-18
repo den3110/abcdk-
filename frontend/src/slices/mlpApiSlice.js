@@ -268,6 +268,19 @@ export const mlpApiSlice = apiSlice.injectEndpoints({
         { type: "MlpStandings", id: "LIST" },
       ],
     }),
+    patchMlpTeamPool: builder.mutation({
+      query: ({ tourId, teamId, ...body }) => ({
+        url: `/api/mlp/tournaments/${tourId}/teams/${teamId}/pool`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (r, e, { tourId }) => [
+        { type: "MlpTeam", id: tourId },
+        { type: "MlpDual", id: tourId },
+        { type: "MlpPools", id: tourId },
+        { type: "MlpStandings", id: tourId },
+      ],
+    }),
     checkInMlpDual: builder.mutation({
       query: ({ dualId, side }) => ({
         url: `/api/mlp/duals/${dualId}/check-in`,
@@ -310,4 +323,5 @@ export const {
   useResetMlpPoolsMutation,
   useBroadcastMlpLiveDrawMutation,
   useResetMlpTournamentMutation,
+  usePatchMlpTeamPoolMutation,
 } = mlpApiSlice;
