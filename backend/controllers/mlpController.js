@@ -1758,6 +1758,71 @@ export const updateMlpTeam = asyncHandler(async (req, res) => {
   res.json(doc);
 });
 
+// PATCH /api/mlp/tournaments/:tid/teams/:teamId/pool
+// body: { poolIndex?: number, poolKey?: "A".."Z", seed?: number }
+// Cho phép admin/manager gán/đổi/rời bảng cho 1 team MLP sau khi đã bốc thăm.
+// LƯU Ý: chỉ update team; lịch dual matches KHÔNG tự động regen — người dùng
+// bấm "Sinh lại dual" (generateMlpDuals) sau khi hoàn tất thao tác.
+export const patchMlpTeamPool = asyncHandler(async (req, res) => {
+  const tour = await Tournament.findById(req.params.tid);
+  if (!tour) {
+    res.status(404);
+    throw new Error("Giải không tồn tại");
+  }
+  if (!canManageTournament(req.user, tour)) {
+    res.status(403);
+    throw new Error("Không có quyền");
+  }
+  if (String(tour.tournamentMode || "").toLowerCase() !== "mlp") {
+    res.status(400);
+    throw new Error("Giải này không phải MLP");
+  }
+  const team = await MlpTeam.findOne({
+    _id: req.params.teamId,
+    tournament: tour._id,
+  });
+  if (!team) {
+    res.status(404);
+    throw new Error("Không tìm thấy đội");
+  }
+  const body = req.body || {};
+  let poolIndex = null;
+  if (Number.isFinite(Number(body.poolIndex))) {
+    poolIndex = Number(body.poolIndex);
+  } else if (typeof body.poolKey === "string") {
+    const k = String(body.poolKey).toUpperCase();
+    if (/^[A-Z]$/.test(k)) poolIndex = k.charCodeAt(0) - 65;
+  }
+  const isRemove = body.poolKey === null || body.poolIndex === null;
+  if (isRemove) {
+    team.poolKey = null;
+    team.poolIndex = null;
+    team.seed = null;
+  } else {
+    if (poolIndex == null || poolIndex < 0 || poolIndex >= 26) {
+      res.status(400);
+      throw new Error("poolKey/poolIndex không hợp lệ");
+    }
+    team.poolKey = poolKeyFromIndex(poolIndex);
+    team.poolIndex = poolIndex;
+    if (Number.isFinite(Number(body.seed))) {
+      team.seed = Math.max(1, Math.min(99, Number(body.seed)));
+    } else if (team.seed == null) {
+      // Auto seed = số team hiện tại trong pool + 1
+      const cnt = await MlpTeam.countDocuments({
+        tournament: tour._id,
+        poolIndex,
+        status: "approved",
+        _id: { $ne: team._id },
+      });
+      team.seed = cnt + 1;
+    }
+  }
+  await team.save();
+  res.json({ team, needRegenerate: true });
+});
+
+
 // DELETE /api/mlp/teams/:id — captain rút, admin xoá
 export const deleteMlpTeam = asyncHandler(async (req, res) => {
   const doc = await MlpTeam.findById(req.params.id);

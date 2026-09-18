@@ -7,6 +7,7 @@ import {
   listMlpTeams,
   getMlpTeam,
   updateMlpTeam,
+  patchMlpTeamPool,
   deleteMlpTeam,
   generateMlpDuals,
   generateMlpKnockout,
@@ -48,6 +49,11 @@ router.get("/tournaments/:tid/teams", optionalAuth, listMlpTeams);
 router.post("/tournaments/:tid/teams", protect, createMlpTeam);
 router.get("/teams/:id", optionalAuth, getMlpTeam);
 router.patch("/teams/:id", protect, updateMlpTeam);
+router.patch(
+  "/tournaments/:tid/teams/:teamId/pool",
+  protect,
+  patchMlpTeamPool,
+);
 router.delete("/teams/:id", protect, deleteMlpTeam);
 
 // Duals
