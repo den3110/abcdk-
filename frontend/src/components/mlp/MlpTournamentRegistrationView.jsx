@@ -863,6 +863,23 @@ function TeamFormDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
+        {(minMale > 0 || minFemale > 0) && (
+          <Chip
+            size="small"
+            color={genderOk ? "success" : "warning"}
+            variant="outlined"
+            label={
+              genderOk
+                ? `Nam ${genderCounts.male}/${minMale} · Nữ ${genderCounts.female}/${minFemale} ✓`
+                : `Cần thêm ${
+                    genderShort.male > 0 ? `${genderShort.male} nam` : ""
+                  }${genderShort.male > 0 && genderShort.female > 0 ? ", " : ""}${
+                    genderShort.female > 0 ? `${genderShort.female} nữ` : ""
+                  } (Nam ${genderCounts.male}/${minMale} · Nữ ${genderCounts.female}/${minFemale})`
+            }
+            sx={{ mr: 1, height: 26, fontWeight: 700 }}
+          />
+        )}
         <Button onClick={onClose}>Huỷ</Button>
         <Button
           variant="contained"
