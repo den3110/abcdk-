@@ -128,9 +128,12 @@ const MlpGroupStageSchema = new mongoose.Schema(
 
 const MlpConfigSchema = new mongoose.Schema(
   {
-    // Roster limits — BTC không ép giới tính, chỉ min/max size.
+    // Roster limits: min/max VĐV. Có thể ép ngưỡng tối thiểu Nam/Nữ.
     minRosterSize: { type: Number, default: 4, min: 1, max: 30 },
     maxRosterSize: { type: Number, default: 8, min: 1, max: 30 },
+    // Số VĐV Nam/Nữ tối thiểu trong roster (0 = không ép).
+    minMalePlayers: { type: Number, default: 0, min: 0, max: 30 },
+    minFemalePlayers: { type: Number, default: 0, min: 0, max: 30 },
     // Trần tổng điểm trình ĐÔI của roster; null = không giới hạn.
     maxTeamScore: { type: Number, default: null, min: 0 },
     // Danh sách sub-matches trong 1 dual match (thứ tự = order).

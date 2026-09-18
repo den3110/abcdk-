@@ -48,6 +48,8 @@ const DEFAULT_SLOT = {
 export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
   const [minRoster, setMinRoster] = useState(4);
   const [maxRoster, setMaxRoster] = useState(8);
+  const [minMale, setMinMale] = useState(0);
+  const [minFemale, setMinFemale] = useState(0);
   const [maxTeamScore, setMaxTeamScore] = useState("");
   const [slots, setSlots] = useState([]);
   const [pointsToWin, setPointsToWin] = useState(21);
@@ -73,6 +75,8 @@ export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
     const cfg = tour?.mlpConfig || {};
     setMinRoster(clampInt(cfg.minRosterSize ?? 4, 1, 30));
     setMaxRoster(clampInt(cfg.maxRosterSize ?? 8, 1, 30));
+    setMinMale(clampInt(cfg.minMalePlayers ?? 0, 0, 30));
+    setMinFemale(clampInt(cfg.minFemalePlayers ?? 0, 0, 30));
     setMaxTeamScore(
       cfg.maxTeamScore != null && cfg.maxTeamScore !== ""
         ? String(cfg.maxTeamScore)
@@ -173,6 +177,8 @@ export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
         tourId: tour?._id,
         minRosterSize: minRoster,
         maxRosterSize: maxRoster,
+        minMalePlayers: minMale,
+        minFemalePlayers: minFemale,
         maxTeamScore: parsedMaxScore,
         slots: slots.map((s, i) => ({ ...s, order: i })),
         pointsToWin,
@@ -245,6 +251,28 @@ export default function MlpConfigDialog({ open, onClose, tour, onSaved }) {
               placeholder="Bỏ trống = không giới hạn"
               helperText="Tổng điểm ĐÔI của các VĐV trong roster không vượt quá giá trị này"
               inputProps={{ min: 0, step: 0.1 }}
+              fullWidth
+            />
+          </Stack>
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <TextField
+              size="small"
+              label="VĐV Nam tối thiểu"
+              type="number"
+              value={minMale}
+              onChange={(e) => setMinMale(clampInt(e.target.value, 0, 30))}
+              inputProps={{ min: 0, max: 30 }}
+              helperText="0 = không ép giới tính"
+              fullWidth
+            />
+            <TextField
+              size="small"
+              label="VĐV Nữ tối thiểu"
+              type="number"
+              value={minFemale}
+              onChange={(e) => setMinFemale(clampInt(e.target.value, 0, 30))}
+              inputProps={{ min: 0, max: 30 }}
+              helperText="0 = không ép giới tính"
               fullWidth
             />
           </Stack>

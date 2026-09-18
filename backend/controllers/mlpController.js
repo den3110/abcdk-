@@ -169,6 +169,40 @@ async function computeTeamDoubleScore(playerIds) {
   return Math.round(sum * 1000) / 1000;
 }
 
+// Throw 400 nếu roster không đạt số VĐV Nam/Nữ tối thiểu cấu hình.
+// 0 = không ép. Chỉ đếm User.gender ∈ {"male","female"}.
+async function assertRosterGender(res, players, cfg) {
+  const minMale = Math.max(0, Number(cfg?.minMalePlayers || 0));
+  const minFemale = Math.max(0, Number(cfg?.minFemalePlayers || 0));
+  if (!minMale && !minFemale) return;
+  const ids = (players || [])
+    .filter((v) => mongoose.isValidObjectId(v))
+    .map((v) => String(v));
+  if (!ids.length) return;
+  const users = await User.find({ _id: { $in: ids } })
+    .select("_id gender")
+    .lean();
+  let male = 0;
+  let female = 0;
+  for (const u of users) {
+    const g = String(u?.gender || "").toLowerCase();
+    if (g === "male" || g === "m" || g === "nam") male += 1;
+    else if (g === "female" || g === "f" || g === "nu" || g === "nữ") female += 1;
+  }
+  if (minMale && male < minMale) {
+    res.status(400);
+    throw new Error(
+      `Cần tối thiểu ${minMale} VĐV nam trong roster (hiện có ${male}).`,
+    );
+  }
+  if (minFemale && female < minFemale) {
+    res.status(400);
+    throw new Error(
+      `Cần tối thiểu ${minFemale} VĐV nữ trong roster (hiện có ${female}).`,
+    );
+  }
+}
+
 // Throw 400 nếu tổng điểm ĐÔI của roster vượt cap. cap = null/0 → bỏ qua.
 async function assertMaxTeamScore(res, players, cfg) {
   const cap = Number(cfg?.maxTeamScore);
@@ -1396,6 +1430,13 @@ export const updateMlpConfig = asyncHandler(async (req, res) => {
     cfg.minRosterSize = Math.max(1, Math.min(30, Number(body.minRosterSize)));
   if (Number.isFinite(Number(body.maxRosterSize)))
     cfg.maxRosterSize = Math.max(1, Math.min(30, Number(body.maxRosterSize)));
+  if (Number.isFinite(Number(body.minMalePlayers)))
+    cfg.minMalePlayers = Math.max(0, Math.min(30, Number(body.minMalePlayers)));
+  if (Number.isFinite(Number(body.minFemalePlayers)))
+    cfg.minFemalePlayers = Math.max(
+      0,
+      Math.min(30, Number(body.minFemalePlayers)),
+    );
   if (Object.prototype.hasOwnProperty.call(body, "maxTeamScore")) {
     const raw = body.maxTeamScore;
     if (raw == null || raw === "") {
@@ -1525,6 +1566,7 @@ export const createMlpTeam = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error(`Roster tối đa ${maxSize} VĐV`);
   }
+  await assertRosterGender(res, players, cfg);
   await assertMaxTeamScore(res, players, cfg);
   if (!body.name || !String(body.name).trim()) {
     res.status(400);
@@ -1658,6 +1700,7 @@ export const updateMlpTeam = asyncHandler(async (req, res) => {
       res.status(400);
       throw new Error(`Roster tối đa ${maxSize} VĐV`);
     }
+    await assertRosterGender(res, players, cfg);
     await assertMaxTeamScore(res, players, cfg);
     // Conflict với team khác
     const conflict = await MlpTeam.findOne({
