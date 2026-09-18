@@ -548,6 +548,8 @@ function TeamFormDialog({
   loading,
   minRoster,
   maxRoster,
+  minMale = 0,
+  minFemale = 0,
   maxTeamScore = null,
 }) {
   const isEdit = !!team;
@@ -612,11 +614,29 @@ function TeamFormDialog({
   );
   const overCap = maxTeamScore != null && totalDouble > maxTeamScore;
 
+  const genderCounts = useMemo(() => {
+    let male = 0;
+    let female = 0;
+    for (const p of players) {
+      const g = String(p?.gender || "").toLowerCase();
+      if (g === "male" || g === "m" || g === "nam") male += 1;
+      else if (g === "female" || g === "f" || g === "nu" || g === "nữ") female += 1;
+    }
+    return { male, female };
+  }, [players]);
+  const genderShort = {
+    male: Math.max(0, minMale - genderCounts.male),
+    female: Math.max(0, minFemale - genderCounts.female),
+  };
+  const genderOk =
+    genderCounts.male >= minMale && genderCounts.female >= minFemale;
+
   const canSubmit =
     !!name.trim() &&
     players.length >= minRoster &&
     players.length <= maxRoster &&
-    !overCap;
+    !overCap &&
+    genderOk;
 
   const handleSubmit = () =>
     onSubmit({
