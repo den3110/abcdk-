@@ -134,7 +134,7 @@ def build_ffmpeg_args(overlay_path, has_audio, tee):
     ]
     fc = base
     if overlay_path:
-        args += ["-thread_queue_size", "64", "-f", "image2", "-loop", "1",
+        args += ["-thread_queue_size", "512", "-f", "image2", "-loop", "1",
                  "-framerate", "2", "-i", overlay_path]
         fc += "[base];[base][1:v]overlay=0:0:eof_action=pass[vout]"
     else:

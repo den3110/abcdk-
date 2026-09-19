@@ -47,26 +47,14 @@ export async function loadOverlayData(courtStationId) {
   let match = null;
   let tournament = null;
   if (currentMatchId) {
+    // Registration nhúng player1/player2 (playerSchema: fullName, nickName)
+    // — KHÔNG phải ref User, populate lồng sẽ ghi đè thành null.
     match = await Match.findById(currentMatchId)
       .select(
         "_id status pairA pairB gameScores currentGame serve rules tournament code labelKey stageIndex startedAt"
       )
-      .populate({
-        path: "pairA",
-        select: "_id label teamName seed player1 player2",
-        populate: [
-          { path: "player1", select: "name nickname avatar" },
-          { path: "player2", select: "name nickname avatar" },
-        ],
-      })
-      .populate({
-        path: "pairB",
-        select: "_id label teamName seed player1 player2",
-        populate: [
-          { path: "player1", select: "name nickname avatar" },
-          { path: "player2", select: "name nickname avatar" },
-        ],
-      })
+      .populate({ path: "pairA", select: "_id label teamName seed player1 player2" })
+      .populate({ path: "pairB", select: "_id label teamName seed player1 player2" })
       .lean();
     if (match?.tournament) {
       tournament = await Tournament.findById(match.tournament)
@@ -78,13 +66,19 @@ export async function loadOverlayData(courtStationId) {
   return { station, match, tournament };
 }
 
+function playerLabel(p) {
+  if (!p) return "";
+  return String(p.nickName || p.nickname || p.fullName || p.name || "").trim();
+}
+
 function pairShortName(pair) {
   if (!pair) return "—";
-  if (pair.teamName) return pair.teamName;
-  const p1 = pair.player1?.nickname || pair.player1?.name || "";
-  const p2 = pair.player2?.nickname || pair.player2?.name || "";
+  const team = String(pair.teamName || "").trim();
+  if (team) return team;
+  const p1 = playerLabel(pair.player1);
+  const p2 = playerLabel(pair.player2);
   if (p1 && p2) return `${p1} / ${p2}`;
-  return p1 || p2 || pair.label || "—";
+  return p1 || p2 || String(pair.label || "").trim() || "—";
 }
 
 function setWins(gameScores = [], rules = {}) {

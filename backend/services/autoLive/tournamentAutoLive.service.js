@@ -26,7 +26,7 @@ import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionMod
 import { decryptToken } from "../secret.service.js";
 import { loadOverlayData, renderOverlayPng } from "./overlayRenderer.service.js";
 import { getValidPageToken } from "../fbTokenService.js";
-import { fbCreateLiveOnPage, fbGetLiveVideo } from "../facebookLive.service.js";
+import { fbCreateLiveOnPage, fbGetLiveVideo, fbEndLiveVideo } from "../facebookLive.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -349,6 +349,16 @@ export async function stopAutoLive(sessionId) {
   }
   stopPoll(sessionId);
   registry.delete(String(sessionId));
+  // Kết thúc live FB để page không treo "đang phát" với hình đứng.
+  for (const d of session.destinations || []) {
+    if (d.type !== "fb" || !d.broadcastId || !d.pageId) continue;
+    try {
+      const token = await getValidPageToken(d.pageId);
+      await fbEndLiveVideo({ liveVideoId: d.broadcastId, pageAccessToken: token });
+    } catch (e) {
+      console.warn(`[auto-live] end FB live ${d.broadcastId} fail:`, e?.message || e);
+    }
+  }
   return session.toObject();
 }
 
