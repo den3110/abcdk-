@@ -74,30 +74,44 @@ def build_tee_output(destinations):
 
 
 # ── overlay / heartbeat ─────────────────────────────────────────────────
-def fetch_overlay(url, dest_path):
-    """Tải PNG → ghi .tmp → os.replace (atomic) để ffmpeg không đọc file dở."""
-    tmp = dest_path + ".tmp"
+def fetch_overlay_bytes(url):
+    """Tải PNG overlay → trả bytes (hoặc None)."""
     try:
         req = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
         data = urllib.request.urlopen(req, timeout=8).read()
         if not data or data[:8] != PNG_MAGIC:
-            return False
-        with open(tmp, "wb") as f:
-            f.write(data)
-        os.replace(tmp, dest_path)
-        return True
+            return None
+        return data
     except Exception as e:  # noqa: BLE001
         log(f"overlay fetch fail: {e}", err=True)
-        return False
+        return None
 
 
-def overlay_loop(url, dest_path, stop_event, interval_s=1.0):
-    while not stop_event.is_set():
-        fetch_overlay(url, dest_path)
-        for _ in range(int(interval_s * 10)):
-            if stop_event.is_set():
-                return
-            time.sleep(0.1)
+def overlay_writer(url, fifo_path, stop_event, done_event, fps=2.0):
+    """Ghi liên tiếp PNG mới vào FIFO cho ffmpeg image2pipe decode → overlay
+    (điểm số) cập nhật thật. open() chặn tới khi ffmpeg mở đầu đọc; ffmpeg chết
+    → BrokenPipe → thoát để attempt sau tạo writer mới. done_event báo kết thúc."""
+    interval = 1.0 / max(0.5, fps)
+    last = None
+    try:
+        with open(fifo_path, "wb") as f:
+            while not stop_event.is_set():
+                data = fetch_overlay_bytes(url)
+                if data:
+                    last = data
+                if last:
+                    try:
+                        f.write(last); f.flush()
+                    except BrokenPipeError:
+                        break
+                for _ in range(int(interval * 10)):
+                    if stop_event.is_set():
+                        break
+                    time.sleep(0.1)
+    except OSError:
+        pass
+    finally:
+        done_event.set()
 
 
 def post_json(url, token, payload, timeout=8):
@@ -207,11 +221,15 @@ def probe_has_audio(buf):
         return False
 
 
-def build_ffmpeg_args(overlay_path, has_audio, tee):
+def build_ffmpeg_args(overlay_fifo, has_audio, tee):
     # Cam Imou có thể xuất 2K (2560x1440@20fps): scale về 1080p TRƯỚC khi
     # chồng overlay (PNG vẽ theo 1920x1080). -r 25 + GOP 50 = keyframe 2s.
     # PTS gốc của DHAV (không wallclock) — prebuffer ghi dồn sẽ không bị dồn
     # timestamp. Audio im lặng tạo TRONG filter_complex để cùng đồng hồ graph.
+    #
+    # OVERLAY LIVE: image2 -loop KHÔNG đọc lại file khi ghi đè (ffmpeg cache
+    # frame đã decode) → điểm số đứng yên. Dùng FIFO + image2pipe: worker ghi
+    # PNG mới ~2fps vào pipe, ffmpeg decode từng frame → điểm cập nhật thật.
     base = ("[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
     args = [
@@ -219,9 +237,9 @@ def build_ffmpeg_args(overlay_path, has_audio, tee):
         "-thread_queue_size", "512", "-f", "dhav", "-i", "pipe:0",
     ]
     fc = base
-    if overlay_path:
-        args += ["-thread_queue_size", "512", "-f", "image2", "-loop", "1",
-                 "-framerate", "2", "-i", overlay_path]
+    if overlay_fifo:
+        args += ["-thread_queue_size", "512", "-f", "image2pipe",
+                 "-framerate", "2", "-i", overlay_fifo]
         fc += "[base];[base][1:v]overlay=0:0:eof_action=pass[vout]"
     else:
         fc += "[vout]"
@@ -240,9 +258,10 @@ def build_ffmpeg_args(overlay_path, has_audio, tee):
     return args
 
 
-def run_stream_once(dev, overlay_path, tee, stop_event, ff_holder):
+def run_stream_once(dev, overlay_fifo, overlay_url, tee, stop_event, ff_holder):
     """Mở stream + ffmpeg, bơm tới khi stream hết / ffmpeg chết / stop.
-    Trả (seconds_streamed, ffmpeg_rc)."""
+    overlay_fifo/overlay_url != None → chạy writer thread ghi PNG vào FIFO cho
+    ffmpeg image2pipe (overlay cập nhật live). Trả (seconds_streamed, rc)."""
     t_start = time.monotonic()
     with dev.open_rtsp(with_audio=True) as rtsp:
         it = iter(rtsp)
@@ -255,10 +274,18 @@ def run_stream_once(dev, overlay_path, tee, stop_event, ff_holder):
         if not pre:
             raise RuntimeError("relay trả 0 byte")
         has_audio = probe_has_audio(bytes(pre))
-        args = build_ffmpeg_args(overlay_path, has_audio, tee)
-        log(f"spawning ffmpeg overlay={bool(overlay_path)} audio={has_audio} prebuf={len(pre)}B")
+        args = build_ffmpeg_args(overlay_fifo, has_audio, tee)
+        log(f"spawning ffmpeg overlay={bool(overlay_fifo)} audio={has_audio} prebuf={len(pre)}B")
         ff = subprocess.Popen(args, stdin=subprocess.PIPE)
         ff_holder[0] = ff
+        ow_stop = threading.Event()
+        ow_done = threading.Event()
+        ow_thread = None
+        if overlay_fifo and overlay_url:
+            ow_thread = threading.Thread(
+                target=overlay_writer, args=(overlay_url, overlay_fifo, ow_stop, ow_done),
+                daemon=True)
+            ow_thread.start()
         try:
             ff.stdin.write(bytes(pre))
             del pre
@@ -271,6 +298,16 @@ def run_stream_once(dev, overlay_path, tee, stop_event, ff_holder):
                     log("ffmpeg stdin broken", err=True)
                     break
         finally:
+            ow_stop.set()
+            # Mở FIFO đọc-nonblock để writer đang chặn ở open()/write() thoát ra
+            try:
+                fd = os.open(overlay_fifo, os.O_RDONLY | os.O_NONBLOCK) if overlay_fifo else None
+                if fd is not None:
+                    try: os.read(fd, 65536)
+                    except OSError: pass
+                    os.close(fd)
+            except OSError:
+                pass
             try: ff.stdin.close()
             except Exception: pass
             try:
@@ -278,6 +315,8 @@ def run_stream_once(dev, overlay_path, tee, stop_event, ff_holder):
             except subprocess.TimeoutExpired:
                 ff.kill(); rc = ff.wait()
             ff_holder[0] = None
+            if ow_thread:
+                ow_done.wait(timeout=3)
     return time.monotonic() - t_start, rc
 
 
@@ -332,15 +371,23 @@ def main():
     except ImportError:
         log("imou-pkg chưa cài (pip install /opt/imou-pkg).", err=True); sys.exit(4)
 
-    # Overlay: tải về file local trước (thử 10 lần). Không được thì vẫn lên
-    # sóng không overlay — thà live không điểm còn hơn chết.
-    overlay_path = os.path.join(work_dir, "overlay.png")
+    # Overlay: kiểm tra tải được không (thử 10 lần). FIFO cho ffmpeg image2pipe
+    # → điểm số cập nhật live (image2 -loop cache frame, không đọc lại file).
     have_overlay = False
     for _ in range(10):
-        if fetch_overlay(overlay_url, overlay_path):
+        if fetch_overlay_bytes(overlay_url):
             have_overlay = True
             break
         time.sleep(1)
+    overlay_fifo = os.path.join(work_dir, "overlay.pipe") if have_overlay else None
+    if overlay_fifo:
+        try:
+            if os.path.exists(overlay_fifo):
+                os.unlink(overlay_fifo)
+            os.mkfifo(overlay_fifo)
+        except OSError as e:
+            log(f"mkfifo fail: {e} → stream không overlay", err=True)
+            overlay_fifo = None
     if not have_overlay:
         log("overlay unavailable → stream without overlay", err=True)
 
@@ -359,9 +406,6 @@ def main():
     signal.signal(signal.SIGTERM, cleanup)
     signal.signal(signal.SIGINT, cleanup)
 
-    if have_overlay:
-        threading.Thread(target=overlay_loop, args=(overlay_url, overlay_path, stop_event),
-                         daemon=True).start()
     threading.Thread(target=heartbeat_loop,
                      args=(heartbeat_url, worker_token, session_id, stop_event), daemon=True).start()
 
@@ -371,7 +415,7 @@ def main():
         try:
             dev = access.device(device_id)
             streamed_s, last_rc = run_stream_once(
-                dev, overlay_path if have_overlay else None, tee, stop_event, ff_holder)
+                dev, overlay_fifo, overlay_url, tee, stop_event, ff_holder)
             log(f"stream ended after {streamed_s:.0f}s ffmpeg rc={last_rc}")
             if stop_event.is_set():
                 break
