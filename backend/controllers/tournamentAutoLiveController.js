@@ -6,7 +6,15 @@ import VenueCourt from "../models/venueCourtModel.js";
 import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
+  refreshDestinationsForWorker,
 } from "../services/autoLive/tournamentAutoLive.service.js";
+
+// GET /api/tournament-auto-live/internal/destinations?sessionId= (worker token)
+export const internalRefreshDestinations = asyncHandler(async (req, res) => {
+  assertWorkerToken(req, res);
+  const dests = await refreshDestinationsForWorker(String(req.query?.sessionId || ""));
+  res.json({ destinations: dests || [] });
+});
 
 // GET /api/tournament-auto-live/internal/imou-session?sessionId=
 export const internalGetImouSession = asyncHandler(async (req, res) => {

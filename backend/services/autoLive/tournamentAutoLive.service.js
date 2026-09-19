@@ -471,6 +471,36 @@ export async function getImouSessionForWorker(sessionId) {
   return { ...sess, updatedAt: venue?.imouSession?.updatedAt || null };
 }
 
+/** Worker phải restart ffmpeg (ffmpeg chết) → tạo lại FB live_video (key mới,
+ *  FB không cho re-publish cùng key) và trả tee destinations mới. RTMP/YT giữ
+ *  nguyên. Cập nhật session.destinations + watchUrl. */
+export async function refreshDestinationsForWorker(sessionId) {
+  const session = await TournamentAutoLiveSession.findById(sessionId);
+  if (!session) return null;
+  const tournament = await Tournament.findById(session.tournament).select("name").lean();
+  const title = tournament?.name || "PickleTour Live";
+  const fresh = [];
+  for (const d of session.destinations || []) {
+    if (d.type === "fb") {
+      try {
+        const [n] = await prepareDestinations(
+          [{ type: "fb", pageId: d.pageId, pageName: d.pageName }], title);
+        fresh.push(n);
+      } catch (e) {
+        console.warn("[auto-live] refresh FB dest fail:", e?.message || e);
+        fresh.push(d); // giữ cũ (có thể vẫn fail nhưng không mất cấu hình)
+      }
+    } else {
+      fresh.push(d);
+    }
+  }
+  session.destinations = fresh;
+  await session.save();
+  return fresh.map((d) => ({
+    type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
+  }));
+}
+
 /** Worker relogin Imou xong → lưu session mới (camelCase, mã hoá) vào venue. */
 export async function saveImouSessionFromWorker(sessionId, sess) {
   const doc = await TournamentAutoLiveSession.findById(sessionId).select("venue").lean();

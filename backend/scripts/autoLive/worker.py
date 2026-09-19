@@ -234,6 +234,11 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
     args = [
         "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin",
+        # Đóng dấu thời gian theo wallclock để ĐỒNG HỒ liên tục khi mở lại
+        # nguồn Imou giữa chừng (relay cap ~18-35p) mà KHÔNG restart ffmpeg →
+        # kết nối FB không đứt. Đã kiểm chứng: 2 phiên rtsp nối vào 1 ffmpeg ra
+        # output liền mạch, monotonic.
+        "-use_wallclock_as_timestamps", "1", "-fflags", "+genpts",
         "-thread_queue_size", "512", "-f", "dhav", "-i", "pipe:0",
     ]
     fc = base
@@ -258,66 +263,99 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
     return args
 
 
-def run_stream_once(dev, overlay_fifo, overlay_url, tee, stop_event, ff_holder):
-    """Mở stream + ffmpeg, bơm tới khi stream hết / ffmpeg chết / stop.
-    overlay_fifo/overlay_url != None → chạy writer thread ghi PNG vào FIFO cho
-    ffmpeg image2pipe (overlay cập nhật live). Trả (seconds_streamed, rc)."""
-    t_start = time.monotonic()
-    with dev.open_rtsp(with_audio=True) as rtsp:
-        it = iter(rtsp)
-        pre = bytearray()
-        t0 = time.monotonic()
-        for chunk in it:
-            pre += chunk
-            if len(pre) >= PREBUFFER_BYTES or time.monotonic() - t0 > PREBUFFER_MAX_S:
-                break
-        if not pre:
-            raise RuntimeError("relay trả 0 byte")
-        has_audio = probe_has_audio(bytes(pre))
-        args = build_ffmpeg_args(overlay_fifo, has_audio, tee)
-        log(f"spawning ffmpeg overlay={bool(overlay_fifo)} audio={has_audio} prebuf={len(pre)}B")
-        ff = subprocess.Popen(args, stdin=subprocess.PIPE)
-        ff_holder[0] = ff
-        ow_stop = threading.Event()
-        ow_done = threading.Event()
-        ow_thread = None
-        if overlay_fifo and overlay_url:
-            ow_thread = threading.Thread(
-                target=overlay_writer, args=(overlay_url, overlay_fifo, ow_stop, ow_done),
-                daemon=True)
-            ow_thread.start()
+def probe_audio(dev):
+    """Mở 1 phiên rtsp ngắn để phát hiện có audio không (không dùng cho feed)."""
+    try:
+        with dev.open_rtsp(with_audio=True) as rtsp:
+            pre = bytearray()
+            t0 = time.monotonic()
+            for chunk in rtsp:
+                pre += chunk
+                if len(pre) >= PREBUFFER_BYTES or time.monotonic() - t0 > PREBUFFER_MAX_S:
+                    break
+            return probe_has_audio(bytes(pre))
+    except Exception as e:  # noqa: BLE001
+        log(f"probe_audio fail: {e}", err=True)
+        return False
+
+
+def feed_imou_into_ffmpeg(access, device_id, ff, stop_event):
+    """Bơm DHAV vào ff.stdin. Relay Imou cap phiên (~18-35p) → mở LẠI nguồn và
+    tiếp tục bơm vào CÙNG ffmpeg (FB không đứt). Trả:
+      "stop"        – user dừng
+      "ffmpeg_dead" – ffmpeg chết (BrokenPipe) → cần restart ffmpeg
+    """
+    idle_reopens = 0
+    while not stop_event.is_set():
         try:
-            ff.stdin.write(bytes(pre))
-            del pre
-            for chunk in it:
-                if stop_event.is_set():
-                    break
-                try:
-                    ff.stdin.write(chunk)
-                except BrokenPipeError:
-                    log("ffmpeg stdin broken", err=True)
-                    break
-        finally:
-            ow_stop.set()
-            # Mở FIFO đọc-nonblock để writer đang chặn ở open()/write() thoát ra
-            try:
-                fd = os.open(overlay_fifo, os.O_RDONLY | os.O_NONBLOCK) if overlay_fifo else None
-                if fd is not None:
-                    try: os.read(fd, 65536)
-                    except OSError: pass
-                    os.close(fd)
-            except OSError:
-                pass
-            try: ff.stdin.close()
-            except Exception: pass
-            try:
-                rc = ff.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                ff.kill(); rc = ff.wait()
-            ff_holder[0] = None
-            if ow_thread:
-                ow_done.wait(timeout=3)
-    return time.monotonic() - t_start, rc
+            dev = access.device(device_id)
+        except Exception as e:  # noqa: BLE001
+            if is_auth_error(e):
+                try: access.relogin(str(e))
+                except Exception as e2: log(f"relogin fail: {e2!r}", err=True)
+            else:
+                log(f"device fail: {e!r}", err=True)
+            if _sleep_stop(stop_event, 3): return "stop"
+            continue
+        got = 0
+        try:
+            with dev.open_rtsp(with_audio=True) as rtsp:
+                for chunk in rtsp:
+                    if stop_event.is_set():
+                        return "stop"
+                    try:
+                        ff.stdin.write(chunk)
+                    except BrokenPipeError:
+                        log("ffmpeg stdin broken", err=True)
+                        return "ffmpeg_dead"
+                    got += len(chunk)
+        except Exception as e:  # noqa: BLE001
+            if is_auth_error(e):
+                log("Imou 12002 giữa stream → relogin + mở lại")
+                try: access.relogin(str(e))
+                except Exception as e2: log(f"relogin fail: {e2!r}", err=True)
+            else:
+                log(f"rtsp error: {e!r} → mở lại", err=True)
+        # Nguồn Imou vừa kết thúc/đứt — mở lại NGAY, giữ nguyên ffmpeg.
+        if got < 1000:
+            idle_reopens += 1
+            if idle_reopens > 20:
+                log("mở lại nhiều lần không có dữ liệu → coi như ffmpeg cần restart", err=True)
+                return "ffmpeg_dead"
+        else:
+            idle_reopens = 0
+        if _sleep_stop(stop_event, 1): return "stop"
+    return "stop"
+
+
+def _sleep_stop(stop_event, seconds):
+    for _ in range(int(seconds * 10)):
+        if stop_event.is_set(): return True
+        time.sleep(0.1)
+    return stop_event.is_set()
+
+
+def start_overlay_writer(overlay_fifo, overlay_url, stop_event):
+    if not (overlay_fifo and overlay_url):
+        return None, None
+    ow_done = threading.Event()
+    th = threading.Thread(target=overlay_writer,
+                          args=(overlay_url, overlay_fifo, stop_event, ow_done), daemon=True)
+    th.start()
+    return th, ow_done
+
+
+def drain_fifo(overlay_fifo):
+    # Mở FIFO đọc-nonblock để writer đang chặn open()/write() thoát ra.
+    if not overlay_fifo:
+        return
+    try:
+        fd = os.open(overlay_fifo, os.O_RDONLY | os.O_NONBLOCK)
+        try: os.read(fd, 65536)
+        except OSError: pass
+        os.close(fd)
+    except OSError:
+        pass
 
 
 def main():
@@ -409,42 +447,63 @@ def main():
     threading.Thread(target=heartbeat_loop,
                      args=(heartbeat_url, worker_token, session_id, stop_event), daemon=True).start()
 
-    attempts = 0
-    last_rc = 1
+    has_audio = probe_audio(access.device(device_id)) if not stop_event.is_set() else False
+
+    # 1 ffmpeg SỐNG XUYÊN SUỐT (kết nối FB giữ nguyên); chỉ mở lại nguồn Imou
+    # khi relay cap. Chỉ restart ffmpeg khi nó thật sự chết → khi đó xin
+    # destination FB mới (FB không cho re-publish cùng key sau khi publisher rớt).
+    ff_restarts = 0
     while not stop_event.is_set():
-        try:
-            dev = access.device(device_id)
-            streamed_s, last_rc = run_stream_once(
-                dev, overlay_fifo, overlay_url, tee, stop_event, ff_holder)
-            log(f"stream ended after {streamed_s:.0f}s ffmpeg rc={last_rc}")
-            if stop_event.is_set():
-                break
-            if streamed_s >= HEALTHY_AFTER_S:
-                attempts = 0
-        except Exception as e:  # noqa: BLE001
-            log(f"stream error: {e!r}", err=True)
-            if stop_event.is_set():
-                break
-            if is_auth_error(e):
-                try:
-                    access.relogin(str(e))
-                except Exception as e2:  # noqa: BLE001
-                    log(f"relogin fail: {e2!r}", err=True)
-        attempts += 1
-        if attempts > MAX_ATTEMPTS:
-            log(f"quá {MAX_ATTEMPTS} lần nối lại liên tiếp → dừng", err=True)
+        args = build_ffmpeg_args(overlay_fifo, has_audio, tee)
+        log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} restart#{ff_restarts}")
+        ff = subprocess.Popen(args, stdin=subprocess.PIPE)
+        ff_holder[0] = ff
+        ow_th, ow_done = start_overlay_writer(overlay_fifo, overlay_url, stop_event)
+
+        reason = feed_imou_into_ffmpeg(access, device_id, ff, stop_event)
+
+        # Dọn ffmpeg + overlay writer của vòng này
+        drain_fifo(overlay_fifo)
+        try: ff.stdin.close()
+        except Exception: pass
+        try: rc = ff.wait(timeout=10)
+        except subprocess.TimeoutExpired: ff.kill(); rc = ff.wait()
+        ff_holder[0] = None
+        if ow_done: ow_done.wait(timeout=3)
+        log(f"ffmpeg exit rc={rc} reason={reason}")
+
+        if reason == "stop" or stop_event.is_set():
             break
-        delay = min(30, 3 * attempts)
-        log(f"reconnect in {delay}s (attempt {attempts}/{MAX_ATTEMPTS})")
-        for _ in range(delay * 10):
-            if stop_event.is_set():
-                break
-            time.sleep(0.1)
+
+        # ffmpeg chết → xin destination FB mới rồi restart (giữ giải/overlay).
+        ff_restarts += 1
+        if ff_restarts > MAX_ATTEMPTS:
+            log(f"ffmpeg chết quá {MAX_ATTEMPTS} lần → dừng", err=True)
+            break
+        new_tee = refresh_destinations(session_post_url.replace("/imou-session", "/destinations"),
+                                       worker_token, session_id)
+        if new_tee:
+            tee = new_tee
+            log("đã lấy destination FB mới sau khi ffmpeg chết")
+        if _sleep_stop(stop_event, min(15, 3 * ff_restarts)): break
 
     cleanup()
-    ok = stop_event.is_set() and attempts <= MAX_ATTEMPTS
-    log(f"exit ok={ok} last_rc={last_rc}")
+    ok = stop_event.is_set()
+    log(f"exit ok={ok}")
     sys.exit(0 if ok else 1)
+
+
+def refresh_destinations(url, token, session_id):
+    """Xin backend tạo lại FB live_video (key mới) khi phải restart ffmpeg."""
+    try:
+        req = urllib.request.Request(f"{url}?sessionId={session_id}",
+                                     headers={"x-worker-token": token})
+        body = urllib.request.urlopen(req, timeout=20).read()
+        dests = json.loads(body).get("destinations") or []
+        return build_tee_output(dests)
+    except Exception as e:  # noqa: BLE001
+        log(f"refresh destinations fail: {e}", err=True)
+        return None
 
 
 if __name__ == "__main__":
