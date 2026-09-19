@@ -21,9 +21,12 @@ import mongoose from "mongoose";
 import Venue from "../../models/venueModel.js";
 import CourtStation from "../../models/courtStationModel.js";
 import Match from "../../models/matchModel.js";
+import Tournament from "../../models/tournamentModel.js";
 import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionModel.js";
 import { decryptToken } from "../secret.service.js";
 import { loadOverlayData, renderOverlayPng } from "./overlayRenderer.service.js";
+import { getValidPageToken } from "../fbTokenService.js";
+import { fbCreateLiveOnPage, fbGetLiveVideo } from "../facebookLive.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -112,6 +115,67 @@ function startPoll(sessionId) {
   registry.set(String(sessionId), entry);
 }
 
+/**
+ * Với mỗi destination:
+ *  - type="fb": lấy pageAccessToken từ pool, tạo live_video, poll
+ *    secure_stream_url, gắn vào streamUrl. broadcastId = live.id.
+ *  - type="youtube": TODO — hiện chưa có helper stable trong repo, ném lỗi.
+ *  - type="rtmp": giữ nguyên, chỉ cần có streamUrl.
+ */
+async function prepareDestinations(destinations, title) {
+  const out = [];
+  for (const d of destinations || []) {
+    if (d.type === "rtmp") {
+      if (!d.streamUrl) {
+        const e = new Error(`Destination RTMP thiếu streamUrl (label=${d.label || ""})`);
+        e.status = 400; throw e;
+      }
+      out.push(d);
+      continue;
+    }
+    if (d.type === "fb") {
+      const pageId = d.pageId;
+      if (!pageId) {
+        const e = new Error(`Destination FB thiếu pageId`); e.status = 400; throw e;
+      }
+      let pageToken;
+      try { pageToken = await getValidPageToken(pageId); }
+      catch (e) { const err = new Error(`FB page token lỗi: ${e?.message || e}`); err.status = 400; throw err; }
+      let live;
+      try {
+        live = await fbCreateLiveOnPage({
+          pageId, pageAccessToken: pageToken, title, description: title, status: "LIVE_NOW",
+        });
+      } catch (e) { const err = new Error(`FB create live lỗi: ${e?.message || e}`); err.status = 400; throw err; }
+      const liveId = live?.id || live?.liveVideoId;
+      let secure = live?.secure_stream_url || "";
+      for (let i = 0; i < 6 && !secure; i++) {
+        await new Promise((r) => setTimeout(r, 700));
+        const info = await fbGetLiveVideo({
+          liveVideoId: liveId, pageAccessToken: pageToken,
+          fields: "id,status,secure_stream_url,stream_url,permalink_url",
+        }).catch(() => null);
+        secure = info?.secure_stream_url || info?.stream_url || "";
+      }
+      if (!secure) {
+        const e = new Error(`FB không trả stream URL cho page ${d.pageName || pageId}`);
+        e.status = 502; throw e;
+      }
+      out.push({
+        type: "fb", label: d.pageName || pageId, pageId, pageName: d.pageName || "",
+        broadcastId: String(liveId || ""), streamUrl: secure, streamKey: "",
+      });
+      continue;
+    }
+    if (d.type === "youtube") {
+      const e = new Error(`YouTube destination chưa hỗ trợ ở MVP — dùng RTMP tuỳ chỉnh với URL từ YouTube Studio`);
+      e.status = 501; throw e;
+    }
+    const e = new Error(`Loại destination không hỗ trợ: ${d.type}`); e.status = 400; throw e;
+  }
+  return out;
+}
+
 async function decryptVenueImouCreds(venueId) {
   const venue = await Venue.findById(venueId).select("imouCreds").lean();
   const cipher = venue?.imouCreds?.cipher;
@@ -160,9 +224,15 @@ export async function startAutoLive(input) {
     const e = new Error("Venue chưa lưu credentials Imou (chủ sân cần login lại)"); e.status = 400; throw e;
   }
 
+  // Chuẩn hoá destinations: FB/YT chưa có streamUrl → gọi Graph API tạo
+  // live_video / broadcast, lấy secure_stream_url. RTMP giữ nguyên.
+  const tournament = await Tournament.findById(tournamentId).select("name").lean();
+  const title = tournament?.name || "PickleTour Live";
+  const preparedDest = await prepareDestinations(destinations, title);
+
   const session = await TournamentAutoLiveSession.create({
     tournament: tournamentId, court: courtStationId, venue: venueId,
-    imouDeviceId, startedBy, destinations, autoNext,
+    imouDeviceId, startedBy, destinations: preparedDest, autoNext,
     status: "starting", workerId: crypto.randomUUID(),
     startedAt: new Date(),
   });
