@@ -1,29 +1,26 @@
 #!/usr/bin/env python3
 """PickleTour auto-live worker — cầu nối Imou DHAV → ffmpeg → RTMP.
 
-Đọc credentials + destinations từ env do Node orchestrator set:
+Env do Node orchestrator set:
     AUTOLIVE_SESSION_ID
     AUTOLIVE_WORKER_TOKEN
-    AUTOLIVE_OVERLAY_URL         (backend serve PNG động 1920x1080)
+    AUTOLIVE_OVERLAY_URL         (backend serve PNG 1920x1080 alpha)
     AUTOLIVE_HEARTBEAT_URL
-    AUTOLIVE_IMOU_SESSION_JSON   (bắt buộc: session mobile app đã lưu:
-                                  {uuid_user,uuid_key,session_id,regional_host})
+    AUTOLIVE_IMOU_SESSION_JSON   ({uuid_user,uuid_key,session_id,regional_host})
     AUTOLIVE_IMOU_DEVICE_ID
     AUTOLIVE_DESTINATIONS        (JSON [{type,streamUrl,streamKey}])
 
 Pipeline:
-    imou.Client().open_rtsp()   -> yield DHAV bytes
-        ↓ stdin
+    imou Camera.open_rtsp()  → DHAV bytes (1 kết nối duy nhất tới relay Imou)
+      ↓ đệm ~3s đầu → ffprobe xem có audio không
+      ↓ stdin
     ffmpeg -f dhav -i pipe:0
-           -f image2 -loop 1 -reload 1 -i AUTOLIVE_OVERLAY_URL
-           -filter_complex "[0:v][1:v]overlay=0:0"
-           -c:v libx264 -preset veryfast -tune zerolatency -b:v 3000k -g 60
-           -c:a aac -b:a 128k -ar 44100
-           -f tee "[f=flv:onfail=ignore]rtmp://.../key1|[f=flv:onfail=ignore]rtmp://.../key2"
+           [-f image2 -loop 1 -i overlay.png]      (file local, thay mỗi 1s)
+           [-f lavfi -i anullsrc]                   (nếu cam không có audio)
+           scale 1080p → overlay → libx264 → aac → tee nhiều RTMP
 
-Heartbeat gửi mỗi 15s cho backend để orchestrator biết còn sống.
-Đọc DHAV chunk nào bị BrokenPipeError → break loop → exit != 0 → Node auto
-mark error, admin quyết định start lại.
+Auto next-match KHÔNG ở đây: Node poll court.currentMatch → bump
+overlayVersion → PNG mới → worker tải về → image2 mở lại file mỗi frame.
 """
 import json
 import os
@@ -32,8 +29,12 @@ import subprocess
 import sys
 import threading
 import time
-import urllib.request
 import urllib.error
+import urllib.request
+
+PREBUFFER_BYTES = 1_500_000   # ~3s ở 4Mbps — đủ cho ffprobe thấy audio
+PREBUFFER_MAX_S = 6.0
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 def env(name, default=None, required=False):
@@ -45,11 +46,6 @@ def env(name, default=None, required=False):
 
 
 def build_tee_output(destinations):
-    """destinations: [{type,streamUrl,streamKey}]. Trả string đưa vào `-f tee`.
-
-    Nếu streamKey trống hoặc streamUrl đã có key inline → dùng nguyên URL.
-    Nếu tách rời → nối "{url}/{key}".
-    """
     parts = []
     for d in destinations:
         url = d.get("streamUrl", "").strip()
@@ -62,13 +58,12 @@ def build_tee_output(destinations):
 
 
 def fetch_overlay(url, dest_path):
-    """Tải PNG overlay → ghi file tạm → os.replace (atomic) để ffmpeg không
-    đọc phải file đang ghi dở. Trả True nếu OK."""
+    """Tải PNG → ghi .tmp → os.replace (atomic) để ffmpeg không đọc file dở."""
     tmp = dest_path + ".tmp"
     try:
         req = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
         data = urllib.request.urlopen(req, timeout=8).read()
-        if not data or data[:8] != b"\x89PNG\r\n\x1a\n":
+        if not data or data[:8] != PNG_MAGIC:
             return False
         with open(tmp, "wb") as f:
             f.write(data)
@@ -80,7 +75,6 @@ def fetch_overlay(url, dest_path):
 
 
 def overlay_loop(url, dest_path, stop_event, interval_s=1.0):
-    # image2 -loop 1 mở lại file mỗi frame → thay file là overlay đổi ngay.
     while not stop_event.is_set():
         fetch_overlay(url, dest_path)
         for _ in range(int(interval_s * 10)):
@@ -107,6 +101,60 @@ def heartbeat_loop(url, token, session_id, stop_event):
             time.sleep(0.1)
 
 
+def probe_has_audio(buf):
+    """ffprobe đoạn DHAV đã đệm. Không chắc chắn → coi như KHÔNG có audio
+    (thêm anullsrc an toàn hơn là thiếu track)."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-f", "dhav", "-i", "pipe:0",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0"],
+            input=buf, capture_output=True, timeout=20,
+        )
+        kinds = r.stdout.decode(errors="ignore").split()
+        print(f"[worker] probe streams={kinds}", flush=True)
+        return "audio" in kinds
+    except Exception as e:  # noqa: BLE001
+        print(f"[worker] probe fail: {e}", file=sys.stderr, flush=True)
+        return False
+
+
+def build_ffmpeg_args(overlay_path, has_audio, tee):
+    # Cam Imou có thể xuất 2K (2560x1440@20fps): scale về 1080p TRƯỚC khi
+    # chồng overlay (PNG vẽ theo 1920x1080) và để x264 nhẹ CPU.
+    # -r 25 + GOP 50 = keyframe mỗi 2s theo yêu cầu FB/YT.
+    base = ("[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
+            "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
+    args = [
+        "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin",
+        "-fflags", "+genpts", "-use_wallclock_as_timestamps", "1",
+        "-thread_queue_size", "512", "-f", "dhav", "-i", "pipe:0",
+    ]
+    next_idx = 1
+    fc = base
+    if overlay_path:
+        args += ["-thread_queue_size", "64", "-f", "image2", "-loop", "1",
+                 "-framerate", "2", "-i", overlay_path]
+        fc += f"[base];[base][{next_idx}:v]overlay=0:0:eof_action=pass[vout]"
+        next_idx += 1
+    else:
+        fc += "[vout]"
+    if has_audio:
+        audio_map = ["-map", "0:a:0"]
+    else:
+        args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
+        audio_map = ["-map", f"{next_idx}:a:0"]
+        next_idx += 1
+    args += ["-filter_complex", fc, "-map", "[vout]", *audio_map]
+    args += [
+        "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+        "-profile:v", "high", "-r", "25", "-g", "50", "-keyint_min", "50",
+        "-b:v", "3000k", "-maxrate", "3500k", "-bufsize", "6000k",
+        "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+        "-shortest", "-f", "tee", tee,
+    ]
+    return args
+
+
 def main():
     session_id = env("AUTOLIVE_SESSION_ID", required=True)
     worker_token = env("AUTOLIVE_WORKER_TOKEN", required=True)
@@ -123,9 +171,8 @@ def main():
     try:
         from imou import Client
     except ImportError:
-        print("[worker] imou-pkg chưa cài. pip install /opt/imou-pkg trên VPS.", file=sys.stderr, flush=True)
+        print("[worker] imou-pkg chưa cài (pip install /opt/imou-pkg).", file=sys.stderr, flush=True)
         sys.exit(4)
-
     try:
         sess_dict = json.loads(session_json)
     except json.JSONDecodeError as e:
@@ -137,65 +184,54 @@ def main():
         print(f"[worker] device {device_id} not in account", file=sys.stderr, flush=True)
         sys.exit(6)
 
-    # Overlay: tải về file local trước khi mở ffmpeg (thử 10 lần). Không tải
-    # được thì vẫn lên sóng không overlay — thà live không điểm còn hơn chết.
+    # Overlay: tải về file local trước (thử 10 lần). Không được thì vẫn lên
+    # sóng không overlay — thà live không điểm còn hơn chết.
     work_dir = f"/tmp/autolive-{session_id}"
     os.makedirs(work_dir, exist_ok=True)
     overlay_path = os.path.join(work_dir, "overlay.png")
-    have_overlay = False
-    for _ in range(10):
-        if fetch_overlay(overlay_url, overlay_path):
-            have_overlay = True
-            break
-        time.sleep(1)
+    have_overlay = any(fetch_overlay(overlay_url, overlay_path) or time.sleep(1) for _ in range(10))
     if not have_overlay:
         print("[worker] overlay unavailable → stream without overlay", file=sys.stderr, flush=True)
 
     stop_event = threading.Event()
-
-    ffmpeg_args = [
-        "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin",
-        "-fflags", "+genpts", "-use_wallclock_as_timestamps", "1",
-        "-f", "dhav", "-i", "pipe:0",
-    ]
-    if have_overlay:
-        ffmpeg_args += [
-            "-f", "image2", "-loop", "1", "-framerate", "2", "-i", overlay_path,
-            "-filter_complex", "[0:v][1:v]overlay=0:0:eof_action=pass",
-        ]
-    ffmpeg_args += [
-        "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-        "-pix_fmt", "yuv420p", "-b:v", "3000k", "-maxrate", "3500k",
-        "-bufsize", "6000k", "-g", "60", "-keyint_min", "60",
-        "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
-        "-f", "tee", tee,
-    ]
-    print(f"[worker] spawning ffmpeg for session {session_id} overlay={have_overlay}", flush=True)
-    ff = subprocess.Popen(ffmpeg_args, stdin=subprocess.PIPE)
-
-    if have_overlay:
-        threading.Thread(
-            target=overlay_loop, args=(overlay_url, overlay_path, stop_event), daemon=True,
-        ).start()
-    hb_thread = threading.Thread(
-        target=heartbeat_loop, args=(heartbeat_url, worker_token, session_id, stop_event),
-        daemon=True,
-    )
-    hb_thread.start()
+    ff = None
 
     def cleanup(*_):
         stop_event.set()
-        try: ff.stdin.close()
-        except Exception: pass
-        try: ff.terminate()
-        except Exception: pass
+        if ff is not None:
+            try: ff.stdin.close()
+            except Exception: pass
+            try: ff.terminate()
+            except Exception: pass
 
     signal.signal(signal.SIGTERM, cleanup)
     signal.signal(signal.SIGINT, cleanup)
 
+    rc = 1
     try:
         with dev.open_rtsp(with_audio=True) as rtsp:
-            for chunk in rtsp:
+            # Đệm ~3s đầu để probe audio — dùng chung 1 kết nối relay.
+            it = iter(rtsp)
+            pre = bytearray()
+            t0 = time.monotonic()
+            for chunk in it:
+                pre += chunk
+                if len(pre) >= PREBUFFER_BYTES or time.monotonic() - t0 > PREBUFFER_MAX_S:
+                    break
+            has_audio = probe_has_audio(bytes(pre))
+            args = build_ffmpeg_args(overlay_path if have_overlay else None, has_audio, tee)
+            print(f"[worker] spawning ffmpeg sid={session_id} overlay={have_overlay} "
+                  f"audio={has_audio} prebuf={len(pre)}B", flush=True)
+            ff = subprocess.Popen(args, stdin=subprocess.PIPE)
+            if have_overlay:
+                threading.Thread(target=overlay_loop,
+                                 args=(overlay_url, overlay_path, stop_event), daemon=True).start()
+            threading.Thread(target=heartbeat_loop,
+                             args=(heartbeat_url, worker_token, session_id, stop_event),
+                             daemon=True).start()
+            ff.stdin.write(bytes(pre))
+            del pre
+            for chunk in it:
                 if stop_event.is_set():
                     break
                 try:
@@ -205,7 +241,12 @@ def main():
                     break
     finally:
         cleanup()
-        rc = ff.wait(timeout=10) if ff.poll() is None else ff.returncode
+        if ff is not None:
+            try:
+                rc = ff.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                ff.kill()
+                rc = ff.wait()
         print(f"[worker] ffmpeg exit rc={rc}", flush=True)
         sys.exit(0 if rc == 0 else 1)
 
