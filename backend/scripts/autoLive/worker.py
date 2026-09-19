@@ -124,27 +124,26 @@ def build_ffmpeg_args(overlay_path, has_audio, tee):
     # -r 25 + GOP 50 = keyframe mỗi 2s theo yêu cầu FB/YT.
     base = ("[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
+    # Dùng PTS gốc trong DHAV (đơn điệu theo clock cam) — KHÔNG wallclock,
+    # vì đoạn prebuffer ghi dồn 1 lúc sẽ bị đóng dấu cùng thời điểm → DTS
+    # nhảy. Audio im lặng tạo NGAY TRONG filter_complex để cùng đồng hồ với
+    # graph (anullsrc làm input rời sẽ lệch clock → "Non-monotonic DTS").
     args = [
         "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin",
-        "-fflags", "+genpts", "-use_wallclock_as_timestamps", "1",
         "-thread_queue_size", "512", "-f", "dhav", "-i", "pipe:0",
     ]
-    next_idx = 1
     fc = base
     if overlay_path:
         args += ["-thread_queue_size", "64", "-f", "image2", "-loop", "1",
                  "-framerate", "2", "-i", overlay_path]
-        fc += f"[base];[base][{next_idx}:v]overlay=0:0:eof_action=pass[vout]"
-        next_idx += 1
+        fc += "[base];[base][1:v]overlay=0:0:eof_action=pass[vout]"
     else:
         fc += "[vout]"
     if has_audio:
-        audio_map = ["-map", "0:a:0"]
+        fc += ";[0:a:0]aresample=async=1000:first_pts=0,aformat=sample_rates=44100:channel_layouts=stereo[aout]"
     else:
-        args += ["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"]
-        audio_map = ["-map", f"{next_idx}:a:0"]
-        next_idx += 1
-    args += ["-filter_complex", fc, "-map", "[vout]", *audio_map]
+        fc += ";anullsrc=channel_layout=stereo:sample_rate=44100[aout]"
+    args += ["-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
     args += [
         "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
         "-profile:v", "high", "-r", "25", "-g", "50", "-keyint_min", "50",
