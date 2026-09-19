@@ -83,18 +83,21 @@ setTimeout(() => adoptRunningSessions().catch((e) =>
  * phải "stopped", render trực tiếp từ overlay data hiện tại của court.
  * Cache theo overlayVersion để không render lại khi data chưa đổi.
  */
-const overlayCache = new Map(); // sessionId → { buf, version }
+const overlayCache = new Map(); // sessionId → { buf, token }
+// Sponsor xoay vòng mỗi 8s → re-render tối thiểu mỗi bucket kể cả điểm không đổi.
+const SPONSOR_BUCKET_MS = 8000;
 export async function getCachedOverlayPng(sessionId) {
   const doc = await TournamentAutoLiveSession.findById(sessionId)
     .select("_id court status overlayVersion")
     .lean();
   if (!doc) return null;
   if (doc.status === "stopped") return null;
+  const token = `${doc.overlayVersion || 0}:${Math.floor(Date.now() / SPONSOR_BUCKET_MS)}`;
   const cached = overlayCache.get(String(sessionId));
-  if (cached && cached.version === (doc.overlayVersion || 0)) return cached.buf;
+  if (cached && cached.token === token) return cached.buf;
   const data = await loadOverlayData(doc.court);
-  const buf = renderOverlayPng(data);
-  overlayCache.set(String(sessionId), { buf, version: doc.overlayVersion || 0 });
+  const buf = await renderOverlayPng(data);
+  overlayCache.set(String(sessionId), { buf, token });
   return buf;
 }
 

@@ -2,15 +2,41 @@
 // Worker Python ffmpeg fetch qua HTTP: /api/tournament-auto-live/overlay/:sessionId.png?v=N.
 // Layout đơn giản: scoreboard bottom-left kiểu native-live-app, kèm court name
 // góc trên phải. Không phải overlay-web đầy đủ — MVP mỏng, đọc rõ trên FB/YT.
-import { createCanvas } from "canvas";
+import { createCanvas, loadImage } from "canvas";
 import mongoose from "mongoose";
 import Match from "../../models/matchModel.js";
 import CourtStation from "../../models/courtStationModel.js";
 import Tournament from "../../models/tournamentModel.js";
+import { Sponsor } from "../../models/sponsorModel.js";
 
 const W = 1920;
 const H = 1080;
-const SCALE_Y = H; // constant
+
+// Logo PickleTour luôn hiển thị góc phải-trên mọi stream.
+const PT_LOGO_URL = process.env.AUTOLIVE_PT_LOGO_URL
+  || `${process.env.PUBLIC_BACKEND_URL || "https://pickletour.vn"}/pickletour-v3-logo.png`;
+// Logo tài trợ luân phiên (1 logo/lần) ở góc phải-dưới, đổi mỗi ROTATE_MS.
+const SPONSOR_ROTATE_MS = 8000;
+
+// Cache ảnh đã tải (logo/sponsor) — tránh tải lại mỗi ~1s worker fetch.
+const imgCache = new Map(); // url → { img|null, at }
+const IMG_TTL = 10 * 60 * 1000;
+async function loadImageCached(url) {
+  if (!url) return null;
+  const c = imgCache.get(url);
+  if (c && Date.now() - c.at < IMG_TTL) return c.img;
+  let img = null;
+  try {
+    if (/^https?:\/\//i.test(url)) {
+      const res = await fetch(url);
+      if (res.ok) img = await loadImage(Buffer.from(await res.arrayBuffer()));
+    } else {
+      img = await loadImage(url);
+    }
+  } catch { img = null; }
+  imgCache.set(url, { img, at: Date.now() });
+  return img;
+}
 
 // Palette: tối, gradient volt/cyan giống UI V2 modern.
 const COLORS = {
@@ -63,7 +89,22 @@ export async function loadOverlayData(courtStationId) {
     }
   }
 
-  return { station, match, tournament };
+  // Sponsor giải (logo góc phải-dưới, luân phiên). Sort ưu tiên như overlay web.
+  let sponsors = [];
+  const tid = match?.tournament || tournament?._id;
+  if (tid) {
+    sponsors = await Sponsor.find({ tournaments: tid })
+      .select("_id name logoUrl weight featured")
+      .sort({ featured: -1, weight: -1, updatedAt: -1, name: 1 })
+      .limit(12)
+      .lean()
+      .catch(() => []);
+  }
+  const sponsorLogos = (sponsors || [])
+    .map((s) => (s.logoUrl || "").trim())
+    .filter(Boolean);
+
+  return { station, match, tournament, sponsorLogos };
 }
 
 function playerLabel(p) {
@@ -140,11 +181,15 @@ function shadowOff(ctx) {
   ctx.shadowOffsetY = 0;
 }
 
-export function renderOverlayPng(data) {
+export async function renderOverlayPng(data) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, W, H);
   ctx.textBaseline = "alphabetic";
+
+  // Logo PickleTour góc phải-trên + sponsor luân phiên góc phải-dưới (mọi stream)
+  await drawBrandLogo(ctx);
+  await drawSponsorRotating(ctx, data?.sponsorLogos || []);
 
   const match = data?.match;
   const stationName = data?.station?.name || "";
@@ -182,6 +227,47 @@ export function renderOverlayPng(data) {
     bottomRight: `VÁN ${cur + 1}/${bestOf}`,
   });
   return canvas.toBuffer("image/png");
+}
+
+// Vẽ ảnh vừa khung (contain) trong hộp, giữ tỉ lệ, căn theo align.
+function drawContain(ctx, img, bx, by, bw, bh, alignX) {
+  const s = Math.min(bw / img.width, bh / img.height);
+  const w = img.width * s, h = img.height * s;
+  let x = bx;
+  if (alignX === "right") x = bx + bw - w;
+  else if (alignX === "center") x = bx + (bw - w) / 2;
+  const y = by + (bh - h) / 2;
+  ctx.drawImage(img, x, y, w, h);
+}
+
+async function drawBrandLogo(ctx) {
+  const img = await loadImageCached(PT_LOGO_URL);
+  if (!img) return;
+  const box = 132;
+  ctx.save();
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = 16;
+  drawContain(ctx, img, W - 48 - box, 40, box, box, "right");
+  ctx.restore();
+}
+
+async function drawSponsorRotating(ctx, logos) {
+  if (!logos || !logos.length) return;
+  const idx = Math.floor(Date.now() / SPONSOR_ROTATE_MS) % logos.length;
+  const img = await loadImageCached(logos[idx]);
+  if (!img) return;
+  const boxW = 260, boxH = 100;
+  const bx = W - 48 - boxW, by = H - 44 - boxH;
+  // Nền bo tròn mờ cho logo nổi trên nền video sáng/tối
+  ctx.save();
+  ctx.fillStyle = "rgba(255,255,255,0.92)";
+  roundedRect(ctx, bx - 14, by - 12, boxW + 28, boxH + 24, 14);
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = 16;
+  ctx.shadowOffsetY = 4;
+  ctx.fill();
+  ctx.restore();
+  drawContain(ctx, img, bx, by, boxW, boxH, "center");
 }
 
 function drawBug(ctx, o) {
