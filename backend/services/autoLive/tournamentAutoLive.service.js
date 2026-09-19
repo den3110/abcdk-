@@ -127,19 +127,34 @@ async function decryptVenueImouCreds(venueId) {
  * Trả về document session đã insert. Ném lỗi nếu court đã có session active.
  */
 export async function startAutoLive(input) {
-  const { tournamentId, courtStationId, imouDeviceId, destinations, startedBy, autoNext = true } = input || {};
+  const {
+    tournamentId, courtStationId, imouDeviceId, destinations,
+    startedBy, autoNext = true, venueId: explicitVenueId,
+  } = input || {};
   if (!tournamentId || !courtStationId || !imouDeviceId || !Array.isArray(destinations) || !destinations.length) {
     const err = new Error("Thiếu tournamentId/courtStationId/imouDeviceId/destinations");
     err.status = 400; throw err;
   }
   const station = await CourtStation.findById(courtStationId).select("_id clusterId").lean();
   if (!station) { const e = new Error("Court không tồn tại"); e.status = 404; throw e; }
-  // Suy ngược venue từ court thông qua cluster.venue (nếu có), nếu không thì
-  // caller phải đảm bảo court thuộc venue có Imou creds. Ở đây yêu cầu explicit
-  // venueId trong input trong tương lai. MVP: lookup theo court → cluster.venue.
-  const cluster = await mongoose.model("CourtCluster").findById(station.clusterId).select("venue").lean();
-  const venueId = cluster?.venue;
-  if (!venueId) { const e = new Error("Không xác định được venue chứa cam"); e.status = 400; throw e; }
+
+  // Ưu tiên venueId FE gửi lên (đến từ available-cams). Nếu không có, tra
+  // ngược qua device: cam Imou nào có deviceId khớp trong toàn bộ VenueCourt.
+  let venueId = explicitVenueId;
+  if (!venueId) {
+    const VenueCourt = mongoose.model("VenueCourt");
+    const vc = await VenueCourt.findOne({
+      $or: [
+        { "imouCams.deviceId": imouDeviceId },
+        { "imou.deviceId": imouDeviceId },
+      ],
+    }).select("venue").lean();
+    venueId = vc?.venue;
+  }
+  if (!venueId) {
+    const e = new Error("Không xác định được venue chứa cam");
+    e.status = 400; throw e;
+  }
   const creds = await decryptVenueImouCreds(venueId);
   if (!creds?.phone || !creds?.password) {
     const e = new Error("Venue chưa lưu credentials Imou (chủ sân cần login lại)"); e.status = 400; throw e;

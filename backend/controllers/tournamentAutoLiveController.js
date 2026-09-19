@@ -25,6 +25,7 @@ export const startSession = asyncHandler(async (req, res) => {
     tournamentId: body.tournamentId,
     courtStationId: body.courtStationId,
     imouDeviceId: body.imouDeviceId,
+    venueId: body.venueId,
     destinations: body.destinations,
     autoNext: body.autoNext !== false,
     startedBy: req.user?._id,
