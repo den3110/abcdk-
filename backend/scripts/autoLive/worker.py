@@ -61,6 +61,34 @@ def build_tee_output(destinations):
     return "|".join(parts)
 
 
+def fetch_overlay(url, dest_path):
+    """Tải PNG overlay → ghi file tạm → os.replace (atomic) để ffmpeg không
+    đọc phải file đang ghi dở. Trả True nếu OK."""
+    tmp = dest_path + ".tmp"
+    try:
+        req = urllib.request.Request(url, headers={"Cache-Control": "no-cache"})
+        data = urllib.request.urlopen(req, timeout=8).read()
+        if not data or data[:8] != b"\x89PNG\r\n\x1a\n":
+            return False
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, dest_path)
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[worker] overlay fetch fail: {e}", file=sys.stderr, flush=True)
+        return False
+
+
+def overlay_loop(url, dest_path, stop_event, interval_s=1.0):
+    # image2 -loop 1 mở lại file mỗi frame → thay file là overlay đổi ngay.
+    while not stop_event.is_set():
+        fetch_overlay(url, dest_path)
+        for _ in range(int(interval_s * 10)):
+            if stop_event.is_set():
+                return
+            time.sleep(0.1)
+
+
 def heartbeat_loop(url, token, session_id, stop_event):
     while not stop_event.is_set():
         try:
@@ -109,27 +137,46 @@ def main():
         print(f"[worker] device {device_id} not in account", file=sys.stderr, flush=True)
         sys.exit(6)
 
-    # ffmpeg pipeline: input 0 = dhav from stdin, input 1 = overlay PNG (reload 1Hz).
-    # -reload 1 chỉ hoạt động với image2/movie khi filename thay đổi/timestamp
-    # đổi; ta bump overlayVersion server-side + return no-cache header → ffmpeg
-    # re-fetch mỗi frame. Nếu chậm quá, giảm frame rate PNG bằng fps filter.
+    # Overlay: tải về file local trước khi mở ffmpeg (thử 10 lần). Không tải
+    # được thì vẫn lên sóng không overlay — thà live không điểm còn hơn chết.
+    work_dir = f"/tmp/autolive-{session_id}"
+    os.makedirs(work_dir, exist_ok=True)
+    overlay_path = os.path.join(work_dir, "overlay.png")
+    have_overlay = False
+    for _ in range(10):
+        if fetch_overlay(overlay_url, overlay_path):
+            have_overlay = True
+            break
+        time.sleep(1)
+    if not have_overlay:
+        print("[worker] overlay unavailable → stream without overlay", file=sys.stderr, flush=True)
+
+    stop_event = threading.Event()
+
     ffmpeg_args = [
-        "ffmpeg", "-hide_banner", "-loglevel", "warning",
+        "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin",
         "-fflags", "+genpts", "-use_wallclock_as_timestamps", "1",
         "-f", "dhav", "-i", "pipe:0",
-        "-f", "image2", "-loop", "1", "-framerate", "1", "-reconnect", "1",
-        "-reconnect_streamed", "1", "-reconnect_delay_max", "2", "-i", overlay_url,
-        "-filter_complex", "[0:v][1:v]overlay=0:0:shortest=0",
+    ]
+    if have_overlay:
+        ffmpeg_args += [
+            "-f", "image2", "-loop", "1", "-framerate", "2", "-i", overlay_path,
+            "-filter_complex", "[0:v][1:v]overlay=0:0:eof_action=pass",
+        ]
+    ffmpeg_args += [
         "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
         "-pix_fmt", "yuv420p", "-b:v", "3000k", "-maxrate", "3500k",
         "-bufsize", "6000k", "-g", "60", "-keyint_min", "60",
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
         "-f", "tee", tee,
     ]
-    print(f"[worker] spawning ffmpeg for session {session_id}", flush=True)
+    print(f"[worker] spawning ffmpeg for session {session_id} overlay={have_overlay}", flush=True)
     ff = subprocess.Popen(ffmpeg_args, stdin=subprocess.PIPE)
 
-    stop_event = threading.Event()
+    if have_overlay:
+        threading.Thread(
+            target=overlay_loop, args=(overlay_url, overlay_path, stop_event), daemon=True,
+        ).start()
     hb_thread = threading.Thread(
         target=heartbeat_loop, args=(heartbeat_url, worker_token, session_id, stop_event),
         daemon=True,

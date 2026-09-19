@@ -33,8 +33,19 @@ const __dirname = path.dirname(__filename);
 const WORKER_SCRIPT = path.resolve(__dirname, "../../scripts/autoLive/worker.py");
 const PYTHON_BIN = process.env.PYTHON_BIN || "python3";
 
-// Map sessionId → { proc, pollTimer, overlayCache: { buf, version } }
+// Map sessionId → { proc, pollTimer }
 const registry = new Map();
+
+// pm2 restart/stop → giết worker Python theo, tránh ffmpeg mồ côi tiếp tục
+// đẩy stream cũ lên FB/YT.
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.once(sig, () => {
+    for (const [, entry] of registry) {
+      try { entry.proc?.kill("SIGTERM"); } catch {}
+    }
+    setTimeout(() => process.exit(0), 300);
+  });
+}
 
 /**
  * Trả về overlay PNG cho session (worker Python fetch qua ffmpeg).
