@@ -186,6 +186,31 @@ async function decryptVenueImouCreds(venueId) {
 }
 
 /**
+ * Session lưu bởi mobile app (camelCase): {uuidUser,uuidKey,sessionId,regionalHost}.
+ * Python cần snake_case: {uuid_user,uuid_key,session_id,regional_host}. Convert.
+ */
+async function decryptVenueImouSession(venueId) {
+  const venue = await Venue.findById(venueId).select("imouSession").lean();
+  const cipher = venue?.imouSession?.cipher;
+  if (!cipher) return null;
+  const plain = decryptToken(cipher);
+  if (!plain) return null;
+  let sess;
+  try { sess = JSON.parse(plain); } catch { return null; }
+  const host = String(sess.regionalHost || sess.regional_host || "")
+    .replace(/^https?:\/\//, "").replace(/:443$/, "").replace(/\/$/, "");
+  const out = {
+    uuid_user: sess.uuidUser || sess.uuid_user,
+    uuid_key: sess.uuidKey || sess.uuid_key,
+    session_id: sess.sessionId || sess.session_id,
+    regional_host: host,
+    login_response: sess.loginResponse || sess.login_response || {},
+  };
+  if (!out.uuid_user || !out.uuid_key || !out.session_id || !out.regional_host) return null;
+  return out;
+}
+
+/**
  * Start 1 session mới. `input`:
  *   { tournamentId, courtStationId, imouDeviceId, destinations[], startedBy, autoNext }
  * Trả về document session đã insert. Ném lỗi nếu court đã có session active.
@@ -219,9 +244,12 @@ export async function startAutoLive(input) {
     const e = new Error("Không xác định được venue chứa cam");
     e.status = 400; throw e;
   }
-  const creds = await decryptVenueImouCreds(venueId);
-  if (!creds?.phone || !creds?.password) {
-    const e = new Error("Venue chưa lưu credentials Imou (chủ sân cần login lại)"); e.status = 400; throw e;
+  // Ưu tiên session đã có từ mobile app (đã pass captcha). Tránh login lại
+  // trên server vì cần Geetest solver + 2captcha key.
+  const imouSession = await decryptVenueImouSession(venueId);
+  if (!imouSession) {
+    const e = new Error("Venue chưa có session Imou. Chủ sân cần mở app mobile → Cài đặt cam Imou → Login lại (sẽ tự upload session lên backend).");
+    e.status = 400; throw e;
   }
 
   // Chuẩn hoá destinations: FB/YT chưa có streamUrl → gọi Graph API tạo
@@ -238,7 +266,7 @@ export async function startAutoLive(input) {
   });
 
   try {
-    const proc = spawnWorker(session, creds);
+    const proc = spawnWorker(session, imouSession);
     const entry = { proc, overlayCache: null, pollTimer: null };
     registry.set(String(session._id), entry);
     session.workerPid = proc.pid || 0;
@@ -257,7 +285,7 @@ export async function startAutoLive(input) {
   }
 }
 
-function spawnWorker(session, creds) {
+function spawnWorker(session, imouSession) {
   const backendBase = process.env.PUBLIC_BACKEND_URL || "http://localhost:5001";
   const overlayUrl = `${backendBase}/api/tournament-auto-live/overlay/${session._id}.png`;
   const heartbeatUrl = `${backendBase}/api/tournament-auto-live/internal/heartbeat`;
@@ -268,9 +296,7 @@ function spawnWorker(session, creds) {
     AUTOLIVE_WORKER_TOKEN: process.env.AUTOLIVE_WORKER_TOKEN || "changeme",
     AUTOLIVE_OVERLAY_URL: overlayUrl,
     AUTOLIVE_HEARTBEAT_URL: heartbeatUrl,
-    AUTOLIVE_IMOU_PHONE: creds.phone,
-    AUTOLIVE_IMOU_PASSWORD: creds.password,
-    AUTOLIVE_IMOU_AREA_CODE: creds.areaCode || "84",
+    AUTOLIVE_IMOU_SESSION_JSON: JSON.stringify(imouSession),
     AUTOLIVE_IMOU_DEVICE_ID: session.imouDeviceId,
     AUTOLIVE_DESTINATIONS: JSON.stringify(session.destinations.map((d) => ({
       type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",

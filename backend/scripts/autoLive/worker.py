@@ -6,9 +6,8 @@
     AUTOLIVE_WORKER_TOKEN
     AUTOLIVE_OVERLAY_URL         (backend serve PNG động 1920x1080)
     AUTOLIVE_HEARTBEAT_URL
-    AUTOLIVE_IMOU_PHONE
-    AUTOLIVE_IMOU_PASSWORD
-    AUTOLIVE_IMOU_AREA_CODE
+    AUTOLIVE_IMOU_SESSION_JSON   (bắt buộc: session mobile app đã lưu:
+                                  {uuid_user,uuid_key,session_id,regional_host})
     AUTOLIVE_IMOU_DEVICE_ID
     AUTOLIVE_DESTINATIONS        (JSON [{type,streamUrl,streamKey}])
 
@@ -85,9 +84,7 @@ def main():
     worker_token = env("AUTOLIVE_WORKER_TOKEN", required=True)
     overlay_url = env("AUTOLIVE_OVERLAY_URL", required=True)
     heartbeat_url = env("AUTOLIVE_HEARTBEAT_URL", required=True)
-    phone = env("AUTOLIVE_IMOU_PHONE", required=True)
-    password = env("AUTOLIVE_IMOU_PASSWORD", required=True)
-    area_code = env("AUTOLIVE_IMOU_AREA_CODE", "84")
+    session_json = env("AUTOLIVE_IMOU_SESSION_JSON", required=True)
     device_id = env("AUTOLIVE_IMOU_DEVICE_ID", required=True)
     destinations = json.loads(env("AUTOLIVE_DESTINATIONS", "[]"))
     tee = build_tee_output(destinations)
@@ -95,19 +92,22 @@ def main():
         print("[worker] no valid destinations", file=sys.stderr, flush=True)
         sys.exit(3)
 
-    # Import imou pkg (installed via pip on VPS).
     try:
         from imou import Client
     except ImportError:
-        print("[worker] imou-pkg chưa cài. pip install ImouPkg trên VPS.", file=sys.stderr, flush=True)
+        print("[worker] imou-pkg chưa cài. pip install /opt/imou-pkg trên VPS.", file=sys.stderr, flush=True)
         sys.exit(4)
 
-    # Login → find device.
-    client = Client(phone=phone, password=password, area_code=area_code)
+    try:
+        sess_dict = json.loads(session_json)
+    except json.JSONDecodeError as e:
+        print(f"[worker] AUTOLIVE_IMOU_SESSION_JSON parse fail: {e}", file=sys.stderr, flush=True)
+        sys.exit(5)
+    client = Client(session=sess_dict)
     dev = next((d for d in client.devices() if getattr(d, "device_id", "") == device_id), None)
     if not dev:
         print(f"[worker] device {device_id} not in account", file=sys.stderr, flush=True)
-        sys.exit(5)
+        sys.exit(6)
 
     # ffmpeg pipeline: input 0 = dhav from stdin, input 1 = overlay PNG (reload 1Hz).
     # -reload 1 chỉ hoạt động với image2/movie khi filename thay đổi/timestamp
