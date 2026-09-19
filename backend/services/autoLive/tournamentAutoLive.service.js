@@ -330,11 +330,12 @@ export async function startAutoLive(input) {
     const e = new Error("Không xác định được venue chứa cam");
     e.status = 400; throw e;
   }
-  // Ưu tiên session đã có từ mobile app (đã pass captcha). Tránh login lại
-  // trên server vì cần Geetest solver + 2captcha key.
+  // Session đã lưu (nếu có) + creds để worker tự login lại khi bị đá (Imou
+  // chỉ cho 1 phiên/tài khoản — app mobile login là phiên server chết, 12002).
   const imouSession = await decryptVenueImouSession(venueId);
-  if (!imouSession) {
-    const e = new Error("Venue chưa có session Imou. Chủ sân cần mở app mobile → Cài đặt cam Imou → Login lại (sẽ tự upload session lên backend).");
+  const imouCreds = await decryptVenueImouCreds(venueId);
+  if (!imouSession && !(imouCreds?.phone && imouCreds?.password)) {
+    const e = new Error("Venue chưa có session lẫn tài khoản Imou. Chủ sân cần mở app mobile → Cài đặt cam Imou → Login lại.");
     e.status = 400; throw e;
   }
 
@@ -352,7 +353,7 @@ export async function startAutoLive(input) {
   });
 
   try {
-    const proc = spawnWorker(session, imouSession);
+    const proc = spawnWorker(session, imouSession, imouCreds);
     const entry = { proc, overlayCache: null, pollTimer: null };
     registry.set(String(session._id), entry);
     session.workerPid = proc.pid || 0;
@@ -371,10 +372,11 @@ export async function startAutoLive(input) {
   }
 }
 
-function spawnWorker(session, imouSession) {
+function spawnWorker(session, imouSession, imouCreds) {
   const backendBase = process.env.PUBLIC_BACKEND_URL || "http://localhost:5001";
   const overlayUrl = `${backendBase}/api/tournament-auto-live/overlay/${session._id}.png`;
   const heartbeatUrl = `${backendBase}/api/tournament-auto-live/internal/heartbeat`;
+  const sessionPostUrl = `${backendBase}/api/tournament-auto-live/internal/imou-session`;
   const args = [WORKER_SCRIPT];
   const env = {
     ...process.env,
@@ -382,7 +384,11 @@ function spawnWorker(session, imouSession) {
     AUTOLIVE_WORKER_TOKEN: process.env.AUTOLIVE_WORKER_TOKEN || "changeme",
     AUTOLIVE_OVERLAY_URL: overlayUrl,
     AUTOLIVE_HEARTBEAT_URL: heartbeatUrl,
-    AUTOLIVE_IMOU_SESSION_JSON: JSON.stringify(imouSession),
+    AUTOLIVE_SESSION_POST_URL: sessionPostUrl,
+    AUTOLIVE_IMOU_SESSION_JSON: imouSession ? JSON.stringify(imouSession) : "",
+    AUTOLIVE_IMOU_PHONE: imouCreds?.phone || "",
+    AUTOLIVE_IMOU_PASSWORD: imouCreds?.password || "",
+    AUTOLIVE_IMOU_AREA_CODE: imouCreds?.areaCode || "84",
     AUTOLIVE_IMOU_DEVICE_ID: session.imouDeviceId,
     AUTOLIVE_DESTINATIONS: JSON.stringify(session.destinations.map((d) => ({
       type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
@@ -437,6 +443,23 @@ export async function stopAutoLive(sessionId) {
     }
   }
   return session.toObject();
+}
+
+/** Worker relogin Imou xong → lưu session mới (camelCase, mã hoá) vào venue. */
+export async function saveImouSessionFromWorker(sessionId, sess) {
+  const doc = await TournamentAutoLiveSession.findById(sessionId).select("venue").lean();
+  if (!doc) return false;
+  const forStorage = {
+    uuidUser: sess?.uuid_user, uuidKey: sess?.uuid_key,
+    sessionId: sess?.session_id, regionalHost: sess?.regional_host,
+  };
+  if (!forStorage.uuidUser || !forStorage.sessionId) return false;
+  const { encryptToken } = await import("../secret.service.js");
+  await Venue.updateOne(
+    { _id: doc.venue },
+    { $set: { imouSession: { cipher: encryptToken(JSON.stringify(forStorage)), updatedAt: new Date() } } }
+  );
+  return true;
 }
 
 export async function recordHeartbeat(sessionId) {

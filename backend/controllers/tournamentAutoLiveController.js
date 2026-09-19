@@ -5,7 +5,22 @@ import Venue from "../models/venueModel.js";
 import VenueCourt from "../models/venueCourtModel.js";
 import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, backfillWatchUrls,
+  saveImouSessionFromWorker,
 } from "../services/autoLive/tournamentAutoLive.service.js";
+
+function assertWorkerToken(req, res) {
+  const token = req.header("x-worker-token") || "";
+  if (!process.env.AUTOLIVE_WORKER_TOKEN || token !== process.env.AUTOLIVE_WORKER_TOKEN) {
+    res.status(403); throw new Error("bad worker token");
+  }
+}
+
+// POST /api/tournament-auto-live/internal/imou-session  { sessionId, session }
+export const internalImouSession = asyncHandler(async (req, res) => {
+  assertWorkerToken(req, res);
+  const ok = await saveImouSessionFromWorker(String(req.body?.sessionId || ""), req.body?.session);
+  res.json({ ok });
+});
 
 function stripSecrets(doc) {
   if (!doc) return doc;

@@ -2,7 +2,7 @@ import express from "express";
 import { protect, authorize } from "../middleware/authMiddleware.js";
 import {
   startSession, stopSession, listSessions, getSession,
-  getOverlayImage, internalHeartbeat, listAvailableCams,
+  getOverlayImage, internalHeartbeat, listAvailableCams, internalImouSession,
 } from "../controllers/tournamentAutoLiveController.js";
 
 const router = express.Router();
@@ -11,6 +11,7 @@ const admin = authorize("admin");
 // Public overlay PNG (worker fetch) + internal heartbeat KHÔNG cần user auth.
 router.get("/overlay/:id", getOverlayImage);
 router.post("/internal/heartbeat", express.json(), internalHeartbeat);
+router.post("/internal/imou-session", express.json(), internalImouSession);
 
 // Admin API
 router.post("/start", protect, admin, startSession);

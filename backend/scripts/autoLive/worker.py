@@ -6,7 +6,9 @@ Env do Node orchestrator set:
     AUTOLIVE_WORKER_TOKEN
     AUTOLIVE_OVERLAY_URL         (backend serve PNG 1920x1080 alpha)
     AUTOLIVE_HEARTBEAT_URL
-    AUTOLIVE_IMOU_SESSION_JSON   ({uuid_user,uuid_key,session_id,regional_host})
+    AUTOLIVE_SESSION_POST_URL    (backend nhận session Imou mới sau relogin)
+    AUTOLIVE_IMOU_SESSION_JSON   ({uuid_user,uuid_key,session_id,regional_host}) — có thể rỗng
+    AUTOLIVE_IMOU_PHONE / AUTOLIVE_IMOU_PASSWORD / AUTOLIVE_IMOU_AREA_CODE — để relogin
     AUTOLIVE_IMOU_DEVICE_ID
     AUTOLIVE_DESTINATIONS        (JSON [{type,streamUrl,streamKey}])
 
@@ -16,8 +18,15 @@ Pipeline:
       ↓ stdin
     ffmpeg -f dhav -i pipe:0
            [-f image2 -loop 1 -i overlay.png]      (file local, thay mỗi 1s)
-           [-f lavfi -i anullsrc]                   (nếu cam không có audio)
-           scale 1080p → overlay → libx264 → aac → tee nhiều RTMP
+           scale 1080p → overlay → libx264 → aac (anullsrc nếu cam không mic)
+           → tee nhiều RTMP
+
+Bền bỉ:
+  - Imou chỉ cho 1 phiên/tài khoản: app mobile login → phiên server bị đá
+    (code 12002). Gặp 12002 → login lại bằng creds → báo session mới về
+    backend → chạy tiếp.
+  - Relay đứt / ffmpeg chết → mở lại stream + ffmpeg mới (backoff), tối đa
+    MAX_ATTEMPTS lần liên tiếp; stream ổn định >60s thì reset đếm.
 
 Auto next-match KHÔNG ở đây: Node poll court.currentMatch → bump
 overlayVersion → PNG mới → worker tải về → image2 mở lại file mỗi frame.
@@ -31,10 +40,13 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 
 PREBUFFER_BYTES = 1_500_000   # ~3s ở 4Mbps — đủ cho ffprobe thấy audio
 PREBUFFER_MAX_S = 6.0
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+MAX_ATTEMPTS = 12
+HEALTHY_AFTER_S = 60
 
 
 def env(name, default=None, required=False):
@@ -43,6 +55,10 @@ def env(name, default=None, required=False):
         print(f"[worker] missing env {name}", file=sys.stderr, flush=True)
         sys.exit(2)
     return v
+
+
+def log(msg, err=False):
+    print(f"[worker {time.strftime('%H:%M:%S')}] {msg}", file=sys.stderr if err else sys.stdout, flush=True)
 
 
 def build_tee_output(destinations):
@@ -57,6 +73,7 @@ def build_tee_output(destinations):
     return "|".join(parts)
 
 
+# ── overlay / heartbeat ─────────────────────────────────────────────────
 def fetch_overlay(url, dest_path):
     """Tải PNG → ghi .tmp → os.replace (atomic) để ffmpeg không đọc file dở."""
     tmp = dest_path + ".tmp"
@@ -70,7 +87,7 @@ def fetch_overlay(url, dest_path):
         os.replace(tmp, dest_path)
         return True
     except Exception as e:  # noqa: BLE001
-        print(f"[worker] overlay fetch fail: {e}", file=sys.stderr, flush=True)
+        log(f"overlay fetch fail: {e}", err=True)
         return False
 
 
@@ -83,27 +100,78 @@ def overlay_loop(url, dest_path, stop_event, interval_s=1.0):
             time.sleep(0.1)
 
 
+def post_json(url, token, payload, timeout=8):
+    req = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", "x-worker-token": token}, method="POST",
+    )
+    return urllib.request.urlopen(req, timeout=timeout).read()
+
+
 def heartbeat_loop(url, token, session_id, stop_event):
     while not stop_event.is_set():
         try:
-            req = urllib.request.Request(
-                url,
-                data=json.dumps({"sessionId": session_id}).encode("utf-8"),
-                headers={"Content-Type": "application/json", "x-worker-token": token},
-                method="POST",
-            )
-            urllib.request.urlopen(req, timeout=8).read()
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
-            print(f"[worker] heartbeat fail: {e}", file=sys.stderr, flush=True)
+            post_json(url, token, {"sessionId": session_id})
+        except Exception as e:  # noqa: BLE001
+            log(f"heartbeat fail: {e}", err=True)
         for _ in range(150):  # 15s
             if stop_event.is_set():
                 return
             time.sleep(0.1)
 
 
+# ── imou session ─────────────────────────────────────────────────────────
+def is_auth_error(e):
+    s = str(e)
+    return "12002" in s or "AuthError" in type(e).__name__ or "session" in s.lower() and "expired" in s.lower()
+
+
+class ImouAccess:
+    """Giữ Client hiện tại; relogin khi 12002 nếu có creds."""
+
+    def __init__(self, session_dict, creds, work_dir, post_session):
+        from imou import Client  # noqa: WPS433 — import muộn để báo lỗi rõ
+        self._Client = Client
+        self.creds = creds
+        self.work_dir = work_dir
+        self.post_session = post_session
+        self.client = Client(session=session_dict) if session_dict else None
+        if self.client is None:
+            self.relogin("no stored session")
+
+    def relogin(self, reason):
+        if not self.creds:
+            raise RuntimeError(f"Imou session invalid ({reason}) và không có creds để login lại")
+        from imou.auth import login
+        log(f"relogin Imou ({reason})…")
+        sess = login(self.creds["phone"], self.creds["area_code"], self.creds["password"],
+                     session_path=Path(self.work_dir) / "imou-session.json")
+        self.client = self._Client(session=sess)
+        try:
+            self.post_session({k: sess.get(k) for k in
+                               ("uuid_user", "uuid_key", "session_id", "regional_host")})
+            log("session mới đã báo về backend")
+        except Exception as e:  # noqa: BLE001
+            log(f"post session fail: {e}", err=True)
+
+    def device(self, device_id):
+        try:
+            devs = self.client.devices()
+        except Exception as e:  # noqa: BLE001
+            if is_auth_error(e):
+                self.relogin(str(e))
+                devs = self.client.devices()
+            else:
+                raise
+        dev = next((d for d in devs if getattr(d, "device_id", "") == device_id), None)
+        if not dev:
+            raise RuntimeError(f"device {device_id} not in account")
+        return dev
+
+
+# ── ffmpeg ───────────────────────────────────────────────────────────────
 def probe_has_audio(buf):
-    """ffprobe đoạn DHAV đã đệm. Không chắc chắn → coi như KHÔNG có audio
-    (thêm anullsrc an toàn hơn là thiếu track)."""
+    """ffprobe đoạn DHAV đã đệm. Không chắc chắn → KHÔNG audio (anullsrc)."""
     try:
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-f", "dhav", "-i", "pipe:0",
@@ -111,23 +179,20 @@ def probe_has_audio(buf):
             input=buf, capture_output=True, timeout=20,
         )
         kinds = r.stdout.decode(errors="ignore").split()
-        print(f"[worker] probe streams={kinds}", flush=True)
+        log(f"probe streams={kinds}")
         return "audio" in kinds
     except Exception as e:  # noqa: BLE001
-        print(f"[worker] probe fail: {e}", file=sys.stderr, flush=True)
+        log(f"probe fail: {e}", err=True)
         return False
 
 
 def build_ffmpeg_args(overlay_path, has_audio, tee):
     # Cam Imou có thể xuất 2K (2560x1440@20fps): scale về 1080p TRƯỚC khi
-    # chồng overlay (PNG vẽ theo 1920x1080) và để x264 nhẹ CPU.
-    # -r 25 + GOP 50 = keyframe mỗi 2s theo yêu cầu FB/YT.
+    # chồng overlay (PNG vẽ theo 1920x1080). -r 25 + GOP 50 = keyframe 2s.
+    # PTS gốc của DHAV (không wallclock) — prebuffer ghi dồn sẽ không bị dồn
+    # timestamp. Audio im lặng tạo TRONG filter_complex để cùng đồng hồ graph.
     base = ("[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
-    # Dùng PTS gốc trong DHAV (đơn điệu theo clock cam) — KHÔNG wallclock,
-    # vì đoạn prebuffer ghi dồn 1 lúc sẽ bị đóng dấu cùng thời điểm → DTS
-    # nhảy. Audio im lặng tạo NGAY TRONG filter_complex để cùng đồng hồ với
-    # graph (anullsrc làm input rời sẽ lệch clock → "Non-monotonic DTS").
     args = [
         "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin",
         "-thread_queue_size", "512", "-f", "dhav", "-i", "pipe:0",
@@ -154,49 +219,103 @@ def build_ffmpeg_args(overlay_path, has_audio, tee):
     return args
 
 
+def run_stream_once(dev, overlay_path, tee, stop_event, ff_holder):
+    """Mở stream + ffmpeg, bơm tới khi stream hết / ffmpeg chết / stop.
+    Trả (seconds_streamed, ffmpeg_rc)."""
+    t_start = time.monotonic()
+    with dev.open_rtsp(with_audio=True) as rtsp:
+        it = iter(rtsp)
+        pre = bytearray()
+        t0 = time.monotonic()
+        for chunk in it:
+            pre += chunk
+            if len(pre) >= PREBUFFER_BYTES or time.monotonic() - t0 > PREBUFFER_MAX_S:
+                break
+        if not pre:
+            raise RuntimeError("relay trả 0 byte")
+        has_audio = probe_has_audio(bytes(pre))
+        args = build_ffmpeg_args(overlay_path, has_audio, tee)
+        log(f"spawning ffmpeg overlay={bool(overlay_path)} audio={has_audio} prebuf={len(pre)}B")
+        ff = subprocess.Popen(args, stdin=subprocess.PIPE)
+        ff_holder[0] = ff
+        try:
+            ff.stdin.write(bytes(pre))
+            del pre
+            for chunk in it:
+                if stop_event.is_set():
+                    break
+                try:
+                    ff.stdin.write(chunk)
+                except BrokenPipeError:
+                    log("ffmpeg stdin broken", err=True)
+                    break
+        finally:
+            try: ff.stdin.close()
+            except Exception: pass
+            try:
+                rc = ff.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                ff.kill(); rc = ff.wait()
+            ff_holder[0] = None
+    return time.monotonic() - t_start, rc
+
+
 def main():
     session_id = env("AUTOLIVE_SESSION_ID", required=True)
     worker_token = env("AUTOLIVE_WORKER_TOKEN", required=True)
     overlay_url = env("AUTOLIVE_OVERLAY_URL", required=True)
     heartbeat_url = env("AUTOLIVE_HEARTBEAT_URL", required=True)
-    session_json = env("AUTOLIVE_IMOU_SESSION_JSON", required=True)
+    session_post_url = env("AUTOLIVE_SESSION_POST_URL", "")
+    session_json = env("AUTOLIVE_IMOU_SESSION_JSON", "")
     device_id = env("AUTOLIVE_IMOU_DEVICE_ID", required=True)
     destinations = json.loads(env("AUTOLIVE_DESTINATIONS", "[]"))
+    creds = None
+    if env("AUTOLIVE_IMOU_PHONE") and env("AUTOLIVE_IMOU_PASSWORD"):
+        creds = {"phone": env("AUTOLIVE_IMOU_PHONE"), "password": env("AUTOLIVE_IMOU_PASSWORD"),
+                 "area_code": env("AUTOLIVE_IMOU_AREA_CODE", "84")}
     tee = build_tee_output(destinations)
     if not tee:
-        print("[worker] no valid destinations", file=sys.stderr, flush=True)
-        sys.exit(3)
+        log("no valid destinations", err=True); sys.exit(3)
+    sess_dict = None
+    if session_json:
+        try:
+            sess_dict = json.loads(session_json)
+        except json.JSONDecodeError as e:
+            log(f"AUTOLIVE_IMOU_SESSION_JSON parse fail: {e}", err=True)
+    if not sess_dict and not creds:
+        log("không có session lẫn creds Imou", err=True); sys.exit(5)
+
+    work_dir = f"/tmp/autolive-{session_id}"
+    os.makedirs(work_dir, exist_ok=True)
+
+    def post_session(sess):
+        if not session_post_url:
+            return
+        post_json(session_post_url, worker_token, {"sessionId": session_id, "session": sess})
 
     try:
-        from imou import Client
+        access = ImouAccess(sess_dict, creds, work_dir, post_session)
     except ImportError:
-        print("[worker] imou-pkg chưa cài (pip install /opt/imou-pkg).", file=sys.stderr, flush=True)
-        sys.exit(4)
-    try:
-        sess_dict = json.loads(session_json)
-    except json.JSONDecodeError as e:
-        print(f"[worker] AUTOLIVE_IMOU_SESSION_JSON parse fail: {e}", file=sys.stderr, flush=True)
-        sys.exit(5)
-    client = Client(session=sess_dict)
-    dev = next((d for d in client.devices() if getattr(d, "device_id", "") == device_id), None)
-    if not dev:
-        print(f"[worker] device {device_id} not in account", file=sys.stderr, flush=True)
-        sys.exit(6)
+        log("imou-pkg chưa cài (pip install /opt/imou-pkg).", err=True); sys.exit(4)
 
     # Overlay: tải về file local trước (thử 10 lần). Không được thì vẫn lên
     # sóng không overlay — thà live không điểm còn hơn chết.
-    work_dir = f"/tmp/autolive-{session_id}"
-    os.makedirs(work_dir, exist_ok=True)
     overlay_path = os.path.join(work_dir, "overlay.png")
-    have_overlay = any(fetch_overlay(overlay_url, overlay_path) or time.sleep(1) for _ in range(10))
+    have_overlay = False
+    for _ in range(10):
+        if fetch_overlay(overlay_url, overlay_path):
+            have_overlay = True
+            break
+        time.sleep(1)
     if not have_overlay:
-        print("[worker] overlay unavailable → stream without overlay", file=sys.stderr, flush=True)
+        log("overlay unavailable → stream without overlay", err=True)
 
     stop_event = threading.Event()
-    ff = None
+    ff_holder = [None]
 
     def cleanup(*_):
         stop_event.set()
+        ff = ff_holder[0]
         if ff is not None:
             try: ff.stdin.close()
             except Exception: pass
@@ -206,48 +325,48 @@ def main():
     signal.signal(signal.SIGTERM, cleanup)
     signal.signal(signal.SIGINT, cleanup)
 
-    rc = 1
-    try:
-        with dev.open_rtsp(with_audio=True) as rtsp:
-            # Đệm ~3s đầu để probe audio — dùng chung 1 kết nối relay.
-            it = iter(rtsp)
-            pre = bytearray()
-            t0 = time.monotonic()
-            for chunk in it:
-                pre += chunk
-                if len(pre) >= PREBUFFER_BYTES or time.monotonic() - t0 > PREBUFFER_MAX_S:
-                    break
-            has_audio = probe_has_audio(bytes(pre))
-            args = build_ffmpeg_args(overlay_path if have_overlay else None, has_audio, tee)
-            print(f"[worker] spawning ffmpeg sid={session_id} overlay={have_overlay} "
-                  f"audio={has_audio} prebuf={len(pre)}B", flush=True)
-            ff = subprocess.Popen(args, stdin=subprocess.PIPE)
-            if have_overlay:
-                threading.Thread(target=overlay_loop,
-                                 args=(overlay_url, overlay_path, stop_event), daemon=True).start()
-            threading.Thread(target=heartbeat_loop,
-                             args=(heartbeat_url, worker_token, session_id, stop_event),
-                             daemon=True).start()
-            ff.stdin.write(bytes(pre))
-            del pre
-            for chunk in it:
-                if stop_event.is_set():
-                    break
+    if have_overlay:
+        threading.Thread(target=overlay_loop, args=(overlay_url, overlay_path, stop_event),
+                         daemon=True).start()
+    threading.Thread(target=heartbeat_loop,
+                     args=(heartbeat_url, worker_token, session_id, stop_event), daemon=True).start()
+
+    attempts = 0
+    last_rc = 1
+    while not stop_event.is_set():
+        try:
+            dev = access.device(device_id)
+            streamed_s, last_rc = run_stream_once(
+                dev, overlay_path if have_overlay else None, tee, stop_event, ff_holder)
+            log(f"stream ended after {streamed_s:.0f}s ffmpeg rc={last_rc}")
+            if stop_event.is_set():
+                break
+            if streamed_s >= HEALTHY_AFTER_S:
+                attempts = 0
+        except Exception as e:  # noqa: BLE001
+            log(f"stream error: {e!r}", err=True)
+            if stop_event.is_set():
+                break
+            if is_auth_error(e):
                 try:
-                    ff.stdin.write(chunk)
-                except BrokenPipeError:
-                    print("[worker] ffmpeg stdin broken → exit", file=sys.stderr, flush=True)
-                    break
-    finally:
-        cleanup()
-        if ff is not None:
-            try:
-                rc = ff.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                ff.kill()
-                rc = ff.wait()
-        print(f"[worker] ffmpeg exit rc={rc}", flush=True)
-        sys.exit(0 if rc == 0 else 1)
+                    access.relogin(str(e))
+                except Exception as e2:  # noqa: BLE001
+                    log(f"relogin fail: {e2!r}", err=True)
+        attempts += 1
+        if attempts > MAX_ATTEMPTS:
+            log(f"quá {MAX_ATTEMPTS} lần nối lại liên tiếp → dừng", err=True)
+            break
+        delay = min(30, 3 * attempts)
+        log(f"reconnect in {delay}s (attempt {attempts}/{MAX_ATTEMPTS})")
+        for _ in range(delay * 10):
+            if stop_event.is_set():
+                break
+            time.sleep(0.1)
+
+    cleanup()
+    ok = stop_event.is_set() and attempts <= MAX_ATTEMPTS
+    log(f"exit ok={ok} last_rc={last_rc}")
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
