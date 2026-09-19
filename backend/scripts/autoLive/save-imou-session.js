@@ -44,7 +44,10 @@ if (!plainCreds) { console.error("Decrypt creds fail"); process.exit(4); }
 const { phone, password, areaCode = "84" } = JSON.parse(plainCreds);
 if (!phone || !password) { console.error("Creds thiếu phone/password"); process.exit(5); }
 
-const sessionFile = path.join(os.homedir(), ".config/imou/session.json");
+// Path mặc định của ImouPkg: ~/.imou-session.json (override qua env IMOU_SESSION)
+const sessionFile = process.env.IMOU_SESSION
+  ? path.resolve(process.env.IMOU_SESSION)
+  : path.join(os.homedir(), ".imou-session.json");
 if (fs.existsSync(sessionFile)) {
   console.log("→ Xoá session cũ ~/.config/imou/session.json trước khi login lại.");
   try { fs.unlinkSync(sessionFile); } catch {}
