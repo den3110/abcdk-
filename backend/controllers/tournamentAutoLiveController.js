@@ -4,7 +4,7 @@ import TournamentAutoLiveSession from "../models/tournamentAutoLiveSessionModel.
 import Venue from "../models/venueModel.js";
 import VenueCourt from "../models/venueCourtModel.js";
 import {
-  startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng,
+  startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, backfillWatchUrls,
 } from "../services/autoLive/tournamentAutoLive.service.js";
 
 function stripSecrets(doc) {
@@ -12,7 +12,7 @@ function stripSecrets(doc) {
   const o = typeof doc.toObject === "function" ? doc.toObject() : { ...doc };
   o.destinations = (o.destinations || []).map((d) => ({
     type: d.type, label: d.label, pageId: d.pageId, pageName: d.pageName,
-    broadcastId: d.broadcastId,
+    broadcastId: d.broadcastId, watchUrl: d.watchUrl || "",
     hasKey: !!(d.streamKey || (d.streamUrl && d.streamUrl.includes("?"))),
   }));
   return o;
@@ -44,11 +44,23 @@ export const listSessions = asyncHandler(async (req, res) => {
   const q = {};
   if (req.query.tournamentId) q.tournament = req.query.tournamentId;
   if (req.query.status) q.status = req.query.status;
-  const docs = await TournamentAutoLiveSession.find(q)
+  let docs = await TournamentAutoLiveSession.find(q)
     .sort({ updatedAt: -1 })
     .populate("court", "_id name code")
     .populate("tournament", "_id name")
     .lean({ virtuals: false });
+  const needBackfill = docs
+    .filter((d) => ["live", "starting", "reconnecting"].includes(d.status)
+      && (d.destinations || []).some((x) => x.type === "fb" && x.broadcastId && !x.watchUrl))
+    .map((d) => d._id);
+  if (needBackfill.length) {
+    await backfillWatchUrls(needBackfill);
+    docs = await TournamentAutoLiveSession.find(q)
+      .sort({ updatedAt: -1 })
+      .populate("court", "_id name code")
+      .populate("tournament", "_id name")
+      .lean({ virtuals: false });
+  }
   res.json(docs.map(stripSecrets));
 });
 

@@ -137,6 +137,34 @@ function startPoll(sessionId) {
  *  - type="youtube": TODO — hiện chưa có helper stable trong repo, ném lỗi.
  *  - type="rtmp": giữ nguyên, chỉ cần có streamUrl.
  */
+function fbWatchUrl(permalink, pageId, liveId) {
+  if (permalink) return permalink.startsWith("http") ? permalink : `https://www.facebook.com${permalink}`;
+  return liveId ? `https://www.facebook.com/${pageId}/videos/${liveId}` : "";
+}
+
+/** Phiên FB đang chạy nhưng thiếu watchUrl (tạo trước khi có field) → hỏi Graph 1 lần và lưu. */
+export async function backfillWatchUrls(sessionIds) {
+  for (const sid of sessionIds) {
+    const doc = await TournamentAutoLiveSession.findById(sid);
+    if (!doc) continue;
+    let changed = false;
+    for (const d of doc.destinations) {
+      if (d.type !== "fb" || d.watchUrl || !d.broadcastId || !d.pageId) continue;
+      try {
+        const token = await getValidPageToken(d.pageId);
+        const info = await fbGetLiveVideo({
+          liveVideoId: d.broadcastId, pageAccessToken: token, fields: "id,permalink_url",
+        });
+        d.watchUrl = fbWatchUrl(info?.permalink_url || "", d.pageId, d.broadcastId);
+        changed = true;
+      } catch (e) {
+        console.warn("[auto-live] backfill watchUrl fail", d.broadcastId, e?.message || e);
+      }
+    }
+    if (changed) await doc.save();
+  }
+}
+
 async function prepareDestinations(destinations, title) {
   const out = [];
   for (const d of destinations || []) {
@@ -164,13 +192,15 @@ async function prepareDestinations(destinations, title) {
       } catch (e) { const err = new Error(`FB create live lỗi: ${e?.message || e}`); err.status = 400; throw err; }
       const liveId = live?.id || live?.liveVideoId;
       let secure = live?.secure_stream_url || "";
-      for (let i = 0; i < 6 && !secure; i++) {
+      let permalink = live?.permalink_url || "";
+      for (let i = 0; i < 6 && !(secure && permalink); i++) {
         await new Promise((r) => setTimeout(r, 700));
         const info = await fbGetLiveVideo({
           liveVideoId: liveId, pageAccessToken: pageToken,
           fields: "id,status,secure_stream_url,stream_url,permalink_url",
         }).catch(() => null);
-        secure = info?.secure_stream_url || info?.stream_url || "";
+        secure = secure || info?.secure_stream_url || info?.stream_url || "";
+        permalink = permalink || info?.permalink_url || "";
       }
       if (!secure) {
         const e = new Error(`FB không trả stream URL cho page ${d.pageName || pageId}`);
@@ -179,6 +209,7 @@ async function prepareDestinations(destinations, title) {
       out.push({
         type: "fb", label: d.pageName || pageId, pageId, pageName: d.pageName || "",
         broadcastId: String(liveId || ""), streamUrl: secure, streamKey: "",
+        watchUrl: fbWatchUrl(permalink, pageId, liveId),
       });
       continue;
     }

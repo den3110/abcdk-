@@ -17,6 +17,8 @@ const destinationSchema = new Schema(
     pageId: { type: String, default: "" },
     pageName: { type: String, default: "" },
     broadcastId: { type: String, default: "" },
+    // Link người xem (FB permalink / YouTube watch) — public, hiện trên admin
+    watchUrl: { type: String, default: "" },
     // Ẩn khi trả API để không lộ key
     _isSecret: { type: Boolean, default: true },
   },
