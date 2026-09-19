@@ -57,6 +57,32 @@ const venueCourtSchema = new Schema(
       default: "active",
     },
     isActive: { type: Boolean, default: true },
+
+    /**
+     * LEGACY — 1 cam Imou. Mirror imouCams[0] cho app build cũ đọc.
+     */
+    imou: {
+      deviceId: String,
+      name: String,
+      productId: String,
+      maxZoomX: Number,
+      linkedAt: Date,
+    },
+    /**
+     * Nhiều cam Imou trên 1 court (VD sân 3-4 cam theo góc quay).
+     * name = tên gợi nhớ ("Toàn cảnh", "Góc trái"…). deviceId từ ImouNative.listDevices().
+     * Không lưu password/token — native app tự giữ session qua Keychain.
+     */
+    imouCams: [
+      {
+        _id: false,
+        deviceId: { type: String, required: true },
+        name: String,
+        productId: String,
+        maxZoomX: Number,
+        linkedAt: Date,
+      },
+    ],
   },
   { timestamps: true },
 );

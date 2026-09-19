@@ -95,6 +95,35 @@ const venueSchema = new Schema(
       default: "active",
     },
     isActive: { type: Boolean, default: true },
+  
+    /**
+     * Chủ sân đã liên kết tài khoản Imou. Metadata thôi (SĐT + linkedAt) — password/session
+     * lưu ở field khác (imouCreds/imouSession, mã hoá AES-GCM).
+     */
+    imouAccount: {
+      phone: String,
+      areaCode: { type: String, default: "84" },
+      linkedAt: Date,
+      lastCheckedAt: Date,
+    },
+    /**
+     * Imou session tokens (encrypted AES-GCM qua encryptToken/decryptToken, đã có sẵn
+     * trong services/secret.service.js). Owner-app upload sau ImouNative.login().
+     * Format: encryptToken(JSON({ uuidUser, uuidKey, sessionId, regionalHost, apiVer })).
+     * TTL Imou ~24-72h → refresh khi native emit sessionExpired (12002).
+     */
+    imouSession: {
+      cipher: String,
+      updatedAt: Date,
+    },
+    /**
+     * Imou credentials encrypted — để owner-app tự relogin khi session hết hạn.
+     * Backend KHÔNG dùng credentials; chỉ owner-app native đọc + login lại.
+     */
+    imouCreds: {
+      cipher: String,
+      updatedAt: Date,
+    },
   },
   { timestamps: true },
 );
