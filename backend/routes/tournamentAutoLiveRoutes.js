@@ -1,11 +1,12 @@
 import express from "express";
-import { protect, admin } from "../middleware/authMiddleware.js";
+import { protect, authorize } from "../middleware/authMiddleware.js";
 import {
   startSession, stopSession, listSessions, getSession,
   getOverlayImage, internalHeartbeat,
 } from "../controllers/tournamentAutoLiveController.js";
 
 const router = express.Router();
+const admin = authorize("admin");
 
 // Public overlay PNG (worker fetch) + internal heartbeat KHÔNG cần user auth.
 router.get("/overlay/:id", getOverlayImage);
