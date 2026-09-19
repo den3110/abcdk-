@@ -13,6 +13,8 @@
 // 503 và log rõ để fix infra.
 
 import { spawn } from "child_process";
+import fs from "fs";
+import os from "os";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
@@ -33,19 +35,45 @@ const __dirname = path.dirname(__filename);
 const WORKER_SCRIPT = path.resolve(__dirname, "../../scripts/autoLive/worker.py");
 const PYTHON_BIN = process.env.PYTHON_BIN || "python3";
 
-// Map sessionId → { proc, pollTimer }
+// Map sessionId → { proc|null, pollTimer }
+// Worker Python chạy DETACHED (session riêng, log ra file) để pm2 restart /
+// deploy backend KHÔNG làm rớt live. Sau khi backend khởi động lại, các
+// phiên còn sống được "nhận nuôi" lại theo PID (adoptRunningSessions).
 const registry = new Map();
 
-// pm2 restart/stop → giết worker Python theo, tránh ffmpeg mồ côi tiếp tục
-// đẩy stream cũ lên FB/YT.
-for (const sig of ["SIGINT", "SIGTERM"]) {
-  process.once(sig, () => {
-    for (const [, entry] of registry) {
-      try { entry.proc?.kill("SIGTERM"); } catch {}
-    }
-    setTimeout(() => process.exit(0), 300);
-  });
+function isPidAlive(pid) {
+  if (!pid) return false;
+  try { process.kill(pid, 0); return true; } catch { return false; }
 }
+
+function workerLogPath(sessionId) {
+  const dir = path.join(os.tmpdir(), `autolive-${sessionId}`);
+  fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, "worker.log");
+}
+
+async function adoptRunningSessions() {
+  const docs = await TournamentAutoLiveSession.find({
+    status: { $in: ["starting", "live", "reconnecting"] },
+  }).select("_id workerPid").lean();
+  for (const d of docs) {
+    const sid = String(d._id);
+    if (isPidAlive(d.workerPid)) {
+      if (!registry.has(sid)) registry.set(sid, { proc: null, pollTimer: null });
+      startPoll(sid);
+      console.log(`[auto-live] adopted session ${sid} pid=${d.workerPid}`);
+    } else {
+      await TournamentAutoLiveSession.updateOne(
+        { _id: d._id, status: { $ne: "stopped" } },
+        { $set: { status: "error", lastError: "worker process không còn sau khi backend khởi động lại",
+                  lastErrorAt: new Date(), stoppedAt: new Date() } }
+      );
+    }
+  }
+}
+// Đợi mongoose kết nối xong (server.js connect ngay khi boot).
+setTimeout(() => adoptRunningSessions().catch((e) =>
+  console.error("[auto-live] adopt fail", e?.message || e)), 8000);
 
 /**
  * Trả về overlay PNG cho session (worker Python fetch qua ffmpeg).
@@ -101,6 +129,18 @@ async function pollOnce(sessionId) {
   } else {
     // Cùng match nhưng có thể tỉ số đổi — vẫn re-render để cập nhật scoreboard.
     await bumpOverlayForSession(sessionId);
+  }
+  // Worker chết (PID không còn) mà chưa ai mark → error. Cần vì sau khi
+  // backend restart không còn handler 'exit' của process cũ.
+  if (session.workerPid && !isPidAlive(session.workerPid)) {
+    session.status = "error";
+    session.lastError = `worker process ${session.workerPid} đã dừng (xem ${workerLogPath(sessionId)})`;
+    session.lastErrorAt = new Date();
+    session.stoppedAt = new Date();
+    await session.save();
+    stopPoll(sessionId);
+    registry.delete(String(sessionId));
+    return;
   }
   // Heartbeat: nếu quá 30s không có heartbeat từ worker → mark reconnecting.
   const hb = session.workerLastHeartbeatAt?.getTime() || 0;
@@ -348,16 +388,21 @@ function spawnWorker(session, imouSession) {
       type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
     }))),
   };
-  const proc = spawn(PYTHON_BIN, args, { env, stdio: ["ignore", "pipe", "pipe"] });
-  proc.stdout.on("data", (b) => process.stdout.write(`[autolive:${session._id}] ${b}`));
-  proc.stderr.on("data", (b) => process.stderr.write(`[autolive:${session._id} ERR] ${b}`));
+  // Log ra FILE (không pipe): nếu pipe mà backend chết thì Python print →
+  // EPIPE → worker chết theo. detached + unref để pm2 restart không kill.
+  const logFd = fs.openSync(workerLogPath(session._id), "a");
+  const proc = spawn(PYTHON_BIN, args, {
+    env, detached: true, stdio: ["ignore", logFd, logFd],
+  });
+  proc.unref();
+  fs.closeSync(logFd);
   proc.on("exit", async (code, signal) => {
     console.log(`[auto-live] worker exit sid=${session._id} code=${code} signal=${signal}`);
     const doc = await TournamentAutoLiveSession.findById(session._id);
     if (!doc) return;
     if (doc.status === "stopped") return; // user chủ động stop
     doc.status = code === 0 ? "stopped" : "error";
-    doc.lastError = `worker exited code=${code} signal=${signal || ""}`.trim();
+    doc.lastError = `worker exited code=${code} signal=${signal || ""} (xem ${workerLogPath(session._id)})`.trim();
     doc.lastErrorAt = new Date();
     doc.stoppedAt = new Date();
     await doc.save();
@@ -373,10 +418,11 @@ export async function stopAutoLive(sessionId) {
   session.status = "stopped";
   session.stoppedAt = new Date();
   await session.save();
-  const entry = registry.get(String(sessionId));
-  if (entry?.proc) {
-    try { entry.proc.kill("SIGTERM"); } catch {}
-    setTimeout(() => { try { entry.proc?.kill("SIGKILL"); } catch {} }, 5000);
+  // Kill theo PID (worker detached, có thể được spawn bởi process backend cũ).
+  const pid = session.workerPid;
+  if (isPidAlive(pid)) {
+    try { process.kill(pid, "SIGTERM"); } catch {}
+    setTimeout(() => { if (isPidAlive(pid)) { try { process.kill(pid, "SIGKILL"); } catch {} } }, 6000);
   }
   stopPoll(sessionId);
   registry.delete(String(sessionId));
