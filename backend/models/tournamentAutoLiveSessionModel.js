@@ -54,6 +54,9 @@ const tournamentAutoLiveSessionSchema = new Schema(
     workerStartedAt: { type: Date, default: null },
     workerLastHeartbeatAt: { type: Date, default: null },
     // Stats
+    // Tài nguyên tiêu thụ (worker + ffmpeg) — cập nhật mỗi lần poll
+    cpuPct: { type: Number, default: 0 }, // % của 1 lõi (100 = 1 core)
+    memMB: { type: Number, default: 0 },
     startedAt: { type: Date, default: Date.now },
     stoppedAt: { type: Date, default: null },
     lastMatchChangeAt: { type: Date, default: null },

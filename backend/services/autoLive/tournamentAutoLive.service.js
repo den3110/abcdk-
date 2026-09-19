@@ -27,6 +27,7 @@ import Tournament from "../../models/tournamentModel.js";
 import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionModel.js";
 import { decryptToken } from "../secret.service.js";
 import { loadOverlayData, renderOverlayPng } from "./overlayRenderer.service.js";
+import { sampleProcessTree, clearProcSample, systemCapacity } from "./procStat.service.js";
 import { getValidPageToken } from "../fbTokenService.js";
 import { fbCreateLiveOnPage, fbGetLiveVideo, fbEndLiveVideo } from "../facebookLive.service.js";
 
@@ -142,6 +143,14 @@ async function pollOnce(sessionId) {
     registry.delete(String(sessionId));
     return;
   }
+  // Đo tài nguyên worker + ffmpeg
+  try {
+    const { cpuPct, memMB } = sampleProcessTree(session.workerPid, String(session._id));
+    session.cpuPct = cpuPct;
+    session.memMB = memMB;
+    await session.save();
+  } catch { /* /proc không có (không phải Linux) → bỏ qua */ }
+
   // Heartbeat: nếu quá 30s không có heartbeat từ worker → mark reconnecting.
   const hb = session.workerLastHeartbeatAt?.getTime() || 0;
   if (hb && Date.now() - hb > 30_000 && session.status === "live") {
@@ -432,6 +441,7 @@ export async function stopAutoLive(sessionId) {
   }
   stopPoll(sessionId);
   registry.delete(String(sessionId));
+  clearProcSample(String(sessionId));
   // Kết thúc live FB để page không treo "đang phát" với hình đứng.
   for (const d of session.destinations || []) {
     if (d.type !== "fb" || !d.broadcastId || !d.pageId) continue;
@@ -480,6 +490,14 @@ export async function recordHeartbeat(sessionId) {
     { new: true }
   );
   return doc;
+}
+
+/** Thống kê tài nguyên máy chủ + ước tính số luồng đồng thời. */
+export async function getSystemStats() {
+  const live = await TournamentAutoLiveSession.find({
+    status: { $in: ["live", "reconnecting", "starting"] },
+  }).select("cpuPct memMB").lean();
+  return systemCapacity(live.map((s) => ({ cpuPct: s.cpuPct || 0, memMB: s.memMB || 0 })));
 }
 
 export function listActiveInMemory() {

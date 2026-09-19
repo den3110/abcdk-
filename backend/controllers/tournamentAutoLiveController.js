@@ -5,7 +5,7 @@ import Venue from "../models/venueModel.js";
 import VenueCourt from "../models/venueCourtModel.js";
 import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, backfillWatchUrls,
-  saveImouSessionFromWorker, getImouSessionForWorker,
+  saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
 } from "../services/autoLive/tournamentAutoLive.service.js";
 
 // GET /api/tournament-auto-live/internal/imou-session?sessionId=
@@ -38,8 +38,15 @@ function stripSecrets(doc) {
     broadcastId: d.broadcastId, watchUrl: d.watchUrl || "",
     hasKey: !!(d.streamKey || (d.streamUrl && d.streamUrl.includes("?"))),
   }));
+  o.cpuPct = o.cpuPct || 0;
+  o.memMB = o.memMB || 0;
   return o;
 }
+
+// GET /api/tournament-auto-live/stats — tài nguyên máy chủ + ước tính capacity
+export const getStats = asyncHandler(async (req, res) => {
+  res.json(await getSystemStats());
+});
 
 // POST /api/tournament-auto-live/start
 export const startSession = asyncHandler(async (req, res) => {
