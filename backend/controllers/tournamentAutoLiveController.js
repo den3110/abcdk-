@@ -1,6 +1,8 @@
 // REST API cho auto-live tournament.
 import asyncHandler from "express-async-handler";
 import TournamentAutoLiveSession from "../models/tournamentAutoLiveSessionModel.js";
+import Venue from "../models/venueModel.js";
+import VenueCourt from "../models/venueCourtModel.js";
 import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng,
 } from "../services/autoLive/tournamentAutoLive.service.js";
@@ -69,6 +71,42 @@ export const getOverlayImage = asyncHandler(async (req, res) => {
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Cache-Control", "no-store, must-revalidate");
   res.send(buf);
+});
+
+// GET /api/tournament-auto-live/available-cams
+// Trả toàn bộ cam Imou đã gắn vào các sân vật lý (VenueCourt) — flat, kèm
+// venue/court label để admin chọn khi start auto-live cho court giải đấu
+// (MVP: court giải chưa auto-link với venueCourt).
+export const listAvailableCams = asyncHandler(async (req, res) => {
+  const venues = await Venue.find({ "imouAccount.phone": { $exists: true, $ne: "" } })
+    .select("_id name imouAccount")
+    .lean();
+  if (!venues.length) return res.json([]);
+  const venueMap = new Map(venues.map((v) => [String(v._id), v]));
+  const courts = await VenueCourt.find({
+    venue: { $in: venues.map((v) => v._id) },
+    $or: [
+      { "imouCams.0": { $exists: true } },
+      { "imou.deviceId": { $exists: true, $ne: "" } },
+    ],
+  })
+    .select("_id name venue imou imouCams")
+    .lean();
+  const out = [];
+  for (const c of courts) {
+    const v = venueMap.get(String(c.venue));
+    if (!v) continue;
+    const cams = (c.imouCams && c.imouCams.length) ? c.imouCams
+      : (c.imou?.deviceId ? [c.imou] : []);
+    for (const cam of cams) {
+      out.push({
+        venueId: String(c.venue), venueName: v.name || "",
+        courtId: String(c._id), courtName: c.name || "",
+        deviceId: cam.deviceId, camName: cam.name || cam.deviceId,
+      });
+    }
+  }
+  res.json(out);
 });
 
 // POST /api/tournament-auto-live/internal/heartbeat
