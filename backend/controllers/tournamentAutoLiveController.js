@@ -5,8 +5,16 @@ import Venue from "../models/venueModel.js";
 import VenueCourt from "../models/venueCourtModel.js";
 import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, backfillWatchUrls,
-  saveImouSessionFromWorker,
+  saveImouSessionFromWorker, getImouSessionForWorker,
 } from "../services/autoLive/tournamentAutoLive.service.js";
+
+// GET /api/tournament-auto-live/internal/imou-session?sessionId=
+export const internalGetImouSession = asyncHandler(async (req, res) => {
+  assertWorkerToken(req, res);
+  const sess = await getImouSessionForWorker(String(req.query?.sessionId || ""));
+  if (!sess) { res.status(404).json({ session: null }); return; }
+  res.json({ session: sess });
+});
 
 function assertWorkerToken(req, res) {
   const token = req.header("x-worker-token") || "";

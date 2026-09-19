@@ -127,19 +127,39 @@ def is_auth_error(e):
 
 
 class ImouAccess:
-    """Giữ Client hiện tại; relogin khi 12002 nếu có creds."""
+    """Giữ Client hiện tại. Khi 12002: LẤY session mới nhất từ backend trước
+    (app chủ sân có thể vừa login/upload — dùng chung phiên, không đá nhau);
+    không có gì mới hơn thì mới login lại bằng creds."""
 
-    def __init__(self, session_dict, creds, work_dir, post_session):
+    def __init__(self, session_dict, creds, work_dir, post_session, get_session):
         from imou import Client  # noqa: WPS433 — import muộn để báo lỗi rõ
         self._Client = Client
         self.creds = creds
         self.work_dir = work_dir
         self.post_session = post_session
+        self.get_session = get_session
+        self.current_sid = (session_dict or {}).get("session_id")
         self.client = Client(session=session_dict) if session_dict else None
         if self.client is None:
             self.relogin("no stored session")
 
+    def _adopt_backend_session(self):
+        try:
+            sess = self.get_session()
+        except Exception as e:  # noqa: BLE001
+            log(f"get backend session fail: {e}", err=True)
+            return False
+        if not sess or not sess.get("session_id") or sess.get("session_id") == self.current_sid:
+            return False
+        self.client = self._Client(session={k: sess.get(k) for k in
+                                            ("uuid_user", "uuid_key", "session_id", "regional_host")})
+        self.current_sid = sess["session_id"]
+        log("dùng session mới từ backend (app chủ sân đã login)")
+        return True
+
     def relogin(self, reason):
+        if self._adopt_backend_session():
+            return
         if not self.creds:
             raise RuntimeError(f"Imou session invalid ({reason}) và không có creds để login lại")
         from imou.auth import login
@@ -147,6 +167,7 @@ class ImouAccess:
         sess = login(self.creds["phone"], self.creds["area_code"], self.creds["password"],
                      session_path=Path(self.work_dir) / "imou-session.json")
         self.client = self._Client(session=sess)
+        self.current_sid = sess.get("session_id")
         try:
             self.post_session({k: sess.get(k) for k in
                                ("uuid_user", "uuid_key", "session_id", "regional_host")})
@@ -293,8 +314,21 @@ def main():
             return
         post_json(session_post_url, worker_token, {"sessionId": session_id, "session": sess})
 
+    def get_session():
+        if not session_post_url:
+            return None
+        req = urllib.request.Request(f"{session_post_url}?sessionId={session_id}",
+                                     headers={"x-worker-token": worker_token})
+        try:
+            body = urllib.request.urlopen(req, timeout=8).read()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return None
+            raise
+        return json.loads(body).get("session")
+
     try:
-        access = ImouAccess(sess_dict, creds, work_dir, post_session)
+        access = ImouAccess(sess_dict, creds, work_dir, post_session, get_session)
     except ImportError:
         log("imou-pkg chưa cài (pip install /opt/imou-pkg).", err=True); sys.exit(4)
 

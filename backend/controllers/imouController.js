@@ -136,6 +136,40 @@ export const uploadImouCreds = asyncHandler(async (req, res) => {
   res.json({ ok: true, updatedAt: venue.imouCreds.updatedAt });
 });
 
+// GET /api/imou/venues/:id/session — app lấy session mới nhất (có thể do
+// server auto-live relogin) để importSession thay vì login lại.
+export const getImouSession = asyncHandler(async (req, res) => {
+  const venue = await loadVenue(req.params.id);
+  if (!venue) {
+    res.status(404);
+    throw new Error("Không tìm thấy sân");
+  }
+  if (!canManageVenue(req.user, venue)) {
+    res.status(403);
+    throw new Error("Không có quyền");
+  }
+  const cipher = venue.imouSession?.cipher;
+  if (!cipher) {
+    res.status(404);
+    throw new Error("Chưa có session Imou nào được lưu");
+  }
+  try {
+    const sess = JSON.parse(decryptToken(cipher));
+    res.json({
+      session: {
+        uuidUser: sess.uuidUser || sess.uuid_user,
+        uuidKey: sess.uuidKey || sess.uuid_key,
+        sessionId: sess.sessionId || sess.session_id,
+        regionalHost: sess.regionalHost || sess.regional_host,
+      },
+      updatedAt: venue.imouSession?.updatedAt,
+    });
+  } catch (e) {
+    res.status(500);
+    throw new Error("Không giải mã được session: " + e.message);
+  }
+});
+
 export const getImouCreds = asyncHandler(async (req, res) => {
   const venue = await loadVenue(req.params.id);
   if (!venue) {

@@ -5,6 +5,7 @@ import {
   linkImouAccount,
   unlinkImouAccount,
   uploadImouSession,
+  getImouSession,
   clearImouSession,
   uploadImouCreds,
   getImouCreds,
@@ -25,6 +26,7 @@ router.post("/venues/:id/account", protect, linkImouAccount);
 router.delete("/venues/:id/account", protect, unlinkImouAccount);
 
 router.post("/venues/:id/session", protect, uploadImouSession);
+router.get("/venues/:id/session", protect, getImouSession);
 router.delete("/venues/:id/session", protect, clearImouSession);
 
 router.post("/venues/:id/creds", protect, uploadImouCreds);

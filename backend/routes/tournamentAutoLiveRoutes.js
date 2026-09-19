@@ -3,6 +3,7 @@ import { protect, authorize } from "../middleware/authMiddleware.js";
 import {
   startSession, stopSession, listSessions, getSession,
   getOverlayImage, internalHeartbeat, listAvailableCams, internalImouSession,
+  internalGetImouSession,
 } from "../controllers/tournamentAutoLiveController.js";
 
 const router = express.Router();
@@ -12,6 +13,7 @@ const admin = authorize("admin");
 router.get("/overlay/:id", getOverlayImage);
 router.post("/internal/heartbeat", express.json(), internalHeartbeat);
 router.post("/internal/imou-session", express.json(), internalImouSession);
+router.get("/internal/imou-session", internalGetImouSession);
 
 // Admin API
 router.post("/start", protect, admin, startSession);

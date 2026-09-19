@@ -445,6 +445,17 @@ export async function stopAutoLive(sessionId) {
   return session.toObject();
 }
 
+/** Worker bị 12002 → hỏi session mới nhất trong DB (app mobile có thể vừa
+ *  login/upload) trước khi tự relogin. Trả snake_case cho Python. */
+export async function getImouSessionForWorker(sessionId) {
+  const doc = await TournamentAutoLiveSession.findById(sessionId).select("venue").lean();
+  if (!doc) return null;
+  const sess = await decryptVenueImouSession(doc.venue);
+  if (!sess) return null;
+  const venue = await Venue.findById(doc.venue).select("imouSession.updatedAt").lean();
+  return { ...sess, updatedAt: venue?.imouSession?.updatedAt || null };
+}
+
 /** Worker relogin Imou xong → lưu session mới (camelCase, mã hoá) vào venue. */
 export async function saveImouSessionFromWorker(sessionId, sess) {
   const doc = await TournamentAutoLiveSession.findById(sessionId).select("venue").lean();
