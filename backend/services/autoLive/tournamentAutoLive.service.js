@@ -36,31 +36,35 @@ const PYTHON_BIN = process.env.PYTHON_BIN || "python3";
 // Map sessionId → { proc, pollTimer, overlayCache: { buf, version } }
 const registry = new Map();
 
-/** Trả về overlay data cached, nếu chưa có render lần đầu. */
+/**
+ * Trả về overlay PNG cho session (worker Python fetch qua ffmpeg).
+ * KHÔNG dựa vào in-memory registry — pm2 cluster nhiều process, request có
+ * thể vào bất kỳ worker Node nào. Load session từ DB, chỉ cần status không
+ * phải "stopped", render trực tiếp từ overlay data hiện tại của court.
+ * Cache theo overlayVersion để không render lại khi data chưa đổi.
+ */
+const overlayCache = new Map(); // sessionId → { buf, version }
 export async function getCachedOverlayPng(sessionId) {
-  const entry = registry.get(String(sessionId));
-  if (!entry) return null;
-  if (!entry.overlayCache?.buf) {
-    const doc = await TournamentAutoLiveSession.findById(sessionId).lean();
-    if (!doc) return null;
-    const data = await loadOverlayData(doc.court);
-    const buf = renderOverlayPng(data);
-    entry.overlayCache = { buf, version: doc.overlayVersion || 0 };
-  }
-  return entry.overlayCache.buf;
+  const doc = await TournamentAutoLiveSession.findById(sessionId)
+    .select("_id court status overlayVersion")
+    .lean();
+  if (!doc) return null;
+  if (doc.status === "stopped") return null;
+  const cached = overlayCache.get(String(sessionId));
+  if (cached && cached.version === (doc.overlayVersion || 0)) return cached.buf;
+  const data = await loadOverlayData(doc.court);
+  const buf = renderOverlayPng(data);
+  overlayCache.set(String(sessionId), { buf, version: doc.overlayVersion || 0 });
+  return buf;
 }
 
 async function bumpOverlayForSession(sessionId) {
+  // Chỉ bump version trong DB — render lazy khi worker fetch overlay PNG.
   const doc = await TournamentAutoLiveSession.findByIdAndUpdate(
     sessionId,
     { $inc: { overlayVersion: 1 } },
     { new: true }
   );
-  if (!doc) return null;
-  const data = await loadOverlayData(doc.court);
-  const buf = renderOverlayPng(data);
-  const entry = registry.get(String(sessionId));
-  if (entry) entry.overlayCache = { buf, version: doc.overlayVersion };
   return doc;
 }
 
