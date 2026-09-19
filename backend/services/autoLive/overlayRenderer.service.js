@@ -105,180 +105,251 @@ function roundedRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-/**
- * Render PNG buffer 1920x1080 alpha. `data` = kết quả loadOverlayData().
- * Layout:
- *   [1400,880] scoreboard 460x160 bottom-left
- *   [1200,60]  court chip top-right (Sân X · Cluster)
- */
+// ────────────────────────────────────────────────────────────────────────
+// Broadcast "bug" scoreboard — style V2 của native-live-app, scale cho 1080p.
+// Bố cục (neo góc dưới-trái):
+//   ┌──────────────────────────────┐  top bar gradient cyan → tên giải
+//   │ Team A          [set] [ điểm ]│  2 hàng đội: tên + chấm giao + set + điểm
+//   │ Team B          [set] [ điểm ]│
+//   └──────────────────────────────┘  bottom bar: sân · cụm   |   VÁN g/bo
+// ────────────────────────────────────────────────────────────────────────
+const FONT = "'Arial'";
+const BUG = {
+  x: 56, bottom: 64, w: 660,
+  topH: 48, rowH: 60, gap: 3, scoreColW: 116, setColW: 52, bottomH: 44, r: 16,
+};
+const C2 = {
+  topGrad0: "#0EA5E9", topGrad1: "#22C1D6",
+  mid: "rgba(11,17,32,0.94)",
+  rowAlt: "rgba(255,255,255,0.04)",
+  scoreGrad0: "#16A34A", scoreGrad1: "#0E9F6E",
+  setCol: "rgba(30,41,59,0.95)", setText: "#38BDF8",
+  bottom: "rgba(30,41,59,0.96)",
+  text: "#F8FAFC", sub: "#CBD5E1", topText: "#FFFFFF",
+  serve: "#FBBF24", divider: "rgba(255,255,255,0.30)",
+};
+
+function shadowOn(ctx) {
+  ctx.shadowColor = "rgba(0,0,0,0.45)";
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 8;
+}
+function shadowOff(ctx) {
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+}
+
 export function renderOverlayPng(data) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, W, H);
+  ctx.textBaseline = "alphabetic";
 
+  const match = data?.match;
   const stationName = data?.station?.name || "";
   const cluster = data?.station?.clusterId;
   const clusterLabel = cluster?.venueName || cluster?.name || "";
+  const tournamentName = (data?.tournament?.name || data?.tournament?.shortName || "GIẢI PICKLETOUR").toString();
 
-  // Court chip top-left corner (60,50) — vẫn ngắn, không phá cảnh
-  drawCourtChip(ctx, stationName, clusterLabel, data?.tournament?.name);
-
-  const match = data?.match;
   if (!match) {
-    drawWaitingBadge(ctx);
+    drawBug(ctx, {
+      tournament: tournamentName,
+      rows: [{ name: "Đang chờ trận tiếp theo…", pts: "", sets: "", serve: 0, muted: true }],
+      bottomLeft: [stationName, clusterLabel].filter(Boolean).join(" · "),
+      bottomRight: "",
+      single: true,
+    });
     return canvas.toBuffer("image/png");
   }
 
-  drawScoreboard(ctx, match);
-  return canvas.toBuffer("image/png");
-}
-
-function drawCourtChip(ctx, station, clusterLabel, tournamentName) {
-  const x = 60, y = 50;
-  const label = [station, clusterLabel].filter(Boolean).join(" · ");
-  const sub = tournamentName || "";
-  ctx.save();
-  ctx.font = "bold 26px 'Arial'";
-  const wLabel = ctx.measureText(label).width;
-  ctx.font = "500 20px 'Arial'";
-  const wSub = ctx.measureText(sub).width;
-  const w = Math.max(wLabel, wSub) + 40;
-  const h = sub ? 78 : 48;
-
-  ctx.fillStyle = COLORS.bgTop;
-  roundedRect(ctx, x, y, w, h, 12);
-  ctx.fill();
-  ctx.strokeStyle = COLORS.border;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  ctx.fillStyle = COLORS.text;
-  ctx.font = "bold 26px 'Arial'";
-  ctx.textBaseline = "top";
-  ctx.fillText(label, x + 20, y + 12);
-  if (sub) {
-    ctx.fillStyle = COLORS.sub;
-    ctx.font = "500 20px 'Arial'";
-    ctx.fillText(sub, x + 20, y + 46);
-  }
-  ctx.restore();
-}
-
-function drawWaitingBadge(ctx) {
-  const x = 60, y = 900;
-  ctx.save();
-  ctx.fillStyle = "rgba(15,23,42,0.75)";
-  roundedRect(ctx, x, y, 380, 90, 14);
-  ctx.fill();
-  ctx.strokeStyle = COLORS.accent;
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  ctx.fillStyle = COLORS.text;
-  ctx.font = "bold 30px 'Arial'";
-  ctx.textBaseline = "middle";
-  ctx.fillText("Đang chờ trận tiếp theo…", x + 24, y + 45);
-  ctx.restore();
-}
-
-function drawScoreboard(ctx, match) {
   const rules = match.rules || {};
   const gs = match.gameScores || [];
   const cur = Math.max(0, Math.min(gs.length - 1, Number(match.currentGame || 0)));
   const g = gs[cur] || { a: 0, b: 0 };
   const { a: setsA, b: setsB } = setWins(gs, rules);
   const bestOf = Number(rules.bestOf || 3);
-
-  const teamA = pairShortName(match.pairA);
-  const teamB = pairShortName(match.pairB);
   const serveSide = String(match?.serve?.side || "A").toUpperCase() === "B" ? "B" : "A";
+  const serveCount = Math.max(1, Math.min(2, Number(match?.serve?.server ?? 1) || 1));
 
-  const x = 60, y = H - 260;
-  const w = 780, h = 200;
-
-  // Card background
-  ctx.save();
-  const grad = ctx.createLinearGradient(x, y, x, y + h);
-  grad.addColorStop(0, COLORS.bgTop);
-  grad.addColorStop(1, COLORS.bgBottom);
-  ctx.fillStyle = grad;
-  roundedRect(ctx, x, y, w, h, 18);
-  ctx.fill();
-  ctx.strokeStyle = COLORS.border;
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
-
-  // Header dải volt/cyan trái
-  ctx.fillStyle = COLORS.accent;
-  roundedRect(ctx, x, y, 6, h, 3);
-  ctx.fill();
-
-  // Team rows
-  ctx.textBaseline = "middle";
-  drawTeamRow(ctx, x + 24, y + 46, w - 48, teamA, g.a, setsA, serveSide === "A", true, bestOf);
-  drawTeamRow(ctx, x + 24, y + 130, w - 48, teamB, g.b, setsB, serveSide === "B", false, bestOf);
-
-  // Bo bên phải: current game number
-  drawGameNumberBadge(ctx, x + w - 78, y + h - 36, cur + 1, bestOf);
-
-  ctx.restore();
+  drawBug(ctx, {
+    tournament: tournamentName,
+    rows: [
+      { name: pairShortName(match.pairA), pts: String(g.a || 0), sets: String(setsA), serve: serveSide === "A" ? serveCount : 0 },
+      { name: pairShortName(match.pairB), pts: String(g.b || 0), sets: String(setsB), serve: serveSide === "B" ? serveCount : 0 },
+    ],
+    bottomLeft: [stationName, clusterLabel].filter(Boolean).join(" · "),
+    bottomRight: `VÁN ${cur + 1}/${bestOf}`,
+  });
+  return canvas.toBuffer("image/png");
 }
 
-function drawTeamRow(ctx, x, y, w, name, points, sets, serving, isTop, bestOf) {
-  // Serving glow chấm vàng bên trái
+function drawBug(ctx, o) {
+  const rows = o.rows;
+  const midH = o.single ? BUG.rowH : BUG.rowH * 2;
+  const hasBottom = !!(o.bottomLeft || o.bottomRight);
+  const bottomH = hasBottom ? BUG.bottomH : 0;
+  const totalH = BUG.topH + midH + bottomH;
+  const x = BUG.x;
+  const y = H - BUG.bottom - totalH;
+  const w = BUG.w;
+  const r = BUG.r;
+
+  // Shadow nền (vẽ 1 khối bo tròn mờ dưới toàn bug)
   ctx.save();
-  if (serving) {
-    ctx.beginPath();
-    ctx.arc(x + 12, y, 8, 0, Math.PI * 2);
-    ctx.fillStyle = COLORS.serveGlow;
-    ctx.shadowBlur = 20;
-    ctx.shadowColor = COLORS.serveGlow;
-    ctx.fill();
-  } else {
-    ctx.beginPath();
-    ctx.arc(x + 12, y, 8, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(148,163,184,0.4)";
-    ctx.lineWidth = 2;
-    ctx.stroke();
+  shadowOn(ctx);
+  ctx.fillStyle = "#0B1120";
+  roundedRect(ctx, x, y, w, totalH, r);
+  ctx.fill();
+  ctx.restore();
+
+  // Clip toàn bộ bug theo bo góc để các lớp trong không tràn
+  ctx.save();
+  roundedRect(ctx, x, y, w, totalH, r);
+  ctx.clip();
+
+  // ── Top bar: gradient cyan, tên giải uppercase ──
+  const topGrad = ctx.createLinearGradient(x, y, x + w, y);
+  topGrad.addColorStop(0, C2.topGrad0);
+  topGrad.addColorStop(1, C2.topGrad1);
+  ctx.fillStyle = topGrad;
+  ctx.fillRect(x, y, w, BUG.topH);
+  ctx.fillStyle = C2.topText;
+  ctx.font = `800 26px ${FONT}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  fillTextTracked(ctx, truncate(ctx, String(o.tournament).toUpperCase(), w - 48), x + w / 2, y + BUG.topH / 2 + 1, 1.5);
+
+  // ── Mid: nền tối, các hàng đội ──
+  const midTop = y + BUG.topH;
+  ctx.fillStyle = C2.mid;
+  ctx.fillRect(x, midTop, w, midH);
+
+  const nameAreaW = w - BUG.setColW - BUG.scoreColW;
+
+  // Set column (navy) + Score column (green) nền
+  if (!o.single) {
+    ctx.fillStyle = C2.setCol;
+    ctx.fillRect(x + nameAreaW, midTop, BUG.setColW, midH);
+    const sGrad = ctx.createLinearGradient(x + w - BUG.scoreColW, midTop, x + w, midTop + midH);
+    sGrad.addColorStop(0, C2.scoreGrad0);
+    sGrad.addColorStop(1, C2.scoreGrad1);
+    ctx.fillStyle = sGrad;
+    ctx.fillRect(x + w - BUG.scoreColW, midTop, BUG.scoreColW, midH);
   }
+
+  rows.forEach((row, i) => {
+    const rowY = midTop + i * BUG.rowH;
+    if (i === 1) {
+      // divider mảnh giữa 2 hàng (toàn chiều ngang name area)
+      ctx.fillStyle = "rgba(255,255,255,0.08)";
+      ctx.fillRect(x + 16, rowY, nameAreaW - 16, 1);
+    }
+    drawBugRow(ctx, row, x, rowY, nameAreaW, o.single);
+  });
+
+  if (!o.single) {
+    // Điểm + set từng hàng
+    rows.forEach((row, i) => {
+      const cy = midTop + i * BUG.rowH + BUG.rowH / 2;
+      // set
+      ctx.fillStyle = C2.setText;
+      ctx.font = `800 30px ${FONT}`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(row.sets, x + nameAreaW + BUG.setColW / 2, cy + 1);
+      // score
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = `800 56px ${FONT}`;
+      ctx.fillText(row.pts, x + w - BUG.scoreColW / 2, cy + 1);
+    });
+    // divider ngang trong cột điểm
+    ctx.fillStyle = C2.divider;
+    ctx.fillRect(x + w - BUG.scoreColW + 10, midTop + midH / 2 - 1, BUG.scoreColW - 20, 2);
+  }
+
+  // ── Bottom bar ──
+  if (hasBottom) {
+    const bTop = midTop + midH;
+    ctx.fillStyle = C2.bottom;
+    ctx.fillRect(x, bTop, w, bottomH);
+    // vạch cyan mảnh trên bottom
+    ctx.fillStyle = C2.topGrad1;
+    ctx.fillRect(x, bTop, w, 2);
+    ctx.textBaseline = "middle";
+    const by = bTop + bottomH / 2 + 1;
+    if (o.bottomLeft) {
+      ctx.fillStyle = C2.sub;
+      ctx.font = `700 20px ${FONT}`;
+      ctx.textAlign = "left";
+      fillTextTracked(ctx, truncate(ctx, String(o.bottomLeft).toUpperCase(), w * 0.6), x + 20, by, 0.8);
+    }
+    if (o.bottomRight) {
+      ctx.fillStyle = C2.topGrad1;
+      ctx.font = `800 20px ${FONT}`;
+      ctx.textAlign = "right";
+      fillTextTracked(ctx, String(o.bottomRight).toUpperCase(), x + w - 20, by, 0.8, "right");
+    }
+  }
+
   ctx.restore();
-
-  // Tên đội (cắt nếu dài)
-  ctx.save();
-  ctx.fillStyle = COLORS.text;
-  ctx.font = "bold 34px 'Arial'";
-  const label = truncate(ctx, name, w - 260);
-  ctx.fillText(label, x + 36, y);
-
-  // Sets nhỏ bên phải trước point
-  ctx.font = "bold 26px 'Arial'";
-  ctx.fillStyle = COLORS.set;
-  const setsW = ctx.measureText(String(sets)).width;
-  ctx.fillText(String(sets), x + w - 130 - setsW, y);
-
-  // Points to lớn bên phải
-  ctx.font = "bold 60px 'Arial'";
-  ctx.fillStyle = COLORS.text;
-  const ptsStr = String(points);
-  const ptsW = ctx.measureText(ptsStr).width;
-  ctx.fillText(ptsStr, x + w - 20 - ptsW, y);
-  ctx.restore();
+  // reset alignment mặc định
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
 }
 
-function drawGameNumberBadge(ctx, x, y, gameNo, bestOf) {
-  ctx.save();
-  ctx.fillStyle = "rgba(34,193,214,0.20)";
-  roundedRect(ctx, x, y - 14, 62, 26, 8);
-  ctx.fill();
-  ctx.fillStyle = COLORS.accent;
-  ctx.font = "bold 14px 'Arial'";
+function drawBugRow(ctx, row, x, rowY, nameAreaW, single) {
+  const cy = rowY + BUG.rowH / 2;
+  let nameX = x + 22;
+
+  // Chấm giao bóng (vàng) trước tên
+  if (row.serve > 0) {
+    ctx.fillStyle = C2.serve;
+    ctx.beginPath();
+    ctx.arc(nameX + 6, cy, 7, 0, Math.PI * 2);
+    ctx.fill();
+    if (row.serve >= 2) {
+      ctx.beginPath();
+      ctx.arc(nameX + 26, cy, 7, 0, Math.PI * 2);
+      ctx.fill();
+      nameX += 44;
+    } else {
+      nameX += 24;
+    }
+  }
+
+  ctx.fillStyle = row.muted ? C2.sub : C2.text;
+  ctx.font = single ? `700 30px ${FONT}` : `800 34px ${FONT}`;
+  ctx.textAlign = "left";
   ctx.textBaseline = "middle";
-  ctx.fillText(`Ván ${gameNo}/${bestOf}`, x + 8, y);
-  ctx.restore();
+  const maxW = nameAreaW - (nameX - x) - 16;
+  ctx.fillText(truncate(ctx, row.name, maxW), nameX, cy + 1);
+}
+
+/** Vẽ text kèm letter-spacing (node-canvas chưa hỗ trợ trực tiếp). */
+function fillTextTracked(ctx, text, cx, cy, spacing, align) {
+  if (!spacing) { ctx.fillText(text, cx, cy); return; }
+  const chars = [...text];
+  const widths = chars.map((c) => ctx.measureText(c).width);
+  const total = widths.reduce((s, w) => s + w, 0) + spacing * (chars.length - 1);
+  let start;
+  const a = align || ctx.textAlign;
+  if (a === "center") start = cx - total / 2;
+  else if (a === "right") start = cx - total;
+  else start = cx;
+  const prevAlign = ctx.textAlign;
+  ctx.textAlign = "left";
+  let px = start;
+  chars.forEach((c, i) => {
+    ctx.fillText(c, px, cy);
+    px += widths[i] + spacing;
+  });
+  ctx.textAlign = prevAlign;
 }
 
 function truncate(ctx, text, maxW) {
   if (ctx.measureText(text).width <= maxW) return text;
   let s = text;
-  while (s.length > 3 && ctx.measureText(s + "…").width > maxW) s = s.slice(0, -1);
+  while (s.length > 1 && ctx.measureText(s + "…").width > maxW) s = s.slice(0, -1);
   return s + "…";
 }
