@@ -21,17 +21,38 @@ const SPONSOR_ROTATE_MS = 8000;
 // Cache ảnh đã tải (logo/sponsor) — tránh tải lại mỗi ~1s worker fetch.
 const imgCache = new Map(); // url → { img|null, at }
 const IMG_TTL = 10 * 60 * 1000;
+async function toPngBuffer(buf) {
+  // node-canvas KHÔNG decode webp → convert bằng sharp. Cũng chuẩn hoá mọi
+  // định dạng lạ về PNG cho chắc.
+  try {
+    const { default: sharp } = await import("sharp");
+    return await sharp(buf).png().toBuffer();
+  } catch { return null; }
+}
+
 async function loadImageCached(url) {
   if (!url) return null;
   const c = imgCache.get(url);
   if (c && Date.now() - c.at < IMG_TTL) return c.img;
   let img = null;
   try {
+    let buf;
     if (/^https?:\/\//i.test(url)) {
       const res = await fetch(url);
-      if (res.ok) img = await loadImage(Buffer.from(await res.arrayBuffer()));
+      if (res.ok) buf = Buffer.from(await res.arrayBuffer());
     } else {
+      buf = null;
       img = await loadImage(url);
+    }
+    if (buf) {
+      const isWebp = /\.webp(\?|$)/i.test(url) || (buf.length > 12 && buf.slice(8, 12).toString() === "WEBP");
+      if (isWebp) {
+        const png = await toPngBuffer(buf);
+        if (png) img = await loadImage(png);
+      } else {
+        try { img = await loadImage(buf); }
+        catch { const png = await toPngBuffer(buf); if (png) img = await loadImage(png); }
+      }
     }
   } catch { img = null; }
   imgCache.set(url, { img, at: Date.now() });
@@ -187,9 +208,15 @@ export async function renderOverlayPng(data) {
   ctx.clearRect(0, 0, W, H);
   ctx.textBaseline = "alphabetic";
 
-  // Logo PickleTour góc phải-trên + sponsor luân phiên góc phải-dưới (mọi stream)
-  await drawBrandLogo(ctx);
-  await drawSponsorRotating(ctx, data?.sponsorLogos || []);
+  // Vị trí các overlay có thể cấu hình (data.layout). Mặc định:
+  //   scoreboard góc trái-trên, logo PickleTour góc phải-trên, sponsor phải-dưới
+  const layout = data?.layout || {};
+  const scoreCorner = layout.scoreboard || "top-left";
+  const brandCorner = layout.brand || "top-right";
+  const sponsorCorner = layout.sponsor || "bottom-right";
+
+  await drawBrandLogo(ctx, brandCorner);
+  await drawSponsorRotating(ctx, data?.sponsorLogos || [], sponsorCorner);
 
   const match = data?.match;
   const stationName = data?.station?.name || "";
@@ -199,6 +226,7 @@ export async function renderOverlayPng(data) {
 
   if (!match) {
     drawBug(ctx, {
+      corner: scoreCorner,
       tournament: tournamentName,
       rows: [{ name: "Đang chờ trận tiếp theo…", pts: "", sets: "", serve: 0, muted: true }],
       bottomLeft: [stationName, clusterLabel].filter(Boolean).join(" · "),
@@ -218,6 +246,7 @@ export async function renderOverlayPng(data) {
   const serveCount = Math.max(1, Math.min(2, Number(match?.serve?.server ?? 1) || 1));
 
   drawBug(ctx, {
+    corner: scoreCorner,
     tournament: tournamentName,
     rows: [
       { name: pairShortName(match.pairA), pts: String(g.a || 0), sets: String(setsA), serve: serveSide === "A" ? serveCount : 0 },
@@ -240,24 +269,25 @@ function drawContain(ctx, img, bx, by, bw, bh, alignX) {
   ctx.drawImage(img, x, y, w, h);
 }
 
-async function drawBrandLogo(ctx) {
+async function drawBrandLogo(ctx, corner = "top-right") {
   const img = await loadImageCached(PT_LOGO_URL);
   if (!img) return;
   const box = 132;
+  const { x, y } = cornerXY(corner, box, box, 48, 40);
   ctx.save();
   ctx.shadowColor = "rgba(0,0,0,0.45)";
   ctx.shadowBlur = 16;
-  drawContain(ctx, img, W - 48 - box, 40, box, box, "right");
+  drawContain(ctx, img, x, y, box, box, "center");
   ctx.restore();
 }
 
-async function drawSponsorRotating(ctx, logos) {
+async function drawSponsorRotating(ctx, logos, corner = "bottom-right") {
   if (!logos || !logos.length) return;
   const idx = Math.floor(Date.now() / SPONSOR_ROTATE_MS) % logos.length;
   const img = await loadImageCached(logos[idx]);
   if (!img) return;
   const boxW = 260, boxH = 100;
-  const bx = W - 48 - boxW, by = H - 44 - boxH;
+  const { x: bx, y: by } = cornerXY(corner, boxW, boxH, 48, 44);
   // Nền bo tròn mờ cho logo nổi trên nền video sáng/tối
   ctx.save();
   ctx.fillStyle = "rgba(255,255,255,0.92)";
@@ -270,16 +300,28 @@ async function drawSponsorRotating(ctx, logos) {
   drawContain(ctx, img, bx, by, boxW, boxH, "center");
 }
 
+// Toạ độ góc neo cho 1 hộp wxh theo corner + lề.
+function cornerXY(corner, w, h, mx = 48, my = 40) {
+  const right = W - mx - w;
+  const bottom = H - my - h;
+  switch (corner) {
+    case "top-right": return { x: right, y: my };
+    case "bottom-left": return { x: mx, y: bottom };
+    case "bottom-right": return { x: right, y: bottom };
+    case "top-left":
+    default: return { x: mx, y: my };
+  }
+}
+
 function drawBug(ctx, o) {
   const rows = o.rows;
   const midH = o.single ? BUG.rowH : BUG.rowH * 2;
   const hasBottom = !!(o.bottomLeft || o.bottomRight);
   const bottomH = hasBottom ? BUG.bottomH : 0;
   const totalH = BUG.topH + midH + bottomH;
-  const x = BUG.x;
-  const y = H - BUG.bottom - totalH;
   const w = BUG.w;
   const r = BUG.r;
+  const { x, y } = cornerXY(o.corner || "top-left", w, totalH, 48, 40);
 
   // Shadow nền (vẽ 1 khối bo tròn mờ dưới toàn bug)
   ctx.save();

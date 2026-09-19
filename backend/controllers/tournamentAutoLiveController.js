@@ -58,6 +58,7 @@ export const startSession = asyncHandler(async (req, res) => {
     venueId: body.venueId,
     destinations: body.destinations,
     autoNext: body.autoNext !== false,
+    layout: body.layout,
     startedBy: req.user?._id,
   });
   res.status(201).json(stripSecrets(doc));

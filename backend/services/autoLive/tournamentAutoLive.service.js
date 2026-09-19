@@ -88,7 +88,7 @@ const overlayCache = new Map(); // sessionId → { buf, token }
 const SPONSOR_BUCKET_MS = 8000;
 export async function getCachedOverlayPng(sessionId) {
   const doc = await TournamentAutoLiveSession.findById(sessionId)
-    .select("_id court status overlayVersion")
+    .select("_id court status overlayVersion layout")
     .lean();
   if (!doc) return null;
   if (doc.status === "stopped") return null;
@@ -96,6 +96,7 @@ export async function getCachedOverlayPng(sessionId) {
   const cached = overlayCache.get(String(sessionId));
   if (cached && cached.token === token) return cached.buf;
   const data = await loadOverlayData(doc.court);
+  if (data) data.layout = doc.layout || {};
   const buf = await renderOverlayPng(data);
   overlayCache.set(String(sessionId), { buf, token });
   return buf;
@@ -316,7 +317,7 @@ async function decryptVenueImouSession(venueId) {
 export async function startAutoLive(input) {
   const {
     tournamentId, courtStationId, imouDeviceId, destinations,
-    startedBy, autoNext = true, venueId: explicitVenueId,
+    startedBy, autoNext = true, venueId: explicitVenueId, layout,
   } = input || {};
   if (!tournamentId || !courtStationId || !imouDeviceId || !Array.isArray(destinations) || !destinations.length) {
     const err = new Error("Thiếu tournamentId/courtStationId/imouDeviceId/destinations");
@@ -360,6 +361,7 @@ export async function startAutoLive(input) {
   const session = await TournamentAutoLiveSession.create({
     tournament: tournamentId, court: courtStationId, venue: venueId,
     imouDeviceId, startedBy, destinations: preparedDest, autoNext,
+    layout: layout && typeof layout === "object" ? layout : undefined,
     status: "starting", workerId: crypto.randomUUID(),
     startedAt: new Date(),
   });

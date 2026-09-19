@@ -64,6 +64,12 @@ const tournamentAutoLiveSessionSchema = new Schema(
     lastErrorAt: { type: Date, default: null },
     // Auto behaviour
     autoNext: { type: Boolean, default: true },
+    // Vị trí overlay trên stream (corner: top-left/top-right/bottom-left/bottom-right)
+    layout: {
+      scoreboard: { type: String, default: "top-left" },
+      brand: { type: String, default: "top-right" },
+      sponsor: { type: String, default: "bottom-right" },
+    },
   },
   { timestamps: true }
 );
