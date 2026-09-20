@@ -53,10 +53,16 @@ async function apiFetch(baseUrl, apiPath, { method = "GET", token, body } = {}) 
 
 // ───────────────────────── Python / ffmpeg detect ────────────────────────
 function detectPython() {
-  for (const cand of [process.env.PICKLETOUR_PYTHON, "python3", "python"]) {
+  // Ưu tiên: env → file .python-path (do setup ghi) → các tên phổ biến 3.10+.
+  const fromFile = (() => {
+    try { return fs.readFileSync(path.join(__dirname, ".python-path"), "utf8").trim(); } catch { return null; }
+  })();
+  const cands = [process.env.PICKLETOUR_PYTHON, fromFile,
+    "python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"];
+  for (const cand of cands) {
     if (!cand) continue;
     try {
-      const r = spawnSync(cand, ["-c", "import imou; print('ok')"], { encoding: "utf8" });
+      const r = spawnSync(cand, ["-c", "import imou,sys;print('ok',sys.version_info[0],sys.version_info[1])"], { encoding: "utf8" });
       if (r.status === 0 && /ok/.test(r.stdout)) return cand;
     } catch {}
   }
