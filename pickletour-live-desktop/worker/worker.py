@@ -412,7 +412,13 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
     # OVERLAY LIVE: image2 -loop KHÔNG đọc lại file khi ghi đè (ffmpeg cache
     # frame đã decode) → điểm số đứng yên. Dùng FIFO + image2pipe: worker ghi
     # PNG mới ~2fps vào pipe, ffmpeg decode từng frame → điểm cập nhật thật.
-    base = ("[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
+    # Cam Imou (DHAV): PTS nguồn chạy nhanh hơn thực tế (~0.87x = 13/15) →
+    # out_time tụt → trễ tăng dần. -use_wallclock KHÔNG ăn với demuxer dhav, nên
+    # RE-STAMP ngay trong filtergraph bằng RTCTIME (đồng hồ thực lúc xử lý khung)
+    # → out_time bám thời gian thực, speed ~1.0, hết trễ dồn. Link URL có PTS
+    # chuẩn nên KHÔNG cần (giữ nguyên).
+    retime = "" if SOURCE_URL else "setpts=(RTCTIME-RTCSTART)/(TB*1000000),"
+    base = (f"[0:v]{retime}scale=1920:1080:force_original_aspect_ratio=decrease,"
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
     args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin"]
     if SOURCE_URL:
@@ -434,8 +440,11 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
         # bám thời gian thực, frame cũ bị bỏ thay vì xếp hàng → KHÔNG tụt hậu.
         # +igndts bỏ DTS rác của DHAV. thread_queue nhỏ hơn (256) để backlog input
         # không phình khi nguồn dồn cụm.
-        args += ["-fflags", "+igndts", "-use_wallclock_as_timestamps", "1",
-                 "-thread_queue_size", "256", "-f", "dhav", "-i", "pipe:0"]
+        # +igndts bỏ DTS rác của DHAV; re-time thực hiện ở filtergraph (setpts
+        # RTCTIME) nên KHÔNG dùng -use_wallclock (vô tác dụng với dhav). queue 512
+        # đủ đệm cụm mà không dồn trễ nhiều.
+        args += ["-fflags", "+igndts",
+                 "-thread_queue_size", "512", "-f", "dhav", "-i", "pipe:0"]
     # Ghép overlay ở canvas 1080 (PNG overlay 1920x1080), sau đó scale xuống độ
     # phân giải mục tiêu (RES_H) nếu khác 1080 → logo/chữ co đúng tỉ lệ.
     fc = base
