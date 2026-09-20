@@ -86,22 +86,25 @@ def detect_encoder():
 
 
 def encoder_args(enc):
-    """Args tối ưu theo từng encoder — GPU giảm tải CPU mạnh (nhiều luồng)."""
-    common_rate = ["-b:v", "3000k", "-maxrate", "3500k", "-bufsize", "6000k",
-                   "-r", "25", "-g", "50", "-keyint_min", "50", "-pix_fmt", "yuv420p"]
+    """Args tối ưu theo từng encoder — GPU giảm tải CPU mạnh (nhiều luồng).
+    CFR 25fps đều (-vsync cfr) + bitrate cao hơn cho 1080p mượt/nét."""
+    common_rate = ["-vsync", "cfr", "-r", "25", "-g", "50", "-keyint_min", "50",
+                   "-b:v", "4500k", "-maxrate", "5000k", "-bufsize", "9000k",
+                   "-pix_fmt", "yuv420p"]
     if enc == "h264_nvenc":
-        return ["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "ll",
-                "-rc", "cbr", "-profile:v", "high", *common_rate]
+        return ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "cbr",
+                "-profile:v", "high", "-bf", "2", *common_rate]
     if enc == "h264_videotoolbox":
         return ["-c:v", "h264_videotoolbox", "-realtime", "1",
                 "-profile:v", "high", *common_rate]
     if enc == "h264_qsv":
-        return ["-c:v", "h264_qsv", "-preset", "veryfast", "-profile:v", "high", *common_rate]
+        return ["-c:v", "h264_qsv", "-preset", "faster", "-profile:v", "high", *common_rate]
     if enc == "h264_vaapi":
         return ["-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi",
                 "-profile:v", "high", *common_rate]
-    return ["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-            "-profile:v", "high", *common_rate]
+    # x264: bỏ zerolatency (cho phép B-frame + lookahead) → chuyển động mượt hơn.
+    return ["-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high",
+            "-bf", "3", *common_rate]
 
 
 def build_tee_output(destinations):
@@ -295,12 +298,12 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
     args = [
         "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin",
-        # Đóng dấu thời gian theo wallclock để ĐỒNG HỒ liên tục khi mở lại
-        # nguồn Imou giữa chừng (relay cap ~18-35p) mà KHÔNG restart ffmpeg →
-        # kết nối FB không đứt. Đã kiểm chứng: 2 phiên rtsp nối vào 1 ffmpeg ra
-        # output liền mạch, monotonic.
-        "-use_wallclock_as_timestamps", "1", "-fflags", "+genpts",
-        "-thread_queue_size", "512", "-f", "dhav", "-i", "pipe:0",
+        # Dùng PTS gốc của nguồn (KHÔNG wallclock) để nhịp khung đều → MƯỢT.
+        # wallclock đóng dấu theo lúc byte tới (relay đến theo cụm) → jitter →
+        # CFR ép 25fps nhân đôi/rớt frame = giật. genpts+igndts giữ đồng hồ
+        # liên tục cả khi mở lại nguồn Imou giữa chừng (không restart ffmpeg).
+        "-fflags", "+genpts+igndts",
+        "-thread_queue_size", "1024", "-f", "dhav", "-i", "pipe:0",
     ]
     fc = base
     if overlay_fifo:
