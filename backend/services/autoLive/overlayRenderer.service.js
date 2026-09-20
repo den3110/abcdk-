@@ -177,8 +177,8 @@ function roundedRect(ctx, x, y, w, h, r) {
 // ────────────────────────────────────────────────────────────────────────
 const FONT = "'Arial'";
 const BUG = {
-  x: 56, bottom: 64, w: 660,
-  topH: 48, rowH: 60, gap: 3, scoreColW: 116, setColW: 52, bottomH: 44, r: 16,
+  x: 48, bottom: 56, w: 520,
+  topH: 38, rowH: 48, gap: 3, scoreColW: 92, setColW: 42, bottomH: 34, r: 14,
 };
 const C2 = {
   topGrad0: "#0EA5E9", topGrad1: "#22C1D6",
@@ -343,10 +343,10 @@ function drawBug(ctx, o) {
   ctx.fillStyle = topGrad;
   ctx.fillRect(x, y, w, BUG.topH);
   ctx.fillStyle = C2.topText;
-  ctx.font = `800 26px ${FONT}`;
+  ctx.font = `800 21px ${FONT}`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  fillTextTracked(ctx, truncate(ctx, String(o.tournament).toUpperCase(), w - 48), x + w / 2, y + BUG.topH / 2 + 1, 1.5);
+  fillTextTracked(ctx, truncate(ctx, String(o.tournament).toUpperCase(), w - 40), x + w / 2, y + BUG.topH / 2 + 1, 1.2);
 
   // ── Mid: nền tối, các hàng đội ──
   const midTop = y + BUG.topH;
@@ -382,13 +382,13 @@ function drawBug(ctx, o) {
       const cy = midTop + i * BUG.rowH + BUG.rowH / 2;
       // set
       ctx.fillStyle = C2.setText;
-      ctx.font = `800 30px ${FONT}`;
+      ctx.font = `800 24px ${FONT}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(row.sets, x + nameAreaW + BUG.setColW / 2, cy + 1);
       // score
       ctx.fillStyle = "#FFFFFF";
-      ctx.font = `800 56px ${FONT}`;
+      ctx.font = `800 44px ${FONT}`;
       ctx.fillText(row.pts, x + w - BUG.scoreColW / 2, cy + 1);
     });
     // divider ngang trong cột điểm
@@ -408,15 +408,15 @@ function drawBug(ctx, o) {
     const by = bTop + bottomH / 2 + 1;
     if (o.bottomLeft) {
       ctx.fillStyle = C2.sub;
-      ctx.font = `700 20px ${FONT}`;
+      ctx.font = `700 16px ${FONT}`;
       ctx.textAlign = "left";
-      fillTextTracked(ctx, truncate(ctx, String(o.bottomLeft).toUpperCase(), w * 0.6), x + 20, by, 0.8);
+      fillTextTracked(ctx, truncate(ctx, String(o.bottomLeft).toUpperCase(), w * 0.6), x + 16, by, 0.6);
     }
     if (o.bottomRight) {
       ctx.fillStyle = C2.topGrad1;
-      ctx.font = `800 20px ${FONT}`;
+      ctx.font = `800 16px ${FONT}`;
       ctx.textAlign = "right";
-      fillTextTracked(ctx, String(o.bottomRight).toUpperCase(), x + w - 20, by, 0.8, "right");
+      fillTextTracked(ctx, String(o.bottomRight).toUpperCase(), x + w - 16, by, 0.6, "right");
     }
   }
 
@@ -447,7 +447,7 @@ function drawBugRow(ctx, row, x, rowY, nameAreaW, single) {
   }
 
   ctx.fillStyle = row.muted ? C2.sub : C2.text;
-  ctx.font = single ? `700 30px ${FONT}` : `800 34px ${FONT}`;
+  ctx.font = single ? `700 24px ${FONT}` : `800 27px ${FONT}`;
   ctx.textAlign = "left";
   ctx.textBaseline = "middle";
   const maxW = nameAreaW - (nameX - x) - 16;
