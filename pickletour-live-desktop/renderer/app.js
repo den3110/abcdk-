@@ -50,19 +50,32 @@ async function loadSetup() {
     $(sel).innerHTML = CORNERS.map(([v, l]) => `<option value="${v}" ${v === def ? "selected" : ""}>${l}</option>`).join("");
   }
   // tournaments + cams + fb pages
-  const [tours, cams, fb] = await Promise.all([
-    apiGet("/api/tournament-auto-live/tournaments"),
+  const [cams, fb] = await Promise.all([
     apiGet("/api/tournament-auto-live/available-cams"),
     apiGet("/api/tournament-auto-live/fb-pages").catch(() => []),
   ]);
   state.cams = cams || [];
   state.fbPages = fb || [];
-  $("tournament").innerHTML = (tours || []).map((t) => `<option value="${t._id}">${t.name}</option>`).join("");
   $("cam").innerHTML = state.cams.map((c, i) =>
     `<option value="${i}">${c.venueName} / ${c.courtName} · ${c.camName}</option>`).join("");
   $("fbPage").innerHTML = state.fbPages.map((p) => `<option value="${p.pageId}">${p.pageName}</option>`).join("");
+  await loadTournaments("");
+}
+
+async function loadTournaments(q) {
+  const tours = await apiGet(`/api/tournament-auto-live/tournaments${q ? `?q=${encodeURIComponent(q)}` : ""}`).catch(() => []);
+  $("tournament").innerHTML = (tours || []).map((t) =>
+    `<option value="${t._id}">${t.isTest ? "🧪 [TEST] " : ""}${t.name}</option>`).join("")
+    || `<option value="">(không có giải)</option>`;
   await loadCourts();
 }
+let _tourTimer;
+document.addEventListener("input", (e) => {
+  if (e.target && e.target.id === "tourSearch") {
+    clearTimeout(_tourTimer);
+    _tourTimer = setTimeout(() => loadTournaments(e.target.value.trim()), 350);
+  }
+});
 $("tournament").onchange = loadCourts;
 async function loadCourts() {
   const tid = $("tournament").value;

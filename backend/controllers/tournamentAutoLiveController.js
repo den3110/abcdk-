@@ -146,13 +146,13 @@ export const listTournamentsForApp = asyncHandler(async (req, res) => {
   const q = String(req.query.q || "").trim();
   const filter = q ? { name: { $regex: q, $options: "i" } } : {};
   const docs = await Tournament.find(filter)
-    .select("_id name image startDate status")
+    .select("_id name image startDate status isTest")
     .sort({ createdAt: -1 })
-    .limit(50)
+    .limit(q ? 50 : 100)
     .lean();
   res.json(docs.map((t) => ({
     _id: String(t._id), name: t.name, image: t.image || "",
-    startDate: t.startDate, status: t.status,
+    startDate: t.startDate, status: t.status, isTest: !!t.isTest,
   })));
 });
 
