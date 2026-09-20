@@ -54,6 +54,20 @@ MAX_KBPS = int(os.environ.get("AUTOLIVE_MAX_BITRATE") or round(VID_KBPS * 1.15))
 RES_H = int(os.environ.get("AUTOLIVE_RES_H") or 1080)           # 1080/720/480
 AUD_KBPS = int(os.environ.get("AUTOLIVE_AUDIO_BITRATE") or 128)
 FPS_OVERRIDE = int(os.environ.get("AUTOLIVE_FPS") or 0)         # 0 = khớp nguồn
+# ── Chống rò rỉ RAM (mục tiêu: live cả ngày, nhiều luồng) ─────────────────
+# 1) Overlay đẩy ở fps THẤP + chỉ ghi khi ảnh ĐỔI (điểm số vài giây mới đổi):
+#    image2pipe/overlay-framesync là nguồn "creep" RAM chính (mỗi PNG decode
+#    thành frame 1080p ~8MB); giảm số frame → gần như hết creep.
+OVERLAY_FPS = float(os.environ.get("AUTOLIVE_OVERLAY_FPS") or 1.0)
+# 2) x264 mặc định dùng HẾT core (VPS 12-core → ~600-700MB/luồng chỉ để encode)
+#    + rc-lookahead/B-frame ăn thêm nhiều buffer 1080p. Giới hạn lại → base RAM
+#    ~390MB/luồng (đo thực tế) mà chất lượng 4500k/1080p vẫn tốt.
+X264_THREADS = int(os.environ.get("AUTOLIVE_X264_THREADS") or min(4, (os.cpu_count() or 4)))
+X264_LOOKAHEAD = int(os.environ.get("AUTOLIVE_X264_LOOKAHEAD") or 10)
+# 3) Watchdog cứng: ffmpeg vượt ngưỡng RSS → kill để vòng chính restart. Đảm bảo
+#    1 luồng KHÔNG BAO GIỜ ngốn hết RAM máy chủ (trước đây 1 luồng lên 19.6GB).
+#    0 = tắt. Restart hiếm khi xảy ra nếu creep đã được khống chế.
+MAX_RSS_MB = int(os.environ.get("AUTOLIVE_MAX_RSS_MB") or 1800)
 # Nguồn video: rỗng = cam Imou (DHAV qua stdin); có = link tuỳ chỉnh
 # (m3u8/RTSP/RTMP/http) → ffmpeg đọc thẳng URL.
 SOURCE_URL = (os.environ.get("AUTOLIVE_SOURCE_URL") or "").strip()
@@ -118,7 +132,7 @@ def encoder_args(enc):
     CFR 25fps đều (-vsync cfr) + bitrate cao hơn cho 1080p mượt/nét."""
     fps = OUT_FPS or 25
     gop = fps * 2
-    buf = MAX_KBPS * 2
+    buf = int(MAX_KBPS * 1.5)  # bufsize gọn hơn (trước *2) — đỡ RAM VBV, vẫn mượt
     common_rate = ["-vsync", "cfr", "-r", str(fps), "-g", str(gop), "-keyint_min", str(gop),
                    "-b:v", f"{VID_KBPS}k", "-maxrate", f"{MAX_KBPS}k", "-bufsize", f"{buf}k",
                    "-pix_fmt", "yuv420p"]
@@ -133,9 +147,14 @@ def encoder_args(enc):
     if enc == "h264_vaapi":
         return ["-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi",
                 "-profile:v", "high", *common_rate]
-    # x264: bỏ zerolatency (cho phép B-frame + lookahead) → chuyển động mượt hơn.
+    # x264: GIỚI HẠN threads + rc-lookahead → base RAM ~390MB/luồng thay vì
+    # ~700MB (12-core mặc định x264 mở ~18 thread, mỗi thread giữ frame 1080p).
+    # bf 0 cho live (B-frame gần như không cải thiện độ mượt, chỉ nén; bỏ đi
+    # giảm buffer reorder). sync-lookahead=0 tắt buffer lookahead theo thread.
     return ["-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high",
-            "-bf", "3", *common_rate]
+            "-threads", str(X264_THREADS), "-bf", "0",
+            "-x264-params", f"rc-lookahead={X264_LOOKAHEAD}:sync-lookahead=0:threads={X264_THREADS}",
+            *common_rate]
 
 
 def build_tee_output(destinations):
@@ -176,27 +195,35 @@ def fetch_overlay_bytes(url):
         return None
 
 
-def overlay_writer(url, fifo_path, stop_event, done_event, fps=2.0):
-    """Ghi liên tiếp PNG mới vào FIFO cho ffmpeg image2pipe decode → overlay
-    (điểm số) cập nhật thật. open() chặn tới khi ffmpeg mở đầu đọc; ffmpeg chết
-    → BrokenPipe → thoát để attempt sau tạo writer mới. done_event báo kết thúc."""
-    interval = 1.0 / max(0.5, fps)
+def overlay_writer(url, fifo_path, stop_event, done_event, fps=None):
+    """Ghi PNG overlay vào FIFO cho ffmpeg image2pipe → điểm số cập nhật thật.
+    CHỐNG RÒ RỈ RAM: CHỈ ghi khi ảnh THỰC SỰ ĐỔI (điểm/sponsor) + keepalive
+    định kỳ. image2pipe/overlay-framesync là nguồn creep RAM chính; điểm số vài
+    giây mới đổi nên đa số vòng lặp KHÔNG ghi → ffmpeg decode cực ít frame.
+    `fps` = tần suất KIỂM TRA overlay (không phải ép ghi mỗi lần).
+    open() chặn tới khi ffmpeg mở đầu đọc; ffmpeg chết → BrokenPipe → thoát."""
+    fps = fps or OVERLAY_FPS
+    interval = 1.0 / max(0.2, fps)
+    KEEPALIVE_S = 10.0  # ghi lại frame cũ mỗi 10s để giữ pipe/decoder ấm
     last = None
+    last_write = 0.0
     try:
         with open(fifo_path, "wb") as f:
             while not stop_event.is_set():
                 data = fetch_overlay_bytes(url)
-                if data:
+                now = time.monotonic()
+                changed = data is not None and data != last
+                if data is not None:
                     last = data
-                if last:
+                if last and (changed or now - last_write >= KEEPALIVE_S):
                     try:
                         f.write(last); f.flush()
+                        last_write = now
                     except BrokenPipeError:
                         break
-                for _ in range(int(interval * 10)):
-                    if stop_event.is_set():
-                        break
-                    time.sleep(0.1)
+                slept = 0.0
+                while slept < interval and not stop_event.is_set():
+                    time.sleep(0.1); slept += 0.1
     except OSError:
         pass
     finally:
@@ -407,9 +434,15 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
     # phân giải mục tiêu (RES_H) nếu khác 1080 → logo/chữ co đúng tỉ lệ.
     fc = base
     if overlay_fifo:
-        args += ["-thread_queue_size", "512", "-f", "image2pipe",
-                 "-framerate", "2", "-i", overlay_fifo]
-        fc += "[base];[base][1:v]overlay=0:0:eof_action=pass[comp]"
+        # thread_queue NHỎ = backpressure: khi nguồn video ĐỨNG (relay Imou cap /
+        # link 5XX) mà overlay vẫn ghi, frame KHÔNG dồn vô hạn (writer bị chặn) →
+        # tránh RAM bùng lên (trước đây 1 luồng lên 19.6GB do nguồn chập chờn).
+        # fps=… đưa overlay về cùng nhịp cố định, framesync không tích luỹ.
+        ov_fps = max(1, round(OVERLAY_FPS))
+        args += ["-thread_queue_size", "8", "-f", "image2pipe",
+                 "-framerate", str(ov_fps), "-i", overlay_fifo]
+        fc += (f"[base];[1:v]fps={ov_fps}[ov];"
+               "[base][ov]overlay=0:0:eof_action=pass[comp]")
     else:
         fc += "[comp]"
     if RES_H and RES_H != 1080:
@@ -452,6 +485,39 @@ def progress_reader(ff, stop_event):
                 except ValueError: pass
     except Exception:
         pass
+
+
+def _rss_mb(pid):
+    """RSS (MB) của 1 PID — dùng ps (chạy được cả Linux VPS lẫn macOS client)."""
+    try:
+        out = subprocess.run(["ps", "-o", "rss=", "-p", str(pid)],
+                             capture_output=True, timeout=5).stdout.decode("utf-8", "ignore").strip()
+        return int(out) / 1024.0 if out else 0.0
+    except Exception:
+        return 0.0
+
+
+def rss_watchdog(ff, stop_event):
+    """LƯỚI AN TOÀN CỨNG: ffmpeg vượt MAX_RSS_MB → kill để vòng chính restart.
+    Bảo đảm 1 luồng live KHÔNG BAO GIỜ ngốn hết RAM máy chủ dù có rò rỉ ẩn nào
+    còn sót. Kiểm mỗi 15s. Nếu creep đã được khống chế thì gần như không bao giờ
+    chạm ngưỡng này."""
+    if not MAX_RSS_MB or MAX_RSS_MB <= 0:
+        return
+    while not stop_event.is_set() and ff.poll() is None:
+        for _ in range(150):  # 15s
+            if stop_event.is_set() or ff.poll() is not None:
+                return
+            time.sleep(0.1)
+        mb = _rss_mb(ff.pid)
+        if mb and mb > MAX_RSS_MB:
+            log(f"ffmpeg RSS {mb:.0f}MB > ngưỡng {MAX_RSS_MB}MB → kill để restart "
+                f"(chống rò rỉ RAM)", err=True)
+            try:
+                ff.kill()
+            except Exception:
+                pass
+            return
 
 
 def probe_audio(dev):
@@ -661,6 +727,9 @@ def main():
         OUT_FPS = src_fps if (src_fps and 10 <= src_fps <= 60) else 25
     log(f"output fps = {OUT_FPS} (nguồn {src_fps or '?'}, override {FPS_OVERRIDE or 'auto'}) "
         f"bitrate {VID_KBPS}k res {RES_H}p")
+    if ENCODER == "libx264":
+        log(f"x264 threads={X264_THREADS} lookahead={X264_LOOKAHEAD} bf=0 (giảm RAM)")
+    log(f"overlay {OVERLAY_FPS}fps (ghi khi đổi) · watchdog RSS {MAX_RSS_MB}MB")
 
     # 1 ffmpeg SỐNG XUYÊN SUỐT (kết nối FB giữ nguyên); chỉ mở lại nguồn Imou
     # khi relay cap. Chỉ restart ffmpeg khi nó thật sự chết → khi đó xin
@@ -678,6 +747,7 @@ def main():
             stdout=subprocess.PIPE)
         ff_holder[0] = ff
         threading.Thread(target=progress_reader, args=(ff, stop_event), daemon=True).start()
+        threading.Thread(target=rss_watchdog, args=(ff, stop_event), daemon=True).start()
         ow_th, ow_done = start_overlay_writer(overlay_fifo, overlay_url, stop_event)
 
         if SOURCE_URL:

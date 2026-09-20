@@ -35,6 +35,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const WORKER_SCRIPT = path.resolve(__dirname, "../../scripts/autoLive/worker.py");
 const PYTHON_BIN = process.env.PYTHON_BIN || "python3";
+// Lưới an toàn tuyệt đối (server-runner): worker.py đã có watchdog restart ở
+// ~1800MB; nếu vì lý do gì đó nó vượt ngưỡng NÀY thì backend cưỡng bức dừng phiên
+// để bảo vệ máy chủ (trước đây 1 luồng lỗi lên 19.6GB làm full RAM). 0 = tắt.
+const MEM_HARD_CEILING_MB = Number(process.env.AUTOLIVE_MEM_CEILING_MB) || 3000;
+// Từ chối start phiên server mới nếu RAM trống dưới ngưỡng (chống chồng luồng).
+const MIN_FREE_MB_TO_START = Number(process.env.AUTOLIVE_MIN_FREE_MB) || 1200;
 
 // Map sessionId → { proc|null, pollTimer }
 // Worker Python chạy DETACHED (session riêng, log ra file) để pm2 restart /
@@ -154,6 +160,21 @@ async function pollOnce(sessionId) {
       session.cpuPct = cpuPct;
       session.memMB = memMB;
       await session.save();
+      // Lưới an toàn cứng: vượt ngưỡng RAM → cưỡng bức dừng (bảo vệ máy chủ).
+      if (MEM_HARD_CEILING_MB > 0 && memMB > MEM_HARD_CEILING_MB) {
+        console.error(`[auto-live] session ${sessionId} RAM ${memMB}MB > ceiling ${MEM_HARD_CEILING_MB}MB → force stop`);
+        try { process.kill(session.workerPid, "SIGKILL"); } catch { /* đã chết */ }
+        session.status = "error";
+        session.lastError = `Vượt ngưỡng RAM an toàn (${memMB}MB) — tự dừng để bảo vệ máy chủ. `
+          + `Kiểm tra nguồn video có ổn định không.`;
+        session.lastErrorAt = new Date();
+        session.stoppedAt = new Date();
+        await session.save();
+        stopPoll(sessionId);
+        registry.delete(String(sessionId));
+        clearProcSample(String(sessionId));
+        return;
+      }
     } catch { /* /proc không có → bỏ qua */ }
   } else {
     // Client-runner: chết = quá lâu không heartbeat → error (app tự report CPU).
@@ -402,6 +423,19 @@ export async function startAutoLive(input) {
   if (runner === "client") {
     startPoll(session._id);
     return session.toObject();
+  }
+
+  // Guard RAM (server-runner): không mở thêm luồng khi RAM trống quá thấp →
+  // tránh chồng luồng làm full RAM máy chủ.
+  const freeMB = Math.round(os.freemem() / 1024 / 1024);
+  if (MIN_FREE_MB_TO_START > 0 && freeMB < MIN_FREE_MB_TO_START) {
+    session.status = "error";
+    session.lastError = `RAM máy chủ còn ${freeMB}MB (< ${MIN_FREE_MB_TO_START}MB) — không đủ mở thêm luồng. `
+      + `Dừng bớt luồng đang chạy rồi thử lại.`;
+    session.lastErrorAt = new Date();
+    session.stoppedAt = new Date();
+    await session.save();
+    const e = new Error(session.lastError); e.status = 503; throw e;
   }
 
   try {
