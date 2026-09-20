@@ -18,7 +18,14 @@
   "build": {
     "appId": "vn.pickletour.live",
     "productName": "PickleTour Live",
-    "files": ["main.js", "preload.js", "renderer/**", "worker/**", "build/**"],
+    "asar": false,
+    "files": [
+      "main.js", "preload.js",
+      "renderer/**", "worker/**", "scripts/**",
+      "vendor/**",
+      "!**/__pycache__/**", "!**/*.pyc"
+    ],
+    "extraResources": [],
     "mac": { "category": "public.app-category.video", "target": ["dmg", "zip"] },
     "win": { "target": ["nsis", "portable"] },
     "linux": { "target": ["AppImage"] }
