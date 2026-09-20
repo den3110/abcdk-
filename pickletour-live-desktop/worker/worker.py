@@ -79,6 +79,11 @@ SOURCE_URL = (os.environ.get("AUTOLIVE_SOURCE_URL") or "").strip()
 # NHẸ hơn (nhanh hơn) + hết discontinuity audio → mượt hơn. Đặt AUTOLIVE_IMOU_AUDIO=1
 # để lấy lại tiếng cam.
 IMOU_AUDIO = (os.environ.get("AUTOLIVE_IMOU_AUDIO") or "0").strip().lower() not in ("0", "false", "no", "")
+# Chọn luồng cam Imou: "0" = luồng chính (HD, hay 2K H.265 → NẶNG, relay cloud
+# đẩy < realtime → trễ dồn); "1" = luồng phụ (SD/H.264, NHẸ → relay kịp realtime,
+# mượt). Với cam 2K nặng, dùng "1" mượt hơn hẳn. ImouPkg đọc qua env IMOU_STREAM_ID.
+IMOU_STREAM_ID = (os.environ.get("AUTOLIVE_IMOU_STREAM_ID") or "0").strip()
+os.environ["IMOU_STREAM_ID"] = IMOU_STREAM_ID
 # Preview HLS local cho app desktop (Electron) hiển thị — env là thư mục.
 PREVIEW_DIR = os.environ.get("AUTOLIVE_PREVIEW_HLS_DIR", "").strip()
 HEALTHY_AFTER_S = 60

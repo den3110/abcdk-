@@ -468,6 +468,8 @@ function advancedEnv(a) {
   if (a.fps) env.AUTOLIVE_FPS = String(a.fps);
   if (a.audioBitrateKbps) env.AUTOLIVE_AUDIO_BITRATE = String(a.audioBitrateKbps);
   if (a.encoder && a.encoder !== "auto") env.AUTOLIVE_ENCODER = String(a.encoder);
+  if (a.imouStreamId) env.AUTOLIVE_IMOU_STREAM_ID = String(a.imouStreamId); // "1"=luồng phụ nhẹ
+  if (a.imouAudio) env.AUTOLIVE_IMOU_AUDIO = String(a.imouAudio);
   return env;
 }
 

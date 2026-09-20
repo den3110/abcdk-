@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import os
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -66,7 +67,9 @@ class Camera:
             "deviceId": self.device_id,
             "productId": self.product_id,
             "channelId": "0",
-            "streamId": "0",
+            # streamId 0 = luồng chính (HD, hay 2K H.265 — nặng relay); 1 = luồng
+            # phụ (SD/H.264, nhẹ → relay đẩy kịp realtime). Chọn qua env IMOU_STREAM_ID.
+            "streamId": os.environ.get("IMOU_STREAM_ID", "0"),
             "type": "0", "encrypt": "0", "assistStream": "0",
             "quic": "1" if quic else "0",
             "design": "live", "skipAuth": "0",
