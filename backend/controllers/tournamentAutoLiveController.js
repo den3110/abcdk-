@@ -3,6 +3,10 @@ import asyncHandler from "express-async-handler";
 import TournamentAutoLiveSession from "../models/tournamentAutoLiveSessionModel.js";
 import Venue from "../models/venueModel.js";
 import VenueCourt from "../models/venueCourtModel.js";
+import Tournament from "../models/tournamentModel.js";
+import CourtStation from "../models/courtStationModel.js";
+import CourtCluster from "../models/courtClusterModel.js";
+import FbToken from "../models/fbTokenModel.js";
 import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
@@ -135,6 +139,48 @@ export const getOverlayImage = asyncHandler(async (req, res) => {
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Cache-Control", "no-store, must-revalidate");
   res.send(buf);
+});
+
+// GET /api/tournament-auto-live/tournaments?q=  — danh sách giải cho app desktop
+export const listTournamentsForApp = asyncHandler(async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  const filter = q ? { name: { $regex: q, $options: "i" } } : {};
+  const docs = await Tournament.find(filter)
+    .select("_id name image startDate status")
+    .sort({ createdAt: -1 })
+    .limit(50)
+    .lean();
+  res.json(docs.map((t) => ({
+    _id: String(t._id), name: t.name, image: t.image || "",
+    startDate: t.startDate, status: t.status,
+  })));
+});
+
+// GET /api/tournament-auto-live/tournaments/:tid/courts — court stations của giải
+export const listCourtsForApp = asyncHandler(async (req, res) => {
+  const t = await Tournament.findById(req.params.tid).select("allowedCourtClusterIds name").lean();
+  if (!t) { res.status(404); throw new Error("Tournament not found"); }
+  const clusterIds = Array.isArray(t.allowedCourtClusterIds) ? t.allowedCourtClusterIds : [];
+  const stations = await CourtStation.find({ clusterId: { $in: clusterIds } })
+    .select("_id name code clusterId currentMatch order")
+    .populate({ path: "clusterId", select: "name venueName" })
+    .sort({ order: 1, name: 1 })
+    .lean();
+  res.json(stations.map((s) => ({
+    _id: String(s._id), name: s.name, code: s.code || "",
+    clusterName: s.clusterId?.venueName || s.clusterId?.name || "",
+    hasMatch: !!s.currentMatch,
+  })));
+});
+
+// GET /api/tournament-auto-live/fb-pages — pool fanpage (admin)
+export const listFbPagesForApp = asyncHandler(async (req, res) => {
+  const docs = await FbToken.find({ disabled: { $ne: true } })
+    .select("pageId pageName isBusy needsReauth").sort({ pageName: 1 }).lean().catch(() => []);
+  res.json((docs || []).filter((d) => d.pageId).map((d) => ({
+    pageId: String(d.pageId), pageName: d.pageName || String(d.pageId),
+    isBusy: !!d.isBusy, needsReauth: !!d.needsReauth,
+  })));
 });
 
 // GET /api/tournament-auto-live/available-cams
