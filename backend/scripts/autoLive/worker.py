@@ -408,15 +408,10 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
     # PNG mới ~2fps vào pipe, ffmpeg decode từng frame → điểm cập nhật thật.
     base = ("[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,"
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
-    args = [
-        "ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin",
-        # Dùng PTS gốc của nguồn (KHÔNG wallclock) để nhịp khung đều → MƯỢT.
-        # wallclock đóng dấu theo lúc byte tới (relay đến theo cụm) → jitter →
-        # CFR ép 25fps nhân đôi/rớt frame = giật. genpts+igndts giữ đồng hồ
-        # liên tục cả khi mở lại nguồn Imou giữa chừng (không restart ffmpeg).
-        "-fflags", "+genpts", "-thread_queue_size", "1024",
-    ]
+    args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin"]
     if SOURCE_URL:
+        # Link tự có timestamp chuẩn → dùng genpts giữ đồng hồ liên tục.
+        args += ["-fflags", "+genpts", "-thread_queue_size", "1024"]
         # Cờ input theo scheme (nếu áp sai scheme ffmpeg báo "Option not found").
         u = SOURCE_URL.lower()
         if u.startswith("rtsp://"):
@@ -426,7 +421,15 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
                      "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
         args += ["-i", SOURCE_URL]
     else:
-        args += ["-f", "dhav", "-i", "pipe:0"]
+        # Cam Imou (DHAV qua relay đám mây): timestamp nguồn LOẠN (hàng nghìn
+        # "timestamp discontinuity", HEVC) → nếu theo PTS nguồn (+genpts) thì
+        # output tụt < realtime, backlog DỒN → trễ tăng dần tới vài PHÚT khi live
+        # lâu. Đóng dấu WALLCLOCK: mỗi khung lấy mốc "thời điểm nhận" → nhịp ra
+        # bám thời gian thực, frame cũ bị bỏ thay vì xếp hàng → KHÔNG tụt hậu.
+        # +igndts bỏ DTS rác của DHAV. thread_queue nhỏ hơn (256) để backlog input
+        # không phình khi nguồn dồn cụm.
+        args += ["-fflags", "+igndts", "-use_wallclock_as_timestamps", "1",
+                 "-thread_queue_size", "256", "-f", "dhav", "-i", "pipe:0"]
     # Ghép overlay ở canvas 1080 (PNG overlay 1920x1080), sau đó scale xuống độ
     # phân giải mục tiêu (RES_H) nếu khác 1080 → logo/chữ co đúng tỉ lệ.
     fc = base
