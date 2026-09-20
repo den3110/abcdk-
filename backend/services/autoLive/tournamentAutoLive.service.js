@@ -344,7 +344,7 @@ async function decryptVenueImouSession(venueId) {
 export async function startAutoLive(input) {
   const {
     tournamentId, courtStationId, imouDeviceId, destinations,
-    startedBy, autoNext = true, venueId: explicitVenueId, layout,
+    startedBy, autoNext = true, venueId: explicitVenueId, layout, advanced,
   } = input || {};
   if (!tournamentId || !courtStationId || !imouDeviceId || !Array.isArray(destinations) || !destinations.length) {
     const err = new Error("Thiếu tournamentId/courtStationId/imouDeviceId/destinations");
@@ -390,6 +390,7 @@ export async function startAutoLive(input) {
     tournament: tournamentId, court: courtStationId, venue: venueId,
     imouDeviceId, startedBy, destinations: preparedDest, autoNext,
     layout: layout && typeof layout === "object" ? layout : undefined,
+    advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     runner,
     status: "starting", workerId: crypto.randomUUID(),
     startedAt: new Date(),
@@ -422,6 +423,19 @@ export async function startAutoLive(input) {
   }
 }
 
+/** advanced (session) → env cho worker. Bỏ qua field rỗng/không hợp lệ. */
+function advancedEnv(a) {
+  a = a || {};
+  const env = {};
+  if (a.videoBitrateKbps) env.AUTOLIVE_VIDEO_BITRATE = String(a.videoBitrateKbps);
+  if (a.maxBitrateKbps) env.AUTOLIVE_MAX_BITRATE = String(a.maxBitrateKbps);
+  if (a.resolutionH) env.AUTOLIVE_RES_H = String(a.resolutionH);
+  if (a.fps) env.AUTOLIVE_FPS = String(a.fps);
+  if (a.audioBitrateKbps) env.AUTOLIVE_AUDIO_BITRATE = String(a.audioBitrateKbps);
+  if (a.encoder && a.encoder !== "auto") env.AUTOLIVE_ENCODER = String(a.encoder);
+  return env;
+}
+
 function spawnWorker(session, imouSession, imouCreds) {
   const backendBase = process.env.PUBLIC_BACKEND_URL || "http://localhost:5001";
   const overlayUrl = `${backendBase}/api/tournament-auto-live/overlay/${session._id}.png`;
@@ -443,6 +457,7 @@ function spawnWorker(session, imouSession, imouCreds) {
     AUTOLIVE_DESTINATIONS: JSON.stringify(session.destinations.map((d) => ({
       type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
     }))),
+    ...advancedEnv(session.advanced),
   };
   // Log ra FILE (không pipe): nếu pipe mà backend chết thì Python print →
   // EPIPE → worker chết theo. detached + unref để pm2 restart không kill.
@@ -591,6 +606,7 @@ export async function getWorkerConfig(sessionId) {
       type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
     })),
     workerToken: process.env.AUTOLIVE_WORKER_TOKEN || "",
+    advancedEnv: advancedEnv(s.advanced), // {AUTOLIVE_VIDEO_BITRATE,...} app set vào env worker
     overlayUrl: `${base}/api/tournament-auto-live/overlay/${s._id}.png`,
     heartbeatUrl: `${base}/api/tournament-auto-live/internal/heartbeat`,
     sessionPostUrl: `${base}/api/tournament-auto-live/internal/imou-session`,

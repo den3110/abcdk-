@@ -48,6 +48,12 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 MAX_ATTEMPTS = 12
 ENCODER = "libx264"  # set trong main() bằng detect_encoder()
 OUT_FPS = 25         # set trong main() = fps nguồn (khớp để không nhân đôi frame)
+# Cấu hình nâng cao (env, có default) — chỉnh từ app desktop.
+VID_KBPS = int(os.environ.get("AUTOLIVE_VIDEO_BITRATE") or 4500)
+MAX_KBPS = int(os.environ.get("AUTOLIVE_MAX_BITRATE") or round(VID_KBPS * 1.15))
+RES_H = int(os.environ.get("AUTOLIVE_RES_H") or 1080)           # 1080/720/480
+AUD_KBPS = int(os.environ.get("AUTOLIVE_AUDIO_BITRATE") or 128)
+FPS_OVERRIDE = int(os.environ.get("AUTOLIVE_FPS") or 0)         # 0 = khớp nguồn
 # Preview HLS local cho app desktop (Electron) hiển thị — env là thư mục.
 PREVIEW_DIR = os.environ.get("AUTOLIVE_PREVIEW_HLS_DIR", "").strip()
 HEALTHY_AFTER_S = 60
@@ -91,8 +97,9 @@ def encoder_args(enc):
     CFR 25fps đều (-vsync cfr) + bitrate cao hơn cho 1080p mượt/nét."""
     fps = OUT_FPS or 25
     gop = fps * 2
+    buf = MAX_KBPS * 2
     common_rate = ["-vsync", "cfr", "-r", str(fps), "-g", str(gop), "-keyint_min", str(gop),
-                   "-b:v", "4500k", "-maxrate", "5000k", "-bufsize", "9000k",
+                   "-b:v", f"{VID_KBPS}k", "-maxrate", f"{MAX_KBPS}k", "-bufsize", f"{buf}k",
                    "-pix_fmt", "yuv420p"]
     if enc == "h264_nvenc":
         return ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "cbr",
@@ -333,13 +340,19 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
         "-fflags", "+genpts",
         "-thread_queue_size", "1024", "-f", "dhav", "-i", "pipe:0",
     ]
+    # Ghép overlay ở canvas 1080 (PNG overlay 1920x1080), sau đó scale xuống độ
+    # phân giải mục tiêu (RES_H) nếu khác 1080 → logo/chữ co đúng tỉ lệ.
     fc = base
     if overlay_fifo:
         args += ["-thread_queue_size", "512", "-f", "image2pipe",
                  "-framerate", "2", "-i", overlay_fifo]
-        fc += "[base];[base][1:v]overlay=0:0:eof_action=pass[vout]"
+        fc += "[base];[base][1:v]overlay=0:0:eof_action=pass[comp]"
     else:
-        fc += "[vout]"
+        fc += "[comp]"
+    if RES_H and RES_H != 1080:
+        fc += f";[comp]scale=-2:{RES_H}:flags=bicubic[vout]"
+    else:
+        fc += ";[comp]null[vout]"
     if has_audio:
         fc += ";[0:a:0]aresample=async=1000:first_pts=0,aformat=sample_rates=44100:channel_layouts=stereo[aout]"
     else:
@@ -347,7 +360,7 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
     args += ["-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
     args += encoder_args(ENCODER)
     args += [
-        "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+        "-c:a", "aac", "-b:a", f"{AUD_KBPS}k", "-ar", "44100", "-ac", "2",
         # Progress ra stdout để worker đo bitrate/fps/speed (tốc độ live).
         "-stats_period", "2", "-progress", "pipe:1",
         "-shortest", "-f", "tee", tee,
@@ -574,8 +587,12 @@ def main():
 
     has_audio, src_fps = probe_audio(access.device(device_id)) if not stop_event.is_set() else (False, 0)
     global OUT_FPS
-    OUT_FPS = src_fps if (src_fps and 10 <= src_fps <= 60) else 25
-    log(f"output fps = {OUT_FPS} (nguồn {src_fps or '?'})")
+    if FPS_OVERRIDE and 10 <= FPS_OVERRIDE <= 60:
+        OUT_FPS = FPS_OVERRIDE
+    else:
+        OUT_FPS = src_fps if (src_fps and 10 <= src_fps <= 60) else 25
+    log(f"output fps = {OUT_FPS} (nguồn {src_fps or '?'}, override {FPS_OVERRIDE or 'auto'}) "
+        f"bitrate {VID_KBPS}k res {RES_H}p")
 
     # 1 ffmpeg SỐNG XUYÊN SUỐT (kết nối FB giữ nguyên); chỉ mở lại nguồn Imou
     # khi relay cap. Chỉ restart ffmpeg khi nó thật sự chết → khi đó xin

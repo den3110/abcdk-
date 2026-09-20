@@ -106,6 +106,11 @@ async function loadTournaments(q) {
     || `<option value="">(không có giải)</option>`;
   await loadCourts();
 }
+// Advanced: cập nhật nhãn bitrate
+document.addEventListener("input", (e) => {
+  if (e.target && e.target.id === "adv_vbr") $("adv_vbr_lbl").textContent = e.target.value;
+});
+
 let _tourTimer;
 document.addEventListener("input", (e) => {
   if (e.target && e.target.id === "tourSearch") {
@@ -193,6 +198,13 @@ $("goLive").onclick = async () => {
         scoreboard: $("lay_scoreboard").value,
         brand: $("lay_brand").value,
         sponsor: $("lay_sponsor").value,
+      },
+      advanced: {
+        videoBitrateKbps: Number($("adv_vbr").value) || 4500,
+        resolutionH: Number($("adv_res").value) || 1080,
+        fps: Number($("adv_fps").value) || 0,
+        audioBitrateKbps: Number($("adv_abr").value) || 128,
+        encoder: $("encoder").value || "auto",
       },
     };
     $("goLive").disabled = true; $("goLive").textContent = "Đang khởi động…";

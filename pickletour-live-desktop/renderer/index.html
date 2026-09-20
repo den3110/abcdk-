@@ -67,6 +67,42 @@
       </div>
     </div>
 
+    <details class="card">
+      <summary><b>Cấu hình nâng cao</b> (bitrate, độ phân giải, fps…)</summary>
+      <div class="row3" style="margin-top:12px">
+        <div>
+          <label>Độ phân giải</label>
+          <select id="adv_res">
+            <option value="1080">1080p</option>
+            <option value="720">720p</option>
+            <option value="480">480p</option>
+          </select>
+        </div>
+        <div>
+          <label>FPS</label>
+          <select id="adv_fps">
+            <option value="0">Khớp nguồn (khuyến nghị)</option>
+            <option value="30">30</option>
+            <option value="25">25</option>
+            <option value="20">20</option>
+            <option value="15">15</option>
+          </select>
+        </div>
+        <div>
+          <label>Audio (kbps)</label>
+          <select id="adv_abr">
+            <option value="128">128</option>
+            <option value="96">96</option>
+            <option value="64">64</option>
+            <option value="160">160</option>
+          </select>
+        </div>
+      </div>
+      <label>Video bitrate: <b id="adv_vbr_lbl">4500</b> kbps</label>
+      <input type="range" id="adv_vbr" min="800" max="9000" step="250" value="4500" />
+      <div class="hint">Mạng yếu → hạ bitrate (2000–3000). GPU/mạng khoẻ → 5000–8000. Max bitrate tự = 1.15×.</div>
+    </details>
+
     <div class="card">
       <h3>3 · Điểm đến livestream</h3>
       <div class="destadd">

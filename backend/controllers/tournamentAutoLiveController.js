@@ -85,6 +85,7 @@ export const startSession = asyncHandler(async (req, res) => {
     destinations: body.destinations,
     autoNext: body.autoNext !== false,
     layout: body.layout,
+    advanced: body.advanced,
     runner: body.runner,
     startedBy: req.user?._id,
   });

@@ -166,6 +166,8 @@ async function startWorker({ baseUrl, token, form }) {
     AUTOLIVE_PREVIEW_HLS_DIR: previewDir,
     AUTOLIVE_RUNNER_LABEL: form.runnerLabel || os.hostname(),
     FFMPEG_PATH: ffmpeg,
+    // Cấu hình nâng cao (backend trả về từ session.advanced) — bitrate, res, fps…
+    ...(cfg.advancedEnv || {}),
   };
   const logFile = path.join(previewDir, "worker.log");
   const logFd = fs.openSync(logFile, "a");

@@ -78,6 +78,15 @@ const tournamentAutoLiveSessionSchema = new Schema(
       brand: { type: String, default: "top-right" },
       sponsor: { type: String, default: "bottom-right" },
     },
+    // Cấu hình nâng cao encode (chỉnh từ app desktop)
+    advanced: {
+      videoBitrateKbps: { type: Number, default: 4500 },
+      maxBitrateKbps: { type: Number, default: 0 }, // 0 = auto (~1.15x)
+      resolutionH: { type: Number, default: 1080 }, // 1080/720/480
+      fps: { type: Number, default: 0 },            // 0 = khớp nguồn
+      audioBitrateKbps: { type: Number, default: 128 },
+      encoder: { type: String, default: "auto" },
+    },
   },
   { timestamps: true }
 );
