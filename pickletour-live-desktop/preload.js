@@ -9,4 +9,7 @@ contextBridge.exposeInMainWorld("api", {
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
   openLog: (sid) => ipcRenderer.invoke("open-log", sid),
   onWorkerExit: (cb) => ipcRenderer.on("worker-exit", (_e, p) => cb(p)),
+  // Tự setup Python lần đầu (tạo venv + cài Imou) ngay trong app.
+  setupPython: () => ipcRenderer.invoke("setup-python"),
+  onSetupProgress: (cb) => ipcRenderer.on("setup-progress", (_e, m) => cb(m)),
 });

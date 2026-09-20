@@ -52,21 +52,87 @@ async function apiFetch(baseUrl, apiPath, { method = "GET", token, body } = {}) 
 }
 
 // ───────────────────────── Python / ffmpeg detect ────────────────────────
+// venv do app tự tạo (ghi vào userData — luôn ghi được, kể cả app ở /Applications
+// hay Program Files; sống qua update, khác với .venv trong bundle read-only).
+function userPyenvDir() {
+  try { return path.join(app.getPath("userData"), "pyenv"); } catch { return null; }
+}
+function venvPythonPath(venvDir) {
+  return process.platform === "win32"
+    ? path.join(venvDir, "Scripts", "python.exe")
+    : path.join(venvDir, "bin", "python");
+}
+function pythonHasImou(cmd) {
+  if (!cmd) return false;
+  try {
+    const r = spawnSync(cmd, ["-c", "import imou,sys;print('ok')"], { encoding: "utf8" });
+    return r.status === 0 && /ok/.test(r.stdout || "");
+  } catch { return false; }
+}
+
 function detectPython() {
-  // Ưu tiên: env → file .python-path (do setup ghi) → các tên phổ biến 3.10+.
+  // Ưu tiên: env → venv app tự tạo (userData) → .python-path (setup cũ) → tên phổ biến.
+  const venvPy = (() => { const d = userPyenvDir(); return d ? venvPythonPath(d) : null; })();
   const fromFile = (() => {
     try { return fs.readFileSync(path.join(__dirname, ".python-path"), "utf8").trim(); } catch { return null; }
   })();
-  const cands = [process.env.PICKLETOUR_PYTHON, fromFile,
+  const cands = [process.env.PICKLETOUR_PYTHON, venvPy, fromFile,
     "python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"];
   for (const cand of cands) {
     if (!cand) continue;
+    if (pythonHasImou(cand)) return cand;
+  }
+  return null;
+}
+
+// Python 3.10+ bất kỳ (chưa cần imou) để tạo venv cho auto-setup.
+function detectBasePython() {
+  for (const cand of [process.env.PICKLETOUR_PYTHON,
+    "python3.13", "python3.12", "python3.11", "python3.10", "python3", "python"]) {
+    if (!cand) continue;
     try {
-      const r = spawnSync(cand, ["-c", "import imou,sys;print('ok',sys.version_info[0],sys.version_info[1])"], { encoding: "utf8" });
-      if (r.status === 0 && /ok/.test(r.stdout)) return cand;
+      const r = spawnSync(cand, ["-c", "import sys;print(sys.version_info[0],sys.version_info[1])"], { encoding: "utf8" });
+      if (r.status === 0) {
+        const [maj, min] = (r.stdout || "").trim().split(/\s+/).map(Number);
+        if (maj === 3 && min >= 10) return cand;
+      }
     } catch {}
   }
   return null;
+}
+
+function vendorImouDir() {
+  // asar:false → resources/app/vendor/imou-pkg (đóng gói) hoặc ./vendor/imou-pkg (dev).
+  const p = path.join(__dirname, "vendor", "imou-pkg");
+  return fs.existsSync(p) ? p : null;
+}
+
+// Tự tạo venv + cài ImouPkg (từ vendor bundled) → trả python dùng được.
+// Cần internet lần đầu (kéo phụ thuộc: pycryptodomex, requests…). onProgress(msg).
+function ensurePythonSetup(onProgress) {
+  const log = (m) => { try { onProgress && onProgress(m); } catch {} };
+  const existing = detectPython();
+  if (existing) return { ok: true, python: existing, already: true };
+  const base = detectBasePython();
+  if (!base) {
+    const e = new Error("Không thấy Python 3.10+ trên máy. Cài Python (tick Add to PATH) rồi thử lại.");
+    e.code = "NO_BASE_PYTHON"; throw e;
+  }
+  const venvDir = userPyenvDir();
+  if (!venvDir) throw new Error("Không xác định được thư mục dữ liệu app.");
+  log(`Tạo môi trường Python (venv) tại:\n${venvDir}`);
+  let r = spawnSync(base, ["-m", "venv", venvDir], { encoding: "utf8" });
+  if (r.status !== 0) throw new Error("Tạo venv thất bại: " + (r.stderr || r.stdout || "").slice(0, 400));
+  const py = venvPythonPath(venvDir);
+  log("Nâng cấp pip…");
+  spawnSync(py, ["-m", "pip", "install", "--upgrade", "pip", "--quiet"], { encoding: "utf8" });
+  const vendor = vendorImouDir();
+  log("Cài ImouPkg + phụ thuộc (cần internet)…");
+  r = spawnSync(py, ["-m", "pip", "install", "--quiet", vendor || "imou"], { encoding: "utf8", timeout: 300000 });
+  if (r.status !== 0) throw new Error("Cài ImouPkg thất bại: " + (r.stderr || r.stdout || "").slice(0, 400));
+  if (!pythonHasImou(py)) throw new Error("Cài xong nhưng import imou vẫn lỗi. Xem lại internet/Python.");
+  log("Hoàn tất! Python đã sẵn sàng.");
+  return { ok: true, python: py };
 }
 function detectFfmpeg() {
   for (const cand of [process.env.FFMPEG_PATH, "ffmpeg"]) {
@@ -215,9 +281,16 @@ ipcMain.handle("env-check", () => {
   const python = detectPython();
   return {
     ffmpeg: !!ffmpeg, python: !!python,
+    // Có thể tự setup Python trong app (đã có base python 3.10+ nhưng thiếu imou)?
+    canAutoSetupPython: !python && !!detectBasePython(),
     encoders: ffmpeg ? detectEncoders(ffmpeg) : [],
     hostname: os.hostname(), platform: `${os.type()} ${os.arch()}`,
   };
+});
+
+// Tự setup Python (venv + Imou) — gọi từ nút "Cài đặt tự động" ở renderer.
+ipcMain.handle("setup-python", async () => {
+  return ensurePythonSetup((m) => { try { win?.webContents.send("setup-progress", m); } catch {} });
 });
 
 ipcMain.handle("login", async (_e, { baseUrl, email, password }) => {

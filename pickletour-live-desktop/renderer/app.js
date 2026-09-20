@@ -30,14 +30,60 @@ function loadAuth() { try { return JSON.parse(localStorage.getItem(LS) || "null"
 function clearAuth() { try { localStorage.removeItem(LS); } catch {} }
 
 // ── Env check + auto-login ──
-(async () => {
+async function refreshEnv() {
   const env = await window.api.envCheck();
-  const saved = loadAuth();
-  $("runnerLabel").value = (saved && saved.runnerLabel) || env.hostname || "";
   const ff = env.ffmpeg ? '<span class="ok">ffmpeg ✓</span>' : '<span class="bad">ffmpeg ✗</span>';
   const py = env.python ? '<span class="ok">Imou ✓</span>' : '<span class="bad">Python/Imou ✗</span>';
   $("env").innerHTML = `${ff} · ${py} · ${env.platform}`;
   state.encoders = env.encoders || [];
+  renderSetupHelper(env);
+  return env;
+}
+
+// Nút "Cài đặt tự động (1 lần)" khi thiếu Python nhưng máy có sẵn Python 3.10+.
+function renderSetupHelper(env) {
+  let box = $("setupHelper");
+  if (env.python) { if (box) box.remove(); return; }
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "setupHelper";
+    box.className = "card";
+    box.style.cssText = "margin:12px 16px;border:1px solid #f59e0b55";
+    const login = $("loginView");
+    login.insertBefore(box, login.firstChild);
+  }
+  const canAuto = env.canAutoSetupPython;
+  const ffWarn = env.ffmpeg ? "" :
+    '<div class="err">⚠ Chưa có <b>ffmpeg</b> — cài ffmpeg và thêm vào PATH (macOS: <code>brew install ffmpeg</code>; Windows: tải ffmpeg.org rồi thêm PATH).</div>';
+  box.innerHTML = `
+    <h3>Thiết lập lần đầu</h3>
+    <div class="hint">App cần <b>Python 3.10+</b> (đã kèm ImouPkg) và <b>ffmpeg</b> để chạy.</div>
+    ${canAuto
+      ? '<button id="setupPyBtn" class="primary">⚙ Cài đặt tự động (1 lần)</button>'
+      : '<div class="err">⚠ Chưa thấy Python 3.10+ — cài Python (tick <b>Add to PATH</b>) rồi bấm <b>Kiểm tra lại</b>.</div>'}
+    <button id="recheckBtn" class="ghost" style="margin-left:8px">↻ Kiểm tra lại</button>
+    ${ffWarn}
+    <div id="setupLog" class="hint" style="white-space:pre-wrap;margin-top:8px"></div>`;
+  const rc = $("recheckBtn"); if (rc) rc.onclick = () => refreshEnv();
+  const sb = $("setupPyBtn");
+  if (sb) sb.onclick = async () => {
+    sb.disabled = true; const logEl = $("setupLog");
+    logEl.textContent = "Đang cài đặt… (có thể mất 1-2 phút, cần internet)";
+    try {
+      const r = await window.api.setupPython();
+      logEl.textContent = r.already ? "Python đã sẵn sàng." : "✓ Cài đặt xong! Python đã sẵn sàng.";
+      await refreshEnv();
+    } catch (e) {
+      logEl.innerHTML = `<span class="bad">Lỗi: ${e.message}</span>`;
+      sb.disabled = false;
+    }
+  };
+}
+
+(async () => {
+  const env = await refreshEnv();
+  const saved = loadAuth();
+  $("runnerLabel").value = (saved && saved.runnerLabel) || env.hostname || "";
   if (saved) {
     if (saved.baseUrl) $("baseUrl").value = saved.baseUrl;
     if (saved.email) $("email").value = saved.email;
