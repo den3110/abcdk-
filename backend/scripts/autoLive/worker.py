@@ -84,10 +84,28 @@ def detect_encoder():
     except Exception:
         out = ""
     have = lambda name: (" " + name) in out
-    if want in alias and (alias[want] == "libx264" or have(alias[want])):
+    # Chỉ LIỆT KÊ trong -encoders chưa đủ (VPS không GPU vẫn có h264_nvenc →
+    # "Cannot load libcuda.so.1" khi chạy). Phải TEST-ENCODE thật mới dùng.
+    def works(name):
+        if name == "libx264":
+            return True
+        if not have(name):
+            return False
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error",
+                 "-f", "lavfi", "-i", "color=c=black:s=256x144:r=5", "-t", "0.2",
+                 "-c:v", name, "-f", "null", "-"],
+                capture_output=True, timeout=15)
+            return r.returncode == 0
+        except Exception:
+            return False
+    if want in alias and works(alias[want]):
         return alias[want]
-    for cand in ("h264_nvenc", "h264_videotoolbox", "h264_qsv", "h264_vaapi"):
-        if have(cand):
+    for cand in ("h264_nvenc", "h264_videotoolbox", "h264_qsv", "h264_vaapi", "libx264"):
+        if works(cand):
+            if cand != "libx264":
+                log(f"GPU encoder khả dụng: {cand}")
             return cand
     return "libx264"
 
@@ -598,9 +616,11 @@ def main():
     # khi relay cap. Chỉ restart ffmpeg khi nó thật sự chết → khi đó xin
     # destination FB mới (FB không cho re-publish cùng key sau khi publisher rớt).
     ff_restarts = 0
+    fast_fails = 0
     while not stop_event.is_set():
         args = build_ffmpeg_args(overlay_fifo, has_audio, tee)
         log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} restart#{ff_restarts}")
+        ff_spawn_t = time.monotonic()
         ff = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         ff_holder[0] = ff
         threading.Thread(target=progress_reader, args=(ff, stop_event), daemon=True).start()
@@ -621,17 +641,29 @@ def main():
         if reason == "stop" or stop_event.is_set():
             break
 
-        # ffmpeg chết → xin destination FB mới rồi restart (giữ giải/overlay).
+        ran_s = time.monotonic() - ff_spawn_t
         ff_restarts += 1
-        if ff_restarts > MAX_ATTEMPTS:
-            log(f"ffmpeg chết quá {MAX_ATTEMPTS} lần → dừng", err=True)
-            break
-        new_tee = refresh_destinations(session_post_url.replace("/imou-session", "/destinations"),
-                                       worker_token, session_id)
-        if new_tee:
-            tee = new_tee
-            log("đã lấy destination FB mới sau khi ffmpeg chết")
-        if _sleep_stop(stop_event, min(15, 3 * ff_restarts)): break
+        # ffmpeg chết NHANH (<20s) = lỗi cấu hình (encoder/bitrate/res) chứ
+        # không phải đứt mạng → KHÔNG tạo lại FB live (tránh spam video mới),
+        # chỉ retry; quá nhiều lần fast-fail → dừng hẳn.
+        if ran_s < 20:
+            fast_fails += 1
+            if fast_fails >= 3:
+                log(f"ffmpeg chết nhanh {fast_fails} lần (lỗi cấu hình) → dừng", err=True)
+                break
+            log(f"ffmpeg chết sau {ran_s:.0f}s (fast-fail {fast_fails}/3) → retry không đổi FB")
+        else:
+            fast_fails = 0
+            if ff_restarts > MAX_ATTEMPTS:
+                log(f"ffmpeg chết quá {MAX_ATTEMPTS} lần → dừng", err=True)
+                break
+            # Chỉ tạo FB mới khi đã chạy ổn 1 lúc rồi mới chết (đứt thật).
+            new_tee = refresh_destinations(session_post_url.replace("/imou-session", "/destinations"),
+                                           worker_token, session_id)
+            if new_tee:
+                tee = new_tee
+                log("đã lấy destination FB mới sau khi ffmpeg chết")
+        if _sleep_stop(stop_event, min(10, 2 + 2 * fast_fails)): break
 
     cleanup()
     ok = stop_event.is_set()
