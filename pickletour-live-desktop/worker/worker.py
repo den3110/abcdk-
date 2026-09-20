@@ -54,6 +54,9 @@ MAX_KBPS = int(os.environ.get("AUTOLIVE_MAX_BITRATE") or round(VID_KBPS * 1.15))
 RES_H = int(os.environ.get("AUTOLIVE_RES_H") or 1080)           # 1080/720/480
 AUD_KBPS = int(os.environ.get("AUTOLIVE_AUDIO_BITRATE") or 128)
 FPS_OVERRIDE = int(os.environ.get("AUTOLIVE_FPS") or 0)         # 0 = khớp nguồn
+# Nguồn video: rỗng = cam Imou (DHAV qua stdin); có = link tuỳ chỉnh
+# (m3u8/RTSP/RTMP/http) → ffmpeg đọc thẳng URL.
+SOURCE_URL = (os.environ.get("AUTOLIVE_SOURCE_URL") or "").strip()
 # Preview HLS local cho app desktop (Electron) hiển thị — env là thư mục.
 PREVIEW_DIR = os.environ.get("AUTOLIVE_PREVIEW_HLS_DIR", "").strip()
 HEALTHY_AFTER_S = 60
@@ -338,6 +341,38 @@ def probe_has_audio(buf):
     return probe_stream(buf)[0]
 
 
+def probe_url(url):
+    """ffprobe link tuỳ chỉnh (m3u8/rtsp/rtmp/http) → (has_audio, fps)."""
+    has_audio = False
+    fps = 0
+    try:
+        pre = ["-rtsp_transport", "tcp"] if url.lower().startswith("rtsp://") else []
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", *pre,
+             "-show_entries", "stream=codec_type,avg_frame_rate,r_frame_rate",
+             "-of", "json", url],
+            capture_output=True, timeout=25)
+        data = json.loads(r.stdout.decode("utf-8", "ignore") or "{}")
+        for s in data.get("streams", []):
+            if s.get("codec_type") == "audio":
+                has_audio = True
+            if s.get("codec_type") == "video":
+                for key in ("avg_frame_rate", "r_frame_rate"):
+                    v = s.get(key) or ""
+                    if "/" in v:
+                        num, den = v.split("/")
+                        try:
+                            f = float(num) / float(den) if float(den) else 0
+                            if 1 < f < 121:
+                                fps = round(f); break
+                        except (ValueError, ZeroDivisionError):
+                            pass
+    except Exception as e:  # noqa: BLE001
+        log(f"probe_url fail: {e}", err=True)
+    log(f"probe URL audio={has_audio} fps={fps}")
+    return has_audio, fps
+
+
 def build_ffmpeg_args(overlay_fifo, has_audio, tee):
     # Cam Imou có thể xuất 2K (2560x1440@20fps): scale về 1080p TRƯỚC khi
     # chồng overlay (PNG vẽ theo 1920x1080). -r 25 + GOP 50 = keyframe 2s.
@@ -355,9 +390,19 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
         # wallclock đóng dấu theo lúc byte tới (relay đến theo cụm) → jitter →
         # CFR ép 25fps nhân đôi/rớt frame = giật. genpts+igndts giữ đồng hồ
         # liên tục cả khi mở lại nguồn Imou giữa chừng (không restart ffmpeg).
-        "-fflags", "+genpts",
-        "-thread_queue_size", "1024", "-f", "dhav", "-i", "pipe:0",
+        "-fflags", "+genpts", "-thread_queue_size", "1024",
     ]
+    if SOURCE_URL:
+        # Cờ input theo scheme (nếu áp sai scheme ffmpeg báo "Option not found").
+        u = SOURCE_URL.lower()
+        if u.startswith("rtsp://"):
+            args += ["-rtsp_transport", "tcp"]
+        elif u.startswith("http://") or u.startswith("https://"):
+            args += ["-reconnect", "1", "-reconnect_at_eof", "1",
+                     "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
+        args += ["-i", SOURCE_URL]
+    else:
+        args += ["-f", "dhav", "-i", "pipe:0"]
     # Ghép overlay ở canvas 1080 (PNG overlay 1920x1080), sau đó scale xuống độ
     # phân giải mục tiêu (RES_H) nếu khác 1080 → logo/chữ co đúng tỉ lệ.
     fc = base
@@ -511,7 +556,7 @@ def main():
     heartbeat_url = env("AUTOLIVE_HEARTBEAT_URL", required=True)
     session_post_url = env("AUTOLIVE_SESSION_POST_URL", "")
     session_json = env("AUTOLIVE_IMOU_SESSION_JSON", "")
-    device_id = env("AUTOLIVE_IMOU_DEVICE_ID", required=True)
+    device_id = env("AUTOLIVE_IMOU_DEVICE_ID", required=not SOURCE_URL)
     destinations = json.loads(env("AUTOLIVE_DESTINATIONS", "[]"))
     creds = None
     if env("AUTOLIVE_IMOU_PHONE") and env("AUTOLIVE_IMOU_PASSWORD"):
@@ -519,18 +564,10 @@ def main():
                  "area_code": env("AUTOLIVE_IMOU_AREA_CODE", "84")}
     global ENCODER
     ENCODER = detect_encoder()
-    log(f"encoder = {ENCODER}")
+    log(f"encoder = {ENCODER}" + (f" · source URL={SOURCE_URL}" if SOURCE_URL else ""))
     tee = build_tee_output(destinations)
     if not tee:
         log("no valid destinations", err=True); sys.exit(3)
-    sess_dict = None
-    if session_json:
-        try:
-            sess_dict = json.loads(session_json)
-        except json.JSONDecodeError as e:
-            log(f"AUTOLIVE_IMOU_SESSION_JSON parse fail: {e}", err=True)
-    if not sess_dict and not creds:
-        log("không có session lẫn creds Imou", err=True); sys.exit(5)
 
     work_dir = f"/tmp/autolive-{session_id}"
     os.makedirs(work_dir, exist_ok=True)
@@ -553,10 +590,20 @@ def main():
             raise
         return json.loads(body).get("session")
 
-    try:
-        access = ImouAccess(sess_dict, creds, work_dir, post_session, get_session)
-    except ImportError:
-        log("imou-pkg chưa cài (pip install /opt/imou-pkg).", err=True); sys.exit(4)
+    access = None
+    if not SOURCE_URL:
+        sess_dict = None
+        if session_json:
+            try:
+                sess_dict = json.loads(session_json)
+            except json.JSONDecodeError as e:
+                log(f"AUTOLIVE_IMOU_SESSION_JSON parse fail: {e}", err=True)
+        if not sess_dict and not creds:
+            log("không có session lẫn creds Imou", err=True); sys.exit(5)
+        try:
+            access = ImouAccess(sess_dict, creds, work_dir, post_session, get_session)
+        except ImportError:
+            log("imou-pkg chưa cài (pip install /opt/imou-pkg).", err=True); sys.exit(4)
 
     # Overlay: kiểm tra tải được không (thử 10 lần). FIFO cho ffmpeg image2pipe
     # → điểm số cập nhật live (image2 -loop cache frame, không đọc lại file).
@@ -603,7 +650,10 @@ def main():
                      args=(heartbeat_url, worker_token, session_id, stop_event, hb_extra),
                      daemon=True).start()
 
-    has_audio, src_fps = probe_audio(access.device(device_id)) if not stop_event.is_set() else (False, 0)
+    if SOURCE_URL:
+        has_audio, src_fps = probe_url(SOURCE_URL)
+    else:
+        has_audio, src_fps = probe_audio(access.device(device_id)) if not stop_event.is_set() else (False, 0)
     global OUT_FPS
     if FPS_OVERRIDE and 10 <= FPS_OVERRIDE <= 60:
         OUT_FPS = FPS_OVERRIDE
@@ -621,16 +671,27 @@ def main():
         args = build_ffmpeg_args(overlay_fifo, has_audio, tee)
         log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} restart#{ff_restarts}")
         ff_spawn_t = time.monotonic()
-        ff = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        # URL mode: ffmpeg tự đọc URL (stdin không dùng). Imou mode: feed DHAV.
+        ff = subprocess.Popen(
+            args,
+            stdin=(subprocess.DEVNULL if SOURCE_URL else subprocess.PIPE),
+            stdout=subprocess.PIPE)
         ff_holder[0] = ff
         threading.Thread(target=progress_reader, args=(ff, stop_event), daemon=True).start()
         ow_th, ow_done = start_overlay_writer(overlay_fifo, overlay_url, stop_event)
 
-        reason = feed_imou_into_ffmpeg(access, device_id, ff, stop_event)
+        if SOURCE_URL:
+            # Chờ ffmpeg (nó tự reconnect URL); kiểm stop định kỳ.
+            while ff.poll() is None and not stop_event.is_set():
+                time.sleep(0.5)
+            reason = "stop" if stop_event.is_set() else "ffmpeg_dead"
+        else:
+            reason = feed_imou_into_ffmpeg(access, device_id, ff, stop_event)
 
         # Dọn ffmpeg + overlay writer của vòng này
         drain_fifo(overlay_fifo)
-        try: ff.stdin.close()
+        try:
+            if ff.stdin: ff.stdin.close()
         except Exception: pass
         try: rc = ff.wait(timeout=10)
         except subprocess.TimeoutExpired: ff.kill(); rc = ff.wait()

@@ -29,11 +29,14 @@ const tournamentAutoLiveSessionSchema = new Schema(
   {
     tournament: { type: Schema.Types.ObjectId, ref: "Tournament", index: true, required: true },
     court: { type: Schema.Types.ObjectId, ref: "CourtStation", index: true, required: true },
-    // Venue chứa cam Imou (nơi lấy imouCreds / imouSession đã mã hoá)
-    venue: { type: Schema.Types.ObjectId, ref: "Venue", index: true, required: true },
-    // Cam Imou đã gắn vào court — chọn cam nào (thường Toàn cảnh)
-    imouDeviceId: { type: String, required: true },
+    // Venue chứa cam Imou (nơi lấy imouCreds / imouSession). Không bắt buộc khi
+    // dùng nguồn Custom link.
+    venue: { type: Schema.Types.ObjectId, ref: "Venue", index: true },
+    // Cam Imou đã gắn vào court (rỗng nếu dùng sourceUrl)
+    imouDeviceId: { type: String, default: "" },
     imouCamName: { type: String, default: "" },
+    // Nguồn video tuỳ chỉnh (m3u8/RTSP/RTMP/http) thay cho cam Imou
+    sourceUrl: { type: String, default: "" },
     // User bấm Start (owner giải / staff)
     startedBy: { type: Schema.Types.ObjectId, ref: "User" },
     status: {

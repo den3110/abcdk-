@@ -82,6 +82,7 @@ export const startSession = asyncHandler(async (req, res) => {
     courtStationId: body.courtStationId,
     imouDeviceId: body.imouDeviceId,
     venueId: body.venueId,
+    sourceUrl: body.sourceUrl,
     destinations: body.destinations,
     autoNext: body.autoNext !== false,
     layout: body.layout,

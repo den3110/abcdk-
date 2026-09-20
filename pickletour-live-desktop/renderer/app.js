@@ -127,6 +127,13 @@ async function loadCourts() {
     `<option value="${c._id}">${c.name}${c.hasMatch ? " · (đang có trận)" : ""}</option>`).join("");
 }
 
+// ── Nguồn video: Imou cam vs Custom link ──
+$("srcType").onchange = () => {
+  const url = $("srcType").value === "url";
+  $("camWrap").classList.toggle("hidden", url);
+  $("urlWrap").classList.toggle("hidden", !url);
+};
+
 // ── Corner map preview ──
 function renderCornerMap() {
   const pos = { tl: "top:8px;left:8px", tr: "top:8px;right:8px", bl: "bottom:8px;left:8px", br: "bottom:8px;right:8px" };
@@ -183,14 +190,21 @@ function renderDests() {
 $("goLive").onclick = async () => {
   $("setupErr").textContent = "";
   try {
-    const cam = state.cams[+$("cam").value];
-    if (!cam) throw new Error("Chọn camera");
+    const useUrl = $("srcType").value === "url";
+    let imouDeviceId = "", venueId = "", sourceUrl = "";
+    if (useUrl) {
+      sourceUrl = $("srcUrl").value.trim();
+      if (!sourceUrl) throw new Error("Nhập Custom link");
+    } else {
+      const cam = state.cams[+$("cam").value];
+      if (!cam) throw new Error("Chọn camera");
+      imouDeviceId = cam.deviceId; venueId = cam.venueId;
+    }
     if (!state.destinations.length) throw new Error("Thêm ít nhất 1 điểm đến");
     const form = {
       tournamentId: $("tournament").value,
       courtStationId: $("court").value,
-      imouDeviceId: cam.deviceId,
-      venueId: cam.venueId,
+      imouDeviceId, venueId, sourceUrl,
       destinations: state.destinations,
       encoder: $("encoder").value,
       runnerLabel: state.runnerLabel,

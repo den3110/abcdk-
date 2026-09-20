@@ -345,38 +345,38 @@ export async function startAutoLive(input) {
   const {
     tournamentId, courtStationId, imouDeviceId, destinations,
     startedBy, autoNext = true, venueId: explicitVenueId, layout, advanced,
+    sourceUrl,
   } = input || {};
-  if (!tournamentId || !courtStationId || !imouDeviceId || !Array.isArray(destinations) || !destinations.length) {
-    const err = new Error("Thiếu tournamentId/courtStationId/imouDeviceId/destinations");
+  const src = (sourceUrl || "").trim();
+  if (!tournamentId || !courtStationId || !Array.isArray(destinations) || !destinations.length) {
+    const err = new Error("Thiếu tournamentId/courtStationId/destinations");
+    err.status = 400; throw err;
+  }
+  if (!src && !imouDeviceId) {
+    const err = new Error("Cần chọn camera Imou hoặc nhập Custom link");
     err.status = 400; throw err;
   }
   const station = await CourtStation.findById(courtStationId).select("_id clusterId").lean();
   if (!station) { const e = new Error("Court không tồn tại"); e.status = 404; throw e; }
 
-  // Ưu tiên venueId FE gửi lên (đến từ available-cams). Nếu không có, tra
-  // ngược qua device: cam Imou nào có deviceId khớp trong toàn bộ VenueCourt.
-  let venueId = explicitVenueId;
-  if (!venueId) {
-    const VenueCourt = mongoose.model("VenueCourt");
-    const vc = await VenueCourt.findOne({
-      $or: [
-        { "imouCams.deviceId": imouDeviceId },
-        { "imou.deviceId": imouDeviceId },
-      ],
-    }).select("venue").lean();
-    venueId = vc?.venue;
-  }
-  if (!venueId) {
-    const e = new Error("Không xác định được venue chứa cam");
-    e.status = 400; throw e;
-  }
-  // Session đã lưu (nếu có) + creds để worker tự login lại khi bị đá (Imou
-  // chỉ cho 1 phiên/tài khoản — app mobile login là phiên server chết, 12002).
-  const imouSession = await decryptVenueImouSession(venueId);
-  const imouCreds = await decryptVenueImouCreds(venueId);
-  if (!imouSession && !(imouCreds?.phone && imouCreds?.password)) {
-    const e = new Error("Venue chưa có session lẫn tài khoản Imou. Chủ sân cần mở app mobile → Cài đặt cam Imou → Login lại.");
-    e.status = 400; throw e;
+  // Nguồn Imou cần venue + session; nguồn URL thì bỏ qua toàn bộ Imou.
+  let venueId, imouSession = null, imouCreds = null;
+  if (!src) {
+    venueId = explicitVenueId;
+    if (!venueId) {
+      const VenueCourt = mongoose.model("VenueCourt");
+      const vc = await VenueCourt.findOne({
+        $or: [{ "imouCams.deviceId": imouDeviceId }, { "imou.deviceId": imouDeviceId }],
+      }).select("venue").lean();
+      venueId = vc?.venue;
+    }
+    if (!venueId) { const e = new Error("Không xác định được venue chứa cam"); e.status = 400; throw e; }
+    imouSession = await decryptVenueImouSession(venueId);
+    imouCreds = await decryptVenueImouCreds(venueId);
+    if (!imouSession && !(imouCreds?.phone && imouCreds?.password)) {
+      const e = new Error("Venue chưa có session lẫn tài khoản Imou. Chủ sân cần mở app mobile → Cài đặt cam Imou → Login lại.");
+      e.status = 400; throw e;
+    }
   }
 
   // Chuẩn hoá destinations: FB/YT chưa có streamUrl → gọi Graph API tạo
@@ -388,7 +388,8 @@ export async function startAutoLive(input) {
   const runner = input.runner === "client" ? "client" : "server";
   const session = await TournamentAutoLiveSession.create({
     tournament: tournamentId, court: courtStationId, venue: venueId,
-    imouDeviceId, startedBy, destinations: preparedDest, autoNext,
+    imouDeviceId: imouDeviceId || "", sourceUrl: src,
+    startedBy, destinations: preparedDest, autoNext,
     layout: layout && typeof layout === "object" ? layout : undefined,
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     runner,
@@ -453,7 +454,8 @@ function spawnWorker(session, imouSession, imouCreds) {
     AUTOLIVE_IMOU_PHONE: imouCreds?.phone || "",
     AUTOLIVE_IMOU_PASSWORD: imouCreds?.password || "",
     AUTOLIVE_IMOU_AREA_CODE: imouCreds?.areaCode || "84",
-    AUTOLIVE_IMOU_DEVICE_ID: session.imouDeviceId,
+    AUTOLIVE_IMOU_DEVICE_ID: session.imouDeviceId || "",
+    AUTOLIVE_SOURCE_URL: session.sourceUrl || "",
     AUTOLIVE_DESTINATIONS: JSON.stringify(session.destinations.map((d) => ({
       type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
     }))),
@@ -597,7 +599,8 @@ export async function getWorkerConfig(sessionId) {
   const base = process.env.PUBLIC_BACKEND_URL || "http://localhost:5001";
   return {
     sessionId: String(s._id),
-    imouDeviceId: s.imouDeviceId,
+    imouDeviceId: s.imouDeviceId || "",
+    sourceUrl: s.sourceUrl || "",
     imouSession: imouSession || null,
     imouCreds: imouCreds ? {
       phone: imouCreds.phone, password: imouCreds.password, areaCode: imouCreds.areaCode || "84",
