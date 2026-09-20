@@ -1,0 +1,79 @@
+name: Build PickleTour Live Desktop
+
+# Tự build app desktop (PC/Mac) cho auto-live client GPU.
+# - Chạy tay: tab Actions → "Build PickleTour Live Desktop" → Run workflow
+#   (artifact .dmg/.zip/.exe tải về ở trang run).
+# - Đẩy tag "live-desktop-v*" (vd: live-desktop-v1.0.0) → tự tạo GitHub Release
+#   kèm .dmg (Intel + Apple Silicon) và .exe (NSIS + portable).
+#
+# LƯU Ý: build chỉ ĐÓNG GÓI (không cần Python/ffmpeg khi build). App khi CHẠY
+# trên máy đích vẫn cần Python 3.10+ & ffmpeg + chạy scripts/setup 1 lần
+# (xem pickletour-live-desktop/README.md). Bản build KHÔNG ký số (unsigned):
+# macOS lần đầu chuột phải → Open; Windows bấm "More info → Run anyway".
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "live-desktop-v*"
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: pickletour-live-desktop
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: mac
+          - os: windows-latest
+            name: win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: pickletour-live-desktop/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build macOS (dmg + zip, Intel + Apple Silicon)
+        if: matrix.name == 'mac'
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false" # unsigned (nội bộ)
+        run: npx --no-install electron-builder --mac --x64 --arm64
+
+      - name: Build Windows (NSIS + portable)
+        if: matrix.name == 'win'
+        run: npx --no-install electron-builder --win
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pickletour-live-${{ matrix.name }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: |
+            pickletour-live-desktop/dist/*.dmg
+            pickletour-live-desktop/dist/*.zip
+            pickletour-live-desktop/dist/*.exe
+
+      - name: Publish GitHub Release (chỉ khi đẩy tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            pickletour-live-desktop/dist/*.dmg
+            pickletour-live-desktop/dist/*.zip
+            pickletour-live-desktop/dist/*.exe

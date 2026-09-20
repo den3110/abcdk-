@@ -59,6 +59,18 @@ npm run dist:win    # .exe (NSIS + portable)
   đứt FB), overlay cập nhật điểm real-time qua FIFO image2pipe.
 - Heartbeat báo CPU/RAM/encoder/tên máy → hiện trên dashboard admin.
 
+## Build tự động (CI GitHub Actions)
+Workflow `.github/workflows/live-desktop-build.yml` (ở gốc repo) tự đóng gói:
+- **Chạy tay**: GitHub → tab **Actions** → *Build PickleTour Live Desktop* →
+  **Run workflow**. Vào trang run tải **Artifacts**: `.dmg` (Intel + Apple
+  Silicon), `.zip`, `.exe` (NSIS + portable).
+- **Ra bản phát hành**: đẩy tag `live-desktop-v*` (vd `git tag live-desktop-v1.0.0
+  && git push origin live-desktop-v1.0.0`) → tự tạo **GitHub Release** kèm file cài.
+
+Bản build **không ký số**: macOS lần đầu **chuột phải → Open**; Windows bấm
+**More info → Run anyway**. App khi chạy vẫn cần Python 3.10+ & ffmpeg trên máy
+(xem *Yêu cầu 1 lần*).
+
 ## Xử lý sự cố
 - "Python/Imou ✗": chạy lại `scripts/setup`.
 - "ffmpeg ✗": cài ffmpeg, thêm vào PATH.
