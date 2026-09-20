@@ -46,6 +46,9 @@ PREBUFFER_BYTES = 1_500_000   # ~3s ở 4Mbps — đủ cho ffprobe thấy audio
 PREBUFFER_MAX_S = 6.0
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 MAX_ATTEMPTS = 12
+ENCODER = "libx264"  # set trong main() bằng detect_encoder()
+# Preview HLS local cho app desktop (Electron) hiển thị — env là thư mục.
+PREVIEW_DIR = os.environ.get("AUTOLIVE_PREVIEW_HLS_DIR", "").strip()
 HEALTHY_AFTER_S = 60
 
 
@@ -61,6 +64,46 @@ def log(msg, err=False):
     print(f"[worker {time.strftime('%H:%M:%S')}] {msg}", file=sys.stderr if err else sys.stdout, flush=True)
 
 
+def detect_encoder():
+    """Chọn encoder: env AUTOLIVE_ENCODER (nvenc|videotoolbox|qsv|vaapi|x264|auto).
+    auto → dò encoder ffmpeg hỗ trợ, ưu tiên GPU (NVENC > VideoToolbox > QSV >
+    VAAPI > x264). Trả tên h264 encoder."""
+    want = (os.environ.get("AUTOLIVE_ENCODER") or "auto").strip().lower()
+    alias = {"nvenc": "h264_nvenc", "videotoolbox": "h264_videotoolbox",
+             "qsv": "h264_qsv", "vaapi": "h264_vaapi", "x264": "libx264"}
+    try:
+        out = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"],
+                             capture_output=True, timeout=15).stdout.decode("utf-8", "ignore")
+    except Exception:
+        out = ""
+    have = lambda name: (" " + name) in out
+    if want in alias and (alias[want] == "libx264" or have(alias[want])):
+        return alias[want]
+    for cand in ("h264_nvenc", "h264_videotoolbox", "h264_qsv", "h264_vaapi"):
+        if have(cand):
+            return cand
+    return "libx264"
+
+
+def encoder_args(enc):
+    """Args tối ưu theo từng encoder — GPU giảm tải CPU mạnh (nhiều luồng)."""
+    common_rate = ["-b:v", "3000k", "-maxrate", "3500k", "-bufsize", "6000k",
+                   "-r", "25", "-g", "50", "-keyint_min", "50", "-pix_fmt", "yuv420p"]
+    if enc == "h264_nvenc":
+        return ["-c:v", "h264_nvenc", "-preset", "p4", "-tune", "ll",
+                "-rc", "cbr", "-profile:v", "high", *common_rate]
+    if enc == "h264_videotoolbox":
+        return ["-c:v", "h264_videotoolbox", "-realtime", "1",
+                "-profile:v", "high", *common_rate]
+    if enc == "h264_qsv":
+        return ["-c:v", "h264_qsv", "-preset", "veryfast", "-profile:v", "high", *common_rate]
+    if enc == "h264_vaapi":
+        return ["-vf", "format=nv12,hwupload", "-c:v", "h264_vaapi",
+                "-profile:v", "high", *common_rate]
+    return ["-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
+            "-profile:v", "high", *common_rate]
+
+
 def build_tee_output(destinations):
     parts = []
     for d in destinations:
@@ -70,6 +113,17 @@ def build_tee_output(destinations):
             continue
         full = url if not key else (url.rstrip("/") + "/" + key)
         parts.append(f"[f=flv:onfail=ignore]{full}")
+    # Preview HLS local (app desktop) — slave riêng, onfail=ignore để không phá RTMP.
+    if PREVIEW_DIR:
+        try:
+            os.makedirs(PREVIEW_DIR, exist_ok=True)
+            seg = os.path.join(PREVIEW_DIR, "seg_%03d.ts")
+            m3u8 = os.path.join(PREVIEW_DIR, "index.m3u8")
+            parts.append(
+                f"[f=hls:onfail=ignore:hls_time=1:hls_list_size=4:"
+                f"hls_flags=delete_segments+omit_endlist:hls_segment_filename={seg}]{m3u8}")
+        except OSError:
+            pass
     return "|".join(parts)
 
 
@@ -122,10 +176,10 @@ def post_json(url, token, payload, timeout=8):
     return urllib.request.urlopen(req, timeout=timeout).read()
 
 
-def heartbeat_loop(url, token, session_id, stop_event):
+def heartbeat_loop(url, token, session_id, stop_event, extra=None):
     while not stop_event.is_set():
         try:
-            post_json(url, token, {"sessionId": session_id})
+            post_json(url, token, {"sessionId": session_id, **(extra or {})})
         except Exception as e:  # noqa: BLE001
             log(f"heartbeat fail: {e}", err=True)
         for _ in range(150):  # 15s
@@ -253,10 +307,8 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
     else:
         fc += ";anullsrc=channel_layout=stereo:sample_rate=44100[aout]"
     args += ["-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
+    args += encoder_args(ENCODER)
     args += [
-        "-c:v", "libx264", "-preset", "veryfast", "-tune", "zerolatency",
-        "-profile:v", "high", "-r", "25", "-g", "50", "-keyint_min", "50",
-        "-b:v", "3000k", "-maxrate", "3500k", "-bufsize", "6000k",
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
         "-shortest", "-f", "tee", tee,
     ]
@@ -371,6 +423,9 @@ def main():
     if env("AUTOLIVE_IMOU_PHONE") and env("AUTOLIVE_IMOU_PASSWORD"):
         creds = {"phone": env("AUTOLIVE_IMOU_PHONE"), "password": env("AUTOLIVE_IMOU_PASSWORD"),
                  "area_code": env("AUTOLIVE_IMOU_AREA_CODE", "84")}
+    global ENCODER
+    ENCODER = detect_encoder()
+    log(f"encoder = {ENCODER}")
     tee = build_tee_output(destinations)
     if not tee:
         log("no valid destinations", err=True); sys.exit(3)
@@ -444,8 +499,15 @@ def main():
     signal.signal(signal.SIGTERM, cleanup)
     signal.signal(signal.SIGINT, cleanup)
 
+    import platform, socket as _sock
+    hb_extra = {
+        "encoder": ENCODER,
+        "runnerLabel": os.environ.get("AUTOLIVE_RUNNER_LABEL", "") or _sock.gethostname(),
+        "runnerOs": f"{platform.system()} {platform.machine()}",
+    }
     threading.Thread(target=heartbeat_loop,
-                     args=(heartbeat_url, worker_token, session_id, stop_event), daemon=True).start()
+                     args=(heartbeat_url, worker_token, session_id, stop_event, hb_extra),
+                     daemon=True).start()
 
     has_audio = probe_audio(access.device(device_id)) if not stop_event.is_set() else False
 

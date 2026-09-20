@@ -48,6 +48,11 @@ const tournamentAutoLiveSessionSchema = new Schema(
     currentMatchLabel: { type: String, default: "" },
     // Tăng khi overlay data đổi — worker fetch PNG dùng ?v={version} để bust cache
     overlayVersion: { type: Number, default: 0 },
+    // Nơi chạy encode: "server" (VPS) hoặc "client" (app desktop PC/Mac có GPU)
+    runner: { type: String, enum: ["server", "client"], default: "server", index: true },
+    runnerLabel: { type: String, default: "" }, // tên máy client
+    runnerOs: { type: String, default: "" },
+    encoder: { type: String, default: "" }, // h264_nvenc / videotoolbox / libx264…
     // Metadata process Python
     workerId: { type: String, default: "" }, // uuid nội bộ
     workerPid: { type: Number, default: 0 },

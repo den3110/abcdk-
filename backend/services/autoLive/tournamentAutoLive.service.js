@@ -56,13 +56,14 @@ function workerLogPath(sessionId) {
 async function adoptRunningSessions() {
   const docs = await TournamentAutoLiveSession.find({
     status: { $in: ["starting", "live", "reconnecting"] },
-  }).select("_id workerPid").lean();
+  }).select("_id workerPid runner").lean();
   for (const d of docs) {
     const sid = String(d._id);
-    if (isPidAlive(d.workerPid)) {
+    // Client-runner: app chạy độc lập ngoài server → luôn adopt, heartbeat lo liveness.
+    if (d.runner === "client" || isPidAlive(d.workerPid)) {
       if (!registry.has(sid)) registry.set(sid, { proc: null, pollTimer: null });
       startPoll(sid);
-      console.log(`[auto-live] adopted session ${sid} pid=${d.workerPid}`);
+      console.log(`[auto-live] adopted session ${sid} runner=${d.runner} pid=${d.workerPid}`);
     } else {
       await TournamentAutoLiveSession.updateOne(
         { _id: d._id, status: { $ne: "stopped" } },
@@ -135,27 +136,53 @@ async function pollOnce(sessionId) {
     // Cùng match nhưng có thể tỉ số đổi — vẫn re-render để cập nhật scoreboard.
     await bumpOverlayForSession(sessionId);
   }
-  // Worker chết (PID không còn) mà chưa ai mark → error. Cần vì sau khi
-  // backend restart không còn handler 'exit' của process cũ.
-  if (session.workerPid && !isPidAlive(session.workerPid)) {
-    session.status = "error";
-    session.lastError = `worker process ${session.workerPid} đã dừng (xem ${workerLogPath(sessionId)})`;
-    session.lastErrorAt = new Date();
-    session.stoppedAt = new Date();
-    await session.save();
-    stopPoll(sessionId);
-    registry.delete(String(sessionId));
-    return;
+  if (session.runner === "server") {
+    // Worker chết (PID không còn) mà chưa ai mark → error.
+    if (session.workerPid && !isPidAlive(session.workerPid)) {
+      session.status = "error";
+      session.lastError = `worker process ${session.workerPid} đã dừng (xem ${workerLogPath(sessionId)})`;
+      session.lastErrorAt = new Date();
+      session.stoppedAt = new Date();
+      await session.save();
+      stopPoll(sessionId);
+      registry.delete(String(sessionId));
+      return;
+    }
+    // Đo tài nguyên worker + ffmpeg (server-side)
+    try {
+      const { cpuPct, memMB } = sampleProcessTree(session.workerPid, String(session._id));
+      session.cpuPct = cpuPct;
+      session.memMB = memMB;
+      await session.save();
+    } catch { /* /proc không có → bỏ qua */ }
+  } else {
+    // Client-runner: chết = quá lâu không heartbeat → error (app tự report CPU).
+    const hbC = session.workerLastHeartbeatAt?.getTime() || 0;
+    const startedMs = session.startedAt?.getTime() || Date.now();
+    if (hbC && Date.now() - hbC > 60_000) {
+      session.status = "error";
+      session.lastError = "Client (app desktop) mất kết nối > 60s";
+      session.lastErrorAt = new Date();
+      session.stoppedAt = new Date();
+      await session.save();
+      stopPoll(sessionId);
+      registry.delete(String(sessionId));
+      return;
+    }
+    // Chưa từng heartbeat sau 90s kể từ start → app chưa nhận → error.
+    if (!hbC && Date.now() - startedMs > 90_000) {
+      session.status = "error";
+      session.lastError = "Không có client nào nhận phiên (app desktop chưa chạy?)";
+      session.lastErrorAt = new Date();
+      session.stoppedAt = new Date();
+      await session.save();
+      stopPoll(sessionId);
+      registry.delete(String(sessionId));
+      return;
+    }
   }
-  // Đo tài nguyên worker + ffmpeg
-  try {
-    const { cpuPct, memMB } = sampleProcessTree(session.workerPid, String(session._id));
-    session.cpuPct = cpuPct;
-    session.memMB = memMB;
-    await session.save();
-  } catch { /* /proc không có (không phải Linux) → bỏ qua */ }
 
-  // Heartbeat: nếu quá 30s không có heartbeat từ worker → mark reconnecting.
+  // Heartbeat: nếu quá 30s không có heartbeat → mark reconnecting.
   const hb = session.workerLastHeartbeatAt?.getTime() || 0;
   if (hb && Date.now() - hb > 30_000 && session.status === "live") {
     session.status = "reconnecting";
@@ -358,13 +385,22 @@ export async function startAutoLive(input) {
   const title = tournament?.name || "PickleTour Live";
   const preparedDest = await prepareDestinations(destinations, title);
 
+  const runner = input.runner === "client" ? "client" : "server";
   const session = await TournamentAutoLiveSession.create({
     tournament: tournamentId, court: courtStationId, venue: venueId,
     imouDeviceId, startedBy, destinations: preparedDest, autoNext,
     layout: layout && typeof layout === "object" ? layout : undefined,
+    runner,
     status: "starting", workerId: crypto.randomUUID(),
     startedAt: new Date(),
   });
+
+  // Client-runner: KHÔNG spawn trên server. App desktop lấy worker-config rồi
+  // tự chạy (GPU). Backend vẫn poll để bump overlay + theo dõi heartbeat.
+  if (runner === "client") {
+    startPoll(session._id);
+    return session.toObject();
+  }
 
   try {
     const proc = spawnWorker(session, imouSession, imouCreds);
@@ -518,13 +554,45 @@ export async function saveImouSessionFromWorker(sessionId, sess) {
   return true;
 }
 
-export async function recordHeartbeat(sessionId) {
-  const doc = await TournamentAutoLiveSession.findByIdAndUpdate(
-    sessionId,
-    { workerLastHeartbeatAt: new Date(), $unset: {}, $set: { status: "live" } },
-    { new: true }
-  );
-  return doc;
+export async function recordHeartbeat(sessionId, extra = {}) {
+  const set = { workerLastHeartbeatAt: new Date(), status: "live" };
+  if (extra.encoder) set.encoder = String(extra.encoder).slice(0, 40);
+  if (extra.runnerLabel) set.runnerLabel = String(extra.runnerLabel).slice(0, 80);
+  if (extra.runnerOs) set.runnerOs = String(extra.runnerOs).slice(0, 60);
+  if (Number.isFinite(extra.cpuPct)) set.cpuPct = Math.max(0, Math.round(extra.cpuPct));
+  if (Number.isFinite(extra.memMB)) set.memMB = Math.max(0, Math.round(extra.memMB));
+  const doc = await TournamentAutoLiveSession.findById(sessionId).select("status runner");
+  if (!doc) return null;
+  // Client tự stop khi admin đã dừng phiên.
+  if (doc.status === "stopped") return { _stopped: true };
+  await TournamentAutoLiveSession.updateOne({ _id: sessionId }, { $set: set });
+  return { _stopped: false };
+}
+
+/** Cấu hình đầy đủ để app desktop (client) tự chạy worker: session Imou đã
+ *  giải mã, deviceId, destinations (kèm key), URL overlay/heartbeat/… */
+export async function getWorkerConfig(sessionId) {
+  const s = await TournamentAutoLiveSession.findById(sessionId).lean();
+  if (!s) return null;
+  const imouSession = await decryptVenueImouSession(s.venue);
+  const imouCreds = await decryptVenueImouCreds(s.venue);
+  const base = process.env.PUBLIC_BACKEND_URL || "http://localhost:5001";
+  return {
+    sessionId: String(s._id),
+    imouDeviceId: s.imouDeviceId,
+    imouSession: imouSession || null,
+    imouCreds: imouCreds ? {
+      phone: imouCreds.phone, password: imouCreds.password, areaCode: imouCreds.areaCode || "84",
+    } : null,
+    destinations: (s.destinations || []).map((d) => ({
+      type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
+    })),
+    workerToken: process.env.AUTOLIVE_WORKER_TOKEN || "",
+    overlayUrl: `${base}/api/tournament-auto-live/overlay/${s._id}.png`,
+    heartbeatUrl: `${base}/api/tournament-auto-live/internal/heartbeat`,
+    sessionPostUrl: `${base}/api/tournament-auto-live/internal/imou-session`,
+    destinationsUrl: `${base}/api/tournament-auto-live/internal/destinations`,
+  };
 }
 
 /** Thống kê tài nguyên máy chủ + ước tính số luồng đồng thời. */

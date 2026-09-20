@@ -6,8 +6,15 @@ import VenueCourt from "../models/venueCourtModel.js";
 import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
-  refreshDestinationsForWorker,
+  refreshDestinationsForWorker, getWorkerConfig,
 } from "../services/autoLive/tournamentAutoLive.service.js";
+
+// GET /api/tournament-auto-live/:id/worker-config (admin) — app desktop lấy để tự chạy
+export const workerConfig = asyncHandler(async (req, res) => {
+  const cfg = await getWorkerConfig(req.params.id);
+  if (!cfg) { res.status(404); throw new Error("Session không tồn tại"); }
+  res.json(cfg);
+});
 
 // GET /api/tournament-auto-live/internal/destinations?sessionId= (worker token)
 export const internalRefreshDestinations = asyncHandler(async (req, res) => {
@@ -48,6 +55,10 @@ function stripSecrets(doc) {
   }));
   o.cpuPct = o.cpuPct || 0;
   o.memMB = o.memMB || 0;
+  o.runner = o.runner || "server";
+  o.runnerLabel = o.runnerLabel || "";
+  o.runnerOs = o.runnerOs || "";
+  o.encoder = o.encoder || "";
   return o;
 }
 
@@ -67,6 +78,7 @@ export const startSession = asyncHandler(async (req, res) => {
     destinations: body.destinations,
     autoNext: body.autoNext !== false,
     layout: body.layout,
+    runner: body.runner,
     startedBy: req.user?._id,
   });
   res.status(201).json(stripSecrets(doc));
@@ -169,6 +181,11 @@ export const internalHeartbeat = asyncHandler(async (req, res) => {
   if (!process.env.AUTOLIVE_WORKER_TOKEN || token !== process.env.AUTOLIVE_WORKER_TOKEN) {
     res.status(403); throw new Error("bad worker token");
   }
-  const doc = await recordHeartbeat(String(req.body?.sessionId || ""));
-  res.json({ ok: !!doc });
+  const b = req.body || {};
+  const doc = await recordHeartbeat(String(b.sessionId || ""), {
+    encoder: b.encoder, runnerLabel: b.runnerLabel, runnerOs: b.runnerOs,
+    cpuPct: b.cpuPct, memMB: b.memMB,
+  });
+  // Trả stop=true để client (app desktop) tự dừng khi admin đã Dừng phiên.
+  res.json({ ok: !!doc, stop: !!doc?._stopped });
 });
