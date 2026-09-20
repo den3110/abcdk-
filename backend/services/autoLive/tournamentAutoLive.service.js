@@ -470,6 +470,7 @@ function advancedEnv(a) {
   if (a.encoder && a.encoder !== "auto") env.AUTOLIVE_ENCODER = String(a.encoder);
   if (a.imouStreamId) env.AUTOLIVE_IMOU_STREAM_ID = String(a.imouStreamId); // "1"=luồng phụ nhẹ
   if (a.imouAudio) env.AUTOLIVE_IMOU_AUDIO = String(a.imouAudio);
+  if (a.resyncSec != null && a.resyncSec !== "") env.AUTOLIVE_RESYNC_SEC = String(a.resyncSec); // re-sync mép live
   return env;
 }
 

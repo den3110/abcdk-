@@ -84,6 +84,12 @@ IMOU_AUDIO = (os.environ.get("AUTOLIVE_IMOU_AUDIO") or "0").strip().lower() not 
 # mượt). Với cam 2K nặng, dùng "1" mượt hơn hẳn. ImouPkg đọc qua env IMOU_STREAM_ID.
 IMOU_STREAM_ID = (os.environ.get("AUTOLIVE_IMOU_STREAM_ID") or "0").strip()
 os.environ["IMOU_STREAM_ID"] = IMOU_STREAM_ID
+# Re-sync định kỳ (chỉ Imou): relay cloud đẩy ~0.85x realtime → trễ dồn dần khi
+# live dài. Cứ RESYNC_S giây, worker ĐÓNG + MỞ LẠI nguồn Imou ở MÉP LIVE (relay
+# đang giữ backlog cũ → phiên mới bỏ backlog, nhảy về hiện tại) mà KHÔNG restart
+# ffmpeg (giữ kết nối FB, không tạo video FB mới). setpts=RTCTIME xử lý mượt bước
+# nhảy timestamp. 0 = tắt. Mặc định 600s (trễ tối đa ~1.5 phút rồi reset).
+RESYNC_S = int(os.environ.get("AUTOLIVE_RESYNC_SEC") or 600)
 # Preview HLS local cho app desktop (Electron) hiển thị — env là thư mục.
 PREVIEW_DIR = os.environ.get("AUTOLIVE_PREVIEW_HLS_DIR", "").strip()
 HEALTHY_AFTER_S = 60
@@ -575,11 +581,18 @@ def feed_imou_into_ffmpeg(access, device_id, ff, stop_event):
             if _sleep_stop(stop_event, 3): return "stop"
             continue
         got = 0
+        open_t = time.monotonic()
+        resynced = False
         try:
             with dev.open_rtsp(with_audio=IMOU_AUDIO) as rtsp:
                 for chunk in rtsp:
                     if stop_event.is_set():
                         return "stop"
+                    # Re-sync định kỳ: mở lại nguồn ở mép live để xoá trễ tích luỹ.
+                    if RESYNC_S > 0 and got > 1000 and time.monotonic() - open_t > RESYNC_S:
+                        log(f"re-sync định kỳ ({RESYNC_S}s) → mở lại nguồn ở mép live (xoá trễ dồn)")
+                        resynced = True
+                        break
                     try:
                         ff.stdin.write(chunk)
                     except BrokenPipeError:
@@ -601,7 +614,8 @@ def feed_imou_into_ffmpeg(access, device_id, ff, stop_event):
                 return "ffmpeg_dead"
         else:
             idle_reopens = 0
-        if _sleep_stop(stop_event, 1): return "stop"
+        # Re-sync: mở lại NGAY (blip tối thiểu); đứt thật thì chờ 1s tránh spam.
+        if _sleep_stop(stop_event, 0 if resynced else 1): return "stop"
     return "stop"
 
 
