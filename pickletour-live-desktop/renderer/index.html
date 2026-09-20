@@ -9,23 +9,31 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">🎾 PickleTour <b>Live</b> <span class="tag">Desktop · GPU</span></div>
-    <div class="env" id="env"></div>
+    <div class="brand">
+      <img src="assets/logo.png" class="logo" alt="PickleTour" />
+      <div class="brandtxt">PickleTour <b>Live</b><span class="tag">Desktop · GPU</span></div>
+    </div>
+    <div class="topright">
+      <span class="env" id="env"></span>
+      <button id="logoutBtn" class="ghost hidden">Đăng xuất</button>
+    </div>
   </header>
 
   <!-- LOGIN -->
   <section id="loginView" class="view">
     <div class="card login">
+      <img src="assets/logo.png" class="login-logo" alt="PickleTour" />
       <h2>Đăng nhập admin</h2>
       <label>Backend URL</label>
       <input id="baseUrl" value="https://pickletour.vn" />
       <label>Email</label>
-      <input id="email" placeholder="admin@..." />
+      <input id="email" placeholder="admin@..." autocomplete="username" />
       <label>Mật khẩu</label>
-      <input id="password" type="password" />
+      <input id="password" type="password" autocomplete="current-password" />
       <label>Tên máy (hiển thị ở dashboard)</label>
       <input id="runnerLabel" />
-      <button id="loginBtn" class="primary">Đăng nhập</button>
+      <label class="chk"><input type="checkbox" id="remember" checked /> Ghi nhớ đăng nhập</label>
+      <button id="loginBtn" class="primary big">Đăng nhập</button>
       <div id="loginErr" class="err"></div>
     </div>
   </section>
@@ -35,7 +43,7 @@
     <div class="grid2">
       <div class="card">
         <h3>1 · Chọn giải & sân</h3>
-        <label>Tìm giải (gõ tên, gồm cả giải test)</label>
+        <label>Tìm giải (gồm cả giải test)</label>
         <input id="tourSearch" placeholder="Nhập tên giải để tìm…" />
         <label>Giải đấu</label>
         <select id="tournament"></select>
@@ -46,28 +54,36 @@
       </div>
 
       <div class="card">
-        <h3>2 · Điểm đến & overlay</h3>
-        <label>Encoder</label>
+        <h3>2 · Encoder & Overlay</h3>
+        <label>Encoder (GPU giúp chạy nhiều luồng)</label>
         <select id="encoder"></select>
+        <label>Vị trí các lớp overlay trên khung hình</label>
         <div class="row3">
-          <div><label>Bảng điểm</label><select id="lay_scoreboard" class="corner"></select></div>
-          <div><label>Logo</label><select id="lay_brand" class="corner"></select></div>
-          <div><label>Tài trợ</label><select id="lay_sponsor" class="corner"></select></div>
+          <div><span class="mini">Bảng điểm</span><select id="lay_scoreboard" class="corner"></select></div>
+          <div><span class="mini">Logo PickleTour</span><select id="lay_brand" class="corner"></select></div>
+          <div><span class="mini">Tài trợ</span><select id="lay_sponsor" class="corner"></select></div>
         </div>
-        <label>Thêm điểm đến</label>
-        <div class="destadd">
-          <select id="destType">
-            <option value="fb">Facebook Page</option>
-            <option value="rtmp">RTMP tuỳ chỉnh</option>
-          </select>
-          <select id="fbPage"></select>
-          <input id="rtmpUrl" class="hidden" placeholder="rtmp://..." />
-          <input id="rtmpKey" class="hidden" placeholder="stream key" />
-          <button id="addDest">Thêm</button>
-        </div>
-        <div id="destList" class="chips"></div>
+        <div class="cornermap" id="cornerMap"></div>
       </div>
     </div>
+
+    <div class="card">
+      <h3>3 · Điểm đến livestream</h3>
+      <div class="destadd">
+        <select id="destType">
+          <option value="fb">Facebook Page</option>
+          <option value="youtube">YouTube</option>
+          <option value="rtmp">RTMP tuỳ chỉnh</option>
+        </select>
+        <select id="fbPage"></select>
+        <input id="ytKey" class="hidden" placeholder="YouTube stream key (từ YouTube Studio)" />
+        <input id="rtmpUrl" class="hidden" placeholder="rtmp://..." />
+        <input id="rtmpKey" class="hidden" placeholder="stream key" />
+        <button id="addDest">+ Thêm</button>
+      </div>
+      <div id="destList" class="chips"></div>
+    </div>
+
     <div class="actions">
       <button id="goLive" class="primary big">● BẮT ĐẦU LIVE</button>
       <span id="setupErr" class="err"></span>
@@ -78,7 +94,7 @@
   <section id="liveView" class="view hidden">
     <div class="grid2">
       <div class="card">
-        <h3>Preview</h3>
+        <h3>Preview trực tiếp</h3>
         <video id="preview" controls autoplay muted playsinline></video>
         <div class="hint">Preview lấy từ chính luồng đang đẩy (trễ ~2–4s).</div>
       </div>
@@ -87,8 +103,8 @@
         <div id="statRows" class="stat"></div>
         <div id="watchLinks" class="chips"></div>
         <div class="actions">
-          <button id="openLog">Xem log</button>
-          <button id="stopLive" class="danger">■ DỪNG</button>
+          <button id="openLog" class="ghost">Xem log</button>
+          <button id="stopLive" class="danger big">■ DỪNG</button>
         </div>
       </div>
     </div>

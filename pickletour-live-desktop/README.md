@@ -40,7 +40,12 @@ npm run dist:win    # .exe (NSIS + portable)
 ## Cách dùng
 1. **Đăng nhập**: nhập Backend URL (mặc định `https://pickletour.vn`), email/mật khẩu admin, tên máy.
 2. **Chọn giải → sân → camera Imou**, encoder (để *Tự động* là ưu tiên GPU), vị trí overlay.
-3. **Thêm điểm đến**: Facebook Page (từ pool admin) hoặc RTMP tuỳ chỉnh (YouTube/TikTok…).
+3. **Thêm điểm đến**: Facebook Page (từ pool admin), **YouTube** (dán stream key
+   từ YouTube Studio → app tự đẩy tới `rtmp://a.rtmp.youtube.com/live2`), hoặc
+   RTMP tuỳ chỉnh (TikTok…). Có thể thêm nhiều điểm đến cùng lúc.
+   - **Ghi nhớ đăng nhập**: tick để lần sau mở app tự vào (lưu token cục bộ).
+   - **Vị trí overlay**: chọn góc cho Bảng điểm / Logo PickleTour / Tài trợ,
+     có sơ đồ minh hoạ trực quan.
 4. **Bắt đầu Live** → xem **preview** ngay trong app; link xem hiện ở panel trạng thái.
 5. Trận kết thúc, sân được gán trận mới → overlay tự đổi, không đứt live.
 6. **Dừng** trong app, hoặc admin bấm Dừng trên web → máy tự tắt luồng.

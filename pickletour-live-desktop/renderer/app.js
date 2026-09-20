@@ -17,14 +17,42 @@ function show(view) {
 }
 function apiGet(p) { return window.api.get({ baseUrl: state.baseUrl, token: state.token, path: p }); }
 
-// ── Env check ──
+const LS = "ptlive_auth";
+function saveAuth() {
+  try {
+    localStorage.setItem(LS, JSON.stringify({
+      baseUrl: state.baseUrl, token: state.token, email: $("email").value.trim(),
+      runnerLabel: state.runnerLabel, remember: $("remember").checked,
+    }));
+  } catch {}
+}
+function loadAuth() { try { return JSON.parse(localStorage.getItem(LS) || "null"); } catch { return null; } }
+function clearAuth() { try { localStorage.removeItem(LS); } catch {} }
+
+// ── Env check + auto-login ──
 (async () => {
   const env = await window.api.envCheck();
-  $("runnerLabel").value = env.hostname || "";
+  const saved = loadAuth();
+  $("runnerLabel").value = (saved && saved.runnerLabel) || env.hostname || "";
   const ff = env.ffmpeg ? '<span class="ok">ffmpeg ✓</span>' : '<span class="bad">ffmpeg ✗</span>';
   const py = env.python ? '<span class="ok">Imou ✓</span>' : '<span class="bad">Python/Imou ✗</span>';
   $("env").innerHTML = `${ff} · ${py} · ${env.platform}`;
   state.encoders = env.encoders || [];
+  if (saved) {
+    if (saved.baseUrl) $("baseUrl").value = saved.baseUrl;
+    if (saved.email) $("email").value = saved.email;
+    $("remember").checked = saved.remember !== false;
+    // Ghi nhớ đăng nhập: dùng lại token, kiểm tra còn hạn không.
+    if (saved.token && saved.remember !== false) {
+      state.baseUrl = saved.baseUrl; state.token = saved.token; state.runnerLabel = $("runnerLabel").value.trim();
+      try {
+        await apiGet("/api/tournament-auto-live/fb-pages"); // ping có auth
+        await loadSetup();
+        $("logoutBtn").classList.remove("hidden");
+        show("setupView");
+      } catch { clearAuth(); }
+    }
+  }
 })();
 
 // ── Login ──
@@ -35,9 +63,16 @@ $("loginBtn").onclick = async () => {
     state.runnerLabel = $("runnerLabel").value.trim();
     const r = await window.api.login({ baseUrl: state.baseUrl, email: $("email").value.trim(), password: $("password").value });
     state.token = r.token;
+    if ($("remember").checked) saveAuth(); else clearAuth();
     await loadSetup();
+    $("logoutBtn").classList.remove("hidden");
     show("setupView");
   } catch (e) { $("loginErr").textContent = e.message; }
+};
+
+$("logoutBtn").onclick = () => {
+  clearAuth(); state.token = ""; $("password").value = "";
+  $("logoutBtn").classList.add("hidden"); show("loginView");
 };
 
 // ── Setup data ──
@@ -48,7 +83,9 @@ async function loadSetup() {
   // layout corners
   for (const [sel, def] of [["lay_scoreboard", "top-left"], ["lay_brand", "top-right"], ["lay_sponsor", "bottom-right"]]) {
     $(sel).innerHTML = CORNERS.map(([v, l]) => `<option value="${v}" ${v === def ? "selected" : ""}>${l}</option>`).join("");
+    $(sel).onchange = renderCornerMap;
   }
+  renderCornerMap();
   // tournaments + cams + fb pages
   const [cams, fb] = await Promise.all([
     apiGet("/api/tournament-auto-live/available-cams"),
@@ -85,10 +122,25 @@ async function loadCourts() {
     `<option value="${c._id}">${c.name}${c.hasMatch ? " · (đang có trận)" : ""}</option>`).join("");
 }
 
+// ── Corner map preview ──
+function renderCornerMap() {
+  const pos = { tl: "top:8px;left:8px", tr: "top:8px;right:8px", bl: "bottom:8px;left:8px", br: "bottom:8px;right:8px" };
+  const k = (v) => ({ "top-left": "tl", "top-right": "tr", "bottom-left": "bl", "bottom-right": "br" }[v] || "tl");
+  const items = [
+    ["scoreboard", "Bảng điểm", $("lay_scoreboard").value],
+    ["brand", "Logo", $("lay_brand").value],
+    ["sponsor", "Tài trợ", $("lay_sponsor").value],
+  ];
+  const map = $("cornerMap"); if (!map) return;
+  map.innerHTML = items.map(([cls, label, v]) =>
+    `<span class="pin ${cls}" style="${pos[k(v)]}">${label}</span>`).join("");
+}
+
 // ── Destinations ──
 $("destType").onchange = () => {
   const t = $("destType").value;
   $("fbPage").classList.toggle("hidden", t !== "fb");
+  $("ytKey").classList.toggle("hidden", t !== "youtube");
   $("rtmpUrl").classList.toggle("hidden", t !== "rtmp");
   $("rtmpKey").classList.toggle("hidden", t !== "rtmp");
 };
@@ -98,6 +150,15 @@ $("addDest").onclick = () => {
     const p = state.fbPages.find((x) => x.pageId === $("fbPage").value);
     if (!p) return;
     state.destinations.push({ type: "fb", pageId: p.pageId, pageName: p.pageName, label: p.pageName });
+  } else if (t === "youtube") {
+    const key = $("ytKey").value.trim();
+    if (!key) return;
+    // YouTube ingest RTMP (dùng stream key bền từ YouTube Studio).
+    state.destinations.push({
+      type: "rtmp", streamUrl: "rtmp://a.rtmp.youtube.com/live2",
+      streamKey: key, label: "YouTube",
+    });
+    $("ytKey").value = "";
   } else {
     const url = $("rtmpUrl").value.trim();
     if (!url) return;
