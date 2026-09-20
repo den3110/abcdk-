@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imou"
+version = "0.1.0"
+description = "Consumer-protocol client for Imou Life cameras (HTTPS + DH-RTSP)."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.31",
+    "pycryptodomex>=3.20",
+]
+
+[project.optional-dependencies]
+mqtt = ["paho-mqtt>=2.0"]
+# Auto-captcha login (experimental — see README §Login). Heavy deps:
+captcha = ["playwright>=1.40", "pillow>=10", "numpy>=1.26"]
+
+[project.scripts]
+imou = "imou.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["imou*"]
+
+[tool.setuptools.package-data]
+imou = ["assets/*.json"]

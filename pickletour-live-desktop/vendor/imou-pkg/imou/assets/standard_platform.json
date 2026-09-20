@@ -1,0 +1,8336 @@
+{
+	"services": [{
+		"outputData": [{
+			"identifier": "deviceIcon",
+			"ref": "90101",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备图标",
+			"desc": ""
+		}, {
+			"identifier": "deviceName",
+			"ref": "90102",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备名称",
+			"desc": ""
+		}, {
+			"identifier": "deviceVersion",
+			"ref": "90103",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备版本号",
+			"desc": ""
+		}, {
+			"identifier": "canBeUpgrade",
+			"ref": "90104",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "是否有新版本",
+			"desc": "是|否"
+		}, {
+			"identifier": "deviceStatus",
+			"ref": "90105",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "1",
+						"desc": "在线"
+					}, {
+						"value": "2",
+						"desc": "离线"
+					}, {
+						"value": "3",
+						"desc": "升级中"
+					}, {
+						"value": "4",
+						"desc": "休眠中"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "设备状态",
+			"desc": ""
+		}, {
+			"identifier": "isShared",
+			"ref": "90106",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "是否被分享",
+			"desc": "是|否"
+		}, {
+			"identifier": "shareUser",
+			"ref": "90107",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "分享者文案",
+			"desc": ""
+		}, {
+			"identifier": "shareUserAvator",
+			"ref": "90108",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "分享者头像地址",
+			"desc": ""
+		}, {
+			"identifier": "shareStatus",
+			"ref": "90109",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "1",
+						"desc": "owner"
+					}, {
+						"value": "2",
+						"desc": "share"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "角色",
+			"desc": ""
+		}, {
+			"identifier": "deviceId",
+			"ref": "90110",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备ID",
+			"desc": ""
+		}, {
+			"identifier": "deviceModel",
+			"ref": "90111",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备型号",
+			"desc": ""
+		}, {
+			"identifier": "serviceList",
+			"ref": "90112",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": [{
+							"identifier": "funIcon",
+							"ref": "90161",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "功能图标",
+							"desc": ""
+						}, {
+							"identifier": "funName",
+							"ref": "90162",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "功能名称",
+							"desc": ""
+						}, {
+							"identifier": "funCorner",
+							"ref": "90163",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "功能角标",
+							"desc": ""
+						}, {
+							"identifier": "funAction",
+							"ref": "90164",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "功能路由",
+							"desc": ""
+						}],
+						"type": "struct"
+					},
+					"size": "8"
+				},
+				"type": "array"
+			},
+			"name": "服务列表",
+			"desc": ""
+		}],
+		"identifier": "DeviceInfo",
+		"ref": "90100",
+		"inputData": [],
+		"name": "设备详情信息",
+		"description": "设备详情信息",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "ShareDeviceDelete",
+		"ref": "90500",
+		"inputData": [],
+		"name": "删除分享设备",
+		"description": "删除分享设备",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "services",
+			"ref": "90201",
+			"dataType": {
+				"specs": [{
+					"identifier": "funIcon",
+					"ref": "90251",
+					"dataType": {
+						"specs": {},
+						"type": "text"
+					},
+					"name": "功能图标",
+					"desc": ""
+				}, {
+					"identifier": "funName",
+					"ref": "90252",
+					"dataType": {
+						"specs": {},
+						"type": "text"
+					},
+					"name": "功能名称",
+					"desc": ""
+				}, {
+					"identifier": "funCorner",
+					"ref": "90253",
+					"dataType": {
+						"specs": {},
+						"type": "text"
+					},
+					"name": "功能角标",
+					"desc": ""
+				}, {
+					"identifier": "funAction",
+					"ref": "90254",
+					"dataType": {
+						"specs": {},
+						"type": "text"
+					},
+					"name": "功能路由",
+					"desc": ""
+				}],
+				"type": "struct"
+			},
+			"name": "服务列表",
+			"desc": ""
+		}],
+		"identifier": "GetPlatformServiceList",
+		"ref": "90200",
+		"inputData": [],
+		"name": "获取设备平台服务列表",
+		"description": "获取设备平台服务列表",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "pic",
+			"ref": "90301",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "图片地址",
+			"desc": ""
+		}, {
+			"identifier": "picType",
+			"ref": "90302",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "自动抓取"
+					}, {
+						"value": "1",
+						"desc": "自定义"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "图片类型",
+			"desc": ""
+		}],
+		"identifier": "GetPreviewPicInfo",
+		"ref": "90300",
+		"inputData": [],
+		"name": "获取预览图信息",
+		"description": "获取预览图信息",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "SetPrevPic",
+		"ref": "90400",
+		"inputData": [{
+			"identifier": "pic",
+			"ref": "90401",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "图片",
+			"desc": ""
+		}, {
+			"identifier": "picType",
+			"ref": "90402",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "自动抓取"
+					}, {
+						"value": "1",
+						"desc": "自定义"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "图片类型",
+			"desc": ""
+		}],
+		"name": "设置预览图信息",
+		"description": "设置预览图信息",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "UserDeviceUnbind",
+		"ref": "90000",
+		"inputData": [{
+			"identifier": "deleteCloudAlarms",
+			"ref": "90001",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "是否删除告警消息",
+			"desc": "是|否"
+		}, {
+			"identifier": "deleteCloudRecords",
+			"ref": "90002",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "是否删除云存储",
+			"desc": "是|否"
+		}],
+		"name": "删除设备",
+		"description": "删除设备",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "RecordId",
+			"ref": "91621",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "消息记录ID",
+			"desc": ""
+		}, {
+			"identifier": "LocalBeginTime",
+			"ref": "91622",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备本地开始时间",
+			"desc": ""
+		}, {
+			"identifier": "LocalEndTime",
+			"ref": "91623",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备本地时间",
+			"desc": ""
+		}, {
+			"identifier": "FilePath",
+			"ref": "91624",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "存储文件路径",
+			"desc": ""
+		}, {
+			"identifier": "EncryptModel",
+			"ref": "91625",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "1",
+						"desc": "默认加密方式"
+					}, {
+						"value": "2",
+						"desc": "自定义加密模式"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "加密模式",
+			"desc": ""
+		}, {
+			"identifier": "Region",
+			"ref": "91626",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "存储区域编号",
+			"desc": ""
+		}, {
+			"identifier": "FileLength",
+			"ref": "91627",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "文件长度",
+			"desc": ""
+		}, {
+			"identifier": "EncryptSecret",
+			"ref": "91628",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "加密秘钥",
+			"desc": ""
+		}, {
+			"identifier": "ThumbUrl",
+			"ref": "91629",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "缩略图",
+			"desc": ""
+		}, {
+			"identifier": "Flags",
+			"ref": "91630",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["0", "999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": " 录像标签",
+			"desc": ""
+		}, {
+			"identifier": "strategyType",
+			"ref": "91631",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "云录像套餐类型，1免费,2 收费,3冷却，具体由增值服务提供",
+			"desc": ""
+		}],
+		"identifier": "GetRecordByAlarmId",
+		"ref": "91600",
+		"inputData": [{
+			"identifier": "Token",
+			"ref": "91601",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "报警消息Token",
+			"desc": ""
+		}, {
+			"identifier": "VideoType",
+			"ref": "91602",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "2",
+						"desc": "留言"
+					}, {
+						"value": "1000",
+						"desc": "告警"
+					}, {
+						"value": "1001",
+						"desc": "人头检测录像"
+					}, {
+						"value": "2000",
+						"desc": "平台定时录像"
+					}, {
+						"value": "5001",
+						"desc": "平台聚合快播录像"
+					}, {
+						"value": "0",
+						"desc": "all"
+					}, {
+						"value": "1006",
+						"desc": "啼哭"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "录像类型",
+			"desc": ""
+		}, {
+			"name": "标识文件类型；record：云录像; picture：云图片；all：全部；默认为record",
+			"identifier": "fileType",
+			"ref": "91603",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"name": "查询云录像-消息ID",
+		"description": "查询云录像-消息ID",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "Bitmap",
+			"ref": "91321",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "月份掩码",
+			"desc": ""
+		}],
+		"identifier": "QueryCloudRecordBitmap",
+		"ref": "91300",
+		"inputData": [{
+			"identifier": "Year",
+			"ref": "91301",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["1", "99999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "年",
+			"desc": ""
+		}, {
+			"identifier": "Month",
+			"ref": "91302",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["1", "12"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "月",
+			"desc": ""
+		}, {
+			"identifier": "VideoType",
+			"ref": "91303",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "2",
+						"desc": "留言"
+					}, {
+						"value": "1000",
+						"desc": "告警"
+					}, {
+						"value": "1001",
+						"desc": "人头检测录像"
+					}, {
+						"value": "2000",
+						"desc": "平台定时录像"
+					}, {
+						"value": "5001",
+						"desc": "平台聚合快播录像"
+					}, {
+						"value": "0",
+						"desc": "all"
+					}, {
+						"value": "1006",
+						"desc": "啼哭"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "录像类型",
+			"desc": ""
+		}, {
+			"name": "目数",
+			"identifier": "multiView",
+			"ref": "91304",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "标识文件类型；record：云录像; picture：云图片；all：全部；默认为record",
+			"identifier": "fileType",
+			"ref": "91305",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"name": "查询云录像掩码",
+		"description": "查询云录像掩码",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "RecordId",
+			"ref": "94521",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "录像ID",
+			"desc": ""
+		}, {
+			"identifier": "LocalBeginTime",
+			"ref": "94522",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "开始时间",
+			"desc": ""
+		}, {
+			"identifier": "LocalEndTime",
+			"ref": "94523",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "结束时间",
+			"desc": ""
+		}, {
+			"identifier": "FilePath",
+			"ref": "94524",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "录像文件路径",
+			"desc": ""
+		}, {
+			"identifier": "ThumbUrl",
+			"ref": "94525",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "缩略图URL",
+			"desc": ""
+		}, {
+			"identifier": "FileLength",
+			"ref": "94526",
+			"dataType": {
+				"specs": {
+					"unit": "byte",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "云录像的大小",
+			"desc": ""
+		}, {
+			"identifier": "EncryptMode",
+			"ref": "94527",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "默认加密模式"
+					}, {
+						"value": "1",
+						"desc": "用户加密模式"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "加密模式",
+			"desc": ""
+		}, {
+			"identifier": "EncryptSecret",
+			"ref": "94528",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "加密密钥",
+			"desc": ""
+		}, {
+			"identifier": "Flags",
+			"ref": "94529",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["0", "999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "录像标签",
+			"desc": ""
+		}, {
+			"identifier": "Region",
+			"ref": "94530",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "区域",
+			"desc": ""
+		}],
+		"identifier": "GetRecordByRecordId",
+		"ref": "94500",
+		"inputData": [{
+			"identifier": "RecordId",
+			"ref": "94501",
+			"dataType": {
+				"specs": {
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "录像id",
+			"desc": ""
+		}, {
+			"identifier": "Region",
+			"ref": "94502",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "区域唯一标识id",
+			"desc": ""
+		}, {
+			"identifier": "VideoType",
+			"ref": "94503",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "all"
+					}, {
+						"value": "2",
+						"desc": "留言"
+					}, {
+						"value": "1000",
+						"desc": "告警"
+					}, {
+						"value": "1001",
+						"desc": "人头检测录像"
+					}, {
+						"value": "2000",
+						"desc": "平台定时录像"
+					}, {
+						"value": "5001",
+						"desc": "平台聚合快播录像"
+					}, {
+						"value": "1006",
+						"desc": "啼哭"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "录像类型",
+			"desc": ""
+		}],
+		"name": "根据录像id获取云录像",
+		"description": "根据录像id获取云录像",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "Records",
+			"ref": "91221",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": [{
+							"identifier": "RecordId",
+							"ref": "91261",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "记录ID",
+							"desc": ""
+						}, {
+							"identifier": "LocalBeginTime",
+							"ref": "91262",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "设备本地时间",
+							"desc": ""
+						}, {
+							"identifier": "LocalEndTime",
+							"ref": "91263",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "录像设备结束时间",
+							"desc": ""
+						}, {
+							"identifier": "FilePath",
+							"ref": "91264",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "文件路径",
+							"desc": ""
+						}, {
+							"identifier": "ThumbUrl",
+							"ref": "91265",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "缩略图",
+							"desc": ""
+						}, {
+							"identifier": "FileLength",
+							"ref": "91266",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "文件长度",
+							"desc": ""
+						}, {
+							"identifier": "EncryptModel",
+							"ref": "91267",
+							"dataType": {
+								"specs": {
+									"list": [{
+										"value": "0",
+										"desc": "默认加密"
+									}, {
+										"value": "1",
+										"desc": "自定义加密"
+									}]
+								},
+								"type": "enum"
+							},
+							"name": "加密模式",
+							"desc": ""
+						}, {
+							"identifier": "Region",
+							"ref": "91268",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "区域唯一ID",
+							"desc": ""
+						}, {
+							"identifier": "VideoType",
+							"ref": "91269",
+							"dataType": {
+								"specs": {
+									"list": [{
+										"value": "2",
+										"desc": "留言"
+									}, {
+										"value": "1000",
+										"desc": "告警"
+									}, {
+										"value": "1001",
+										"desc": "人头检测录像"
+									}, {
+										"value": "2000",
+										"desc": "平台定时录像"
+									}, {
+										"value": "5001",
+										"desc": "平台聚合快录像"
+									}, {
+										"value": "1002",
+										"desc": "车辆录像"
+									}, {
+										"value": "1004",
+										"desc": "异常音录像"
+									}, {
+										"value": "1005",
+										"desc": "呼叫录像"
+									}, {
+										"value": "2002",
+										"desc": "宠物录像"
+									}, {
+										"value": "2003",
+										"desc": "包裹录像"
+									}, {
+										"value": "1006",
+										"desc": "啼哭录像"
+									}, {
+										"value": "2001",
+										"desc": "人形"
+									}, {
+										"value": "2004",
+										"desc": "车辆"
+									}, {
+										"value": "1",
+										"desc": "手动"
+									}, {
+										"value": "1003",
+										"desc": "人脸检测录像"
+									}, {
+										"value": "1007",
+										"desc": "前端包裹录像"
+									}]
+								},
+								"type": "enum"
+							},
+							"name": "录像类型",
+							"desc": ""
+						}, {
+							"identifier": "encryptSecret",
+							"ref": "91270",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "加密秘钥",
+							"desc": ""
+						}, {
+							"identifier": "flags",
+							"ref": "91271",
+							"dataType": {
+								"specs": {
+									"unit": "",
+									"range": ["1", "999"],
+									"step": "1"
+								},
+								"type": "int"
+							},
+							"name": "录像标签，采用bit位表示，最低1bit位表示收藏标记，0-未收藏、1-收藏",
+							"desc": ""
+						}, {
+							"identifier": "multiType",
+							"ref": "91272",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "多种类录像类型，2001-人形、2002-宠物、2003-包裹、2004-车辆",
+							"desc": ""
+						}, {
+							"identifier": "strategyType",
+							"ref": "91273",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "云录像套餐类型，1免费,2 收费,3冷却，具体由增值服务提供",
+							"desc": ""
+						}, {
+							"name": "用于多目设备的配对key，如果存在该值，则需要根据该值统计作为分页的标准",
+							"identifier": "pairKey",
+							"ref": "91274",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "通道号,多目设备会返回",
+							"identifier": "channelId",
+							"ref": "91275",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "云图片AI标签",
+							"identifier": "typeList",
+							"ref": "91276",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}],
+						"type": "struct"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "录像集合",
+			"desc": ""
+		}],
+		"identifier": "QueryCloudRecords",
+		"ref": "91200",
+		"inputData": [{
+			"identifier": "LocalBeginTime",
+			"ref": "91201",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备本地开始时间",
+			"desc": ""
+		}, {
+			"identifier": "LocalEndTime",
+			"ref": "91202",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备本地结束时间",
+			"desc": ""
+		}, {
+			"identifier": "RecordId",
+			"ref": "91203",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "上次记录ID",
+			"desc": ""
+		}, {
+			"identifier": "count",
+			"ref": "91204",
+			"dataType": {
+				"specs": {
+					"unit": "个",
+					"range": ["0", "9999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "分页个数",
+			"desc": ""
+		}, {
+			"identifier": "VideoType",
+			"ref": "91205",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "2",
+						"desc": "留言"
+					}, {
+						"value": "1000",
+						"desc": "告警"
+					}, {
+						"value": "1001",
+						"desc": "人头检测录像"
+					}, {
+						"value": "2000",
+						"desc": "平台定时录像"
+					}, {
+						"value": "5000",
+						"desc": "平台聚合快录像"
+					}, {
+						"value": "0",
+						"desc": "all"
+					}, {
+						"value": "1006",
+						"desc": "啼哭"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "录像类型",
+			"desc": ""
+		}, {
+			"identifier": "MultiType",
+			"ref": "91206",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "录像类型，可选，支持多标签查询，采用逗号分隔",
+			"desc": ""
+		}, {
+			"name": "目数",
+			"identifier": "multiView",
+			"ref": "91207",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "标识文件类型；record：云录像; picture：云图片；all：全部；默认为record",
+			"identifier": "fileType",
+			"ref": "91208",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"name": "查询云录像记录",
+		"description": "查询云录像记录",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "name",
+			"ref": "90821",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "名称",
+			"desc": ""
+		}, {
+			"identifier": "alarms",
+			"ref": "90822",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": [{
+							"identifier": "token",
+							"ref": "90861",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "消息唯一标识，用于查询云录像（可选）",
+							"desc": ""
+						}, {
+							"identifier": "channelId",
+							"ref": "90862",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "通道号",
+							"desc": ""
+						}, {
+							"identifier": "alarmId",
+							"ref": "90863",
+							"dataType": {
+								"specs": {
+									"unit": "",
+									"range": ["0", "999999"],
+									"step": "1"
+								},
+								"type": "int"
+							},
+							"name": "告警消息ID",
+							"desc": ""
+						}, {
+							"identifier": "alarmIdStr",
+							"ref": "90864",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "类型的告警消息ID，海外pc客户端使用（可选）",
+							"desc": ""
+						}, {
+							"identifier": "type",
+							"ref": "90865",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "报警类型",
+							"desc": ""
+						}, {
+							"identifier": "smartDetectList",
+							"ref": "90866",
+							"dataType": {
+								"specs": {
+									"item": {
+										"specs": {},
+										"type": "text"
+									},
+									"size": 100
+								},
+								"type": "array"
+							},
+							"name": "检测结果类型（可选）",
+							"desc": ""
+						}, {
+							"identifier": "labelType",
+							"ref": "90867",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "报警消息筛选大类",
+							"desc": ""
+						}, {
+							"identifier": "typeInt",
+							"ref": "90868",
+							"dataType": {
+								"specs": {
+									"unit": "",
+									"range": ["0", "99999"],
+									"step": "1"
+								},
+								"type": "int"
+							},
+							"name": "报警类型映射值（可选）",
+							"desc": ""
+						}, {
+							"identifier": "time",
+							"ref": "90869",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "设备本地时间",
+							"desc": ""
+						}, {
+							"identifier": "picUrl",
+							"ref": "90870",
+							"dataType": {
+								"specs": {
+									"item": {
+										"specs": {},
+										"type": "text"
+									},
+									"size": 100
+								},
+								"type": "array"
+							},
+							"name": "报警图片url",
+							"desc": ""
+						}, {
+							"identifier": "lrecordStopTime",
+							"ref": "90871",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "默认本地录像播放时长（可选）",
+							"desc": ""
+						}, {
+							"identifier": "objectType",
+							"ref": "90872",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "对象类型",
+							"desc": ""
+						}, {
+							"identifier": "thumbUrl",
+							"ref": "90873",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "缩略图URL",
+							"desc": ""
+						}, {
+							"identifier": "remark",
+							"ref": "90874",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "备注（可选）",
+							"desc": ""
+						}, {
+							"identifier": "title",
+							"ref": "90875",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "展示文案",
+							"desc": ""
+						}, {
+							"identifier": "subType",
+							"ref": "90876",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "报警子类型",
+							"desc": ""
+						}, {
+							"identifier": "detect",
+							"ref": "90877",
+							"dataType": {
+								"specs": {
+									"item": {
+										"specs": [{
+											"identifier": "type",
+											"ref": "90885",
+											"dataType": {
+												"specs": {
+													"list": [{
+														"value": "1",
+														"desc": "AI智能检测(人形)"
+													}, {
+														"value": "2",
+														"desc": "人脸识别"
+													}, {
+														"value": "3",
+														"desc": "AI智能检测(车辆)"
+													}, {
+														"value": "4",
+														"desc": "AI智能检测(宠物)"
+													}]
+												},
+												"type": "enum"
+											},
+											"name": "检测类型",
+											"desc": ""
+										}, {
+											"identifier": "result",
+											"ref": "90886",
+											"dataType": {
+												"specs": {},
+												"type": "text"
+											},
+											"name": "人形结果"
+										}],
+										"type": "struct"
+									},
+									"size": 100
+								},
+								"type": "array"
+							},
+							"name": "检测结果",
+							"desc": ""
+						}, {
+							"identifier": "hasLinkage",
+							"ref": "90878",
+							"dataType": {
+								"specs": {},
+								"type": "bool"
+							},
+							"name": "是否存在设备联动消息（可选）",
+							"desc": "是|否"
+						}, {
+							"identifier": "isVeriFace",
+							"ref": "90879",
+							"dataType": {
+								"specs": {},
+								"type": "bool"
+							},
+							"name": "人脸识别-陌生人报警的陌生人人脸是否可以加入人脸库（可选）",
+							"desc": "是|否"
+						}, {
+							"identifier": "skip",
+							"ref": "90880",
+							"dataType": {
+								"specs": [{
+									"identifier": "view",
+									"ref": "90887",
+									"dataType": {
+										"specs": {},
+										"type": "text"
+									},
+									"name": "跳转界面",
+									"desc": ""
+								}, {
+									"identifier": "action",
+									"ref": "90888",
+									"dataType": {
+										"specs": {
+											"item": {
+												"specs": {},
+												"type": "text"
+											},
+											"size": 100
+										},
+										"type": "array"
+									},
+									"name": "附加执行动作",
+									"desc": ""
+								}],
+								"type": "struct"
+							},
+							"name": "跳转",
+							"desc": ""
+						}, {
+							"identifier": "skipUrl",
+							"ref": "90881",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "跳转页面url",
+							"desc": ""
+						}, {
+							"identifier": "refId",
+							"ref": "90882",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "事件id",
+							"desc": ""
+						}, {
+							"identifier": "message",
+							"ref": "90883",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "消息上报的outputData",
+							"desc": ""
+						}, {
+							"identifier": "hasMute",
+							"ref": "90884",
+							"dataType": {
+								"specs": {},
+								"type": "bool"
+							},
+							"name": "是否消音",
+							"desc": "是|否"
+						}, {
+							"identifier": "encryptSecret",
+							"ref": "90889",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "消息封面图密钥",
+							"desc": ""
+						}, {
+							"name": "默认图",
+							"identifier": "defaultImg",
+							"ref": "90890",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}],
+						"type": "struct"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "消息列表",
+			"desc": ""
+		}],
+		"identifier": "GetAlarmMessage",
+		"ref": "90800",
+		"inputData": [{
+			"identifier": "BeginTime",
+			"ref": "90801",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备本地开始时间",
+			"desc": ""
+		}, {
+			"identifier": "EndTime",
+			"ref": "90802",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备本地结束时间",
+			"desc": ""
+		}, {
+			"identifier": "BeginAlarmId",
+			"ref": "90803",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "开始AlarmId",
+			"desc": ""
+		}, {
+			"identifier": "EndAlarmId",
+			"ref": "90804",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "结束AlarmId",
+			"desc": ""
+		}, {
+			"identifier": "count",
+			"ref": "90805",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["0", "128"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "分页查询个数",
+			"desc": ""
+		}, {
+			"identifier": "AlarmType",
+			"ref": "90806",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "消息类型",
+			"desc": ""
+		}, {
+			"identifier": "BeginAlarmIdStr",
+			"ref": "90807",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "开始alarmId，-1表示不限制（可选）",
+			"desc": ""
+		}, {
+			"identifier": "endAlarmIdStr",
+			"ref": "90808",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "结束alarmId，-1表示不限制（可选）",
+			"desc": ""
+		}, {
+			"name": "beginAlarmId对应的消息时间,yyyyMMddTHHmmss格式，id为-1则不必填",
+			"identifier": "beginAlarmTime",
+			"ref": "90809",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "endAlarmId对应的消息时间,yyyyMMddTHHmmss格式，id为-1则不必填",
+			"identifier": "endAlarmTime",
+			"ref": "90810",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "目数",
+			"identifier": "multiView",
+			"ref": "90811",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}],
+		"name": "获取告警消息",
+		"description": "获取告警消息",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "chargeDetail",
+			"ref": "93721",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": [{
+							"identifier": "chargeId",
+							"ref": "93761",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "增值服务ID",
+							"desc": ""
+						}, {
+							"identifier": "chargeName",
+							"ref": "93762",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "增值服务名称",
+							"desc": ""
+						}, {
+							"identifier": "chargeType",
+							"ref": "93763",
+							"dataType": {
+								"specs": {
+									"list": [{
+										"value": "0",
+										"desc": "云存储"
+									}, {
+										"value": "1",
+										"desc": "拉流不限制"
+									}, {
+										"value": "2",
+										"desc": "电话报警提醒"
+									}, {
+										"value": "3",
+										"desc": "设备分享"
+									}, {
+										"value": "4",
+										"desc": "配件分享"
+									}, {
+										"value": "5",
+										"desc": "时光相册"
+									}, {
+										"value": "6",
+										"desc": "每日影集"
+									}, {
+										"value": "7",
+										"desc": "智能人形检测"
+									}, {
+										"value": "8",
+										"desc": "陌生人提醒"
+									}, {
+										"value": "9",
+										"desc": "云盘"
+									}, {
+										"value": "10",
+										"desc": "流量套餐"
+									}, {
+										"value": "11",
+										"desc": "在线值守"
+									}]
+								},
+								"type": "enum"
+							},
+							"name": "增值服务类型",
+							"desc": ""
+						}, {
+							"identifier": "chargeProfile",
+							"ref": "93764",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "简介",
+							"desc": ""
+						}, {
+							"identifier": "chargeUrl",
+							"ref": "93765",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "服务链接地址",
+							"desc": ""
+						}, {
+							"identifier": "picUrl",
+							"ref": "93766",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "封面图地址",
+							"desc": ""
+						}, {
+							"identifier": "backgroundPicUrl",
+							"ref": "93767",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "背景图地址",
+							"desc": ""
+						}, {
+							"identifier": "strategyStatus",
+							"ref": "93768",
+							"dataType": {
+								"specs": {
+									"list": [{
+										"value": "0",
+										"desc": "未开通"
+									}, {
+										"value": "1",
+										"desc": "开通且没有过期"
+									}, {
+										"value": "2",
+										"desc": "即将过期"
+									}, {
+										"value": "3",
+										"desc": "过期"
+									}]
+								},
+								"type": "enum"
+							},
+							"name": "套餐状态",
+							"desc": ""
+						}, {
+							"identifier": "strategyType",
+							"ref": "93769",
+							"dataType": {
+								"specs": {
+									"list": [{
+										"value": "0",
+										"desc": "收费套餐"
+									}, {
+										"value": "1",
+										"desc": "普通的存在结束时间的免费套餐"
+									}, {
+										"value": "2",
+										"desc": "永久免费套餐"
+									}]
+								},
+								"type": "enum"
+							},
+							"name": "套餐类型",
+							"desc": ""
+						}, {
+							"identifier": "invalidTime",
+							"ref": "93770",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "过期时间",
+							"desc": ""
+						}, {
+							"identifier": "statusDesc",
+							"ref": "93771",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "状态描述",
+							"desc": ""
+						}, {
+							"identifier": "desc",
+							"ref": "93772",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "文案描述",
+							"desc": ""
+						}, {
+							"identifier": "bannerDesc",
+							"ref": "93773",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "横幅提示",
+							"desc": ""
+						}, {
+							"identifier": "buttonDesc",
+							"ref": "93774",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "按钮提示",
+							"desc": ""
+						}],
+						"type": "struct"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "增值服务列表",
+			"desc": ""
+		}],
+		"identifier": "GetChargeServiceList",
+		"ref": "93700",
+		"inputData": [{
+			"identifier": "deviceModel",
+			"ref": "93701",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备型号",
+			"desc": ""
+		}, {
+			"identifier": "deviceModelName",
+			"ref": "93702",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "市场型号",
+			"desc": ""
+		}, {
+			"identifier": "chargeTypes",
+			"ref": "93703",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": {
+							"range": ["0", "16"],
+							"step": "1"
+						},
+						"type": "int"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "增值服务类型",
+			"desc": ""
+		}],
+		"name": "获取增值服务列表",
+		"description": "获取增值服务列表",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "PanoLocationToPtz",
+		"ref": "92800",
+		"inputData": [{
+			"identifier": "PanoX",
+			"ref": "92801",
+			"dataType": {
+				"specs": {
+					"unit": "px",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "全景X坐标",
+			"desc": ""
+		}, {
+			"identifier": "PanoY",
+			"ref": "92802",
+			"dataType": {
+				"specs": {
+					"unit": "px",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "全景Y坐标",
+			"desc": ""
+		}],
+		"name": "全景图左边X",
+		"description": "全景图左边X",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "StopPanoScan",
+		"ref": "92700",
+		"inputData": [],
+		"name": "停止全景云台扫描",
+		"description": "停止全景云台扫描",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "isTCM",
+			"ref": "92421",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "是否支持TCM",
+			"desc": "支持|不支持"
+		}],
+		"identifier": "StartPanoScan",
+		"ref": "92400",
+		"inputData": [{
+			"identifier": "SecretKey",
+			"ref": "92401",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "秘钥",
+			"desc": ""
+		}],
+		"name": "开启全景云台扫描",
+		"description": "开启全景云台扫描",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "SecretKeyDelete",
+		"ref": "92300",
+		"inputData": [{
+			"identifier": "AccessToken",
+			"ref": "92301",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "交互Token",
+			"desc": ""
+		}],
+		"name": "删除秘钥",
+		"description": "删除秘钥",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "AddSecretKey",
+		"ref": "92200",
+		"inputData": [{
+			"identifier": "SecretKey",
+			"ref": "92201",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "秘钥",
+			"desc": ""
+		}, {
+			"identifier": "AccessToken",
+			"ref": "92202",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "交互TOKEN",
+			"desc": ""
+		}],
+		"name": "添加加密秘钥",
+		"description": "添加加密秘钥",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "Valid",
+			"ref": "92121",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "验证",
+			"desc": "通过|未通过"
+		}, {
+			"identifier": "AccessToken",
+			"ref": "92122",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "验证TOKEN",
+			"desc": ""
+		}, {
+			"identifier": "Expires",
+			"ref": "92123",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["0", "99999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "有效期",
+			"desc": ""
+		}],
+		"identifier": "SecretKeyVerify",
+		"ref": "92100",
+		"inputData": [{
+			"identifier": "SecretKey",
+			"ref": "92101",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "秘钥",
+			"desc": ""
+		}],
+		"name": "密码验证",
+		"description": "密码验证",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "PublicLiveUrl",
+			"ref": "91921",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "直播页面地址",
+			"desc": ""
+		}, {
+			"identifier": "OpenId",
+			"ref": "91922",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "被分享平台用户ID",
+			"desc": ""
+		}],
+		"identifier": "CreatePublicLive",
+		"ref": "91900",
+		"inputData": [{
+			"identifier": "PublicTime",
+			"ref": "91901",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "直播分享时长",
+			"desc": ""
+		}, {
+			"identifier": "ShareType",
+			"ref": "91902",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "微信分享"
+					}, {
+						"value": "1",
+						"desc": "快手分享"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "分享类型",
+			"desc": ""
+		}, {
+			"identifier": "AuthCode",
+			"ref": "91903",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "授权码",
+			"desc": ""
+		}, {
+			"name": "设备摄像头数量",
+			"identifier": "multiView",
+			"ref": "91904",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}],
+		"name": "创建直播",
+		"description": "创建直播",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "DeleteAlarmMessage",
+		"ref": "91800",
+		"inputData": [{
+			"identifier": "AlarmIds",
+			"ref": "91801",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": {},
+						"type": "text"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "告警IDs",
+			"desc": ""
+		}],
+		"name": "删除告警消息",
+		"description": "删除告警消息",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "DeviceReboot",
+		"ref": "90600",
+		"inputData": [],
+		"name": "设备重启",
+		"description": "设备重启",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "VerifyPassword",
+		"ref": "94400",
+		"inputData": [{
+			"identifier": "username",
+			"ref": "94401",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备用户名",
+			"desc": ""
+		}, {
+			"identifier": "password",
+			"ref": "94402",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备密码",
+			"desc": ""
+		}, {
+			"name": "操作对象类型;0-自设备，1-父设备，0或者空均为目标设备本身",
+			"identifier": "optType",
+			"ref": "94403",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"name": "校验设备密码",
+		"description": "校验设备密码",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "Page",
+			"ref": "94121",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "直播网页http地址",
+			"desc": ""
+		}],
+		"identifier": "UpdatePublicLive",
+		"ref": "94100",
+		"inputData": [{
+			"identifier": "Token",
+			"ref": "94101",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "直播分享的token",
+			"desc": ""
+		}, {
+			"identifier": "PublicTime",
+			"ref": "94102",
+			"dataType": {
+				"specs": {
+					"unit": "s",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "直播分享的时间长度",
+			"desc": ""
+		}, {
+			"identifier": "Enable",
+			"ref": "94103",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "直播使能",
+			"desc": "打开直播|暂停直播"
+		}, {
+			"name": "设备摄像头数量",
+			"identifier": "multiView",
+			"ref": "94104",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}],
+		"name": "更新直播分享的时间以及开关直播流",
+		"description": "更新直播分享的时间以及开关直播流",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "DelPublicLive",
+		"ref": "94200",
+		"inputData": [{
+			"identifier": "Token",
+			"ref": "94201",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "直播分享的token",
+			"desc": ""
+		}, {
+			"identifier": "ShareType",
+			"ref": "94202",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "微信分享"
+					}, {
+						"value": "1",
+						"desc": "分享到快手"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "分享类型",
+			"desc": ""
+		}, {
+			"identifier": "AuthCode",
+			"ref": "94203",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "授权code",
+			"desc": ""
+		}, {
+			"name": "设备摄像头数量",
+			"identifier": "multiView",
+			"ref": "94204",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}],
+		"name": "关闭直播分享",
+		"description": "关闭直播分享",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "DeleteCloudRecordByRecordIds",
+		"ref": "93500",
+		"inputData": [{
+			"identifier": "records",
+			"ref": "93501",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": [{
+							"identifier": "recordId",
+							"ref": "93541",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "云录像id",
+							"desc": ""
+						}, {
+							"identifier": "region",
+							"ref": "93542",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "区域",
+							"desc": ""
+						}],
+						"type": "struct"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "录像id集合",
+			"desc": ""
+		}, {
+			"identifier": "type",
+			"ref": "93502",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "all"
+					}, {
+						"value": "2",
+						"desc": "留言"
+					}, {
+						"value": "1000",
+						"desc": "告警"
+					}, {
+						"value": "1001",
+						"desc": "人头检测录像"
+					}, {
+						"value": "2000",
+						"desc": "云录像"
+					}, {
+						"value": "5001",
+						"desc": "聚合"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "录像类型",
+			"desc": ""
+		}, {
+			"name": "多目设备目数",
+			"identifier": "multiView",
+			"ref": "93503",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "标识文件类型；record：云录像; picture：云图片；all：全部；不传默认为record",
+			"identifier": "fileType",
+			"ref": "93504",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"name": "按录像id批量删除某个设备的录像",
+		"description": "按录像id批量删除某个设备的录像",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "hasCoupon",
+			"ref": "93621",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "是否有红包",
+			"desc": "有|没有"
+		}],
+		"identifier": "CheckDeviceCoupon",
+		"ref": "93600",
+		"inputData": [],
+		"name": "检查设备优惠券",
+		"description": "检查设备优惠券",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "CallDevAction",
+		"ref": "94300",
+		"inputData": [{
+			"identifier": "action",
+			"ref": "94301",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "answer"
+					}, {
+						"value": "1",
+						"desc": "refuse"
+					}, {
+						"value": "2",
+						"desc": "hangup"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "指令动作",
+			"desc": ""
+		}],
+		"name": "响应呼叫",
+		"description": "响应呼叫",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "DeleteAlarmMessageByTime",
+		"ref": "91700",
+		"inputData": [{
+			"identifier": "BeginTime",
+			"ref": "91701",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "开始时间",
+			"desc": ""
+		}, {
+			"identifier": "EndTime",
+			"ref": "91702",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "结束时间",
+			"desc": ""
+		}],
+		"name": "删除告警消息-时间",
+		"description": "删除告警消息-时间",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "MirrorStop",
+		"ref": "91100",
+		"inputData": [],
+		"name": "停止投屏",
+		"description": "停止投屏",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "VideoResolutionConfig",
+		"ref": "94700",
+		"inputData": [{
+			"identifier": "StreamType",
+			"ref": "94701",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "码流类型",
+			"desc": ""
+		}, {
+			"identifier": "Resolution",
+			"ref": "94702",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "FHD分辨率",
+			"desc": ""
+		}],
+		"name": "设置分辨率（老4K相机_不上报分辨率的4K相机）",
+		"description": "设置分辨率（老4K相机_不上报分辨率的4K相机）",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "collection",
+			"ref": "93821",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": [{
+							"identifier": "Name",
+							"ref": "93861",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "名称",
+							"desc": ""
+						}, {
+							"identifier": "StayTime",
+							"ref": "93862",
+							"dataType": {
+								"specs": {
+									"list": [{
+										"value": "15",
+										"desc": "15"
+									}, {
+										"value": "30",
+										"desc": "30"
+									}, {
+										"value": "45",
+										"desc": "45"
+									}, {
+										"value": "60",
+										"desc": "60"
+									}, {
+										"value": "90",
+										"desc": "90"
+									}, {
+										"value": "120",
+										"desc": "120"
+									}, {
+										"value": "150",
+										"desc": "150"
+									}, {
+										"value": "180",
+										"desc": "180"
+									}, {
+										"value": "210",
+										"desc": "210"
+									}, {
+										"value": "240",
+										"desc": "240"
+									}, {
+										"value": "270",
+										"desc": "270"
+									}, {
+										"value": "300",
+										"desc": "300"
+									}]
+								},
+								"type": "enum"
+							},
+							"name": "停留时长",
+							"desc": ""
+						}, {
+							"identifier": "PicUrl",
+							"ref": "93863",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "图片地址",
+							"desc": ""
+						}],
+						"type": "struct"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "收藏点列表",
+			"desc": ""
+		}],
+		"identifier": "P_GetCollection",
+		"ref": "93800",
+		"inputData": [],
+		"name": "获取收藏点",
+		"description": "获取收藏点",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "PageUrl",
+			"ref": "94021",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "直播网页地址",
+			"desc": ""
+		}, {
+			"identifier": "PublicTime",
+			"ref": "94022",
+			"dataType": {
+				"specs": {
+					"unit": "s",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "直播分享的剩余时间，单位秒",
+			"desc": ""
+		}, {
+			"identifier": "LiveStreamName",
+			"ref": "94023",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "直播间名字",
+			"desc": ""
+		}, {
+			"identifier": "LiveStatus",
+			"ref": "94024",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "直播间状态",
+			"desc": ""
+		}, {
+			"identifier": "OpenId",
+			"ref": "94025",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "用户openid",
+			"desc": ""
+		}, {
+			"identifier": "Streams",
+			"ref": "94026",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": [{
+							"identifier": "Url",
+							"ref": "94061",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "直播流hls访问地址",
+							"desc": ""
+						}, {
+							"identifier": "StreamId",
+							"ref": "94062",
+							"dataType": {
+								"specs": {
+									"list": [{
+										"value": "0",
+										"desc": "主码流"
+									}, {
+										"value": "1",
+										"desc": "辅码流"
+									}]
+								},
+								"type": "enum"
+							},
+							"name": "码流",
+							"desc": ""
+						}, {
+							"identifier": "State",
+							"ref": "94063",
+							"dataType": {
+								"specs": {
+									"list": [{
+										"value": "0",
+										"desc": "正在直播中"
+									}, {
+										"value": "1",
+										"desc": "正在直播中，但是视频封面异常"
+									}, {
+										"value": "2",
+										"desc": "视频源异常"
+									}, {
+										"value": "3",
+										"desc": "码流转换异常"
+									}, {
+										"value": "4",
+										"desc": "云存储访问异常"
+									}, {
+										"value": "5",
+										"desc": "直播未开始"
+									}, {
+										"value": "10",
+										"desc": "直播暂停中"
+									}, {
+										"value": "11",
+										"desc": "设备离线"
+									}]
+								},
+								"type": "enum"
+							},
+							"name": "状态",
+							"desc": ""
+						}],
+						"type": "struct"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "列表",
+			"desc": ""
+		}],
+		"identifier": "GetPublicLive",
+		"ref": "94000",
+		"inputData": [{
+			"identifier": "Token",
+			"ref": "94001",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "直播分享的token",
+			"desc": ""
+		}, {
+			"identifier": "ShareType",
+			"ref": "94002",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "微信分享"
+					}, {
+						"value": "1",
+						"desc": "快手分享"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "分享类型",
+			"desc": ""
+		}, {
+			"identifier": "AuthCode",
+			"ref": "94003",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "授权code",
+			"desc": ""
+		}, {
+			"name": "设备摄像头数量",
+			"identifier": "multiView",
+			"ref": "94004",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}],
+		"name": "获取直播分享信息",
+		"description": "获取直播分享信息",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "DeleteCloudRecordByTime",
+		"ref": "94600",
+		"inputData": [{
+			"identifier": "localBeginTime",
+			"ref": "94601",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "开始时间",
+			"desc": ""
+		}, {
+			"identifier": "localEndTime",
+			"ref": "94602",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "结束时间",
+			"desc": ""
+		}, {
+			"identifier": "type",
+			"ref": "94603",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "all"
+					}, {
+						"value": "2",
+						"desc": "留言"
+					}, {
+						"value": "1000",
+						"desc": "告警"
+					}, {
+						"value": "1001",
+						"desc": "人头检测录像"
+					}, {
+						"value": "2000",
+						"desc": "云录像"
+					}, {
+						"value": "5001",
+						"desc": "聚合"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "录像类型",
+			"desc": ""
+		}, {
+			"identifier": "multiType",
+			"ref": "94604",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "录像类型，多个类型用逗号分隔",
+			"desc": ""
+		}, {
+			"name": "目数",
+			"identifier": "multiView",
+			"ref": "94605",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "标识文件类型；record：云录像; picture：云图片；all：全部；不传默认为record",
+			"identifier": "fileType",
+			"ref": "94606",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"name": "按时间段删除某个设备的录像",
+		"description": "按时间段删除某个设备的录像",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "Url",
+			"ref": "92621",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "全景图地址",
+			"desc": ""
+		}, {
+			"identifier": "ContentEncrypt",
+			"ref": "92622",
+			"dataType": {
+				"specs": [{
+					"identifier": "EncryptModel",
+					"ref": "92661",
+					"dataType": {
+						"specs": {},
+						"type": "text"
+					},
+					"name": "内容加密模式",
+					"desc": ""
+				}, {
+					"identifier": "RuleVersion",
+					"ref": "92662",
+					"dataType": {
+						"specs": {},
+						"type": "text"
+					},
+					"name": "算法版本",
+					"desc": ""
+				}, {
+					"identifier": "KeyModel",
+					"ref": "92663",
+					"dataType": {
+						"specs": {},
+						"type": "text"
+					},
+					"name": "内容加密秘钥种子Key",
+					"desc": ""
+				}],
+				"type": "struct"
+			},
+			"name": "加密信息",
+			"desc": ""
+		}],
+		"identifier": "GetPanoPictureUrl",
+		"ref": "92600",
+		"inputData": [],
+		"name": "获取全景图",
+		"description": "获取全景图",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "Percent",
+			"ref": "92521",
+			"dataType": {
+				"specs": {
+					"unit": "%",
+					"range": ["0", "100"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "进度百分比",
+			"desc": ""
+		}],
+		"identifier": "GetPanoScanProgress",
+		"ref": "92500",
+		"inputData": [],
+		"name": "获取全景扫描进度",
+		"description": "获取全景扫描进度",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "PreviewPlugins",
+			"ref": "92001",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": [{
+							"identifier": "PluginId",
+							"ref": "92041",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "媒体组件功能ID",
+							"desc": ""
+						}, {
+							"identifier": "RoleId",
+							"ref": "92042",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "权限ID",
+							"desc": ""
+						}],
+						"type": "struct"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "媒体预览插件",
+			"desc": ""
+		}, {
+			"identifier": "LocalPlaybackPlugins",
+			"ref": "92002",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": [{
+							"identifier": "PluginId",
+							"ref": "92043",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "媒体组件ID",
+							"desc": ""
+						}, {
+							"identifier": "roleId",
+							"ref": "92044",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "权限ID",
+							"desc": ""
+						}],
+						"type": "struct"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "本地回放功能插件",
+			"desc": ""
+		}],
+		"identifier": "GetMediaFunctions",
+		"ref": "92000",
+		"inputData": [],
+		"name": "获取媒体功能列表",
+		"description": "获取媒体功能列表",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "WxAlarmClose",
+		"ref": "95200",
+		"inputData": [],
+		"name": "取消微信告警功能",
+		"description": "取消微信告警功能",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "result",
+			"ref": "95421",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "操作结果",
+			"desc": "成功|失败"
+		}, {
+			"identifier": "picUrl",
+			"ref": "95422",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "二维码地址",
+			"desc": ""
+		}],
+		"identifier": "SetWxAlarm",
+		"ref": "95400",
+		"inputData": [{
+			"identifier": "enable",
+			"ref": "95401",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "开关",
+			"desc": "开启|关闭"
+		}],
+		"name": "微信告警推送设置",
+		"description": "微信告警推送设置",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "SetImouProtectPop",
+		"ref": "95700",
+		"inputData": [{
+			"identifier": "operateType",
+			"ref": "95701",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "数据升级"
+					}, {
+						"value": "1",
+						"desc": "套餐状态"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "操作类型",
+			"desc": ""
+		}, {
+			"identifier": "vasCurrentStatus",
+			"ref": "95702",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "未开通"
+					}, {
+						"value": "1",
+						"desc": "已过期"
+					}, {
+						"value": "2",
+						"desc": "即将过期，距离到期≤3天时"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "当前套餐状态（可选），operateType为vasStatus时有效",
+			"desc": ""
+		}],
+		"name": "客户端弹窗告知",
+		"description": "客户端弹窗告知用户平台数据升级后，通知平台记录，下次不再弹窗",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "SetDeviceAbility",
+		"ref": "95800",
+		"inputData": [{
+			"identifier": "userId",
+			"ref": "95801",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "用户id",
+			"desc": ""
+		}],
+		"name": "实时预览页面一键开启功能",
+		"description": "实时预览页面一键开启功能，支持AI的设备，开启设备动检，关闭设备人形，开启授权云解码",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "PicUrl",
+			"ref": "93921",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "收藏点图片路径",
+			"desc": ""
+		}],
+		"identifier": "P_SetCollection",
+		"ref": "93900",
+		"inputData": [{
+			"identifier": "Name",
+			"ref": "93901",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "名称",
+			"desc": ""
+		}, {
+			"identifier": "StayTime",
+			"ref": "93902",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "10",
+						"desc": "10"
+					}, {
+						"value": "15",
+						"desc": "15"
+					}, {
+						"value": "30",
+						"desc": "30"
+					}, {
+						"value": "45",
+						"desc": "45"
+					}, {
+						"value": "60",
+						"desc": "60"
+					}, {
+						"value": "90",
+						"desc": "90"
+					}, {
+						"value": "120",
+						"desc": "120"
+					}, {
+						"value": "150",
+						"desc": "150"
+					}, {
+						"value": "180",
+						"desc": "180"
+					}, {
+						"value": "210",
+						"desc": "210"
+					}, {
+						"value": "240",
+						"desc": "240"
+					}, {
+						"value": "270",
+						"desc": "270"
+					}, {
+						"value": "300",
+						"desc": "300"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "停留时长",
+			"desc": ""
+		}, {
+			"identifier": "Pic",
+			"ref": "93903",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "收藏点图片,图片二进制数据的base64编码字符串",
+			"desc": ""
+		}, {
+			"identifier": "BCruise",
+			"ref": "93904",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "是否加入到巡航计划中",
+			"desc": "是|否"
+		}, {
+			"identifier": "CruiseName",
+			"ref": "93905",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "巡航计划唯一标示符",
+			"desc": ""
+		}],
+		"name": "设置收藏点",
+		"description": "设置收藏点",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "nickName",
+			"ref": "95321",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": " 昵称",
+			"desc": ""
+		}, {
+			"identifier": "pic",
+			"ref": "95322",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "头像图像地",
+			"desc": ""
+		}],
+		"identifier": "GetWxUserInfo",
+		"ref": "95300",
+		"inputData": [],
+		"name": "获取关联微信账号信息",
+		"description": "获取关联微信账号信息",
+		"desc": ""
+	}, {
+		"identifier": "GetImouProtectInfoRealTime",
+		"name": "获取imou protect状态及是否弹窗提示用户升级",
+		"description": "预览页面获取imou protect状态以及是都弹窗提示用户升级信息，pcs/v1的协议",
+		"desc": "",
+		"ref": "95600",
+		"inputData": [
+			{
+				"name": "用户id",
+				"identifier": "userId",
+				"ref": "95601",
+				"desc": "",
+				"dataType": {
+					"type": "int",
+					"specs": {
+						"unit": "",
+						"range": [
+							"0",
+							"999999"
+						],
+						"step": "1"
+					}
+				}
+			},
+			{
+				"name": "用户注册国家代码",
+				"identifier": "countryCode",
+				"ref": "95602",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "设备品牌",
+				"identifier": "deviceVendor",
+				"ref": "95603",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "设备型号",
+				"identifier": "deviceModel",
+				"ref": "95604",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "接入类型",
+				"identifier": "accessType",
+				"ref": "95605",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			}
+		],
+		"outputData": [
+			{
+				"name": "是否弹窗告诉用户设备数据数据已经升级",
+				"identifier": "popFlag",
+				"ref": "95621",
+				"desc": "是|否",
+				"dataType": {
+					"type": "bool",
+					"specs": {}
+				}
+			},
+			{
+				"name": "是否是乐橙paas设备",
+				"identifier": "isLeChangePaas",
+				"ref": "95622",
+				"desc": "是|否",
+				"dataType": {
+					"type": "bool",
+					"specs": {}
+				}
+			},
+			{
+				"name": "状态",
+				"identifier": "status",
+				"ref": "95623",
+				"desc": "",
+				"dataType": {
+					"type": "enum",
+					"specs": {
+						"list": [
+							{
+								"value": "0",
+								"desc": "未开通"
+							},
+							{
+								"value": "1",
+								"desc": "已过期"
+							},
+							{
+								"value": "2",
+								"desc": "即将过期，距离到期≤3天时"
+							}
+						]
+					}
+				}
+			},
+			{
+				"name": "套餐类型",
+				"identifier": "vasType",
+				"ref": "95624",
+				"desc": "",
+				"dataType": {
+					"type": "enum",
+					"specs": {
+						"list": [
+							{
+								"value": "0",
+								"desc": "云存储"
+							},
+							{
+								"value": "1",
+								"desc": "新版本套餐"
+							}
+						]
+					}
+				}
+			},
+			{
+				"name": "套餐等级,只有varType为imouProtect有效",
+				"identifier": "grade",
+				"ref": "95625",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "状态标题",
+				"identifier": "statusTitle",
+				"ref": "95626",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "状态标题背景颜色",
+				"identifier": "statusTitleBgColor",
+				"ref": "95627",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "状态描述",
+				"identifier": "statusDesc",
+				"ref": "95628",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "状态描述颜色",
+				"identifier": "statusDescColor",
+				"ref": "95629",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "背景图片",
+				"identifier": "icon",
+				"ref": "95630",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "链接地址",
+				"identifier": "url",
+				"ref": "95631",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "套餐，可选",
+				"identifier": "strategyInfo",
+				"ref": "95632",
+				"desc": "",
+				"dataType": {
+					"type": "struct",
+					"specs": [
+						{
+							"name": "套餐等级,只有varType为imouProtect有效，可选",
+							"identifier": "grade",
+							"ref": "95661",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						},
+						{
+							"name": "状态标题，Activated激活，Expired过期,Deactivated未激活，可选",
+							"identifier": "statusTitle",
+							"ref": "95662",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						},
+						{
+							"name": "状态标题背景颜色，可选",
+							"identifier": "statusTitleBgColor",
+							"ref": "95663",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						},
+						{
+							"name": "状态描述 ：Expires on 2020-03-01,立即续费，您有一个免费套餐待领取，可选",
+							"identifier": "statusDesc",
+							"ref": "95664",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						},
+						{
+							"name": "状态描述颜色，可选",
+							"identifier": "statusDescColor",
+							"ref": "95665",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						},
+						{
+							"name": "背景图片，可选",
+							"identifier": "icon",
+							"ref": "95666",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						},
+						{
+							"name": "链接地址，可选",
+							"identifier": "url",
+							"ref": "95667",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						},
+						{
+							"name": "权益，可选",
+							"identifier": "rightsInfo",
+							"ref": "95668",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "faq地址，可选",
+				"identifier": "faqUrl",
+				"ref": "95633",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "开关地址，套餐有效时返回，可选",
+				"identifier": "settingUrl",
+				"ref": "95634",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "免费状态是否显示 true /false freeInfo 在 true时返回，可选",
+				"identifier": "freeFlag",
+				"ref": "95635",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "imou protect 重构版本 免费弹窗 true /false，可选",
+				"identifier": "freePopFlag",
+				"ref": "95636",
+				"desc": "",
+				"dataType": {
+					"type": "text",
+					"specs": {}
+				}
+			},
+			{
+				"name": "免费信息",
+				"identifier": "freeInfo",
+				"ref": "95637",
+				"desc": "",
+				"dataType": {
+					"type": "struct",
+					"specs": [
+						{
+							"name": "免费图标，可选",
+							"identifier": "freeIcon",
+							"ref": "95669",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						},
+						{
+							"name": "权益信息",
+							"identifier": "rightsInfo",
+							"ref": "95670",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}
+					]
+				}
+			}
+		]
+	}, {
+		"identifier": "CloudSpaceUploadVideos",
+		"name": "云盘录像收藏",
+		"description": "云盘录像收藏",
+		"route": "CloudSpaceUploadVideos",
+		"desc": "",
+		"ref": "95000",
+		"inputData": [{
+			"name": "标记协议版本",
+			"identifier": "Version",
+			"ref": "95001",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "录像记录",
+			"identifier": "Records",
+			"ref": "95002",
+			"desc": "",
+			"dataType": {
+				"type": "array",
+				"specs": {
+					"size": "100",
+					"item": {
+						"type": "struct",
+						"specs": [{
+							"name": "收藏类型",
+							"identifier": "CollectType",
+							"ref": "95041",
+							"desc": "",
+							"dataType": {
+								"type": "enum",
+								"specs": {
+									"list": [{
+										"value": "1",
+										"desc": "云录像"
+									}, {
+										"value": "2",
+										"desc": "本地录像"
+									}, {
+										"value": "3",
+										"desc": "定时任务录像"
+									}]
+								}
+							}
+						}, {
+							"name": "云录像Id，如果collectType=1，必填",
+							"identifier": "CloudRecordId",
+							"ref": "95042",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "设备本地开始时间，yyyy-MM-dd HH-mm-ss，如果collectType=2，必填",
+							"identifier": "BeginTime",
+							"ref": "95043",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "设备本地结束时间，yyyy-MM-dd HH-mm-ss，如果collectType=2，必填",
+							"identifier": "EndTime",
+							"ref": "95044",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "设备本地录像文件长度，如果collectType=2，必填",
+							"identifier": "FileLength",
+							"ref": "95045",
+							"desc": "",
+							"dataType": {
+								"type": "int",
+								"specs": {
+									"unit": "byte",
+									"range": ["0", "999999"],
+									"step": "1"
+								}
+							}
+						}, {
+							"name": "设备本地录像文件名，如果collectType=2，必填",
+							"identifier": "FileName",
+							"ref": "95046",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像加密摘要，如果collectType=2，必填",
+							"identifier": "EncryptSecret",
+							"ref": "95047",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "多目设备关联key，多目设备本地录像必传",
+							"identifier": "pairKey",
+							"ref": "95048",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "通道号，多目录像收藏需要传递的实际通道号",
+							"identifier": "channelId",
+							"ref": "95049",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "设备号",
+							"identifier": "deviceId",
+							"ref": "95050",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "产品编号",
+							"identifier": "productId",
+							"ref": "95051",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "设备类型；0:IPC;1:智能门锁",
+							"identifier": "extendType",
+							"ref": "95052",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}]
+					}
+				}
+			}
+		}, {
+			"name": "目数",
+			"identifier": "multiView",
+			"ref": "95003",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "绑定信息",
+			"identifier": "bindInfo",
+			"ref": "95004",
+			"desc": "",
+			"dataType": {
+				"type": "struct",
+				"specs": [{
+					"name": "绑定的设备SN",
+					"identifier": "bindDid",
+					"ref": "95053",
+					"desc": "",
+					"dataType": {
+						"type": "text",
+						"specs": {}
+					}
+				}, {
+					"name": "绑定设备对应的通道id",
+					"identifier": "bindCid",
+					"ref": "95054",
+					"desc": "",
+					"dataType": {
+						"type": "text",
+						"specs": {}
+					}
+				}, {
+					"name": "绑定设备的pid",
+					"identifier": "bindPid",
+					"ref": "95055",
+					"desc": "",
+					"dataType": {
+						"type": "text",
+						"specs": {}
+					}
+				}]
+			}
+		}],
+		"outputData": [{
+			"name": "云盘已使用量，错误码为13533时携带",
+			"identifier": "UsedCapacity",
+			"ref": "95021",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "MB",
+					"range": ["0", "999999"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": " 云盘总容量，错误码为13533时携带",
+			"identifier": "TotalCapacity",
+			"ref": "95022",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "MB",
+					"range": ["0", "999999"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "文件信息列表",
+			"identifier": "collectList",
+			"ref": "95023",
+			"desc": "",
+			"dataType": {
+				"type": "array",
+				"specs": {
+					"size": "10",
+					"item": {
+						"type": "struct",
+						"specs": [{
+							"name": "收藏时间",
+							"identifier": "createTime",
+							"ref": "95061",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "云端存储路径",
+							"identifier": "recordPath",
+							"ref": "95062",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "多目设备关联key",
+							"identifier": "pairKey",
+							"ref": "95063",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "加密规则",
+							"identifier": "encryptSecret",
+							"ref": "95064",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "文件名",
+							"identifier": "fileName",
+							"ref": "95065",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "文件大小",
+							"identifier": "fileLength",
+							"ref": "95066",
+							"desc": "",
+							"dataType": {
+								"type": "int",
+								"specs": {
+									"unit": "",
+									"range": ["0", "999999999"],
+									"step": "1"
+								}
+							}
+						}, {
+							"name": "开始时间",
+							"identifier": "beginTime",
+							"ref": "95067",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "结束时间",
+							"identifier": "endTime",
+							"ref": "95068",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "收藏ID",
+							"identifier": "collectId",
+							"ref": "95069",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "云录像id",
+							"identifier": "cloudRecordId",
+							"ref": "95070",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "收藏类型：1-云录像；2-本地录像；3-每日影集 4-每日影集，新的方式； 5 - 我的文件-图片收",
+							"identifier": "collectType",
+							"ref": "95071",
+							"desc": "",
+							"dataType": {
+								"type": "enum",
+								"specs": {
+									"list": [{
+										"value": "1",
+										"desc": "云录像"
+									}, {
+										"value": "2",
+										"desc": "本地录像"
+									}, {
+										"value": "3",
+										"desc": "每日影集"
+									}, {
+										"value": "4",
+										"desc": "每日影集，新的方式"
+									}, {
+										"value": "5",
+										"desc": "我的文件-图片收藏"
+									}, {
+										"value": "6",
+										"desc": "我的文件-录像收藏"
+									}]
+								}
+							}
+						}]
+					}
+				}
+			}
+		}]
+	}, {
+		"outputData": [],
+		"identifier": "CloudSpaceUpdateEncryptSecret",
+		"ref": "95500",
+		"inputData": [{
+			"identifier": "collectId",
+			"ref": "95501",
+			"dataType": {
+				"specs": {
+					"unit": "",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "收藏id",
+			"desc": ""
+		}, {
+			"identifier": "encryptSecret",
+			"ref": "95502",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备密钥（加密处理后的）",
+			"desc": ""
+		}],
+		"name": "更新云盘录像的秘钥摘要",
+		"description": "更新云盘录像的秘钥摘要",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "CloudSpaceRecordFileOperate",
+		"ref": "95100",
+		"inputData": [{
+			"identifier": "Version",
+			"ref": "95101",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "标记协议版本",
+			"desc": ""
+		}, {
+			"identifier": "CollectType",
+			"ref": "95102",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "1",
+						"desc": "云录像"
+					}, {
+						"value": "2",
+						"desc": "本地录像"
+					}, {
+						"value": "3",
+						"desc": "定时任务录像"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "收藏类型",
+			"desc": ""
+		}, {
+			"identifier": "Ids",
+			"ref": "95103",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": {
+							"unit": "",
+							"range": ["0", "999999"],
+							"step": "1"
+						},
+						"type": "int"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "收藏id",
+			"desc": ""
+		}, {
+			"identifier": "OperateType",
+			"ref": "95104",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "重传"
+					}, {
+						"value": "1",
+						"desc": "暂停"
+					}, {
+						"value": "2",
+						"desc": "恢复"
+					}, {
+						"value": "3",
+						"desc": "删除"
+					}, {
+						"value": "4",
+						"desc": "清空"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "操作类型",
+			"desc": ""
+		}, {
+			"name": "删除标识；1: 标识要删除收藏文件； 0：只删除收藏记录（新增）",
+			"identifier": "deleteRecord",
+			"ref": "95105",
+			"desc": "",
+			"dataType": {
+				"type": "enum",
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "标识只删除收藏记录"
+					}, {
+						"value": "1",
+						"desc": "标识需要删除收藏文件"
+					}]
+				}
+			}
+		}],
+		"name": "云盘录像操作",
+		"description": "云盘录像操作",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "type",
+			"ref": "96121",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "乐橙卡"
+					}, {
+						"value": "1",
+						"desc": "其他"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "类型",
+			"desc": ""
+		}],
+		"identifier": "GetSimType",
+		"ref": "96100",
+		"inputData": [{
+			"identifier": "IMSI",
+			"ref": "96101",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "SIM卡标识",
+			"desc": ""
+		}, {
+			"identifier": "ICCID",
+			"ref": "96102",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "ICCID",
+			"desc": ""
+		}, {
+			"identifier": "IMEI",
+			"ref": "96103",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "IMEI",
+			"desc": ""
+		}],
+		"name": "获取卡类型",
+		"description": "获取卡类型",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "Height",
+			"ref": "95921",
+			"dataType": {
+				"specs": {
+					"unit": "px",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "画面高度",
+			"desc": ""
+		}, {
+			"identifier": "Width",
+			"ref": "95922",
+			"dataType": {
+				"specs": {
+					"unit": "px",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "画面宽度",
+			"desc": ""
+		}, {
+			"identifier": "StreamUrl",
+			"ref": "95923",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "拉流地址",
+			"desc": ""
+		}],
+		"identifier": "GetLiveStreamUrl",
+		"ref": "95900",
+		"inputData": [{
+			"identifier": "StreamChannel",
+			"ref": "95901",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "主码流"
+					}, {
+						"value": "1",
+						"desc": "辅码流1"
+					}, {
+						"value": "2",
+						"desc": "辅码流2"
+					}, {
+						"value": "3",
+						"desc": "辅码流3"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "码流通道",
+			"desc": ""
+		}, {
+			"identifier": "StreamType",
+			"ref": "95902",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "全部"
+					}, {
+						"value": "1",
+						"desc": "rtmp"
+					}, {
+						"value": "2",
+						"desc": "rtsp"
+					}, {
+						"value": "3",
+						"desc": "hls"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "直播流类型",
+			"desc": ""
+		}],
+		"name": "开启投屏，获取拉流地址（画中画）",
+		"description": "开启投屏，获取拉流地址（画中画）",
+		"desc": ""
+	}, {
+		"outputData": [],
+		"identifier": "EnableStop",
+		"ref": "94900",
+		"inputData": [{
+			"identifier": "clientLocalTime",
+			"ref": "94901",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "客户端本地时间",
+			"desc": ""
+		}, {
+			"identifier": "type",
+			"ref": "94902",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "警笛"
+					}, {
+						"value": "1",
+						"desc": "白光灯"
+					}, {
+						"value": "2",
+						"desc": "探照灯"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "开关类型",
+			"desc": ""
+		}, {
+			"identifier": "multiChn",
+			"ref": "94903",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "是否为多通道设备",
+			"desc": "是|否"
+		}],
+		"name": "开关关闭（警笛、白光灯、探照灯）",
+		"description": "开关关闭（警笛、白光灯、探照灯）",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "time",
+			"ref": "94821",
+			"dataType": {
+				"specs": {
+					"unit": "s",
+					"range": ["0", "999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "倒计时（可选，有WLV3能力时返回）",
+			"desc": ""
+		}, {
+			"identifier": "clientLocalTime",
+			"ref": "94822",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "客户端本地时间",
+			"desc": ""
+		}],
+		"identifier": "EnableStart",
+		"ref": "94800",
+		"inputData": [{
+			"identifier": "clientLocalTime",
+			"ref": "94801",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "客户端本地时间",
+			"desc": ""
+		}, {
+			"identifier": "type",
+			"ref": "94802",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "警笛"
+					}, {
+						"value": "1",
+						"desc": "白光灯"
+					}, {
+						"value": "2",
+						"desc": "探照灯"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "开关类型",
+			"desc": ""
+		}, {
+			"identifier": "multiChn",
+			"ref": "94803",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "是否为多通道设备",
+			"desc": "是|否"
+		}],
+		"name": "开关开启（警笛、白光灯、探照灯）",
+		"description": "开关开启（警笛、白光灯、探照灯）",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "clientLocalTime",
+			"ref": "96021",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "客户端本地时间",
+			"desc": ""
+		}, {
+			"identifier": "time",
+			"ref": "96022",
+			"dataType": {
+				"specs": {
+					"unit": "s",
+					"range": ["0", "999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "倒计时剩余时间，单位为秒",
+			"desc": ""
+		}, {
+			"identifier": "enable",
+			"ref": "96023",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "开关状态",
+			"desc": "开|关"
+		}],
+		"identifier": "EnableQuery",
+		"ref": "96000",
+		"inputData": [{
+			"identifier": "clientLocalTime",
+			"ref": "96001",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "客户端本地时间",
+			"desc": ""
+		}, {
+			"identifier": "type",
+			"ref": "96002",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "警笛"
+					}, {
+						"value": "1",
+						"desc": "白光灯"
+					}, {
+						"value": "2",
+						"desc": "探照灯"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "开关类型",
+			"desc": ""
+		}, {
+			"identifier": "multiChn",
+			"ref": "96003",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "是否为多通道设备",
+			"desc": "是|否"
+		}],
+		"name": "获取开关状态（警笛、白光灯、探照灯）",
+		"description": "获取开关状态（警笛、白光灯、探照灯）",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "Height",
+			"ref": "91021",
+			"dataType": {
+				"specs": {
+					"unit": "px",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "画面高度",
+			"desc": ""
+		}, {
+			"identifier": "Width",
+			"ref": "91022",
+			"dataType": {
+				"specs": {
+					"unit": "px",
+					"range": ["0", "999999"],
+					"step": "1"
+				},
+				"type": "int"
+			},
+			"name": "画面宽度",
+			"desc": ""
+		}, {
+			"identifier": "StreamUrl",
+			"ref": "91023",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "拉流地址",
+			"desc": ""
+		}],
+		"identifier": "MirrorStart",
+		"ref": "91000",
+		"inputData": [{
+			"identifier": "StreamChannel",
+			"ref": "91001",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "主码流"
+					}, {
+						"value": "1",
+						"desc": "辅码流1"
+					}, {
+						"value": "2",
+						"desc": "辅码流2"
+					}, {
+						"value": "3",
+						"desc": "辅码流3"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "码流通道",
+			"desc": ""
+		}],
+		"name": "开启投屏",
+		"description": "开启投屏",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "token",
+			"ref": "96221",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "抓图标示符",
+			"desc": ""
+		}, {
+			"identifier": "pictureAddr",
+			"ref": "96222",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "授权抓图地址",
+			"desc": ""
+		}],
+		"identifier": "NotifySnapPicture",
+		"ref": "96200",
+		"inputData": [{
+			"identifier": "encrypt",
+			"ref": "96201",
+			"dataType": {
+				"specs": {},
+				"type": "bool"
+			},
+			"name": "加密模式",
+			"desc": "加密|不加密"
+		}, {
+			"identifier": "actionType",
+			"ref": "96202",
+			"dataType": {
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "普通设备抓图"
+					}, {
+						"value": "1",
+						"desc": "通道封面图"
+					}]
+				},
+				"type": "enum"
+			},
+			"name": "类型",
+			"desc": ""
+		}],
+		"name": "抓图",
+		"description": "抓图",
+		"desc": ""
+	}, {
+		"outputData": [{
+			"identifier": "list",
+			"ref": "96321",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": [{
+							"identifier": "refId",
+							"ref": "203561",
+							"dataType": {
+								"specs": {},
+								"type": "text"
+							},
+							"name": "统计的refId",
+							"desc": ""
+						}, {
+							"identifier": "count",
+							"ref": "203562",
+							"dataType": {
+								"specs": {
+									"unit": "",
+									"range": ["0", "999999"],
+									"step": "1"
+								},
+								"type": "int"
+							},
+							"name": "数量",
+							"desc": ""
+						}],
+						"type": "struct"
+					},
+					"size": "100"
+				},
+				"type": "array"
+			},
+			"name": "结果",
+			"desc": ""
+		}],
+		"identifier": "GetOpCountByTime",
+		"ref": "96300",
+		"inputData": [{
+			"identifier": "refIds",
+			"ref": "96301",
+			"dataType": {
+				"specs": {
+					"item": {
+						"specs": {},
+						"type": "text"
+					},
+					"size": "10"
+				},
+				"type": "array"
+			},
+			"name": "refId数组",
+			"desc": ""
+		}, {
+			"identifier": "pid",
+			"ref": "96302",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "产品编号",
+			"desc": ""
+		}, {
+			"identifier": "did",
+			"ref": "96303",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "设备序列号",
+			"desc": ""
+		}, {
+			"identifier": "startTime",
+			"ref": "96304",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "开始时间,(设备本地时间，单位秒，yyyyMMddhhmmss)",
+			"desc": ""
+		}, {
+			"identifier": "endTime",
+			"ref": "96305",
+			"dataType": {
+				"specs": {},
+				"type": "text"
+			},
+			"name": "结束时间，(设备本地时间，单位秒，yyyyMMddhhmmss)",
+			"desc": ""
+		}],
+		"name": "根据时间获取操作次数",
+		"description": "根据时间获取操作次数",
+		"desc": ""
+	},{
+		"identifier": "cm_getTalkTransferStreamUrl",
+		"name": "获取语音对讲转发地址",
+		"description": "获取语音对讲转发地址，拉流协议优化",
+		"desc": "",
+		"ref": "96400",
+		"inputData": [{
+			"name": "是否需要辅助帧，true：表示需要辅助帧，false：表示不需要辅助帧",
+			"identifier": "assistStream",
+			"ref": "96401",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "音频类型",
+			"identifier": "audioType",
+			"ref": "96402",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "对讲链路类型，eg：first、second",
+			"identifier": "design",
+			"ref": "96403",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "加密类型，eg：3",
+			"identifier": "encrypt",
+			"ref": "96404",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "拉流协议类型，eg：RTSV1",
+			"identifier": "type",
+			"ref": "96405",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "普通对讲与呼叫对讲类型区分",
+			"identifier": "talkType",
+			"ref": "96406",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "设备级对讲与通道级对讲类型区分，eg：device",
+			"identifier": "deviceType",
+			"ref": "96407",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "码流类型",
+			"identifier": "streamId",
+			"ref": "96408",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "开放平台拉流账号的开发者id",
+			"identifier": "openId",
+			"ref": "96409",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "开放平台流量统计的子账号",
+			"identifier": "subUid",
+			"ref": "96410",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic协议；0或者不传表示不支持quic，1表示支持quic",
+			"identifier": "quic",
+			"ref": "96411",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		},{
+			"name": "指定设备的序列号",
+			"identifier": "bindDid",
+			"ref": "96412",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "指定设备的pid",
+			"identifier": "bindPid",
+			"ref": "96413",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "指定设备的通道号",
+			"identifier": "bindCid",
+			"ref": "96414",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"outputData": [{
+			"name": "外网非tls拉流地址",
+			"identifier": "resource",
+			"ref": "96421",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "内网非tls拉流地址",
+			"identifier": "internalResource",
+			"ref": "96422",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "外网tls拉流地址",
+			"identifier": "tlsResource",
+			"ref": "96423",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "mts区域id",
+			"identifier": "region",
+			"ref": "96424",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic拉流外网地址",
+			"identifier": "quicResource",
+			"ref": "96425",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic拉流内网地址",
+			"identifier": "quicInternalResource",
+			"ref": "96426",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的TCP的拉流地址",
+			"identifier": "ipv6Resource",
+			"ref": "96427",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的TLS的拉流地址",
+			"identifier": "ipv6TlsResource",
+			"ref": "96428",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的QUIC的拉流地址",
+			"identifier": "ipv6QuicResource",
+			"ref": "96429",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}]
+	},{
+		"identifier": "cm_getRealTransferStreamUrl",
+		"name": "获取实时流转发地址",
+		"description": "获取实时流转发地址，拉流协议优化",
+		"desc": "",
+		"ref": "96500",
+		"inputData": [{
+			"name": "是否需要辅助帧，true：表示需要辅助帧，false：表示不需要辅助帧",
+			"identifier": "assistStream",
+			"ref": "96501",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "音频类型",
+			"identifier": "audioType",
+			"ref": "96502",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "对讲链路类型，eg：first、second",
+			"identifier": "design",
+			"ref": "96503",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "加密类型，eg：3",
+			"identifier": "encrypt",
+			"ref": "96504",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "分辨率档位",
+			"identifier": "imageSize",
+			"ref": "96505",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "用户",
+			"identifier": "owner",
+			"ref": "96506",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "用户类型，eg：base",
+			"identifier": "ownerType",
+			"ref": "96507",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "是否跳过回环认证：true-跳过, false-不跳过",
+			"identifier": "skipAuth",
+			"ref": "96508",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "码流类型",
+			"identifier": "streamId",
+			"ref": "96509",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "是否限流",
+			"identifier": "timeLimit",
+			"ref": "96510",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "拉流协议类型，eg：RTSV1",
+			"identifier": "type",
+			"ref": "96511",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "限制并发路数",
+			"identifier": "videoLimit",
+			"ref": "96512",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "窗口号",
+			"identifier": "windowNum",
+			"ref": "96513",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "是否支持私有协议",
+			"identifier": "isSupportPrivateStream",
+			"ref": "96514",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "开放平台拉流账号的开发者id",
+			"identifier": "openId",
+			"ref": "96515",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "开放平台流量统计的子账号",
+			"identifier": "subUid",
+			"ref": "96516",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic协议；0或者不传表示不支持quic，1表示支持quic",
+			"identifier": "quic",
+			"ref": "96517",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "指定设备的序列号",
+			"identifier": "bindDid",
+			"ref": "96518",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "指定设备的pid",
+			"identifier": "bindPid",
+			"ref": "96519",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "指定设备的通道号",
+			"identifier": "bindCid",
+			"ref": "96520",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"outputData": [{
+			"name": "外网非tls拉流地址",
+			"identifier": "resource",
+			"ref": "96521",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "内网非tls拉流地址",
+			"identifier": "internalResource",
+			"ref": "96522",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "外网tls拉流地址",
+			"identifier": "tlsResource",
+			"ref": "96523",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "mts区域id",
+			"identifier": "region",
+			"ref": "96524",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic拉流外网地址",
+			"identifier": "quicResource",
+			"ref": "96525",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic拉流内网地址",
+			"identifier": "quicInternalResource",
+			"ref": "96526",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的TCP的拉流地址",
+			"identifier": "ipv6Resource",
+			"ref": "96527",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的TLS的拉流地址",
+			"identifier": "ipv6TlsResource",
+			"ref": "96528",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的QUIC的拉流地址",
+			"identifier": "ipv6QuicResource",
+			"ref": "96529",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}]
+	},{
+		"identifier": "cm_getPlaybackTransferStreamUrlByTime",
+		"name": "获取按时间播放本地录像的转发地址",
+		"description": "获取按时间播放本地录像的转发地址，拉流协议优化",
+		"desc": "",
+		"ref": "96600",
+		"inputData": [{
+			"name": "码流类型，eg：0",
+			"identifier": "streamId",
+			"ref": "96601",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "录像开始时间",
+			"identifier": "startTime",
+			"ref": "96602",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "录像结束时间",
+			"identifier": "endTime",
+			"ref": "96603",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "加密类型，eg：3",
+			"identifier": "encrypt",
+			"ref": "96604",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "协议类型，eg：PBSV1",
+			"identifier": "type",
+			"ref": "96605",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "开放平台拉流账号的开发者id",
+			"identifier": "openId",
+			"ref": "96606",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "开放平台流量统计的子账号",
+			"identifier": "subUid",
+			"ref": "96607",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic协议；0或者不传表示不支持quic，1表示支持quic",
+			"identifier": "quic",
+			"ref": "96608",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		},{
+			"name": "文件类型；1或不传表示视频流，2表示关键I帧流，3表示图片JPEG流",
+			"identifier": "fileType",
+			"ref": "96609",
+			"desc": "",
+			"dataType": {
+				"type": "enum",
+				"specs": {
+					"list": [{
+						"value": "1",
+						"desc": "视频"
+					}, {
+						"value": "2",
+						"desc": "图片"
+					}, {
+						"value": "3",
+						"desc": "图片JPEG流(封装dhav头尾)"
+					}]
+				}
+			}
+		}, {
+			"name": "指定设备的序列号",
+			"identifier": "bindDid",
+			"ref": "96610",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "指定设备的pid",
+			"identifier": "bindPid",
+			"ref": "96611",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "指定设备的通道号",
+			"identifier": "bindCid",
+			"ref": "96612",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"outputData": [{
+			"name": "外网非tls拉流地址",
+			"identifier": "resource",
+			"ref": "96621",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "内网非tls拉流地址",
+			"identifier": "internalResource",
+			"ref": "96622",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "外网tls拉流地址",
+			"identifier": "tlsResource",
+			"ref": "96623",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "mts区域id",
+			"identifier": "region",
+			"ref": "96624",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic拉流外网地址",
+			"identifier": "quicResource",
+			"ref": "96625",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic拉流内网地址",
+			"identifier": "quicInternalResource",
+			"ref": "96626",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的TCP的拉流地址",
+			"identifier": "ipv6Resource",
+			"ref": "96627",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的TLS的拉流地址",
+			"identifier": "ipv6TlsResource",
+			"ref": "96628",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的QUIC的拉流地址",
+			"identifier": "ipv6QuicResource",
+			"ref": "96629",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}]
+	},{
+		"identifier": "cm_getPlaybackTransferStreamUrlByFile",
+		"name": "获取按文件播放本地录像的转发地址",
+		"description": "获取按文件播放本地录像的转发地址，拉流协议优化",
+		"route": "GetPlaybackTransferStreamUrlByFile",
+		"desc": "",
+		"ref": "96700",
+		"inputData": [{
+			"name": "本地录像文件名",
+			"identifier": "recordId",
+			"ref": "96701",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "加密类型，eg：3",
+			"identifier": "encrypt",
+			"ref": "96702",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "标记是否做30分钟限流，eg：true",
+			"identifier": "flowTimeLimit",
+			"ref": "96703",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "协议类型，eg：PBSV1",
+			"identifier": "type",
+			"ref": "96704",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "流模式，eg：0",
+			"identifier": "flowMode",
+			"ref": "96705",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "开放平台拉流账号的开发者id",
+			"identifier": "openId",
+			"ref": "96706",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "开放平台流量统计的子账号",
+			"identifier": "subUid",
+			"ref": "96707",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic协议；0或者不传表示不支持quic，1表示支持quic",
+			"identifier": "quic",
+			"ref": "96708",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "文件类型；1或不传表示视频流，2表示关键I帧流，3表示图片JPEG流",
+			"identifier": "fileType",
+			"ref": "96709",
+			"desc": "",
+			"dataType": {
+				"type": "enum",
+				"specs": {
+					"list": [{
+						"value": "1",
+						"desc": "视频"
+					}, {
+						"value": "2",
+						"desc": "图片"
+					}, {
+						"value": "3",
+						"desc": "图片JPEG流(封装dhav头尾)"
+					}]
+				}
+			}
+		}, {
+			"name": "指定设备的序列号",
+			"identifier": "bindDid",
+			"ref": "96710",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "指定设备的pid",
+			"identifier": "bindPid",
+			"ref": "96711",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "指定设备的通道号",
+			"identifier": "bindCid",
+			"ref": "96712",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"outputData": [{
+			"name": "外网非tls拉流地址",
+			"identifier": "resource",
+			"ref": "96721",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "内网非tls拉流地址",
+			"identifier": "internalResource",
+			"ref": "96722",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "外网tls拉流地址",
+			"identifier": "tlsResource",
+			"ref": "96723",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "mts区域id",
+			"identifier": "region",
+			"ref": "96724",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic拉流外网地址",
+			"identifier": "quicResource",
+			"ref": "96725",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "quic拉流内网地址",
+			"identifier": "quicInternalResource",
+			"ref": "96726",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的TCP的拉流地址",
+			"identifier": "ipv6Resource",
+			"ref": "96727",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的TLS的拉流地址",
+			"identifier": "ipv6TlsResource",
+			"ref": "96728",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "ipv6的QUIC的拉流地址",
+			"identifier": "ipv6QuicResource",
+			"ref": "96729",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}]
+	},{
+		"identifier": "cm_queryCloudRecordCount",
+		"name": "获取设备某天的云录像总数",
+		"description": "获取设备某天的云录像总数",
+		"desc": "",
+		"ref": "96800",
+		"inputData": [{
+			"name": "起始日期，20221207T131241",
+			"identifier": "localBeginTime",
+			"ref": "96801",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "终止日期，20221207T131241",
+			"identifier": "localEndTime",
+			"ref": "96802",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "录像类型",
+			"identifier": "type",
+			"ref": "96803",
+			"desc": "",
+			"dataType": {
+				"type": "enum",
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "all"
+					}, {
+						"value": "2",
+						"desc": "留言"
+					}, {
+						"value": "1000",
+						"desc": "告警"
+					}, {
+						"value": "1001",
+						"desc": "人头检测录像"
+					}, {
+						"value": "1006",
+						"desc": "啼哭"
+					}, {
+						"value": "2000",
+						"desc": "平台定时录像"
+					}, {
+						"value": "5000",
+						"desc": "平台聚合快录像"
+					}]
+				}
+			}
+		}, {
+			"name": "目数",
+			"identifier": "multiView",
+			"ref": "96804",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}],
+		"outputData": [{
+			"name": "云录像总数",
+			"identifier": "count",
+			"ref": "96821",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["0", "10000"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "列表",
+			"identifier": "items",
+			"ref": "96822",
+			"desc": "",
+			"dataType": {
+				"type": "array",
+				"specs": {
+					"size": "10",
+					"item": {
+						"type": "struct",
+						"specs": [{
+							"name": "显示的文案，主标题",
+							"identifier": "title",
+							"ref": "96861",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "显示的文案，副标题",
+							"identifier": "subTitle",
+							"ref": "96862",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "显示的图片",
+							"identifier": "image",
+							"ref": "96863",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "云存储类型，supportSmartStorage/notSupportSmartStorage",
+							"identifier": "type",
+							"ref": "96864",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}]
+					}
+				}
+			}
+		}]
+	},{
+		"identifier": "cm_getRecordMultiByAlarmId",
+		"name": "按消息查询云录像",
+		"description": "按消息查询云录像，支持多目相机的录像查询",
+		"route": "GetRecordMultiByAlarmId",
+		"desc": "",
+		"encrypt": "",
+		"ref": "96900",
+		"inputData": [{
+			"name": "报警消息对应的token，非报警消息记录的id",
+			"identifier": "alarmId",
+			"ref": "96901",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "录像类型，为空表示不区分录像类型",
+			"identifier": "type",
+			"ref": "96902",
+			"desc": "",
+			"dataType": {
+				"type": "enum",
+				"specs": {
+					"list": [{
+						"value": "0",
+						"desc": "all"
+					}, {
+						"value": "2",
+						"desc": "留言"
+					}, {
+						"value": "1000",
+						"desc": "告警"
+					}, {
+						"value": "1001",
+						"desc": "人头检测录像"
+					}, {
+						"value": "1006",
+						"desc": "啼哭"
+					}, {
+						"value": "2000",
+						"desc": "平台定时录像"
+					}, {
+						"value": "5001",
+						"desc": "平台聚合快播录像"
+					}]
+				}
+			}
+		}, {
+			"name": "多目设备目数",
+			"identifier": "multiView",
+			"ref": "96903",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "标识文件类型；record：云录像; picture：云图片；all：全部；默认为record",
+			"identifier": "fileType",
+			"ref": "96904",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"outputData": [{
+			"name": "录像集合",
+			"identifier": "Records",
+			"ref": "96921",
+			"desc": "",
+			"dataType": {
+				"type": "array",
+				"specs": {
+					"size": "15",
+					"item": {
+						"type": "struct",
+						"specs": [{
+							"name": "录像ID",
+							"identifier": "RecordId",
+							"ref": "96961",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "设备本地开始时间,yyyyMMddTHHmmss格式",
+							"identifier": "LocalBeginTime",
+							"ref": "96962",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "设备本地结束时间,yyyyMMddTHHmmss格式",
+							"identifier": "LocalEndTime",
+							"ref": "96963",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像文件路径",
+							"identifier": "recordPath",
+							"ref": "96964",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "缩略图URL",
+							"identifier": "ThumbUrl",
+							"ref": "96965",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "云录像的大小，单位byte",
+							"identifier": "size",
+							"ref": "96966",
+							"desc": "",
+							"dataType": {
+								"type": "int",
+								"specs": {
+									"unit": "",
+									"range": ["1", "999999"],
+									"step": "1"
+								}
+							}
+						}, {
+							"name": "加密模式, 0表示默认加密模式, 1表示用户加密模式",
+							"identifier": "EncryptModel",
+							"ref": "96967",
+							"desc": "",
+							"dataType": {
+								"type": "enum",
+								"specs": {
+									"list": [{
+										"value": "0",
+										"desc": "默认加密模式"
+									}, {
+										"value": "1",
+										"desc": "用户加密模式"
+									}]
+								}
+							}
+						}, {
+							"name": "加密秘钥",
+							"identifier": "EncryptSecret",
+							"ref": "96968",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "区域唯一标识id",
+							"identifier": "Region",
+							"ref": "96969",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "云录像套餐类型，具体由增值提供",
+							"identifier": "strategyType",
+							"ref": "96970",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "通道id",
+							"identifier": "channelId",
+							"ref": "96971",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像标签，采用bit位表示，最低1bit位表示收藏标记，0-未收藏、1-收藏",
+							"identifier": "flags",
+							"ref": "96972",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "多目的录像配对关键字",
+							"identifier": "pairKey",
+							"ref": "96973",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}]
+					}
+				}
+			}
+		}]
+	},{
+		"identifier": "cm_queryCloudRecordsByIds",
+		"name": "基于id列表查询云录像详情",
+		"description": "基于id列表查询云录像详情",
+		"route": "/pcs/v1/cloud.record.QueryCloudRecordsByIds",
+		"desc": "",
+		"encrypt": "",
+		"ref": "97000",
+		"inputData": [{
+			"name": "查询录像详情的id列表，整型id列表",
+			"identifier": "recordIds",
+			"ref": "97001",
+			"desc": "",
+			"dataType": {
+				"type": "array",
+				"specs": {
+					"size": "100",
+					"item": {
+						"type": "int",
+						"specs": {
+							"unit": "",
+							"range": ["1", "999999999"],
+							"step": "1"
+						}
+					}
+				}
+			}
+		}, {
+			"name": "查询录像的条数",
+			"identifier": "count",
+			"ref": "97002",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "9999"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "区分多目，多目的目数",
+			"identifier": "multiView",
+			"ref": "97003",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "录像检索匹配的开始时间，eg：20230316T000000",
+			"identifier": "localBeginTime",
+			"ref": "97004",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "标识文件类型；record：云录像; picture：云图片；all：全部；默认为record",
+			"identifier": "fileType",
+			"ref": "97005",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"outputData": [{
+			"name": "录像列表",
+			"identifier": "Records",
+			"ref": "97021",
+			"desc": "",
+			"dataType": {
+				"type": "array",
+				"specs": {
+					"size": "10",
+					"item": {
+						"type": "struct",
+						"specs": [{
+							"name": "录像id",
+							"identifier": "RecordId",
+							"ref": "97061",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "设备本地开始时间",
+							"identifier": "LocalBeginTime",
+							"ref": "97062",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像设备结束时间",
+							"identifier": "LocalEndTime",
+							"ref": "97063",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像资源相对路径",
+							"identifier": "recordPath",
+							"ref": "97064",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "缩略图",
+							"identifier": "ThumbUrl",
+							"ref": "97065",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "云录像的大小，单位byte",
+							"identifier": "size",
+							"ref": "97066",
+							"desc": "",
+							"dataType": {
+								"type": "int",
+								"specs": {
+									"unit": "byte",
+									"range": ["1", "999999999"],
+									"step": "1"
+								}
+							}
+						}, {
+							"name": "加密秘钥",
+							"identifier": "EncryptSecret",
+							"ref": "97067",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "区域唯一标识id",
+							"identifier": "Region",
+							"ref": "97068",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "云存储套餐类型",
+							"identifier": "strategyType",
+							"ref": "97069",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "通道号",
+							"identifier": "channelId",
+							"ref": "97070",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像类型，兼容老逻辑",
+							"identifier": "type",
+							"ref": "97071",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像类型",
+							"identifier": "multiType",
+							"ref": "97072",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像过期时间，服务器时间，APP进行过期处理，需要和服务器时间进行校时才行",
+							"identifier": "expireTime",
+							"ref": "97073",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "加密模式",
+							"identifier": "EncryptModel",
+							"ref": "97074",
+							"desc": "",
+							"dataType": {
+								"type": "enum",
+								"specs": {
+									"list": [{
+										"value": "0",
+										"desc": "默认加密模式"
+									}, {
+										"value": "1",
+										"desc": "用户加密模式"
+									}]
+								}
+							}
+						}, {
+							"name": "多目的录像配对关键字",
+							"identifier": "pairKey",
+							"ref": "97075",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "云图片AI标签",
+							"identifier": "typeList",
+							"ref": "97076",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}]
+					}
+				}
+			}
+		}]
+	},{
+		"identifier": "cm_queryCloudRecordsAggregate",
+		"name": "聚合查询云录像列表",
+		"description": "聚合查询云录像列表",
+		"route": "/pcs/v1/cloud.record.QueryCloudRecordsAggregate",
+		"desc": "",
+		"encrypt": "",
+		"ref": "97100",
+		"inputData": [{
+			"name": "页码，第1页查询时，需返回30条详情；第2页查询时，不需要返回30条详情",
+			"identifier": "pagNum",
+			"ref": "97101",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "9999"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "录像检索匹配的开始时间，eg：20230316T000000",
+			"identifier": "LocalBeginTime",
+			"ref": "97102",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "录像检索匹配的结束时间，eg：20230316T235959",
+			"identifier": "LocalEndTime",
+			"ref": "97103",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "可选，缺省1000，最大1000；分页的条数，eg：1000",
+			"identifier": "count",
+			"ref": "97104",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "1000"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "录像检索类型规则，逗号分隔，eg：1001,2001",
+			"identifier": "multiType",
+			"ref": "97105",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "上次查询的时间戳，服务器时间，单位：秒",
+			"identifier": "lastQueryStamp",
+			"ref": "97106",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "999999999"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "排序，正序，逆序，eg：desc 或者  asc；可选，缺省desc",
+			"identifier": "order",
+			"ref": "97107",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}, {
+			"name": "可选，区分多目，多目的目数",
+			"identifier": "multiView",
+			"ref": "97108",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "256"],
+					"step": "1"
+				}
+			}
+		}, {
+			"name": "标识文件类型；record：云录像; picture：云图片；all：全部；默认为record",
+			"identifier": "fileType",
+			"ref": "97109",
+			"desc": "",
+			"dataType": {
+				"type": "text",
+				"specs": {}
+			}
+		}],
+		"outputData": [{
+			"name": "删除录像id列表，可为空",
+			"identifier": "deleteRecordIds",
+			"ref": "97121",
+			"desc": "",
+			"dataType": {
+				"type": "array",
+				"specs": {
+					"size": "100",
+					"item": {
+						"type": "text",
+						"specs": {}
+					}
+				}
+			}
+		}, {
+			"name": "录像列表，补录录像摘要录像信息",
+			"identifier": "replenishRecords",
+			"ref": "97122",
+			"desc": "",
+			"dataType": {
+				"type": "array",
+				"specs": {
+					"size": "10",
+					"item": {
+						"type": "struct",
+						"specs": [{
+							"name": "录像Id",
+							"identifier": "RecordId",
+							"ref": "97162",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像开始时间",
+							"identifier": "LocalBeginTime",
+							"ref": "97163",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像结束时间",
+							"identifier": "LocalEndTime",
+							"ref": "97164",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像过期时间，服务器时间，APP进行过期处理，需要和服务器时间进行校时才行",
+							"identifier": "expireTime",
+							"ref": "97165",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像类型",
+							"identifier": "multiType",
+							"ref": "97166",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}]
+					}
+				}
+			}
+		}, {
+			"name": "录像列表，包括部分详细录像信息、部分摘要录像信息",
+			"identifier": "Records",
+			"ref": "97123",
+			"desc": "",
+			"dataType": {
+				"type": "array",
+				"specs": {
+					"size": "15",
+					"item": {
+						"type": "struct",
+						"specs": [{
+							"name": "录像资源相对路径",
+							"identifier": "recordPath",
+							"ref": "97168",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像资源区域id，用于录像下载授权定位",
+							"identifier": "Region",
+							"ref": "97169",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "封面图资源地址",
+							"identifier": "ThumbUrl",
+							"ref": "97170",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "加密模式",
+							"identifier": "EncryptModel",
+							"ref": "97171",
+							"desc": "",
+							"dataType": {
+								"type": "enum",
+								"specs": {
+									"list": [{
+										"value": "0",
+										"desc": "默认加密模式"
+									}, {
+										"value": "1",
+										"desc": "用户加密模式"
+									}]
+								}
+							}
+						}, {
+							"name": "云录像的大小，单位byte",
+							"identifier": "size",
+							"ref": "97172",
+							"desc": "",
+							"dataType": {
+								"type": "int",
+								"specs": {
+									"unit": "byte",
+									"range": ["1", "999999999"],
+									"step": "1"
+								}
+							}
+						}, {
+							"name": "云存储套餐类型",
+							"identifier": "strategyType",
+							"ref": "97173",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "加密秘钥",
+							"identifier": "EncryptSecret",
+							"ref": "97174",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "多目的录像配对关键字",
+							"identifier": "pairKey",
+							"ref": "97175",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像类型",
+							"identifier": "multiType",
+							"ref": "97176",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像过期时间，服务器时间，APP进行过期处理，需要和服务器时间进行校时才行",
+							"identifier": "expireTime",
+							"ref": "97177",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像开始时间",
+							"identifier": "LocalBeginTime",
+							"ref": "97178",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像结束时间",
+							"identifier": "LocalEndTime",
+							"ref": "97179",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "录像Id",
+							"identifier": "RecordId",
+							"ref": "97180",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "类型，实际该字段在新版本中已经没有用，老版本兼容才涉及",
+							"identifier": "type",
+							"ref": "97181",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "通道号",
+							"identifier": "channelId",
+							"ref": "97182",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}, {
+							"name": "云图片AI标签",
+							"identifier": "typeList",
+							"ref": "97183",
+							"desc": "",
+							"dataType": {
+								"type": "text",
+								"specs": {}
+							}
+						}]
+					}
+				}
+			}
+		}, {
+			"name": "当次查询的时间戳，服务器时间",
+			"identifier": "currentQueryStamp",
+			"ref": "97124",
+			"desc": "",
+			"dataType": {
+				"type": "int",
+				"specs": {
+					"unit": "",
+					"range": ["1", "999999999"],
+					"step": "1"
+				}
+			}
+		}]
+	}
+	],
+	"events": [],
+	"properties": [{
+		"identifier": "SelfAudioCollect",
+		"ref": "80700",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "自定义音视频加密",
+		"description": "自定义音视频加密",
+		"accessMode": "r",
+		"desc": "custom|default"
+	}, {
+		"identifier": "CloudStorage",
+		"ref": "80600",
+		"dataType": {
+			"specs": {
+				"list": [{
+					"value": "0",
+					"desc": "未开通"
+				}, {
+					"value": "1",
+					"desc": "已开通"
+				}, {
+					"value": "2",
+					"desc": "即将过期"
+				}, {
+					"value": "3",
+					"desc": "已过期"
+				}, {
+					"value": "4",
+					"desc": "暂停"
+				}]
+			},
+			"type": "enum"
+		},
+		"name": "云存储状态",
+		"description": "云存储状态",
+		"accessMode": "r",
+		"desc": ""
+	}, {
+		"identifier": "shareCount",
+		"ref": "80500",
+		"dataType": {
+			"specs": {
+				"unit": "",
+				"range": ["0", "1000"],
+				"step": "1"
+			},
+			"type": "int"
+		},
+		"name": "分享个数",
+		"description": "分享个数",
+		"accessMode": "r",
+		"desc": ""
+	}, {
+		"identifier": "AlarmMessageNotice",
+		"ref": "80200",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "报警消息通知",
+		"description": "报警消息通知",
+		"accessMode": "rw",
+		"desc": "开|关"
+	}, {
+		"identifier": "DeviceOfflineNotice",
+		"ref": "80300",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "设备离线通知",
+		"description": "设备离线通知",
+		"accessMode": "rw",
+		"desc": "开|关"
+	}, {
+		"identifier": "AlarmLagerPicNotice",
+		"ref": "80400",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "报警大图推送",
+		"description": "报警大图推送",
+		"accessMode": "rw",
+		"desc": "开|关"
+	}, {
+		"identifier": "cm_downloadSDCardVideo",
+		"ref": "87900",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "云端下载SD卡录像",
+		"description": "云端下载SD卡录像",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_devicePassword",
+		"ref": "87800",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "设备密码",
+		"description": "设备密码功能",
+		"accessMode": "rw",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_deviceTag",
+		"ref": "87700",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "设备标签",
+		"description": "设备标签功能",
+		"accessMode": "rw",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "OpenDoorNoticeSwitch",
+		"ref": "87600",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "推送开门消息开关",
+		"description": "推送开门消息开关",
+		"accessMode": "rw",
+		"desc": "开|关"
+	}, {
+		"identifier": "P_DHP2P",
+		"ref": "87300",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持大华P2P服务",
+		"description": "支持大华P2P服务",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "TemperatureAlarmSwitch",
+		"ref": "80800",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "温度报警开关",
+		"description": "温度报警开关",
+		"accessMode": "rw",
+		"desc": "开|关"
+	}, {
+		"identifier": "WeChat_Alarm",
+		"ref": "82100",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "微信告警",
+		"description": "微信告警",
+		"accessMode": "rw",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "SupportLiveShare",
+		"ref": "82400",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持直播分享",
+		"description": "是否支持直播分享,easy4ip独有",
+		"accessMode": "rw",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "SDplayByTime",
+		"ref": "82200",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "SD卡按时间播放",
+		"description": "SD卡按时间播放",
+		"accessMode": "rw",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_VCTalkType",
+		"ref": "82000",
+		"dataType": {
+			"specs": {},
+			"type": "text"
+		},
+		"name": "变声对讲类型",
+		"description": "变声对讲类型",
+		"accessMode": "rw",
+		"desc": ""
+	}, {
+		"identifier": "P_VCTalk",
+		"ref": "81900",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "变声对讲",
+		"description": "变声对讲",
+		"accessMode": "rw",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "PipSupport",
+		"ref": "82300",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "PIP功能",
+		"description": "PIP功能（android vivo手机暂不支持）",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "AudioTalk",
+		"ref": "82500",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "设备级语音对讲",
+		"description": "设备级语音对讲",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "CustomCleaningScheme",
+		"ref": "81100",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "定制清扫方案",
+		"description": "定制清扫方案",
+		"accessMode": "rw",
+		"desc": "开|关"
+	}, {
+		"identifier": "FlowSurplus",
+		"ref": "81000",
+		"dataType": {
+			"specs": {
+				"list": [{
+					"value": "0",
+					"desc": "流量充足"
+				}, {
+					"value": "1",
+					"desc": "流量低"
+				}, {
+					"value": "2",
+					"desc": "流量耗尽"
+				}]
+			},
+			"type": "enum"
+		},
+		"name": "流量剩余状态",
+		"description": "流量剩余状态",
+		"accessMode": "r",
+		"desc": ""
+	}, {
+		"identifier": "HumidityAlarmSwitch",
+		"ref": "80900",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "湿度报警开关",
+		"description": "湿度报警开关",
+		"accessMode": "rw",
+		"desc": "开|关"
+	}, {
+		"identifier": "P_VideoMotionSMD",
+		"ref": "82900",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "动检SMD能力",
+		"description": "动检SMD能力",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_StrangerAlarm",
+		"ref": "83100",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "平台AI人脸识",
+		"description": "平台AI人脸识",
+		"accessMode": "r",
+		"desc": "开|关"
+	}, {
+		"identifier": "P_RQD",
+		"ref": "82800",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "存储卡查询倒序",
+		"description": "存储卡查询倒序",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_DLS",
+		"ref": "83300",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "离线日志直存",
+		"description": "离线日志直存",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_AlarmPIRV2",
+		"ref": "83500",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "有PIR能力，有PIR使能开关，无PIR检测区域设置",
+		"description": "有PIR能力，有PIR使能开关，无PIR检测区域设置",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_AlarmPIR",
+		"ref": "83400",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "有PIR能力，无PIR使能开关，无PIR检测区域设置",
+		"description": "有PIR能力，无PIR使能开关，无PIR检测区域设置",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_AIAlarm",
+		"ref": "83000",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "平台AI智能检测",
+		"description": "平台AI智能检测",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "PlaybackByFilename",
+		"ref": "82700",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "设备支持根据文件名回放",
+		"description": "设备支持根据文件名回放",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "CloudStorageType",
+		"ref": "83200",
+		"dataType": {
+			"specs": {
+				"list": [{
+					"value": "0",
+					"desc": "免费"
+				}, {
+					"value": "1",
+					"desc": "收费"
+				}]
+			},
+			"type": "enum"
+		},
+		"name": "云存储类型",
+		"description": "云存储类型",
+		"accessMode": "r",
+		"desc": ""
+	}, {
+		"identifier": "AudioTalkV1",
+		"ref": "82600",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "通道级语音对讲",
+		"description": "通道级语音对讲",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_UHD",
+		"ref": "83900",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "超清4k(ultra HD)",
+		"description": "超清4k(ultra HD)",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_TSVO",
+		"ref": "84500",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "私有协议独享链路",
+		"description": "私有协议独享链路",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_TSV2",
+		"ref": "84400",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "语音对讲流支持私有协议拉流，且默认监听端口为554, 支持动态修改",
+		"description": "语音对讲流支持私有协议拉流，且默认监听端口为554, 支持动态修改",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_TSV1",
+		"ref": "84300",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "语音对讲流支持私有协议拉流，且监听端口为8086",
+		"description": "语音对讲流支持私有协议拉流，且监听端口为8086",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_TCM",
+		"ref": "84000",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持3码合一",
+		"description": "支持3码合一",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_RTSV2",
+		"ref": "84200",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "实时流支持私有协议拉流，且默认监听端口为554, 支持动态修改",
+		"description": "实时流支持私有协议拉流，且默认监听端口为554, 支持动态修改",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_RTSV1",
+		"ref": "84100",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "实时流支持私有协议拉流，且监听端口为8086",
+		"description": "实时流支持私有协议拉流，且监听端口为8086",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_HUBAlarmPIRV2",
+		"ref": "83800",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "HUB设备区分有PIR能力，有PIR使能开关，无PIR检测区域设置",
+		"description": "HUB设备区分有PIR能力，有PIR使能开关，无PIR检测区域设置",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_AlarmPIRV4",
+		"ref": "83700",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "有PIR能力，无PIR使能开关，有PIR检测区域设置，无报警消息",
+		"description": "有PIR能力，无PIR使能开关，有PIR检测区域设置，无报警消息",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_AlarmPIRV3",
+		"ref": "83600",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "有PIR能力，有PIR使能开关，有PIR检测区域设置",
+		"description": "有PIR能力，有PIR使能开关，有PIR检测区域设置",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_WLV2",
+		"ref": "84800",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "白光灯，不支持亮度调节能力",
+		"description": "白光灯，不支持亮度调节能力",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_TSV",
+		"ref": "85000",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "私有协议对讲（平台能力）",
+		"description": "私有协议对讲（平台能力）",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_smartTrigger",
+		"ref": "85300",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "筛选智能模块设备-触发条件",
+		"description": "筛选智能模块设备-触发条件（平台能力）",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_smartAction",
+		"ref": "85400",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "筛选智能模块设备-动作",
+		"description": "筛选智能模块设备-动作（平台能力）",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_phoneAlarmStrategy",
+		"ref": "85500",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "云平台电话报警业务能力",
+		"description": "云平台电话报警业务能力",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_PBSV2",
+		"ref": "84600",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "回放流支持私有协议拉流，且默认监听端口为554, 支持动态修改",
+		"description": "回放流支持私有协议拉流，且默认监听端口为554, 支持动态修改",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_PBSV1",
+		"ref": "84700",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "回放流支持私有协议拉流，且监听端口为8086",
+		"description": "回放流支持私有协议拉流，且监听端口为8086",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_hardwareDecode",
+		"ref": "85200",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "Android硬解码（平台能力）",
+		"description": "Android硬解码（平台能力）",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_hardwareAec",
+		"ref": "85100",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "硬件回音消除（平台能力）",
+		"description": "硬件回音消除（平台能力）",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_CallByRtsp",
+		"ref": "84900",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "接听、挂断可直接基于RTSP协议实现",
+		"description": "接听、挂断可直接基于RTSP协议实现",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "TamperAlarmNotice",
+		"ref": "86300",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "防拆报警通知",
+		"description": "防拆报警通知",
+		"accessMode": "rw",
+		"desc": "开|关"
+	}, {
+		"identifier": "P_HSEncrypt",
+		"ref": "85600",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持华视微讯码流加密",
+		"description": "支持华视微讯码流加密",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_devState",
+		"ref": "85900",
+		"dataType": {
+			"specs": {
+				"list": [{
+					"value": "0",
+					"desc": "在线"
+				}, {
+					"value": "1",
+					"desc": "省电"
+				}, {
+					"value": "2",
+					"desc": "超级省电"
+				}, {
+					"value": "3",
+					"desc": "休眠"
+				}, {
+					"value": "4",
+					"desc": "离线"
+				}, {
+					"value": "5",
+					"desc": "升级中"
+				}]
+			},
+			"type": "enum"
+		},
+		"name": "设备状态（可休眠类设备）",
+		"description": "设备状态（可休眠类设备）",
+		"accessMode": "r",
+		"desc": ""
+	}, {
+		"identifier": "P_ChnLocalStorage",
+		"ref": "86600",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持通道本地存储",
+		"description": "支持通道本地存储",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_channelState",
+		"ref": "86000",
+		"dataType": {
+			"specs": {
+				"list": [{
+					"value": "0",
+					"desc": "在线"
+				}, {
+					"value": "1",
+					"desc": "离线"
+				}, {
+					"value": "5",
+					"desc": "升级中"
+				}]
+			},
+			"type": "enum"
+		},
+		"name": "通道状态",
+		"description": "通道状态",
+		"accessMode": "r",
+		"desc": ""
+	}, {
+		"identifier": "HumanStrategyStatus",
+		"ref": "86900",
+		"dataType": {
+			"specs": {
+				"list": [{
+					"value": "0",
+					"desc": "未开通套餐"
+				}, {
+					"value": "1",
+					"desc": "开通且没有过期"
+				}, {
+					"value": "2",
+					"desc": "套餐过期"
+				}]
+			},
+			"type": "enum"
+		},
+		"name": "AI人形套餐状态",
+		"description": "AI人形套餐状态",
+		"accessMode": "r",
+		"desc": ""
+	}, {
+		"identifier": "DeviceCallNotice",
+		"ref": "85700",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "设备呼叫通知",
+		"description": "设备呼叫通知",
+		"accessMode": "rw",
+		"desc": "开|关"
+	}, {
+		"identifier": "cloudRecordSwitch",
+		"ref": "86100",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "云存储开关状态",
+		"description": "云存储开关状态",
+		"accessMode": "rw",
+		"desc": "开|关"
+	}, {
+		"identifier": "P_SR",
+		"ref": "86400",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "设备支持语音识别",
+		"description": "设备支持语音识别",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_SIMV1",
+		"ref": "86800",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "SIM卡ICCID和IMEI功能",
+		"description": "SIM卡ICCID和IMEI功能",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_SIMCA",
+		"ref": "86700",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "SIM卡相关",
+		"description": "SIM卡相关",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_HumanGif",
+		"ref": "86500",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "人形检测GIF增值服务配置",
+		"description": "人形检测GIF增值服务配置",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_EventFilter",
+		"ref": "87100",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "消息过滤能力",
+		"description": "设备详情-消息间隔",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_CLOUDAIV1",
+		"ref": "87000",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持V1版本云端AI",
+		"description": "支持动检+普通人形操作((AlarmMD or MobileDetect) and HeaderDe",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "P_CallAbility",
+		"ref": "87200",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持呼叫能力",
+		"description": "支持呼叫能力",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "vas_AIRemindSwitch",
+		"ref": "87500",
+		"dataType": {
+			"specs": {
+				"list": [{
+					"value": "0",
+					"desc": "关"
+				}, {
+					"value": "1",
+					"desc": "开"
+				}]
+			},
+			"type": "enum"
+		},
+		"name": "AI提醒开关",
+		"description": "AI提醒开关",
+		"accessMode": "rw",
+		"desc": ""
+	}, {
+		"identifier": "P_P2P",
+		"ref": "87400",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持P2P拉流",
+		"description": "支持P2P拉流",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "cm_amazonAccessSecondStream",
+		"ref": "88100",
+		"defaultData": "支持",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持亚马逊三方接入辅码流",
+		"description": "支持亚马逊三方接入辅码流",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "cm_amazonAccessMainStream",
+		"ref": "88000",
+		"defaultData": "支持",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持亚马逊三方接入主码流",
+		"description": "支持亚马逊三方接入主码流",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "cm_routerInfoShow",
+		"ref": "88200",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持路由器信息展示",
+		"description": "路由特殊信息展示标识，用于网关类设备在设备信息里展示路由特殊信息，如局域网IP和MAC等",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "cm_vlog",
+		"ref": "88300",
+		"dataType": {
+			"specs": {},
+			"type": "bool"
+		},
+		"name": "支持vlog模式",
+		"description": "支持vlog模式",
+		"accessMode": "r",
+		"desc": "支持|不支持"
+	}, {
+		"identifier": "cm_workm",
+		"name": "工作模式（WORKM）",
+		"description": "工作模式，对应能力集WORKM",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "88400",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	}, {
+		"identifier": "cm_elecInstructions",
+		"name": "支持电子说明书",
+		"description": "用于判断产品在标签页是否展示电子说明书",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "88500",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	}, {
+		"identifier": "cm_ax",
+		"name": "支持安消一体机",
+		"description": "安消一体机，对应能力集（AX）",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "88600",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	}, {
+		"identifier": "cm_ptz",
+		"name": "支持云台及数字变倍操作",
+		"description": "支持云台及数字变倍操作，对应能力集（PTZ）",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "88700",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	}, {
+		"identifier": "cm_pt",
+		"name": "支持云台操作",
+		"description": "支持云台操作，对应能力集（PT）",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "88800",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	}, {
+		"identifier": "cm_imei",
+		"name": "设备IMEI号",
+		"description": "用于NB设备消音功能需要携带的设备IMEI号，由SaaS获取值并写入，app从模型集合从读取使用",
+		"accessMode": "r",
+		"desc": "",
+		"ref": "88900",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_intelligentStorage",
+		"name": "智能云存储",
+		"description": "是否支持智能云存储，通过增值服务判断，用于APP在云录像处根据是否支持智能云存储展示相关横幅",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "89000",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_switchCount",
+		"name": "设备开关数量",
+		"description": "设备开关数量，用于标记设备有多少个开关，当前支持设备：开关、断路器、插座等；pid维度存储",
+		"accessMode": "r",
+		"desc": "",
+		"ref": "89100",
+		"dataType": {
+			"type": "enum",
+			"specs": {
+				"list": [{
+					"value": "1",
+					"desc": "一路"
+				}, {
+					"value": "2",
+					"desc": "二路"
+				}, {
+					"value": "3",
+					"desc": "三路"
+				}]
+			}
+		}
+	},{
+		"identifier": "cm_vendor",
+		"name": "设备归属厂商",
+		"description": "设备厂商归属，用于标识设备归属的厂商，默认乐橙，例如：乐橙、涂鸦、小米等；pid维度存储",
+		"accessMode": "rw",
+		"desc": "",
+		"ref": "89200",
+		"dataType": {
+			"type": "enum",
+			"specs": {
+				"list": [{
+					"value": "0",
+					"desc": "乐橙"
+				}, {
+					"value": "1",
+					"desc": "涂鸦"
+				}]
+			}
+		}
+	},{
+		"identifier": "cm_oneWayName",
+		"name": "第一路开关名称",
+		"description": "第一路开关的名称，适用于一路及以上的多路开关",
+		"accessMode": "rw",
+		"desc": "",
+		"ref": "89300",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_twoWayName",
+		"name": "第二路开关名称",
+		"description": "第二路开关的名称，适用于二路及以上的多路开关",
+		"accessMode": "rw",
+		"desc": "",
+		"ref": "89400",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_threeWayName",
+		"name": "第三路开关名称",
+		"description": "第三路开关的名称，适用于三路及以上的多路开关",
+		"accessMode": "rw",
+		"desc": "",
+		"ref": "89500",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_fourWayName",
+		"name": "第四路开关名称",
+		"description": "第四路开关的名称，适用于四路及以上的多路开关",
+		"accessMode": "rw",
+		"desc": "",
+		"ref": "89600",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_fiveWayName",
+		"name": "第五路开关名称",
+		"description": "第五路开关的名称，适用于五路及以上的多路开关",
+		"accessMode": "rw",
+		"desc": "",
+		"ref": "89700",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_ipShowFlag",
+		"name": "IP地址展示标记（外网）",
+		"description": "用于标识是否展示IP地址，ip展示在设备详情页里的设备信息",
+		"accessMode": "r",
+		"desc": "显示|隐藏",
+		"ref": "89900",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_macShowFlag",
+		"name": "Mac展示标记",
+		"description": "用于标识是否展示mac地址，展示在设备详情页里的设备信息",
+		"accessMode": "r",
+		"desc": "展示|隐藏",
+		"ref": "800000",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_keyTypePassword",
+		"name": "密码密钥",
+		"description": "支持密码密钥，由云端定义锁的密钥类型能力，当前适用于不上报密钥类型能力的设备",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "800100",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_keyTypeFingerprint",
+		"name": "指纹密钥",
+		"description": "支持指纹密钥，由云端定义锁的密钥类型能力，当前适用于不上报密钥类型能力的设备",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "800200",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_keyTypeCard",
+		"name": "卡片密钥",
+		"description": "支持卡片密钥，由云端定义锁的密钥类型能力，当前适用于不上报密钥类型能力的设备",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "800300",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_oneWayLink",
+		"name": "单向连接离线配置",
+		"description": "仅支持单向连接，客户端下发的信令缓存在平台，设备上线后下发到设备；适用于仅可设备硬件操作唤醒的设备",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "800400",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_bluetoothSelfDiscovery",
+		"name": "蓝牙自发现",
+		"description": "蓝牙自发现能力标识，选择该属性表示支持蓝牙自发现功能",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"ref": "800500",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_remark",
+		"name": "备注信息",
+		"description": "备注信息，用于存储额外的用户输入的信息，例如雷达报警推送的时间段备注等",
+		"accessMode": "rw",
+		"desc": "",
+		"ref": "800600",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_commonSwitch",
+		"name": "通用开关列表",
+		"description": "通用开关模型，数组形式，用于平台保存的设备级开关状态，仅支持有对应设备消息的平台开关",
+		"accessMode": "rw",
+		"desc": "",
+		"ref": "800700",
+		"dataType": {
+			"type": "array",
+			"specs": {
+				"size": "10",
+				"item": {
+					"type": "struct",
+					"specs": [{
+						"name": "对应设备上报的消息refid",
+						"identifier": "key",
+						"ref": "800701",
+						"desc": "",
+						"dataType": {
+							"type": "text",
+							"specs": {}
+						}
+					}, {
+						"name": "开关状态",
+						"identifier": "value",
+						"ref": "800702",
+						"desc": "",
+						"dataType": {
+							"type": "enum",
+							"specs": {
+								"list": [{
+									"value": "0",
+									"desc": "关"
+								}, {
+									"value": "1",
+									"desc": "开"
+								}]
+							}
+						}
+					}]
+				}
+			}
+		}
+	},{
+		"identifier": "cm_simCard",
+		"name": "设备sim卡信息",
+		"description": "设备的sim卡号信息，存储在云端，使用场景如：智能手表手环的sim卡信息",
+		"accessMode": "rw",
+		"desc": "",
+		"encrypt": "AES256/CBC/PKCS7PADDING",
+		"ref": "800900",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_commonName",
+		"name": "通用名称",
+		"description": "通用名称信息，保存在云端",
+		"accessMode": "rw",
+		"desc": "",
+		"ref": "801000",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_doorInfo",
+		"name": "关联门锁信息",
+		"description": "关联门锁信息，用于对讲门铃关联门锁的名称和图标信息",
+		"accessMode": "rw",
+		"desc": "",
+		"ref": "801100",
+		"dataType": {
+			"type": "array",
+			"specs": {
+				"size": "10",
+				"item": {
+					"type": "struct",
+					"specs": [{
+						"name": "名称",
+						"identifier": "name",
+						"ref": "801101",
+						"desc": "",
+						"dataType": {
+							"type": "text",
+							"specs": {}
+						}
+					}, {
+						"name": "图标",
+						"identifier": "icon",
+						"ref": "801102",
+						"desc": "",
+						"dataType": {
+							"type": "text",
+							"specs": {}
+						}
+					}, {
+						"name": "门锁id",
+						"identifier": "index",
+						"ref": "801103",
+						"desc": "",
+						"dataType": {
+							"type": "int",
+							"specs": {
+								"range": ["0", "3"],
+								"step": "1"
+							}
+						}
+					}]
+				}
+			}
+		}
+	},{
+		"identifier": "cm_linkageCallWithFlip",
+		"name": "联动设备呼叫",
+		"description": "用于联动设备呼叫使能的判断，用于判断呼叫云台相机设备的画面翻转操作是否联动设备呼叫",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "801200",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_deviceCallEnable",
+		"name": "支持设备呼叫推送",
+		"description": "支持设备呼叫推送，用于判断是否展示设备呼叫推开关",
+		"accessMode": "rw",
+		"desc": "开|关",
+		"encrypt": "",
+		"ref": "801300",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_multiCamera",
+		"name": "多目相机",
+		"description": "多目相机，用于表示为多目相机",
+		"accessMode": "r",
+		"desc": "是|否",
+		"encrypt": "",
+		"ref": "801500",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_channelCount",
+		"name": "通道数量",
+		"description": "通道数量，用于表示多目相机或者NVR的通道数量",
+		"accessMode": "rw",
+		"desc": "",
+		"encrypt": "",
+		"ref": "801400",
+		"dataType": {
+			"type": "int",
+			"specs": {
+				"unit": "",
+				"range": ["0", "256"],
+				"step": "1"
+			}
+		}
+	},{
+		"identifier": "cm_insensitiveNetworkCfg",
+		"name": "支持无感配网",
+		"description": "支持无感配网，标识设备支持无感配网，用于非路由器设备的无感配网",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "801600",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_insensitiveNetworkCfgRoute",
+		"name": "支持无感配网（路由器）",
+		"description": "路由器等设备的无感配网标识，用于标识该设备是否可以用于连接其他设备进行无感配网",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "801700",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_authBind",
+		"name": "支持授权绑定",
+		"description": "授权绑定判断标识，用于IB项目的设备是否支持授权绑定",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "801800",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_quic",
+		"name": "支持quic功能",
+		"description": "quic功能判断依据，用于判断设备是否支持quic功能",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "801900",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_cardFormatEnable",
+		"name": "SD卡格式化标识",
+		"description": "SD卡是否需要格式化，IB项目使用，与授权绑定(801800)配套使用",
+		"accessMode": "rw",
+		"desc": "",
+		"encrypt": "",
+		"ref": "802000",
+		"dataType": {
+			"type": "enum",
+			"specs": {
+				"list": [{
+					"value": "0",
+					"desc": "否"
+				}, {
+					"value": "1",
+					"desc": "是"
+				}]
+			}
+		}
+	},{
+		"identifier": "cm_batchAdd",
+		"name": "支持批量添加",
+		"description": "支持批量添加，用于网关设备是否支持批量添加设备",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "802100",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_AGW",
+		"name": "配件网关设备",
+		"description": "能力集AGW的映射；支持配件接入，即设备是一个配件网关(AccessoryGateway)",
+		"accessMode": "r",
+		"desc": "是|否",
+		"encrypt": "",
+		"ref": "802300",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_supportForcePwdModfiy",
+		"name": "支持强制修改密码",
+		"description": "强制修改密码标识，IB项目使用，用于支持该设备是否需要强制修改密码",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "802400",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_chnDisplayOrder",
+		"name": "设备通道客户端展示顺序",
+		"description": "1.适用于多目设备；2.用于客户端实时预览及录像播放展示窗口的上下顺序",
+		"accessMode": "rw",
+		"desc": "",
+		"encrypt": "",
+		"ref": "802500",
+		"dataType": {
+			"type": "array",
+			"specs": {
+				"size": "10",
+				"item": {
+					"type": "struct",
+					"specs": [{
+						"name": "通道号",
+						"identifier": "chn",
+						"ref": "802501",
+						"desc": "",
+						"dataType": {
+							"type": "int",
+							"specs": {
+								"unit": "",
+								"range": ["0", "255"],
+								"step": "1"
+							}
+						}
+					}, {
+						"name": "顺序",
+						"identifier": "order",
+						"ref": "802502",
+						"desc": "",
+						"dataType": {
+							"type": "int",
+							"specs": {
+								"unit": "",
+								"range": ["0", "255"],
+								"step": "1"
+							}
+						}
+					}]
+				}
+			}
+		}
+	},{
+		"identifier": "cm_swpRobotFlag",
+		"name": "白羊座扫地机标识",
+		"description": "白羊座扫地机标识，用于标识白羊座扫地机的设备信息，区分其他设备的设备信息；用于白羊座扫地机",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "802600",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_defaultShowCommon",
+		"name": "默认展示-常用",
+		"description": "用于app媒体页，默认展示常用tab页",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "802700",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_swpTaurusRobotFlag",
+		"name": "金牛座扫地机标识",
+		"description": "金牛座扫地机标识，用于标识金牛座扫地机的设备信息，区分其他设备的设备信息；用于金牛座扫地机",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "802800",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_sweeperFlag",
+		"name": "扫地机设备标识",
+		"description": "扫地机设备标识，用于标识该设备大类为扫地机",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "802900",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_doorLock",
+		"name": "门锁设备标识",
+		"description": "门锁设备标识，用于标识该设备大类为门锁",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "803000",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_sixWayName",
+		"name": "第六路开关的名称",
+		"description": "第六路开关的名称，适用于五路及以上的多路开关",
+		"accessMode": "rw",
+		"desc": "",
+		"encrypt": "",
+		"ref": "803100",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_blueKeyToken",
+		"name": "蓝牙token",
+		"description": "蓝牙token，用于手机和设备进行蓝牙连接后数据交互验证的token",
+		"accessMode": "rw",
+		"desc": "",
+		"encrypt": "AES256/CBC/PKCS7PADDING",
+		"ref": "803200",
+		"dataType": {
+			"type": "text",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_swpApolloRobotFlag",
+		"name": "阿波罗扫地机标识",
+		"description": "阿波罗扫地机标识，用于标识阿波罗扫地机的设备信息，区分其他设备的设备信息，用于阿波罗扫地机",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "803300",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_swpNormandyRobotFlag",
+		"name": "诺曼底扫地机标识",
+		"description": "诺曼底扫地机标识，用于标识诺曼底扫地机的设备信息，区分其他设备信息；用于诺曼底扫地机",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "803400",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_bidirectionalVI",
+		"name": "双向视频对讲",
+		"description": "双向视频对讲能力，用于标识设备是否具有双向视频对讲能力",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "803500",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_UOIF",
+		"name": "云录像只上传I帧",
+		"description": "云录像只上传I帧能力集，对应能力集UOIF",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "803600",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_plugInModeUpgrade",
+		"name": "插电模式固件升级",
+		"description": "仅插电模式下才可固件升级，适用于常供电且带电池的设备，例：带屏可视对讲云台，与145000配合使用",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "803700",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_lanIpShowFlag",
+		"name": "IP地址展示标记（局域网）",
+		"description": "用于标识是否展示局域网IP地址，局域网ip展示在设备详情页里的设备信息；区别于外网ip展示",
+		"accessMode": "r",
+		"desc": "显示|隐藏",
+		"encrypt": "",
+		"ref": "803800",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_closeupFar",
+		"name": "特写偏好（远距离）",
+		"description": "远距离特写镜头，适用于室外场景",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "804000",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_closeupNear",
+		"name": "特写偏好（近距离）",
+		"description": "近距离特写镜头，适用于室内场景",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "803900",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_keyUserGroup",
+		"name": "密钥用户分组管理",
+		"description": "支持密钥用户分组管理，用于门锁密钥按照用户分组管理",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "804100",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_usageOutdoor",
+		"name": "使用偏好（室外）",
+		"description": "使用偏好，适用于室外场景；用于处理室外场景的逻辑，如部分设备室外场景不支持倒装等",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "804200",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_cloudStorageSetFlag",
+		"name": "云存储/智能云存储设置标识",
+		"description": "用于客户端判断展示云存储/智能云存储开关设置入口",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "804400",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_detectionSetFlag",
+		"name": "检测功能设置标识",
+		"description": "用于客户端判断展示检测功能设置入口",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "804500",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_detectionSensitivitySetFlag",
+		"name": "检测灵敏度设置标识",
+		"description": "用于客户端判断展示检测灵敏度设置入口",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "804600",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_recordModeSetFlag",
+		"name": "录像模式设置标识",
+		"description": "用于客户端判断展示本地录像模式设置入口",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "804700",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_faceGuide",
+		"name": "支持客户端人脸录入",
+		"description": "支持客户端人脸录入，用于客户端录入密钥时判断支持人脸录入的依据",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "804800",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_fingerprintGuide",
+		"name": "支持客户端指纹录入",
+		"description": "支持客户端指纹录入，用于客户端录入密钥时判断支持指纹录入的依据",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "804900",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_chimeStationO2O",
+		"name": "铃铛基站（1对1配套）",
+		"description": "用于标识一对一配套铃铛基站",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "805000",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_doorbellO2O",
+		"name": "配套门铃（1对1配套）",
+		"description": "用于标识一对一配套门铃",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "805100",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_bindD2D",
+		"name": "支持设备绑定",
+		"description": "支持与其他设备绑定，用于非基站/hub类设备的绑定判断依据",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "805200",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_bindD2DStation",
+		"name": "支持设备绑定（基站/hub类）",
+		"description": "支持与其他设备绑定，用于基站/hub类设备的绑定判断依据",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "805300",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_middleJumpFlag",
+		"name": "首页进中间页标识",
+		"description": "跳转中间页标记，用于App首页点击设备卡片进入中间页",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "805400",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_voiceReplyCallHold",
+		"name": "语音答复呼叫保持",
+		"description": "用于语音答复后是否呼叫保持，当前适用于视频门铃",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "805500",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_PWD",
+		"name": "支持获取设备密码",
+		"description": "支持获取设备密码能力集，对应能力集PWD",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "805600",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_relateD2D",
+		"name": "支持设备关联",
+		"description": "支持与其他设备关联，用于非基站/hub类设备的关联判断依据，当前用于门铃，与铃铛进行关联",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "805700",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_palmVeinGuide",
+		"name": "支持掌静脉录入",
+		"description": "支持客户端掌静脉录入，用于客户端录入密钥时判断支持掌静脉录入的依据",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "805800",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_preActionOfParentDev",
+		"name": "支持父设备前置动作",
+		"description": "用于父子设备模式，子设备操作的前置校验在父设备进行处理；适用场景有子设备拉流在父设备校验密码等",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "805900",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_thirdPartyCards",
+		"name": "支持三方卡",
+		"description": "支持第三方流量卡，用于标记是否支持第三方的流量卡",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "806000",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	},{
+		"identifier": "cm_realTimeStreamMD",
+		"name": "主子设备模式下主设备出实时流",
+		"description": "主子设备模式下主设备出实时流，用于主子设备模式下获取子设备实时流的能力判断",
+		"accessMode": "r",
+		"desc": "支持|不支持",
+		"encrypt": "",
+		"ref": "806100",
+		"dataType": {
+			"type": "bool",
+			"specs": {}
+		}
+	}
+	]
+}

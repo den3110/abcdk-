@@ -1,0 +1,34 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>gt4</title>
+<script src="https://static.geetest.com/v4/gt4.js"></script>
+</head>
+<body>
+<div id="cap"></div>
+<script>
+  // Result is exposed on window for Playwright to read.
+  window.__gt = {ready: false, result: null, error: null, captchaObj: null};
+  function boot(captchaId) {
+    initGeetest4({
+      captchaId: captchaId,
+      product: "bind",       // bind = no built-in button; we trigger showCaptcha()
+      riskType: "slide",
+      hideSuccess: true,
+      hideClose: true,
+    }, function (captcha) {
+      window.__gt.captchaObj = captcha;
+      captcha.onReady(function () {
+        window.__gt.ready = true;
+      });
+      captcha.onSuccess(function () {
+        window.__gt.result = captcha.getValidate();
+      });
+      captcha.onError(function (e) {
+        window.__gt.error = e;
+      });
+      captcha.onClose(function () {
+        window.__gt.error = window.__gt.error || {desc: "closed"};
+      });
+    });
+  }
+</script>
+</body></html>

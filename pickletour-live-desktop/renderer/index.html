@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PickleTour Live</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="vendor/hls.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">🎾 PickleTour <b>Live</b> <span class="tag">Desktop · GPU</span></div>
+    <div class="env" id="env"></div>
+  </header>
+
+  <!-- LOGIN -->
+  <section id="loginView" class="view">
+    <div class="card login">
+      <h2>Đăng nhập admin</h2>
+      <label>Backend URL</label>
+      <input id="baseUrl" value="https://pickletour.vn" />
+      <label>Email</label>
+      <input id="email" placeholder="admin@..." />
+      <label>Mật khẩu</label>
+      <input id="password" type="password" />
+      <label>Tên máy (hiển thị ở dashboard)</label>
+      <input id="runnerLabel" />
+      <button id="loginBtn" class="primary">Đăng nhập</button>
+      <div id="loginErr" class="err"></div>
+    </div>
+  </section>
+
+  <!-- SETUP -->
+  <section id="setupView" class="view hidden">
+    <div class="grid2">
+      <div class="card">
+        <h3>1 · Chọn giải & sân</h3>
+        <label>Giải đấu</label>
+        <select id="tournament"></select>
+        <label>Sân (CourtStation)</label>
+        <select id="court"></select>
+        <label>Camera Imou</label>
+        <select id="cam"></select>
+      </div>
+
+      <div class="card">
+        <h3>2 · Điểm đến & overlay</h3>
+        <label>Encoder</label>
+        <select id="encoder"></select>
+        <div class="row3">
+          <div><label>Bảng điểm</label><select id="lay_scoreboard" class="corner"></select></div>
+          <div><label>Logo</label><select id="lay_brand" class="corner"></select></div>
+          <div><label>Tài trợ</label><select id="lay_sponsor" class="corner"></select></div>
+        </div>
+        <label>Thêm điểm đến</label>
+        <div class="destadd">
+          <select id="destType">
+            <option value="fb">Facebook Page</option>
+            <option value="rtmp">RTMP tuỳ chỉnh</option>
+          </select>
+          <select id="fbPage"></select>
+          <input id="rtmpUrl" class="hidden" placeholder="rtmp://..." />
+          <input id="rtmpKey" class="hidden" placeholder="stream key" />
+          <button id="addDest">Thêm</button>
+        </div>
+        <div id="destList" class="chips"></div>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="goLive" class="primary big">● BẮT ĐẦU LIVE</button>
+      <span id="setupErr" class="err"></span>
+    </div>
+  </section>
+
+  <!-- LIVE -->
+  <section id="liveView" class="view hidden">
+    <div class="grid2">
+      <div class="card">
+        <h3>Preview</h3>
+        <video id="preview" controls autoplay muted playsinline></video>
+        <div class="hint">Preview lấy từ chính luồng đang đẩy (trễ ~2–4s).</div>
+      </div>
+      <div class="card">
+        <h3>Trạng thái</h3>
+        <div id="statRows" class="stat"></div>
+        <div id="watchLinks" class="chips"></div>
+        <div class="actions">
+          <button id="openLog">Xem log</button>
+          <button id="stopLive" class="danger">■ DỪNG</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

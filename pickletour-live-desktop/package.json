@@ -1,0 +1,26 @@
+{
+  "name": "pickletour-live-desktop",
+  "version": "1.0.0",
+  "description": "PickleTour Live — app desktop chạy livestream giải đấu bằng GPU (PC/Mac), đỡ tải cho server",
+  "main": "main.js",
+  "author": "PickleTour",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "vn.pickletour.live",
+    "productName": "PickleTour Live",
+    "files": ["main.js", "preload.js", "renderer/**", "worker/**", "build/**"],
+    "mac": { "category": "public.app-category.video", "target": ["dmg", "zip"] },
+    "win": { "target": ["nsis", "portable"] },
+    "linux": { "target": ["AppImage"] }
+  }
+}
