@@ -73,6 +73,12 @@ MAX_RSS_MB = int(os.environ.get("AUTOLIVE_MAX_RSS_MB") or 1800)
 # Nguồn video: rỗng = cam Imou (DHAV qua stdin); có = link tuỳ chỉnh
 # (m3u8/RTSP/RTMP/http) → ffmpeg đọc thẳng URL.
 SOURCE_URL = (os.environ.get("AUTOLIVE_SOURCE_URL") or "").strip()
+# Cam Imou: mặc định KÉO CHỈ VIDEO (bỏ audio cam). Lý do: live thể thao overlay
+# không cần tiếng cam; audio DHAV của Imou hay lỗi timestamp (hàng loạt "timestamp
+# discontinuity" trên aac) làm A/V lệch + kéo speed xuống. Bỏ audio → relay tải
+# NHẸ hơn (nhanh hơn) + hết discontinuity audio → mượt hơn. Đặt AUTOLIVE_IMOU_AUDIO=1
+# để lấy lại tiếng cam.
+IMOU_AUDIO = (os.environ.get("AUTOLIVE_IMOU_AUDIO") or "0").strip().lower() not in ("0", "false", "no", "")
 # Preview HLS local cho app desktop (Electron) hiển thị — env là thư mục.
 PREVIEW_DIR = os.environ.get("AUTOLIVE_PREVIEW_HLS_DIR", "").strip()
 HEALTHY_AFTER_S = 60
@@ -523,7 +529,7 @@ def rss_watchdog(ff, stop_event):
 def probe_audio(dev):
     """Mở 1 phiên rtsp ngắn để dò audio + fps nguồn. Trả (has_audio, fps)."""
     try:
-        with dev.open_rtsp(with_audio=True) as rtsp:
+        with dev.open_rtsp(with_audio=IMOU_AUDIO) as rtsp:
             pre = bytearray()
             t0 = time.monotonic()
             for chunk in rtsp:
@@ -556,7 +562,7 @@ def feed_imou_into_ffmpeg(access, device_id, ff, stop_event):
             continue
         got = 0
         try:
-            with dev.open_rtsp(with_audio=True) as rtsp:
+            with dev.open_rtsp(with_audio=IMOU_AUDIO) as rtsp:
                 for chunk in rtsp:
                     if stop_event.is_set():
                         return "stop"
