@@ -244,12 +244,19 @@ async function pollStatus() {
         : s.status === "error" ? '<span class="badge err">LỖI</span>'
         : `<span class="badge warn">${s.status}</span>`;
       const up = s.startedAt ? Math.round((Date.now() - new Date(s.startedAt)) / 60000) : 0;
+      const spd = Number(s.speed || 0);
+      const spdColor = spd >= 0.97 ? "#34d399" : spd >= 0.9 ? "#f59e0b" : "#f87171";
+      const net = s.bitrateKbps
+        ? `<b>${(s.bitrateKbps / 1000).toFixed(2)} Mbps</b> · ${s.fps || 0}fps · <span style="color:${spdColor}">tốc độ ${spd.toFixed(2)}×</span>`
+        : "<b>—</b>";
       $("statRows").innerHTML = `
         <div>Trạng thái: ${badge}</div>
         <div>Trận: <b>${s.currentMatchLabel || "—"}</b></div>
+        <div>🌐 Tốc độ live: ${net}</div>
         <div>Encoder: <b>${s.encoder || "?"}</b> · CPU <b>${s.cpuPct || 0}%</b> · RAM <b>${s.memMB || 0}MB</b></div>
         <div>Máy: <b>${s.runnerLabel || state.runnerLabel}</b></div>
         <div>Uptime: <b>${up}m</b></div>
+        ${spd && spd < 0.95 ? '<div class="err">⚠ Tốc độ < realtime → mạng/CPU không đủ, sẽ giật. Giảm bitrate hoặc dùng GPU.</div>' : ""}
         ${s.lastError ? `<div class="err">${s.lastError}</div>` : ""}`;
       if (s.destinations?.some((d) => d.watchUrl)) renderWatch(s.destinations.map((d) => d.watchUrl).filter(Boolean));
     } catch (e) { /* ignore transient */ }

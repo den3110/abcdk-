@@ -59,6 +59,9 @@ function stripSecrets(doc) {
   }));
   o.cpuPct = o.cpuPct || 0;
   o.memMB = o.memMB || 0;
+  o.bitrateKbps = o.bitrateKbps || 0;
+  o.fps = o.fps || 0;
+  o.speed = o.speed || 0;
   o.runner = o.runner || "server";
   o.runnerLabel = o.runnerLabel || "";
   o.runnerOs = o.runnerOs || "";
@@ -231,6 +234,7 @@ export const internalHeartbeat = asyncHandler(async (req, res) => {
   const doc = await recordHeartbeat(String(b.sessionId || ""), {
     encoder: b.encoder, runnerLabel: b.runnerLabel, runnerOs: b.runnerOs,
     cpuPct: b.cpuPct, memMB: b.memMB,
+    bitrateKbps: b.bitrateKbps, fps: b.fps, speed: b.speed,
   });
   // Trả stop=true để client (app desktop) tự dừng khi admin đã Dừng phiên.
   res.json({ ok: !!doc, stop: !!doc?._stopped });

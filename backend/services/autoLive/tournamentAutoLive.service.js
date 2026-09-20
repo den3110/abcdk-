@@ -561,6 +561,9 @@ export async function recordHeartbeat(sessionId, extra = {}) {
   if (extra.runnerOs) set.runnerOs = String(extra.runnerOs).slice(0, 60);
   if (Number.isFinite(extra.cpuPct)) set.cpuPct = Math.max(0, Math.round(extra.cpuPct));
   if (Number.isFinite(extra.memMB)) set.memMB = Math.max(0, Math.round(extra.memMB));
+  if (Number.isFinite(extra.bitrateKbps)) set.bitrateKbps = Math.max(0, Math.round(extra.bitrateKbps));
+  if (Number.isFinite(extra.fps)) set.fps = Math.max(0, Math.round(extra.fps));
+  if (Number.isFinite(extra.speed)) set.speed = Math.round((extra.speed) * 100) / 100;
   const doc = await TournamentAutoLiveSession.findById(sessionId).select("status runner");
   if (!doc) return null;
   // Client tự stop khi admin đã dừng phiên.

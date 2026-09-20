@@ -62,6 +62,9 @@ const tournamentAutoLiveSessionSchema = new Schema(
     // Tài nguyên tiêu thụ (worker + ffmpeg) — cập nhật mỗi lần poll
     cpuPct: { type: Number, default: 0 }, // % của 1 lõi (100 = 1 core)
     memMB: { type: Number, default: 0 },
+    bitrateKbps: { type: Number, default: 0 }, // tốc độ đẩy live
+    fps: { type: Number, default: 0 },
+    speed: { type: Number, default: 0 }, // 1.0 = realtime; <1 = nghẽn
     startedAt: { type: Date, default: Date.now },
     stoppedAt: { type: Date, default: null },
     lastMatchChangeAt: { type: Date, default: null },

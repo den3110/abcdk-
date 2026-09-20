@@ -47,6 +47,7 @@ PREBUFFER_MAX_S = 6.0
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 MAX_ATTEMPTS = 12
 ENCODER = "libx264"  # set trong main() bằng detect_encoder()
+OUT_FPS = 25         # set trong main() = fps nguồn (khớp để không nhân đôi frame)
 # Preview HLS local cho app desktop (Electron) hiển thị — env là thư mục.
 PREVIEW_DIR = os.environ.get("AUTOLIVE_PREVIEW_HLS_DIR", "").strip()
 HEALTHY_AFTER_S = 60
@@ -88,7 +89,9 @@ def detect_encoder():
 def encoder_args(enc):
     """Args tối ưu theo từng encoder — GPU giảm tải CPU mạnh (nhiều luồng).
     CFR 25fps đều (-vsync cfr) + bitrate cao hơn cho 1080p mượt/nét."""
-    common_rate = ["-vsync", "cfr", "-r", "25", "-g", "50", "-keyint_min", "50",
+    fps = OUT_FPS or 25
+    gop = fps * 2
+    common_rate = ["-vsync", "cfr", "-r", str(fps), "-g", str(gop), "-keyint_min", str(gop),
                    "-b:v", "4500k", "-maxrate", "5000k", "-bufsize", "9000k",
                    "-pix_fmt", "yuv420p"]
     if enc == "h264_nvenc":
@@ -122,8 +125,9 @@ def build_tee_output(destinations):
             os.makedirs(PREVIEW_DIR, exist_ok=True)
             seg = os.path.join(PREVIEW_DIR, "seg_%03d.ts")
             m3u8 = os.path.join(PREVIEW_DIR, "index.m3u8")
+            # list_size lớn hơn + segment 2s → player có đệm, đỡ "loading" liên tục.
             parts.append(
-                f"[f=hls:onfail=ignore:hls_time=1:hls_list_size=4:"
+                f"[f=hls:onfail=ignore:hls_time=2:hls_list_size=8:"
                 f"hls_flags=delete_segments+omit_endlist:hls_segment_filename={seg}]{m3u8}")
         except OSError:
             pass
@@ -182,7 +186,9 @@ def post_json(url, token, payload, timeout=8):
 def heartbeat_loop(url, token, session_id, stop_event, extra=None):
     while not stop_event.is_set():
         try:
-            body = post_json(url, token, {"sessionId": session_id, **(extra or {})})
+            live = {"bitrateKbps": STATS.get("bitrateKbps", 0),
+                    "fps": STATS.get("fps", 0), "speed": STATS.get("speed", 0.0)}
+            body = post_json(url, token, {"sessionId": session_id, **(extra or {}), **live})
             # Admin bấm Dừng → backend trả stop=true → worker tự tắt.
             try:
                 if json.loads(body or b"{}").get("stop"):
@@ -269,20 +275,42 @@ class ImouAccess:
 
 
 # ── ffmpeg ───────────────────────────────────────────────────────────────
-def probe_has_audio(buf):
-    """ffprobe đoạn DHAV đã đệm. Không chắc chắn → KHÔNG audio (anullsrc)."""
+def probe_stream(buf):
+    """ffprobe đoạn DHAV đã đệm → (has_audio, fps). DHAV báo r_frame_rate=0/0
+    nên fps đo bằng SPAN của pts_time các frame video (chính xác). fps nguồn để
+    đặt -r output KHỚP nguồn → tránh nhân đôi/rớt frame (giật khi ép 25 từ 20)."""
+    has_audio = False
+    fps = 0
     try:
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-f", "dhav", "-i", "pipe:0",
              "-show_entries", "stream=codec_type", "-of", "csv=p=0"],
             input=buf, capture_output=True, timeout=20,
         )
-        kinds = r.stdout.decode(errors="ignore").split()
-        log(f"probe streams={kinds}")
-        return "audio" in kinds
+        has_audio = "audio" in r.stdout.decode("utf-8", "ignore").split()
     except Exception as e:  # noqa: BLE001
-        log(f"probe fail: {e}", err=True)
-        return False
+        log(f"probe audio fail: {e}", err=True)
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-f", "dhav", "-i", "pipe:0",
+             "-select_streams", "v", "-show_entries", "frame=pts_time", "-of", "csv=p=0"],
+            input=buf, capture_output=True, timeout=25,
+        )
+        ts = [float(x) for x in r.stdout.decode("utf-8", "ignore").split() if x and x != "N/A"]
+        ts = [t for t in ts if t == t]  # loại NaN
+        if len(ts) >= 10:
+            ts.sort()
+            span = ts[-1] - ts[0]
+            if span > 0.5:
+                fps = round((len(ts) - 1) / span)
+    except Exception as e:  # noqa: BLE001
+        log(f"probe fps fail: {e}", err=True)
+    log(f"probe audio={has_audio} fps={fps}")
+    return has_audio, fps
+
+
+def probe_has_audio(buf):
+    return probe_stream(buf)[0]
 
 
 def build_ffmpeg_args(overlay_fifo, has_audio, tee):
@@ -302,7 +330,7 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
         # wallclock đóng dấu theo lúc byte tới (relay đến theo cụm) → jitter →
         # CFR ép 25fps nhân đôi/rớt frame = giật. genpts+igndts giữ đồng hồ
         # liên tục cả khi mở lại nguồn Imou giữa chừng (không restart ffmpeg).
-        "-fflags", "+genpts+igndts",
+        "-fflags", "+genpts",
         "-thread_queue_size", "1024", "-f", "dhav", "-i", "pipe:0",
     ]
     fc = base
@@ -320,13 +348,38 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
     args += encoder_args(ENCODER)
     args += [
         "-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2",
+        # Progress ra stdout để worker đo bitrate/fps/speed (tốc độ live).
+        "-stats_period", "2", "-progress", "pipe:1",
         "-shortest", "-f", "tee", tee,
     ]
     return args
 
 
+# Chỉ số live hiện tại (đọc từ ffmpeg -progress) để báo lên app/dashboard.
+STATS = {"bitrateKbps": 0, "fps": 0, "speed": 0.0}
+def progress_reader(ff, stop_event):
+    try:
+        for raw in iter(ff.stdout.readline, b""):
+            if stop_event.is_set():
+                break
+            line = raw.decode("utf-8", "ignore").strip()
+            if line.startswith("bitrate="):
+                v = line.split("=", 1)[1].replace("kbits/s", "").strip()
+                try: STATS["bitrateKbps"] = int(float(v)) if v not in ("N/A", "") else 0
+                except ValueError: pass
+            elif line.startswith("fps="):
+                try: STATS["fps"] = int(float(line.split("=", 1)[1] or 0))
+                except ValueError: pass
+            elif line.startswith("speed="):
+                v = line.split("=", 1)[1].replace("x", "").strip()
+                try: STATS["speed"] = float(v) if v not in ("N/A", "") else 0.0
+                except ValueError: pass
+    except Exception:
+        pass
+
+
 def probe_audio(dev):
-    """Mở 1 phiên rtsp ngắn để phát hiện có audio không (không dùng cho feed)."""
+    """Mở 1 phiên rtsp ngắn để dò audio + fps nguồn. Trả (has_audio, fps)."""
     try:
         with dev.open_rtsp(with_audio=True) as rtsp:
             pre = bytearray()
@@ -335,10 +388,10 @@ def probe_audio(dev):
                 pre += chunk
                 if len(pre) >= PREBUFFER_BYTES or time.monotonic() - t0 > PREBUFFER_MAX_S:
                     break
-            return probe_has_audio(bytes(pre))
+            return probe_stream(bytes(pre))
     except Exception as e:  # noqa: BLE001
         log(f"probe_audio fail: {e}", err=True)
-        return False
+        return False, 0
 
 
 def feed_imou_into_ffmpeg(access, device_id, ff, stop_event):
@@ -519,7 +572,10 @@ def main():
                      args=(heartbeat_url, worker_token, session_id, stop_event, hb_extra),
                      daemon=True).start()
 
-    has_audio = probe_audio(access.device(device_id)) if not stop_event.is_set() else False
+    has_audio, src_fps = probe_audio(access.device(device_id)) if not stop_event.is_set() else (False, 0)
+    global OUT_FPS
+    OUT_FPS = src_fps if (src_fps and 10 <= src_fps <= 60) else 25
+    log(f"output fps = {OUT_FPS} (nguồn {src_fps or '?'})")
 
     # 1 ffmpeg SỐNG XUYÊN SUỐT (kết nối FB giữ nguyên); chỉ mở lại nguồn Imou
     # khi relay cap. Chỉ restart ffmpeg khi nó thật sự chết → khi đó xin
@@ -528,8 +584,9 @@ def main():
     while not stop_event.is_set():
         args = build_ffmpeg_args(overlay_fifo, has_audio, tee)
         log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} restart#{ff_restarts}")
-        ff = subprocess.Popen(args, stdin=subprocess.PIPE)
+        ff = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         ff_holder[0] = ff
+        threading.Thread(target=progress_reader, args=(ff, stop_event), daemon=True).start()
         ow_th, ow_done = start_overlay_writer(overlay_fifo, overlay_url, stop_event)
 
         reason = feed_imou_into_ffmpeg(access, device_id, ff, stop_event)
