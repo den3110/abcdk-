@@ -5,6 +5,7 @@ import {
   getOverlayImage, internalHeartbeat, listAvailableCams, internalImouSession,
   internalGetImouSession, getStats, internalRefreshDestinations, workerConfig,
   listTournamentsForApp, listCourtsForApp, listFbPagesForApp, courtImouSession,
+  courtImouStreamUrl,
 } from "../controllers/tournamentAutoLiveController.js";
 
 const router = express.Router();
@@ -27,6 +28,7 @@ router.get("/tournaments", protect, admin, listTournamentsForApp);
 router.get("/tournaments/:tid/courts", protect, admin, listCourtsForApp);
 router.get("/fb-pages", protect, admin, listFbPagesForApp);
 router.get("/court-imou-session", protect, admin, courtImouSession);
+router.get("/court-imou-stream-url", protect, admin, courtImouStreamUrl);
 router.get("/:id/worker-config", protect, admin, workerConfig);
 router.get("/:id", protect, admin, getSession);
 

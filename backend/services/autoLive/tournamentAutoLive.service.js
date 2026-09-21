@@ -393,6 +393,55 @@ export async function getCourtImouSessionForApp(imouDeviceId) {
 }
 
 /**
+ * App live ANDROID (Imou): trả RELAY URL DHAV (GetRealTransferStreamUrl) cho cam.
+ * Backend chạy Python imou (đã test) lấy URL đã ký → Android chỉ cần DhRtspClient
+ * + MediaCodec, khỏi port crypto/SaaS sang Kotlin. URL hết hạn ~10 phút → app gọi
+ * lại mỗi lần reconnect. Trả { imouDeviceId, venueId, url } hoặc { error, code }.
+ */
+export async function getCourtImouStreamUrlForApp(imouDeviceId, streamId = "1") {
+  const deviceId = String(imouDeviceId || "").trim();
+  if (!deviceId) return { error: "Thiếu imouDeviceId", code: 400 };
+  const VenueCourt = mongoose.model("VenueCourt");
+  const vc = await VenueCourt.findOne({
+    $or: [{ "imouCams.deviceId": deviceId }, { "imou.deviceId": deviceId }],
+  }).select("venue").lean();
+  if (!vc?.venue) return { error: "Không tìm thấy sân/venue cho deviceId này", code: 404 };
+  const sess = await decryptVenueImouSession(vc.venue);  // snake_case
+  const creds = await decryptVenueImouCreds(vc.venue);
+  if (!sess && !(creds?.phone && creds?.password)) {
+    return { error: "Venue chưa có phiên/creds Imou hợp lệ", code: 409 };
+  }
+  const input = JSON.stringify({
+    session: sess || {},
+    deviceId,
+    creds: (creds?.phone && creds?.password)
+      ? { phone: creds.phone, password: creds.password, area_code: creds.areaCode || "84" }
+      : null,
+    streamId: String(streamId || "1"),
+  });
+  const scriptPath = path.resolve(__dirname, "../../scripts/autoLive/get_imou_stream_url.py");
+  return await new Promise((resolve) => {
+    let out = "", err = "", done = false;
+    const py = spawn(PYTHON_BIN, [scriptPath], { timeout: 30000 });
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    py.stdout.on("data", (d) => { out += d; });
+    py.stderr.on("data", (d) => { err += d; });
+    py.on("error", (e) => finish({ error: `spawn python: ${e.message}`, code: 500 }));
+    py.on("close", () => {
+      try {
+        const line = out.trim().split("\n").filter(Boolean).pop() || "{}";
+        const r = JSON.parse(line);
+        if (r.error) finish({ error: r.error, code: 502 });
+        else finish({ imouDeviceId: deviceId, venueId: String(vc.venue), url: r.url });
+      } catch (e) {
+        finish({ error: `python parse: ${e.message} :: ${err.slice(0, 200)}`, code: 502 });
+      }
+    });
+    py.stdin.write(input); py.stdin.end();
+  });
+}
+
+/**
  * Start 1 session mới. `input`:
  *   { tournamentId, courtStationId, imouDeviceId, destinations[], startedBy, autoNext }
  * Trả về document session đã insert. Ném lỗi nếu court đã có session active.

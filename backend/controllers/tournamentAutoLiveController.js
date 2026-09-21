@@ -11,12 +11,21 @@ import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
   refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
+  getCourtImouStreamUrlForApp,
 } from "../services/autoLive/tournamentAutoLive.service.js";
 
 // GET /api/tournament-auto-live/court-imou-session?imouDeviceId=xxx (admin)
 // App live iOS lấy session Imou đã giải mã của cam để tự kéo cam làm nguồn.
 export const courtImouSession = asyncHandler(async (req, res) => {
   const r = await getCourtImouSessionForApp(req.query.imouDeviceId);
+  if (r?.error) { res.status(r.code || 400); throw new Error(r.error); }
+  res.json(r);
+});
+
+// GET /api/tournament-auto-live/court-imou-stream-url?imouDeviceId=&streamId= (admin)
+// App live Android lấy relay URL DHAV (backend chạy Python imou) để tự kết nối.
+export const courtImouStreamUrl = asyncHandler(async (req, res) => {
+  const r = await getCourtImouStreamUrlForApp(req.query.imouDeviceId, req.query.streamId || "1");
   if (r?.error) { res.status(r.code || 400); throw new Error(r.error); }
   res.json(r);
 });
