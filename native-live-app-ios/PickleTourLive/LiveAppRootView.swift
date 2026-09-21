@@ -756,13 +756,16 @@ private struct LiveStreamScreen: View {
                     .foregroundStyle(LivePalette.textSecondary)
 
                     HStack(alignment: .top, spacing: 12) {
-                        RoundConsoleButton(
-                            title: "Flash",
-                            systemImage: store.streamingService.stats.torchEnabled ? "flashlight.on.fill" : "flashlight.off.fill",
-                            active: store.streamingService.stats.torchEnabled,
-                            disabled: !store.cameraOperational
-                        ) {
-                            store.toggleTorch()
+                        // Flash chỉ có nghĩa với camera máy → ẩn khi dùng nguồn Imou/link.
+                        if !store.useImouSource && !store.useCustomURL {
+                            RoundConsoleButton(
+                                title: "Flash",
+                                systemImage: store.streamingService.stats.torchEnabled ? "flashlight.on.fill" : "flashlight.off.fill",
+                                active: store.streamingService.stats.torchEnabled,
+                                disabled: !store.cameraOperational
+                            ) {
+                                store.toggleTorch()
+                            }
                         }
 
                         RoundConsoleButton(
@@ -781,14 +784,17 @@ private struct LiveStreamScreen: View {
                             action: triggerMainAction
                         )
 
-                        RoundConsoleButton(
-                            title: "Flip",
-                            systemImage: "camera.rotate.fill",
-                            active: false,
-                            disabled: !store.cameraOperational
-                        ) {
-                            Task {
-                                await store.toggleCamera()
+                        // Flip camera chỉ có nghĩa với camera máy → ẩn khi dùng nguồn Imou/link.
+                        if !store.useImouSource && !store.useCustomURL {
+                            RoundConsoleButton(
+                                title: "Flip",
+                                systemImage: "camera.rotate.fill",
+                                active: false,
+                                disabled: !store.cameraOperational
+                            ) {
+                                Task {
+                                    await store.toggleCamera()
+                                }
                             }
                         }
 

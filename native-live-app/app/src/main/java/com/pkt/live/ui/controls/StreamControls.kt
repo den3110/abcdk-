@@ -163,7 +163,8 @@ fun StreamControls(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Torch
+            // Torch — chỉ có nghĩa với camera máy → ẩn khi dùng nguồn Imou/link.
+            if (!useUrlSource && !useImouSource)
             ControlButton(
                 icon = if (torchOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
                 label = "Flash",
@@ -261,7 +262,8 @@ fun StreamControls(
                 onStop = { viewModel.stopLive() },
             )
 
-            // Switch camera
+            // Switch camera — chỉ có nghĩa với camera máy → ẩn khi dùng nguồn Imou/link.
+            if (!useUrlSource && !useImouSource)
             ControlButton(
                 icon = Icons.Default.Cameraswitch,
                 label = "Flip",
