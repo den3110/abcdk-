@@ -17,6 +17,7 @@
 import Foundation
 import CoreMedia
 import CoreVideo
+import QuartzCore   // CACurrentMediaTime
 
 public final class ImouLiveSource {
     public enum State: Equatable { case idle, connecting, streaming, stopped, error(String) }
@@ -74,20 +75,24 @@ public final class ImouLiveSource {
             }
         }
         while !stopped {
-            let quality: StreamQuality = (streamId == "1") ? .sd : .hd
+            let quality: ApiClient.StreamQuality = (streamId == "1") ? .sd : .hd
             let url = try await api.streamUrl(deviceId: deviceId, productId: productId,
                                               quality: quality)
-            let client = DhRtspClient(url: url, audio: false)
+            let client = DhRtspClient(.init(url: url, audio: false))
             rtsp = client
             try await client.open()
             onState?(.streaming)
             startHostTime = CACurrentMediaTime()
-            let assembler = DHAVParser.Assembler()
+            // LIVE: Assembler dùng key rỗng (không giải mã — như Player.swift).
+            let assembler = DHAVParser.Assembler(key: Data())
             try await client.runChunkLoop { [weak self] chunk in
                 guard let self, !self.stopped else { return false }
                 assembler.push(chunk)
                 for frame in assembler.popFrames() {
-                    self.renderer.enqueue(dhavFrame: frame, isLive: true)
+                    // Demux theo byte type: 0xf0 = audio (bỏ, live không tiếng);
+                    // còn lại (0xfd/0xfc) = video → renderer.
+                    let ft = frame.count > 4 ? frame[frame.startIndex + 4] : 0
+                    if ft != 0xf0 { self.renderer.enqueue(dhavFrame: frame, isLive: true) }
                 }
                 return true
             }

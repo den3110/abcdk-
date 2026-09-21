@@ -13,6 +13,8 @@
 import Foundation
 import AVFoundation
 import CoreMedia
+import CoreVideo
+import VideoToolbox
 
 public final class HEVCRenderer {
 
@@ -31,16 +33,16 @@ public final class HEVCRenderer {
   public var onDecodedPixelBuffer: ((CVPixelBuffer, CMTime) -> Void)?
   private var liveDecompression: VTDecompressionSession?
   private var liveDecompFmt: CMVideoFormatDescription?
-  public weak var imouView: ImouVideoView? {
-    didSet { tryRevealIfReady() }  // view attach trễ → reveal ngay nếu đã qua warmup
-  }
+  // Live-only: không có view hiển thị cục bộ. Khi cần reveal (chống green-flash
+  // ở đường hiển thị) thì gọi callback này; đường live để nil.
+  public var onRevealLayer: (() -> Void)?
   // Green-flash fix: ẩn layer cho tới khi steady state (warmupFrames frame đã
   // enqueue thành công). Trên simulator iOS, software-decode warmup ~10-15
   // frame (>device), nên chọn 15 (~600ms) để chắc; device thật cũng OK.
   private let warmupFrames = 15
   public private(set) var enqueuedSinceReset = 0
   private func tryRevealIfReady() {
-    if enqueuedSinceReset >= warmupFrames { imouView?.revealLayer() }
+    if enqueuedSinceReset >= warmupFrames { onRevealLayer?() }
   }
 
   private let psCache = HEVCNalExtractor.ParamSetCache()
@@ -160,7 +162,7 @@ public final class HEVCRenderer {
       // Reveal layer sau warmupFrames frame thành công (chống green-flash).
       // Gọi mỗi frame > warmup (revealLayer idempotent — no-op khi đã hiện).
       enqueuedSinceReset += 1
-      if enqueuedSinceReset >= warmupFrames { imouView?.revealLayer() }
+      if enqueuedSinceReset >= warmupFrames { onRevealLayer?() }
     } catch {
       NSLog("[HEVCRenderer] sample buffer failed: \(error)")
     }
