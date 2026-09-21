@@ -1216,6 +1216,7 @@ private struct LiveStreamScreen: View {
     }
 
     private var startupOverlayVisible: Bool {
+        guard !store.isSwitchingPreviewSource else { return false }  // đổi nguồn preview → không chặn
         guard !matchSwapLoadingVisible else { return false }
         guard !waitingNextMatchVisible else { return false }
         guard capturePlaceholder == nil else { return false }

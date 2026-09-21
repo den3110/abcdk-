@@ -71,6 +71,8 @@ final class LiveAppStore: ObservableObject {
     // Nguồn LINK tùy chỉnh (m3u8/HTTP/RTSP). Ưu tiên hơn Imou/camera khi bật.
     @Published var useCustomURL: Bool = false
     @Published var customSourceURL: String = ""
+    // Đang đổi nguồn preview (Imou/Link) — tắt overlay "vào màn live" trong lúc này.
+    @Published var isSwitchingPreviewSource: Bool = false
     @Published var liveMode: LiveStreamMode = .streamAndRecord
     @Published var selectedQuality: LiveQualityPreset = .balanced1080
 
@@ -2346,11 +2348,14 @@ final class LiveAppStore: ObservableObject {
     }
 
     /// Đổi PREVIEW theo nguồn vừa chọn (Camera/Imou/Link) NGAY, không chờ Go Live.
-    /// Chỉ chạy khi CHƯA đang live (không cắt stream đang chạy).
+    /// Chỉ chạy khi CHƯA đang live (không cắt stream đang chạy). Bật cờ để KHÔNG hiện
+    /// overlay "đang dựng preview vào màn live" — chỉ đang đổi nguồn, cam sẽ hiện dần.
     func previewSelectedSource() {
         guard !hasActiveLivestreamSession else { return }
+        isSwitchingPreviewSource = true
         Task { [weak self] in
             guard let self else { return }
+            defer { self.isSwitchingPreviewSource = false }
             self.streamingService.stopPreview()
             do { try await self.preparePreviewHonoringSource() }
             catch { self.errorMessage = error.localizedDescription }
