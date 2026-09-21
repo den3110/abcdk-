@@ -60,6 +60,12 @@ final class LiveAppStore: ObservableObject {
     // Đa đích: page FB PHỤ (ngoài page chính) + có phát thêm YouTube không.
     @Published var additionalFacebookPageIds: [String] = []
     @Published var alsoStreamYouTube: Bool = false
+    // Plan A: dùng cam Imou của sân làm NGUỒN (thay camera điện thoại) → live giải
+    // qua cloud cam. App tự kéo DHAV → HaishinKit → FB (overlay/FB giữ như cũ).
+    @Published var useImouSource: Bool = false
+    @Published var autoLiveCams: [AutoLiveCam] = []
+    @Published var autoLiveCamsLoading = false
+    @Published var selectedImouDeviceId: String?
     @Published var liveMode: LiveStreamMode = .streamAndRecord
     @Published var selectedQuality: LiveQualityPreset = .balanced1080
 
@@ -614,10 +620,15 @@ final class LiveAppStore: ObservableObject {
             return
         }
 
-        if !cameraOperational {
+        // Plan A: nguồn Imou không dùng camera điện thoại → bỏ qua guard camera.
+        if !useImouSource, !cameraOperational {
             errorMessage = cameraDeviceAvailable
                 ? "Thiếu quyền camera để bắt đầu phiên."
                 : "Thiết bị này không có camera để bắt đầu phiên live."
+            return
+        }
+        if useImouSource, (selectedImouDeviceId?.trimmedNilIfBlank == nil) {
+            errorMessage = "Chưa chọn camera Imou cho nguồn live."
             return
         }
 
@@ -671,7 +682,20 @@ final class LiveAppStore: ObservableObject {
             }
 
             streamingService.applyQuality(selectedQuality)
-            try await streamingService.preparePreview(quality: selectedQuality)
+            if useImouSource, let devId = selectedImouDeviceId?.trimmedNilIfBlank {
+                // Plan A: lấy session Imou đã giải mã của cam → kéo cam làm nguồn.
+                let resp = try await environment.apiClient.getCourtImouSession(imouDeviceId: devId)
+                let imouSession = ImouSession(
+                    uuidUser: resp.imouSession.uuidUser,
+                    uuidKey: resp.imouSession.uuidKey,
+                    sessionId: resp.imouSession.sessionId,
+                    regionalHost: resp.imouSession.regionalHost
+                )
+                try await streamingService.preparePreviewImou(
+                    session: imouSession, deviceId: resp.imouDeviceId, quality: selectedQuality)
+            } else {
+                try await streamingService.preparePreview(quality: selectedQuality)
+            }
 
             if liveMode.includesRecording {
                 let recordingSessionId = UUID().uuidString
@@ -3173,6 +3197,24 @@ final class LiveAppStore: ObservableObject {
                 self.facebookPages = pages
             } catch {
                 // giữ danh sách cũ, không hiện lỗi
+            }
+        }
+    }
+
+    /// Plan A: nạp danh sách cam Imou đã gắn ở sân (để chọn nguồn live).
+    /// Chỉ tài khoản admin mới thấy (endpoint admin); lỗi → giữ danh sách cũ.
+    func loadAutoLiveCams() {
+        guard !autoLiveCamsLoading else { return }
+        autoLiveCamsLoading = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.autoLiveCamsLoading = false }
+            do {
+                let cams = try await self.environment.apiClient.listAutoLiveCams()
+                self.autoLiveCams = cams
+                if self.selectedImouDeviceId == nil { self.selectedImouDeviceId = cams.first?.deviceId }
+            } catch {
+                // không phải admin / không có cam → im lặng
             }
         }
     }

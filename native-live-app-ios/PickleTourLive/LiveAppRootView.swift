@@ -2104,6 +2104,66 @@ private struct LiveStreamScreen: View {
         .buttonStyle(.plain)
     }
 
+    // Plan A: chọn nguồn video là cam Imou của sân (thay camera điện thoại).
+    private var imouSourceSection: some View {
+        LiveCard {
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(
+                    title: "Nguồn video",
+                    subtitle: "Mặc định dùng camera điện thoại. Bật để kéo cam Imou của sân làm nguồn live (không cần cầm máy quay)."
+                )
+                Toggle(isOn: Binding(
+                    get: { store.useImouSource },
+                    set: { on in
+                        store.useImouSource = on
+                        if on, store.autoLiveCams.isEmpty { store.loadAutoLiveCams() }
+                    }
+                )) {
+                    Text("Dùng cam Imou của sân")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .tint(LivePalette.accent)
+
+                if store.useImouSource {
+                    HStack {
+                        Text("Camera")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(LivePalette.textSecondary)
+                        Spacer()
+                        Button("Tải lại") { store.loadAutoLiveCams() }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(LivePalette.accent)
+                    }
+                    if store.autoLiveCams.isEmpty {
+                        Text(store.autoLiveCamsLoading
+                             ? "Đang tải danh sách cam…"
+                             : "Chưa có cam Imou (cần tài khoản admin + cam đã gắn ở sân).")
+                            .font(.system(size: 12))
+                            .foregroundStyle(LivePalette.textSecondary)
+                    } else {
+                        VStack(spacing: 8) {
+                            ForEach(store.autoLiveCams) { cam in
+                                fanpageRow(
+                                    title: cam.label,
+                                    subtitle: cam.deviceId,
+                                    selected: store.selectedImouDeviceId == cam.deviceId
+                                ) {
+                                    store.selectedImouDeviceId = cam.deviceId
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                if store.useImouSource, store.autoLiveCams.isEmpty, !store.autoLiveCamsLoading {
+                    store.loadAutoLiveCams()
+                }
+            }
+        }
+    }
+
     private var fanpageSection: some View {
         LiveCard {
             VStack(alignment: .leading, spacing: 14) {
@@ -3135,6 +3195,7 @@ private struct LiveStreamScreen: View {
                     sessionSection
                     healthSection
                     observerSection
+                    imouSourceSection
                     fanpageSection
 
                     SecondaryActionButton(

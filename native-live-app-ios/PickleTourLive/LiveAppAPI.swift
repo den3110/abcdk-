@@ -240,6 +240,33 @@ final class LiveSessionStore: ObservableObject {
     }
 }
 
+// MARK: - Plan A (Imou source) DTOs
+/// 1 cam Imou đã gắn ở sân vật lý (GET .../available-cams).
+struct AutoLiveCam: Codable, Identifiable, Hashable {
+    var venueId: String
+    var venueName: String
+    var courtId: String
+    var courtName: String
+    var deviceId: String
+    var camName: String
+    var id: String { deviceId }
+    var label: String { "\(venueName) / \(courtName) · \(camName)" }
+}
+
+/// Session Imou đã giải mã (camelCase từ backend court-imou-session).
+struct ImouSessionDTO: Codable {
+    var uuidUser: String
+    var uuidKey: String
+    var sessionId: String
+    var regionalHost: String
+}
+
+struct CourtImouSessionResponse: Codable {
+    var imouDeviceId: String
+    var venueId: String
+    var imouSession: ImouSessionDTO
+}
+
 final class LiveAPIClient {
     private let sessionProvider: () -> String?
     private let urlSession: URLSession
@@ -273,6 +300,20 @@ final class LiveAPIClient {
 
     func getCourtRuntime(courtId: String) async throws -> LiveAppCourtRuntimeResponse {
         try await request(path: "api/live-app/courts/\(courtId)/runtime")
+    }
+
+    // MARK: - Plan A: nguồn cam Imou (thay camera điện thoại)
+    /// Danh sách cam Imou đã gắn ở các sân (admin). Trả mảng phẳng.
+    func listAutoLiveCams() async throws -> [AutoLiveCam] {
+        try await request(path: "api/tournament-auto-live/available-cams")
+    }
+
+    /// Session Imou đã giải mã theo deviceId cam (admin) → app tự kéo cam làm nguồn.
+    func getCourtImouSession(imouDeviceId: String) async throws -> CourtImouSessionResponse {
+        try await request(
+            path: "api/tournament-auto-live/court-imou-session",
+            query: [URLQueryItem(name: "imouDeviceId", value: imouDeviceId)]
+        )
     }
 
     func getNextMatchByCourt(courtId: String, afterMatchId: String? = nil) async throws -> String? {
