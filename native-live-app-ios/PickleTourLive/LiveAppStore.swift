@@ -66,6 +66,8 @@ final class LiveAppStore: ObservableObject {
     @Published var autoLiveCams: [AutoLiveCam] = []
     @Published var autoLiveCamsLoading = false
     @Published var selectedImouDeviceId: String?
+    // Máy KHÔNG có camera: vào màn live tự bật nguồn Imou + hiện picker chọn cam.
+    @Published var autoPromptImouSource = false
     @Published var liveMode: LiveStreamMode = .streamAndRecord
     @Published var selectedQuality: LiveQualityPreset = .balanced1080
 
@@ -3419,7 +3421,17 @@ final class LiveAppStore: ObservableObject {
             environment.matchSocket.watch(matchId: matchId)
         }
         environment.courtRuntimeSocket.connectIfNeeded()
-        if useImouSource || cameraDeviceAvailable {
+        // Máy KHÔNG có camera → tự bật nguồn Imou + nạp danh sách cam.
+        if !cameraDeviceAvailable, !useImouSource {
+            useImouSource = true
+            if autoLiveCams.isEmpty { loadAutoLiveCams() }
+        }
+        if useImouSource, selectedImouDeviceId?.trimmedNilIfBlank == nil {
+            // Chưa chọn cam → hiện picker, chưa dựng preview (không có nguồn).
+            if autoLiveCams.isEmpty { loadAutoLiveCams() }
+            autoPromptImouSource = true
+            streamState = .idle
+        } else if useImouSource || cameraDeviceAvailable {
             try await preparePreviewHonoringSource()
         } else {
             streamState = .idle

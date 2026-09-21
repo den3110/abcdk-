@@ -934,6 +934,9 @@ private struct LiveStreamScreen: View {
         .sheet(isPresented: $showSettingsSheet) {
             settingsSheet
         }
+        .sheet(isPresented: $store.autoPromptImouSource) {
+            imouSourcePickerSheet
+        }
         .sheet(isPresented: $showQualitySheet) {
             qualityPickerSheet
         }
@@ -2102,6 +2105,58 @@ private struct LiveStreamScreen: View {
                 )
         }
         .buttonStyle(.plain)
+    }
+
+    // Máy KHÔNG có camera: tự hiện sheet chọn cam Imou khi vào màn live.
+    private var imouSourcePickerSheet: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                ModalSheetHeader(
+                    title: "Chọn nguồn camera",
+                    subtitle: "Thiết bị này không có camera. Chọn camera Imou của sân để phát live."
+                ) { store.autoPromptImouSource = false }
+
+                LiveCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text("Camera Imou")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(LivePalette.textSecondary)
+                            Spacer()
+                            Button("Tải lại") { store.loadAutoLiveCams() }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(LivePalette.accent)
+                        }
+                        if store.autoLiveCams.isEmpty {
+                            Text(store.autoLiveCamsLoading
+                                 ? "Đang tải danh sách cam…"
+                                 : "Chưa có cam Imou (cần tài khoản admin + cam đã gắn ở sân).")
+                                .font(.system(size: 12))
+                                .foregroundStyle(LivePalette.textSecondary)
+                        } else {
+                            ForEach(store.autoLiveCams) { cam in
+                                fanpageRow(title: cam.label, subtitle: cam.deviceId,
+                                           selected: store.selectedImouDeviceId == cam.deviceId) {
+                                    store.selectedImouDeviceId = cam.deviceId
+                                }
+                            }
+                        }
+                    }
+                }
+
+                PrimaryActionButton(
+                    title: "Xong",
+                    subtitle: store.selectedImouDeviceId == nil ? "Hãy chọn 1 camera" : "Dùng camera đã chọn",
+                    tint: LivePalette.accent
+                ) { store.autoPromptImouSource = false }
+                .opacity(store.selectedImouDeviceId == nil ? 0.5 : 1)
+                .disabled(store.selectedImouDeviceId == nil)
+            }
+            .padding(20)
+        }
+        .onAppear {
+            if store.autoLiveCams.isEmpty, !store.autoLiveCamsLoading { store.loadAutoLiveCams() }
+        }
     }
 
     // Plan A: chọn nguồn video là cam Imou của sân (thay camera điện thoại).
