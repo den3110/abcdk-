@@ -68,6 +68,9 @@ final class LiveAppStore: ObservableObject {
     @Published var selectedImouDeviceId: String?
     // Máy KHÔNG có camera: vào màn live tự bật nguồn Imou + hiện picker chọn cam.
     @Published var autoPromptImouSource = false
+    // Nguồn LINK tùy chỉnh (m3u8/HTTP/RTSP). Ưu tiên hơn Imou/camera khi bật.
+    @Published var useCustomURL: Bool = false
+    @Published var customSourceURL: String = ""
     @Published var liveMode: LiveStreamMode = .streamAndRecord
     @Published var selectedQuality: LiveQualityPreset = .balanced1080
 
@@ -613,7 +616,10 @@ final class LiveAppStore: ObservableObject {
     /// (startLive / rebuildPreviewPipeline / prepareLiveScreen) để không đường nào lỡ
     /// ép camera khi đang bật cam Imou. Lỗi lấy session/nguồn → ném ra để caller hiện.
     private func preparePreviewHonoringSource() async throws {
-        if useImouSource, let devId = selectedImouDeviceId?.trimmedNilIfBlank {
+        if useCustomURL, let link = customSourceURL.trimmedNilIfBlank {
+            NSLog("[URLSrc] store: prepare link=\(link.prefix(60))")
+            try await streamingService.preparePreviewURL(urlString: link, quality: selectedQuality)
+        } else if useImouSource, let devId = selectedImouDeviceId?.trimmedNilIfBlank {
             NSLog("[ImouSrc] store: fetch court-imou-session dev=\(devId)")
             let resp = try await environment.apiClient.getCourtImouSession(imouDeviceId: devId)
             NSLog("[ImouSrc] store: fetched hasSession=\(resp.imouSession != nil) hasCreds=\(resp.imouCreds != nil) dev=\(resp.imouDeviceId)")
@@ -644,14 +650,19 @@ final class LiveAppStore: ObservableObject {
             return
         }
 
-        // Plan A: nguồn Imou không dùng camera điện thoại → bỏ qua guard camera.
-        if !useImouSource, !cameraOperational {
+        // Plan A: nguồn Imou/link không dùng camera điện thoại → bỏ qua guard camera.
+        let usingExternalSource = useImouSource || useCustomURL
+        if !usingExternalSource, !cameraOperational {
             errorMessage = cameraDeviceAvailable
                 ? "Thiếu quyền camera để bắt đầu phiên."
                 : "Thiết bị này không có camera để bắt đầu phiên live."
             return
         }
-        if useImouSource, (selectedImouDeviceId?.trimmedNilIfBlank == nil) {
+        if useCustomURL, customSourceURL.trimmedNilIfBlank == nil {
+            errorMessage = "Chưa nhập link nguồn (m3u8/HTTP)."
+            return
+        }
+        if useImouSource, !useCustomURL, (selectedImouDeviceId?.trimmedNilIfBlank == nil) {
             errorMessage = "Chưa chọn camera Imou cho nguồn live."
             return
         }
@@ -3426,12 +3437,12 @@ final class LiveAppStore: ObservableObject {
             useImouSource = true
             if autoLiveCams.isEmpty { loadAutoLiveCams() }
         }
-        if useImouSource, selectedImouDeviceId?.trimmedNilIfBlank == nil {
+        if useImouSource, !useCustomURL, selectedImouDeviceId?.trimmedNilIfBlank == nil {
             // Chưa chọn cam → hiện picker, chưa dựng preview (không có nguồn).
             if autoLiveCams.isEmpty { loadAutoLiveCams() }
             autoPromptImouSource = true
             streamState = .idle
-        } else if useImouSource || cameraDeviceAvailable {
+        } else if (useCustomURL && customSourceURL.trimmedNilIfBlank != nil) || useImouSource || cameraDeviceAvailable {
             try await preparePreviewHonoringSource()
         } else {
             streamState = .idle

@@ -2160,29 +2160,35 @@ private struct LiveStreamScreen: View {
     }
 
     // Plan A: chọn nguồn video là cam Imou của sân (thay camera điện thoại).
+    // 3 chế độ nguồn: camera máy / cam Imou / link tùy chỉnh (loại trừ nhau).
+    private func selectVideoSource(imou: Bool, url: Bool) {
+        store.useImouSource = imou
+        store.useCustomURL = url
+        if imou, store.autoLiveCams.isEmpty { store.loadAutoLiveCams() }
+    }
+
     private var imouSourceSection: some View {
         LiveCard {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(
                     title: "Nguồn video",
-                    subtitle: "Mặc định dùng camera điện thoại. Bật để kéo cam Imou của sân làm nguồn live (không cần cầm máy quay)."
+                    subtitle: "Chọn nguồn phát: camera điện thoại, cam Imou của sân, hoặc dán link m3u8/HTTP."
                 )
-                Toggle(isOn: Binding(
-                    get: { store.useImouSource },
-                    set: { on in
-                        store.useImouSource = on
-                        if on, store.autoLiveCams.isEmpty { store.loadAutoLiveCams() }
+                HStack(spacing: 8) {
+                    platformChip(title: "Camera máy", active: !store.useImouSource && !store.useCustomURL) {
+                        selectVideoSource(imou: false, url: false)
                     }
-                )) {
-                    Text("Dùng cam Imou của sân")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
+                    platformChip(title: "Cam Imou", active: store.useImouSource) {
+                        selectVideoSource(imou: true, url: false)
+                    }
+                    platformChip(title: "Link", active: store.useCustomURL) {
+                        selectVideoSource(imou: false, url: true)
+                    }
                 }
-                .tint(LivePalette.accent)
 
                 if store.useImouSource {
                     HStack {
-                        Text("Camera")
+                        Text("Camera Imou")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(LivePalette.textSecondary)
                         Spacer()
@@ -2209,6 +2215,22 @@ private struct LiveStreamScreen: View {
                             }
                         }
                     }
+                } else if store.useCustomURL {
+                    Text("Link nguồn (m3u8 / HTTP). RTSP chưa hỗ trợ trên iOS.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(LivePalette.textSecondary)
+                    TextField("https://…/index.m3u8", text: Binding(
+                        get: { store.customSourceURL },
+                        set: { store.customSourceURL = $0 }
+                    ))
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled(true)
+                    .keyboardType(.URL)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white)
+                    .padding(10)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(LivePalette.cardMuted))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(LivePalette.cardStroke, lineWidth: 1))
                 }
             }
             .onAppear {

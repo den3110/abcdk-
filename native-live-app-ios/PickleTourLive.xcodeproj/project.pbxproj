@@ -21,6 +21,7 @@
 		00100000000000000000000C /* MatchLiveActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00200000000000000000000C /* MatchLiveActivityAttributes.swift */; };
 		00100000000000000000000D /* PickleTourLiveActivityBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00200000000000000000000E /* PickleTourLiveActivityBundle.swift */; };
 		00100000000000000000000E /* FirebaseBootstrapper.m in Sources */ = {isa = PBXBuildFile; fileRef = 002000000000000000000011 /* FirebaseBootstrapper.m */; };
+		0D7F1BF44F6B827036CF5A80 /* URLLiveSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 705EA9850C11DB0E986062AF /* URLLiveSource.swift */; };
 		3F02F7B1217A98F1AB910FCB /* DhHttpClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE8BA6EED6323DDB8A44F663 /* DhHttpClient.swift */; };
 		412CB52C12D63470178B8E1A /* DhRtspClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C4C417D88D5B3B6C578FE06 /* DhRtspClient.swift */; };
 		4D3CED5BEB470F348BAC7A87 /* HEVCRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A80000E97BBEE1C2373B7AB /* HEVCRenderer.swift */; };
@@ -86,6 +87,7 @@
 		4CA8BC2647A5C58123E03DA9 /* DHAVParser.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = DHAVParser.swift; sourceTree = "<group>"; };
 		4D3F152637216CFB057EE154 /* SaaSClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SaaSClient.swift; sourceTree = "<group>"; };
 		5A80000E97BBEE1C2373B7AB /* HEVCRenderer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HEVCRenderer.swift; sourceTree = "<group>"; };
+		705EA9850C11DB0E986062AF /* URLLiveSource.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = URLLiveSource.swift; sourceTree = "<group>"; };
 		742E99B8D8D3B19718E5292F /* Snapshot.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
 		7DBA2CFC7D4934B1BA11E8BF /* ApiClient.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ApiClient.swift; sourceTree = "<group>"; };
 		89A6BCA0D87D3AE6B5484D16 /* Pods_PickleTourLive.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_PickleTourLive.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -180,6 +182,7 @@
 				9A200353710A0D35785A2C4C /* ImouLiveSource.swift */,
 				742E99B8D8D3B19718E5292F /* Snapshot.swift */,
 				4D3F152637216CFB057EE154 /* SaaSClient.swift */,
+				705EA9850C11DB0E986062AF /* URLLiveSource.swift */,
 			);
 			name = ImouCore;
 			path = ImouCore;
@@ -418,6 +421,7 @@
 				A00F575FD1F4403DF4EAF8FA /* ImouLiveSource.swift in Sources */,
 				D07F05037B34D2CA1C42609B /* Snapshot.swift in Sources */,
 				72704D58FF654A36AFF3871B /* SaaSClient.swift in Sources */,
+				0D7F1BF44F6B827036CF5A80 /* URLLiveSource.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

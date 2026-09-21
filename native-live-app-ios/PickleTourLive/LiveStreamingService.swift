@@ -118,6 +118,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private let overlayEffect = LiveScoreboardVideoEffect()
     // PLAN A: nguồn cam Imou (thay camera điện thoại). Set khi live cam Imou.
     private var imouSource: ImouLiveSource?
+    // Nguồn LINK tùy chỉnh (m3u8/HTTP) qua AVPlayer.
+    private var urlSource: URLLiveSource?
     // Chẩn đoán nguồn Imou: đếm frame đã append + watchdog + callback ra UI (banner).
     var onImouEvent: ((String) -> Void)?
     private var imouFrameCount = 0
@@ -398,6 +400,73 @@ final class LiveStreamingService: NSObject, ObservableObject {
         }
     }
 
+    /// PLAN A (mở rộng): nguồn LINK tùy chỉnh (m3u8/HTTP) qua AVPlayer → HaishinKit.
+    /// Cùng cơ chế offscreen+overlay+PTS host-clock như nguồn Imou.
+    func preparePreviewURL(urlString: String, quality: LiveQualityPreset = .balanced1080) async throws {
+        let operationGeneration = lifecycleGeneration
+        connectionState = .preparingPreview
+        do {
+            imouSourceActive = true   // nguồn ngoài → ép canvas/encoder landscape
+            try configureAudioSession()
+            applyQuality(quality)
+            registerOverlayEffectIfNeeded()
+            ensureOffscreenScreenRunning()
+            attachMicrophoneIfNeeded()
+            stream.attachCamera(nil)
+
+            guard let src = URLLiveSource(urlString: urlString) else {
+                throw NSError(domain: "URLLiveSource", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "Link không hợp lệ"])
+            }
+            imouFrameCount = 0
+            src.onSampleBuffer = { [weak self] sb in
+                guard let self else { return }
+                self.imouFrameCount &+= 1
+                self.stream.append(sb)
+            }
+            src.onState = { [weak self] st in
+                NSLog("[URLSrc] state=\(st)")
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if case .error(let m) = st {
+                        self.appendDiagnostic("URL source error: \(m)")
+                        self.onImouEvent?("LỖI link: \(m)")
+                    } else if case .streaming = st {
+                        self.onImouEvent?("đã mở link, chờ hình…")
+                    }
+                }
+            }
+            urlSource?.stop()
+            urlSource = src
+            src.start()
+            let gen = operationGeneration
+            imouWatchdogTask?.cancel()
+            imouWatchdogTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                await MainActor.run { [weak self] in
+                    guard let self, gen == self.lifecycleGeneration else { return }
+                    let n = self.imouFrameCount
+                    self.onImouEvent?(n == 0
+                        ? "⚠️ 0 hình sau 8s — link không phát được"
+                        : "✅ đang nhận hình từ link (\(n) frame)")
+                }
+            }
+
+            guard operationGeneration == lifecycleGeneration else {
+                src.stop(); urlSource = nil
+                return
+            }
+            connectionState = .previewReady
+            startStatsTimer()
+            clearRecoveryIfNeeded()
+            appendDiagnostic("Preview attached to URL source.")
+        } catch {
+            urlSource?.stop(); urlSource = nil
+            appendDiagnostic("URL preview failed: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
     /// Đặt danh sách đích phụ (ngoài đích chính) TRƯỚC khi gọi startPublishing. Rỗng = chỉ 1 đích.
     func setSecondaryDestinations(_ destinations: [(destination: RTMPDestination, label: String)]) {
         pendingSecondaryDestinations = destinations
@@ -510,6 +579,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
         stopSecondaryOutputs()
         pendingSecondaryDestinations.removeAll()
         imouSource?.stop(); imouSource = nil   // PLAN A: dừng nguồn Imou nếu có
+        urlSource?.stop(); urlSource = nil     // PLAN A: dừng nguồn link nếu có
         imouWatchdogTask?.cancel(); imouWatchdogTask = nil
         imouSourceActive = false
         stream.attachCamera(nil)
