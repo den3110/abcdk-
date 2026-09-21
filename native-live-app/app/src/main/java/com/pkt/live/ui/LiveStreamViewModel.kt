@@ -259,25 +259,54 @@ class LiveStreamViewModel(
     private val _quality = MutableStateFlow(Quality.DEFAULT)
     val quality: StateFlow<Quality> = _quality.asStateFlow()
 
-    // ===== Nguồn LINK (m3u8/HLS/RTSP/HTTP) — additive, mặc định TẮT (đi camera) =====
+    // ===== Nguồn ngoài (LINK / cam Imou cloud) — additive, mặc định TẮT (đi camera) =====
     private val _useUrlSource = MutableStateFlow(false)
     val useUrlSource: StateFlow<Boolean> = _useUrlSource.asStateFlow()
     private val _customUrl = MutableStateFlow("")
     val customUrl: StateFlow<String> = _customUrl.asStateFlow()
-    fun setUseUrlSource(on: Boolean) { _useUrlSource.value = on }
+    private val _useImouSource = MutableStateFlow(false)
+    val useImouSource: StateFlow<Boolean> = _useImouSource.asStateFlow()
+    private val _selectedImouDeviceId = MutableStateFlow("")
+    val selectedImouDeviceId: StateFlow<String> = _selectedImouDeviceId.asStateFlow()
+    private val _autoLiveCams = MutableStateFlow<List<com.pkt.live.data.model.AutoLiveCamDto>>(emptyList())
+    val autoLiveCams: StateFlow<List<com.pkt.live.data.model.AutoLiveCamDto>> = _autoLiveCams.asStateFlow()
+
+    fun setUseUrlSource(on: Boolean) { _useUrlSource.value = on; if (on) _useImouSource.value = false }
     fun setCustomUrl(url: String) { _customUrl.value = url }
+    fun setUseImouSource(on: Boolean) {
+        _useImouSource.value = on
+        if (on) { _useUrlSource.value = false; if (_autoLiveCams.value.isEmpty()) loadAutoLiveCams() }
+    }
+    fun setSelectedImouDeviceId(id: String) { _selectedImouDeviceId.value = id }
+    fun loadAutoLiveCams() {
+        viewModelScope.launch {
+            repository.listAutoLiveCams().onSuccess { cams ->
+                _autoLiveCams.value = cams
+                if (_selectedImouDeviceId.value.isBlank() && cams.isNotEmpty())
+                    _selectedImouDeviceId.value = cams.first().deviceId
+            }
+        }
+    }
     private val urlStreamManager by lazy { com.pkt.live.streaming.UrlStreamManager(appContext) }
     val urlStreamState get() = urlStreamManager.state
 
-    /** Bắt đầu phát video: nếu bật nguồn LINK thì dùng ExoPlayer→GenericStream, else camera. */
+    /** Bắt đầu phát video: cam Imou / LINK (GenericStream) hoặc camera (mặc định). */
     private fun startVideoStream(rtmp: String) {
-        if (_useUrlSource.value && _customUrl.value.isNotBlank()) {
-            val q = _quality.value
-            urlStreamManager.prepare(_customUrl.value.trim(), rtmp, q.width, q.height, q.fps, q.bitrate)
-            urlStreamManager.start()
-        } else {
-            urlStreamManager.stop()
-            streamManager.startStream(rtmp)
+        val q = _quality.value
+        when {
+            _useImouSource.value && _selectedImouDeviceId.value.isNotBlank() -> {
+                val devId = _selectedImouDeviceId.value
+                urlStreamManager.prepareImou(
+                    urlProvider = { repository.getCourtImouStreamUrl(devId, "1").getOrThrow().url },
+                    rtmp, q.width, q.height, q.fps, q.bitrate,
+                )
+                urlStreamManager.start()
+            }
+            _useUrlSource.value && _customUrl.value.isNotBlank() -> {
+                urlStreamManager.prepare(_customUrl.value.trim(), rtmp, q.width, q.height, q.fps, q.bitrate)
+                urlStreamManager.start()
+            }
+            else -> { urlStreamManager.stop(); streamManager.startStream(rtmp) }
         }
     }
 
@@ -2441,7 +2470,7 @@ class LiveStreamViewModel(
 
         overlayRenderer.onBitmapReady = { bmp ->
             if (!freshEntryRequired) {
-                if (_useUrlSource.value) urlStreamManager.setOverlay(bmp)
+                if (_useUrlSource.value || _useImouSource.value) urlStreamManager.setOverlay(bmp)
                 else streamManager.updateOverlayBitmap(bmp)
             }
         }

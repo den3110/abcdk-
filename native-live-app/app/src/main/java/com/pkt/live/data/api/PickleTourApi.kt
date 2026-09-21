@@ -1,5 +1,7 @@
 package com.pkt.live.data.api
 
+import com.pkt.live.data.model.AutoLiveCamDto
+import com.pkt.live.data.model.ImouStreamUrlDto
 import com.pkt.live.data.model.CreateLiveRequest
 import com.pkt.live.data.model.CreateMultiLiveRequest
 import com.pkt.live.data.model.CreateMultiLiveResponse
@@ -74,6 +76,16 @@ interface PickleTourApi {
 
     @GET("api/live-app/bootstrap")
     suspend fun getLiveAppBootstrap(): Response<LiveAppBootstrapResponse>
+
+    // ===== Nguồn cam Imou cloud (admin) =====
+    @GET("api/tournament-auto-live/available-cams")
+    suspend fun listAutoLiveCams(): Response<List<AutoLiveCamDto>>
+
+    @GET("api/tournament-auto-live/court-imou-stream-url")
+    suspend fun getCourtImouStreamUrl(
+        @Query("imouDeviceId") imouDeviceId: String,
+        @Query("streamId") streamId: String = "1",
+    ): Response<ImouStreamUrlDto>
 
     @GET("api/live-app/version")
     suspend fun getLiveAppVersion(

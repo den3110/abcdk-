@@ -47,14 +47,29 @@ class UrlStreamManager(
      * @param sourceUrl link m3u8/rtsp/http; @param rtmp đích FB (rtmp://…/key).
      */
     fun prepare(sourceUrl: String, rtmp: String, w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
-        rtmpUrl = rtmp
-        width = w; height = h; fps = videoFps; bitrate = videoBitrate
         val videoSource = ExoPlayerVideoSource(
             context = context,
             url = sourceUrl,
             onError = { msg -> _state.value = State.SourceError(msg) },
             onReady = { Log.d(TAG, "url source ready") },
         )
+        return prepareWith(videoSource, rtmp, w, h, videoFps, videoBitrate)
+    }
+
+    /** Nguồn cam Imou cloud: urlProvider suspend lấy relay URL từ backend. */
+    fun prepareImou(urlProvider: suspend () -> String, rtmp: String,
+                    w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
+        val videoSource = com.pkt.live.streaming.imou.ImouVideoSource(
+            urlProvider = urlProvider,
+            onError = { msg -> _state.value = State.SourceError(msg) },
+        )
+        return prepareWith(videoSource, rtmp, w, h, videoFps, videoBitrate)
+    }
+
+    private fun prepareWith(videoSource: com.pedro.encoder.input.sources.video.VideoSource,
+                            rtmp: String, w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
+        rtmpUrl = rtmp
+        width = w; height = h; fps = videoFps; bitrate = videoBitrate
         val s = GenericStream(context, this, videoSource, NoAudioSource())
         stream = s
         val vOk = runCatching {

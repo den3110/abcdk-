@@ -902,3 +902,19 @@ data class FacebookPage(
     val isBusy: Boolean = false,
     val needsReauth: Boolean = false,
 )
+
+// ===== Nguồn cam Imou cloud (Android live) =====
+data class AutoLiveCamDto(
+    val venueId: String = "",
+    val venueName: String = "",
+    val courtId: String = "",
+    val courtName: String = "",
+    val deviceId: String = "",
+    val camName: String = "",
+)
+
+data class ImouStreamUrlDto(
+    val imouDeviceId: String = "",
+    val venueId: String = "",
+    val url: String = "",
+)

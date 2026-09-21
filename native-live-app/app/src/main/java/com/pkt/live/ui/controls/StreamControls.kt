@@ -88,6 +88,9 @@ fun StreamControls(
     var showSourcePicker by remember { mutableStateOf(false) }
     val useUrlSource by viewModel.useUrlSource.collectAsState()
     val customUrl by viewModel.customUrl.collectAsState()
+    val useImouSource by viewModel.useImouSource.collectAsState()
+    val autoLiveCams by viewModel.autoLiveCams.collectAsState()
+    val selectedImouDeviceId by viewModel.selectedImouDeviceId.collectAsState()
     val preflightDialog by viewModel.preflightDialog.collectAsState()
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -326,7 +329,7 @@ fun StreamControls(
             ControlButtonSmall(
                 icon = Icons.Default.Link,
                 label = "Nguồn",
-                active = useUrlSource,
+                active = useUrlSource || useImouSource,
                 onClick = { showSourcePicker = true },
             )
 
@@ -391,10 +394,36 @@ fun StreamControls(
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                     ) {
                         androidx.compose.material3.RadioButton(
-                            selected = !useUrlSource,
-                            onClick = { viewModel.setUseUrlSource(false) }
+                            selected = !useUrlSource && !useImouSource,
+                            onClick = { viewModel.setUseUrlSource(false); viewModel.setUseImouSource(false) }
                         )
                         Text("Camera điện thoại")
+                    }
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.RadioButton(
+                            selected = useImouSource,
+                            onClick = { viewModel.setUseImouSource(true) }
+                        )
+                        Text("Cam Imou của sân")
+                    }
+                    if (useImouSource) {
+                        if (autoLiveCams.isEmpty()) {
+                            Text("Đang tải cam… (cần tài khoản admin)", style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                        }
+                        autoLiveCams.forEach { cam ->
+                            androidx.compose.foundation.layout.Row(
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                            ) {
+                                androidx.compose.material3.RadioButton(
+                                    selected = selectedImouDeviceId == cam.deviceId,
+                                    onClick = { viewModel.setSelectedImouDeviceId(cam.deviceId) }
+                                )
+                                Text("${cam.venueName} / ${cam.courtName} · ${cam.camName}",
+                                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                            }
+                        }
                     }
                     androidx.compose.foundation.layout.Row(
                         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically

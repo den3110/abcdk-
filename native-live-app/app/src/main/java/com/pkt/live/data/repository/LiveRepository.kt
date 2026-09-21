@@ -96,6 +96,23 @@ class LiveRepository(
         }
     }
 
+    suspend fun listAutoLiveCams(): Result<List<com.pkt.live.data.model.AutoLiveCamDto>> {
+        return try {
+            val resp = api.listAutoLiveCams()
+            if (resp.isSuccessful && resp.body() != null) Result.success(resp.body()!!)
+            else Result.failure(Exception("listAutoLiveCams: ${resp.code()}"))
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
+    suspend fun getCourtImouStreamUrl(deviceId: String, streamId: String = "1"):
+            Result<com.pkt.live.data.model.ImouStreamUrlDto> {
+        return try {
+            val resp = api.getCourtImouStreamUrl(deviceId, streamId)
+            if (resp.isSuccessful && resp.body() != null) Result.success(resp.body()!!)
+            else Result.failure(Exception("getCourtImouStreamUrl: ${resp.code()}"))
+        } catch (e: Exception) { Result.failure(e) }
+    }
+
     suspend fun loginWithPassword(body: LoginRequest): Result<LoginResponse> {
         return try {
             val resp = api.login(body)
