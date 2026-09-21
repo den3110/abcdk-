@@ -17,18 +17,23 @@ FB luôn nhận realtime — KHÔNG lộ 0.85x như server re-encode CFR.
 ## Còn lại (cần môi trường Xcode/CI + iPhone + cam online + FB)
 1. **Xcode project**: thêm nhóm `ImouCore/*.swift` vào target PickleTourLive
    (.pbxproj) — hiện các file ở trên đĩa nhưng CHƯA nằm trong build target.
-2. **LiveStreamingService**: thêm chế độ nguồn Imou:
-   - Không `attachCamera`. Tạo `ImouLiveSource(session, deviceId, productId)`.
-   - `imouSource.onSampleBuffer = { sb in <đưa sb vào HaishinKit mixer> }`.
-   - HaishinKit 1.9.9: xác minh API append CMSampleBuffer ngoài vào mixer
-     (thường `stream.append(sb)` hoặc qua `MediaMixer`/custom `VideoSource`);
-     giữ `videoMixerSettings.mode = .offscreen` + `LiveScoreboardVideoEffect`
-     để overlay vẫn chồng lên frame Imou.
-   - Audio: dùng anullsrc/mic (cam bỏ audio — như server).
-3. **Session Imou cho app**: app đăng nhập admin → chọn giải/sân (có cam Imou) →
-   lấy `ImouSession` (uuidUser/uuidKey/sessionId/regionalHost) + deviceId/productId.
-   Thêm endpoint backend trả session Imou đã giải mã cho app live (giống
-   `/api/tournament-auto-live/:id/worker-config`), hoặc app tự login Imou.
+2. **LiveStreamingService**: thêm chế độ nguồn Imou (KHÔNG sửa phá đường camera cũ):
+   - Không `attachCamera(camera)` — thay bằng `stream.attachCamera(nil)`.
+   - Tạo `ImouLiveSource(session:deviceId:productId:)`; set
+     `imouSource.onSampleBuffer = { [weak self] sb in self?.stream.append(sb) }`
+     (HaishinKit 1.9.9: `IOStream.append(_ sampleBuffer:)` — đã xác nhận là API
+     bơm CMSampleBuffer ngoài vào mixer; SecondaryRTMPOutput cũng dùng
+     IOStreamObserver.didOutput). `imouSource.start()`.
+   - GIỮ `videoMixerSettings.mode = .offscreen` + `registerVideoEffect(overlayEffect)`
+     → overlay chồng lên frame Imou như với camera.
+   - Pixel format: ImouLiveSource xuất 420 biplanar (video range) — khớp mixer.
+   - Audio: `attachAudio(nil)` + để anullsrc (cam bỏ tiếng — như server), hoặc mic.
+   - Stop: `imouSource.stop()`.
+3. **Session Imou cho app**: TÁI DÙNG flow client-runner có sẵn (như app desktop):
+   POST `/api/tournament-auto-live/start` (runner:"client") → GET `/:id/worker-config`
+   → trả `imouSession` (đã giải mã) + `imouDeviceId` + destinations + overlayUrl.
+   `productId` không có trong config → ImouLiveSource tự gọi `ApiClient.devices()`
+   tìm theo deviceId (như imou-rn-native làm). ⇒ KHÔNG cần endpoint backend mới.
 4. **UI**: nút chọn nguồn (Camera điện thoại | Cam Imou) + chọn cam + Start.
 5. **Build/Test**: CI `ios-live-beta.yml` → TestFlight → iPhone thật, cam ONLINE,
    FB page thật. Verify: mượt, đúng giờ, overlay đúng, không rớt.

@@ -27,7 +27,7 @@ public final class ImouLiveSource {
 
     private let session: ImouSession
     private let deviceId: String
-    private let productId: String
+    private var productId: String                 // rỗng → tự tìm qua listDevices()
     private let streamId: String                 // "0"=chính, "1"=phụ (nhẹ)
     private let renderer = HEVCRenderer()         // tái dùng decoder đã test
     private var task: Task<Void, Never>?
@@ -35,7 +35,7 @@ public final class ImouLiveSource {
     private var startHostTime = CACurrentMediaTime()
     private var stopped = false
 
-    public init(session: ImouSession, deviceId: String, productId: String,
+    public init(session: ImouSession, deviceId: String, productId: String = "",
                 streamId: String = "0") {
         self.session = session
         self.deviceId = deviceId
@@ -67,6 +67,12 @@ public final class ImouLiveSource {
 
     private func runLoop() async throws {
         let api = ApiClient(session)
+        // productId rỗng → tra từ danh sách thiết bị (app chỉ cần session+deviceId).
+        if productId.isEmpty {
+            if let cam = try await api.listDevices().first(where: { $0.deviceId == deviceId }) {
+                productId = cam.productId
+            }
+        }
         while !stopped {
             let quality: StreamQuality = (streamId == "1") ? .sd : .hd
             let url = try await api.streamUrl(deviceId: deviceId, productId: productId,
