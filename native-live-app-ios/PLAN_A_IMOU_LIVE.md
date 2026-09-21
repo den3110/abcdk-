@@ -43,7 +43,20 @@ FB luôn nhận realtime — KHÔNG lộ 0.85x như server re-encode CFR.
    → trả `imouSession` (đã giải mã) + `imouDeviceId` + destinations + overlayUrl.
    `productId` không có trong config → ImouLiveSource tự gọi `ApiClient.devices()`
    tìm theo deviceId (như imou-rn-native làm). ⇒ KHÔNG cần endpoint backend mới.
-4. **UI**: nút chọn nguồn (Camera điện thoại | Cam Imou) + chọn cam + Start.
+4. **UI + luồng session** (hook cụ thể — `LiveAppStore.startLive()` ~line 604):
+   - Thêm state: `useImouSource: Bool` + `selectedImouDeviceId: String?` (chọn cam
+     Imou của sân).
+   - Lấy `ImouSession`: TÁI DÙNG flow client-runner — gọi backend
+     POST `/api/tournament-auto-live/start` (runner:"client", tournamentId,
+     courtStationId, imouDeviceId, destinations FB) → GET `/:id/worker-config`
+     → `imouSession` (map sang `ImouSession` Swift) + `imouDeviceId`. (Thêm 2
+     hàm vào LiveAppAPI: startAutoLive, getWorkerConfig.)
+   - Trong `startLive()`: nếu `useImouSource` → gọi
+     `streamingService.preparePreviewImou(session:deviceId:)` THAY cho
+     `preparePreview(...)`; phần `startPublishing(to:)` giữ nguyên (FB dest lấy
+     từ worker-config/destinations).
+   - Overlay điểm số: backend đã render overlay PNG cho session client-runner;
+     iOS có thể dùng overlay effect sẵn (LiveScoreboardVideoEffect) như camera.
 5. **Build/Test**: CI `ios-live-beta.yml` → TestFlight → iPhone thật, cam ONLINE,
    FB page thật. Verify: mượt, đúng giờ, overlay đúng, không rớt.
 
