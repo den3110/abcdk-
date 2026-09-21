@@ -690,7 +690,7 @@ def main():
     if env("AUTOLIVE_IMOU_PHONE") and env("AUTOLIVE_IMOU_PASSWORD"):
         creds = {"phone": env("AUTOLIVE_IMOU_PHONE"), "password": env("AUTOLIVE_IMOU_PASSWORD"),
                  "area_code": env("AUTOLIVE_IMOU_AREA_CODE", "84")}
-    global ENCODER
+    global ENCODER, SOURCE_URL
     ENCODER = detect_encoder()
     log(f"encoder = {ENCODER}" + (f" · source URL={SOURCE_URL}" if SOURCE_URL else ""))
     tee = build_tee_output(destinations)
@@ -742,7 +742,6 @@ def main():
                     stream_type=stype, channel=IMOU_STREAM_ID or "0")
                 url = _find_stream_url(data)
                 if url:
-                    global SOURCE_URL
                     SOURCE_URL = url
                     log(f"dùng Imou LIVE cloud ({IMOU_LIVE_STREAM}) thay DHAV: {url[:70]}…")
                 else:
