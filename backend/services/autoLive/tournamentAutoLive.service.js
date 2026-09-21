@@ -373,14 +373,22 @@ export async function getCourtImouSessionForApp(imouDeviceId) {
   }).select("venue").lean();
   if (!vc?.venue) return { error: "Không tìm thấy sân/venue cho deviceId này", code: 404 };
   const sess = await decryptVenueImouSession(vc.venue); // snake_case
-  if (!sess) return { error: "Venue chưa có phiên Imou hợp lệ (cần đăng nhập Imou ở app quản lý)", code: 409 };
+  const creds = await decryptVenueImouCreds(vc.venue);  // {phone,password,areaCode}
+  // Cần ÍT NHẤT 1 trong 2: session hợp lệ HOẶC creds để app tự đăng nhập.
+  if (!sess && !(creds?.phone && creds?.password)) {
+    return { error: "Venue chưa có phiên/creds Imou hợp lệ (cần đăng nhập Imou ở app quản lý)", code: 409 };
+  }
   return {
     imouDeviceId: deviceId,
     venueId: String(vc.venue),
-    imouSession: {
+    imouSession: sess ? {
       uuidUser: sess.uuid_user, uuidKey: sess.uuid_key,
       sessionId: sess.session_id, regionalHost: sess.regional_host,
-    },
+    } : null,
+    // App dùng creds để tự relogin khi SaaS trả 12002 (session hết hạn/contention).
+    imouCreds: (creds?.phone && creds?.password) ? {
+      phone: creds.phone, password: creds.password, areaCode: creds.areaCode || "84",
+    } : null,
   };
 }
 

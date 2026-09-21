@@ -118,6 +118,10 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private let overlayEffect = LiveScoreboardVideoEffect()
     // PLAN A: nguồn cam Imou (thay camera điện thoại). Set khi live cam Imou.
     private var imouSource: ImouLiveSource?
+    // Chẩn đoán nguồn Imou: đếm frame đã append + watchdog + callback ra UI (banner).
+    var onImouEvent: ((String) -> Void)?
+    private var imouFrameCount = 0
+    private var imouWatchdogTask: Task<Void, Never>?
     private var recorder = IOStreamRecorder()
 
     // Đích phụ đa nền tảng (ngoài stream chính). Đăng ký observer lên stream chính khi publish.
@@ -323,8 +327,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
     // offscreen + overlay + quality như preparePreview; chỉ thay attachCamera bằng
     // ImouLiveSource → stream.append (HaishinKit encode nhịp cố định → FB mượt).
     // Gọi thay preparePreview trước startPublishing khi live cam Imou.
-    func preparePreviewImou(session: ImouSession, deviceId: String,
-                            streamId: String = "0",
+    func preparePreviewImou(session: ImouSession?, creds: ImouLiveSource.Creds? = nil,
+                            deviceId: String, streamId: String = "0",
                             quality: LiveQualityPreset = .balanced1080) async throws {
         let operationGeneration = lifecycleGeneration
         connectionState = .preparingPreview
@@ -336,14 +340,43 @@ final class LiveStreamingService: NSObject, ObservableObject {
             attachMicrophoneIfNeeded()
             stream.attachCamera(nil)   // không dùng camera — nguồn là Imou
 
-            let src = ImouLiveSource(session: session, deviceId: deviceId, streamId: streamId)
-            src.onSampleBuffer = { [weak self] sb in self?.stream.append(sb) }
+            let src = ImouLiveSource(session: session, creds: creds, deviceId: deviceId, streamId: streamId)
+            imouFrameCount = 0
+            src.onSampleBuffer = { [weak self] sb in
+                guard let self else { return }
+                self.imouFrameCount &+= 1
+                self.stream.append(sb)
+            }
             src.onState = { [weak self] st in
-                if case .error(let m) = st { self?.appendDiagnostic("Imou source error: \(m)") }
+                NSLog("[ImouSrc] state=\(st)")
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    if case .error(let m) = st {
+                        self.appendDiagnostic("Imou source error: \(m)")
+                        self.onImouEvent?("LỖI nguồn cam: \(m)")
+                    } else if case .streaming = st {
+                        self.onImouEvent?("đã kết nối cam, chờ hình…")
+                    }
+                }
             }
             imouSource?.stop()
             imouSource = src
             src.start()
+            // Watchdog: 8s sau khi bật cam, báo rõ có nhận hình hay không (thay vì đứng hình câm).
+            let gen = operationGeneration
+            imouWatchdogTask?.cancel()
+            imouWatchdogTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 8_000_000_000)
+                await MainActor.run { [weak self] in
+                    guard let self, gen == self.lifecycleGeneration else { return }
+                    let n = self.imouFrameCount
+                    let msg = n == 0
+                        ? "⚠️ 0 hình sau 8s — cam/session không đẩy được video"
+                        : "✅ đang nhận hình từ cam (\(n) frame)"
+                    self.appendDiagnostic("Imou watchdog: frames=\(n)")
+                    self.onImouEvent?(msg)
+                }
+            }
 
             guard operationGeneration == lifecycleGeneration else {
                 src.stop(); imouSource = nil

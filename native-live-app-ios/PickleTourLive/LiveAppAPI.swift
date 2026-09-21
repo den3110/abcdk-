@@ -261,10 +261,18 @@ struct ImouSessionDTO: Codable {
     var regionalHost: String
 }
 
+/// Creds Imou để app tự relogin khi session hết hạn/contention (12002).
+struct ImouCredsDTO: Codable {
+    var phone: String
+    var areaCode: String
+    var password: String
+}
+
 struct CourtImouSessionResponse: Codable {
     var imouDeviceId: String
     var venueId: String
-    var imouSession: ImouSessionDTO
+    var imouSession: ImouSessionDTO?   // có thể nil nếu chỉ có creds
+    var imouCreds: ImouCredsDTO?
 }
 
 final class LiveAPIClient {

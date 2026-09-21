@@ -607,6 +607,28 @@ final class LiveAppStore: ObservableObject {
         }
     }
 
+    /// Plan A: dựng preview theo nguồn đã chọn. Dùng CHUNG cho mọi đường tạo preview
+    /// (startLive / rebuildPreviewPipeline / prepareLiveScreen) để không đường nào lỡ
+    /// ép camera khi đang bật cam Imou. Lỗi lấy session/nguồn → ném ra để caller hiện.
+    private func preparePreviewHonoringSource() async throws {
+        if useImouSource, let devId = selectedImouDeviceId?.trimmedNilIfBlank {
+            NSLog("[ImouSrc] store: fetch court-imou-session dev=\(devId)")
+            let resp = try await environment.apiClient.getCourtImouSession(imouDeviceId: devId)
+            NSLog("[ImouSrc] store: fetched hasSession=\(resp.imouSession != nil) hasCreds=\(resp.imouCreds != nil) dev=\(resp.imouDeviceId)")
+            let imouSession = resp.imouSession.map {
+                ImouSession(uuidUser: $0.uuidUser, uuidKey: $0.uuidKey,
+                            sessionId: $0.sessionId, regionalHost: $0.regionalHost)
+            }
+            let imouCreds = resp.imouCreds.map {
+                ImouLiveSource.Creds(phone: $0.phone, areaCode: $0.areaCode, password: $0.password)
+            }
+            try await streamingService.preparePreviewImou(
+                session: imouSession, creds: imouCreds, deviceId: resp.imouDeviceId, quality: selectedQuality)
+        } else {
+            try await streamingService.preparePreview(quality: selectedQuality)
+        }
+    }
+
     func startLive() async {
         guard let activeMatch else {
             errorMessage = "Chưa có trận để phát live."
@@ -682,20 +704,7 @@ final class LiveAppStore: ObservableObject {
             }
 
             streamingService.applyQuality(selectedQuality)
-            if useImouSource, let devId = selectedImouDeviceId?.trimmedNilIfBlank {
-                // Plan A: lấy session Imou đã giải mã của cam → kéo cam làm nguồn.
-                let resp = try await environment.apiClient.getCourtImouSession(imouDeviceId: devId)
-                let imouSession = ImouSession(
-                    uuidUser: resp.imouSession.uuidUser,
-                    uuidKey: resp.imouSession.uuidKey,
-                    sessionId: resp.imouSession.sessionId,
-                    regionalHost: resp.imouSession.regionalHost
-                )
-                try await streamingService.preparePreviewImou(
-                    session: imouSession, deviceId: resp.imouDeviceId, quality: selectedQuality)
-            } else {
-                try await streamingService.preparePreview(quality: selectedQuality)
-            }
+            try await preparePreviewHonoringSource()
 
             if liveMode.includesRecording {
                 let recordingSessionId = UUID().uuidString
@@ -2328,7 +2337,7 @@ final class LiveAppStore: ObservableObject {
             streamingService.stopPublishing()
             await streamingService.stopRecording()
             streamingService.stopPreview()
-            try await streamingService.preparePreview(quality: selectedQuality)
+            try await preparePreviewHonoringSource()
             bannerMessage = "Đã dựng lại preview pipeline."
         } catch {
             errorMessage = error.localizedDescription
@@ -2674,6 +2683,10 @@ final class LiveAppStore: ObservableObject {
             }
             .store(in: &cancellables)
 
+        // Plan A: kết quả nguồn cam Imou (watchdog/state) → hiện banner cho người dùng.
+        streamingService.onImouEvent = { [weak self] msg in
+            self?.bannerMessage = "🎥 Imou: \(msg)"
+        }
         streamingService.onRecordingSegmentReady = { [weak self] segment in
             guard let self else { return }
             self.pendingRecordingSegmentDispatches += 1
@@ -3406,8 +3419,8 @@ final class LiveAppStore: ObservableObject {
             environment.matchSocket.watch(matchId: matchId)
         }
         environment.courtRuntimeSocket.connectIfNeeded()
-        if cameraDeviceAvailable {
-            try await streamingService.preparePreview(quality: selectedQuality)
+        if useImouSource || cameraDeviceAvailable {
+            try await preparePreviewHonoringSource()
         } else {
             streamState = .idle
         }
