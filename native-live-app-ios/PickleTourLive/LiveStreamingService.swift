@@ -122,6 +122,9 @@ final class LiveStreamingService: NSObject, ObservableObject {
     var onImouEvent: ((String) -> Void)?
     private var imouFrameCount = 0
     private var imouWatchdogTask: Task<Void, Never>?
+    // Nguồn Imou luôn LANDSCAPE (cam ngang) → canvas/encoder ép ngang, KHÔNG theo
+    // hướng điện thoại (nếu không hình cam bị nhét vào khung dọc).
+    private var imouSourceActive = false
     private var recorder = IOStreamRecorder()
 
     // Đích phụ đa nền tảng (ngoài stream chính). Đăng ký observer lên stream chính khi publish.
@@ -333,6 +336,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
         let operationGeneration = lifecycleGeneration
         connectionState = .preparingPreview
         do {
+            imouSourceActive = true   // ép canvas/encoder landscape TRƯỚC applyQuality
             try configureAudioSession()
             applyQuality(quality)
             registerOverlayEffectIfNeeded()
@@ -506,6 +510,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
         stopSecondaryOutputs()
         pendingSecondaryDestinations.removeAll()
         imouSource?.stop(); imouSource = nil   // PLAN A: dừng nguồn Imou nếu có
+        imouWatchdogTask?.cancel(); imouWatchdogTask = nil
+        imouSourceActive = false
         stream.attachCamera(nil)
         stream.attachAudio(nil)
         // Dừng DisplayLink của Screen offscreen khi thả preview (tránh render loop chạy nền).
@@ -1240,10 +1246,15 @@ final class LiveStreamingService: NSObject, ObservableObject {
     /// Buffer camera tới đã được xoay theo stream.videoOrientation (portrait = 1080x1920).
     private func offscreenCanvasSize() -> CGSize {
         let resolution = stats.quality.resolution
+        let w = CGFloat(resolution.width), h = CGFloat(resolution.height)
+        // Nguồn Imou: LUÔN landscape (cam ngang), bỏ qua hướng điện thoại.
+        if imouSourceActive {
+            return CGSize(width: max(w, h), height: min(w, h))
+        }
         let isPortrait = currentVideoOrientation == .portrait || currentVideoOrientation == .portraitUpsideDown
         return isPortrait
-            ? CGSize(width: CGFloat(resolution.height), height: CGFloat(resolution.width))
-            : CGSize(width: CGFloat(resolution.width), height: CGFloat(resolution.height))
+            ? CGSize(width: h, height: w)
+            : CGSize(width: w, height: h)
     }
 
     /// Đồng bộ 3 thứ theo cùng một kích thước có hướng:
