@@ -152,10 +152,13 @@ public final class ImouLiveSource {
         guard CMVideoFormatDescriptionCreateForImageBuffer(
                 allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer,
                 formatDescriptionOut: &fmt) == noErr, let fmt else { return nil }
-        let elapsed = CACurrentMediaTime() - startHostTime
-        let pts = CMTime(seconds: elapsed, preferredTimescale: 1_000_000)
-        var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: pts,
-                                        decodeTimeStamp: .invalid)
+        // PTS PHẢI cùng đồng hồ với HaishinKit Screen/mixer (host-time clock).
+        // Dùng elapsed-from-0 → lệch timebase khủng khiếp so với screen.targetTimestamp
+        // (giây kể từ boot) → mọi frame bị coi là "quá khứ" → CMBufferQueue drop
+        // (-12764) → live đứng hình. CMClockGetHostTimeClock khớp đúng đồng hồ đó.
+        let pts = CMClockGetTime(CMClockGetHostTimeClock())
+        var timing = CMSampleTimingInfo(duration: CMTime(value: 1, timescale: 30),
+                                        presentationTimeStamp: pts, decodeTimeStamp: .invalid)
         var sample: CMSampleBuffer?
         let st = CMSampleBufferCreateReadyWithImageBuffer(
             allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer,
