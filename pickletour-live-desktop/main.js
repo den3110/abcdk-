@@ -134,8 +134,21 @@ function ensurePythonSetup(onProgress) {
   log("Hoàn tất! Python đã sẵn sàng.");
   return { ok: true, python: py };
 }
+// ── Bản TỰ CHỨA (bundled): ffmpeg/ffprobe tĩnh + worker đóng gói (PyInstaller)
+// nằm trong thư mục bin/ cạnh app → KHÔNG cần cài Python/ffmpeg. Nếu có đủ →
+// dùng luôn (double-click là chạy). Thiếu → fallback về python + ffmpeg hệ thống.
+function binPath(name) {
+  const exe = process.platform === "win32" ? `${name}.exe` : name;
+  const p = path.join(__dirname, "bin", exe);
+  return fs.existsSync(p) ? p : null;
+}
+function bundledWorkerBin() { return binPath("ptlive-worker"); }
+function bundledFfmpeg() { return binPath("ffmpeg"); }
+function bundledFfprobe() { return binPath("ffprobe"); }
+function isSelfContained() { return !!(bundledWorkerBin() && bundledFfmpeg()); }
+
 function detectFfmpeg() {
-  for (const cand of [process.env.FFMPEG_PATH, "ffmpeg"]) {
+  for (const cand of [bundledFfmpeg(), process.env.FFMPEG_PATH, "ffmpeg"]) {
     if (!cand) continue;
     try { const r = spawnSync(cand, ["-version"], { encoding: "utf8" }); if (r.status === 0) return cand; } catch {}
   }
@@ -184,10 +197,13 @@ function workerScriptPath() {
 }
 
 async function startWorker({ baseUrl, token, form }) {
-  const python = detectPython();
+  const selfContained = isSelfContained();
+  const python = selfContained ? null : detectPython();
   const ffmpeg = detectFfmpeg();
   if (!ffmpeg) throw new Error("Chưa cài ffmpeg. Cài ffmpeg rồi thử lại (xem README).");
-  if (!python) throw new Error("Chưa cài Python + ImouPkg. Chạy scripts/setup (xem README).");
+  if (!selfContained && !python) {
+    throw new Error("Chưa cài Python + ImouPkg. Bấm 'Cài đặt tự động' hoặc chạy scripts/setup (xem README).");
+  }
 
   // 1) Tạo phiên trên backend (runner=client) — backend tạo FB live + overlay.
   const session = await apiFetch(baseUrl, "/api/tournament-auto-live/start", {
@@ -235,12 +251,21 @@ async function startWorker({ baseUrl, token, form }) {
     AUTOLIVE_PREVIEW_HLS_DIR: previewDir,
     AUTOLIVE_RUNNER_LABEL: form.runnerLabel || os.hostname(),
     FFMPEG_PATH: ffmpeg,
+    // Bản tự chứa: prepend bin/ vào PATH để worker gọi bare "ffmpeg"/"ffprobe"
+    // trúng binary tĩnh đóng gói (không cần cài hệ thống).
+    ...(selfContained
+      ? { PATH: `${path.join(__dirname, "bin")}${path.delimiter}${process.env.PATH || ""}` }
+      : {}),
     // Cấu hình nâng cao (backend trả về từ session.advanced) — bitrate, res, fps…
     ...(cfg.advancedEnv || {}),
   };
   const logFile = path.join(previewDir, "worker.log");
   const logFd = fs.openSync(logFile, "a");
-  const proc = spawn(python, [workerScriptPath()], { env, stdio: ["ignore", logFd, logFd] });
+  // Tự chứa → spawn binary worker đã đóng gói (không cần Python); ngược lại
+  // spawn python worker.py.
+  const proc = selfContained
+    ? spawn(bundledWorkerBin(), [], { env, stdio: ["ignore", logFd, logFd] })
+    : spawn(python, [workerScriptPath()], { env, stdio: ["ignore", logFd, logFd] });
   running.set(sid, { proc, previewDir, previewServer, previewPort, cfg, logFile });
 
   proc.on("exit", (code) => {
@@ -277,12 +302,15 @@ function sendToRenderer(channel, payload) {
 
 // ───────────────────────── IPC ───────────────────────────────────────────
 ipcMain.handle("env-check", () => {
+  const selfContained = isSelfContained();
   const ffmpeg = detectFfmpeg();
-  const python = detectPython();
+  // Tự chứa → coi như Python "sẵn sàng" (không cần); ngược lại dò python hệ thống.
+  const python = selfContained ? true : !!detectPython();
   return {
-    ffmpeg: !!ffmpeg, python: !!python,
+    ffmpeg: !!ffmpeg, python,
+    selfContained,
     // Có thể tự setup Python trong app (đã có base python 3.10+ nhưng thiếu imou)?
-    canAutoSetupPython: !python && !!detectBasePython(),
+    canAutoSetupPython: !selfContained && !python && !!detectBasePython(),
     encoders: ffmpeg ? detectEncoders(ffmpeg) : [],
     hostname: os.hostname(), platform: `${os.type()} ${os.arch()}`,
   };

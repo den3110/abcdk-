@@ -76,3 +76,13 @@ Bản build **không ký số**: macOS lần đầu **chuột phải → Open**;
 - "ffmpeg ✗": cài ffmpeg, thêm vào PATH.
 - Preview không lên: đợi ~5s (chờ segment đầu); bấm **Xem log** để xem worker.
 - FB báo lỗi publish: page đang bận (đã live ở nơi khác) → chọn page khác.
+
+## Bản TỰ CHỨA (không cần cài Python/ffmpeg)
+Đóng gói kèm ffmpeg tĩnh + worker (PyInstaller) → cài xong **double-click là chạy**.
+```bash
+npm install
+bash scripts/prepare-bundle.sh   # tạo bin/ (ffmpeg, ffprobe, worker) — chạy trên đúng OS build
+npm run dist:mac                 # hoặc dist:win trên máy Windows
+```
+Nếu `bin/` có đủ 3 file, app tự chạy chế độ tự chứa (không cần Python/ffmpeg hệ thống).
+Không có `bin/` → app quay về chế độ cũ (cần Python 3.10+ & ffmpeg + nút "Cài đặt tự động").

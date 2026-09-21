@@ -440,8 +440,11 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
         if u.startswith("rtsp://"):
             args += ["-rtsp_transport", "tcp"]
         elif u.startswith("http://") or u.startswith("https://"):
-            args += ["-reconnect", "1", "-reconnect_at_eof", "1",
-                     "-reconnect_streamed", "1", "-reconnect_delay_max", "5"]
+            # KHÔNG dùng -reconnect_at_eof với HLS: playlist HTTP trả EOF sau mỗi
+            # lần đọc là bình thường (hls demuxer tự refresh), reconnect_at_eof
+            # gây VÒNG LẶP reconnect 0s vô hạn (ffmpeg 6.x) → không đọc được video.
+            args += ["-reconnect", "1", "-reconnect_streamed", "1",
+                     "-reconnect_delay_max", "5"]
         args += ["-i", SOURCE_URL]
     else:
         # Cam Imou (DHAV qua relay đám mây): timestamp nguồn LOẠN (hàng nghìn

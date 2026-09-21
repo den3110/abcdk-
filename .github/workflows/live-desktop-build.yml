@@ -45,14 +45,22 @@ jobs:
           cache: npm
           cache-dependency-path: pickletour-live-desktop/package-lock.json
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Install deps
         run: npm ci
 
-      - name: Build macOS (dmg + zip, Intel + Apple Silicon)
+      - name: Prepare self-contained bundle (ffmpeg tĩnh + worker PyInstaller)
+        shell: bash
+        run: bash scripts/prepare-bundle.sh
+
+      - name: Build macOS (dmg + zip, Apple Silicon — bundle tự chứa theo arch runner)
         if: matrix.name == 'mac'
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false" # unsigned (nội bộ)
-        run: npx --no-install electron-builder --mac --x64 --arm64
+        run: npx --no-install electron-builder --mac --arm64
 
       - name: Build Windows (NSIS + portable)
         if: matrix.name == 'win'
