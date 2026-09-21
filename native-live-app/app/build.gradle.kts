@@ -41,6 +41,12 @@ android {
     namespace = "com.pkt.live"
     compileSdk = 35
 
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     signingConfigs {
         if (hasReleaseSigningConfig) {
             create("release") {
@@ -146,6 +152,8 @@ dependencies {
     // Camera RTMP (pedro RootEncoder)
     implementation("com.github.pedroSG94.RootEncoder:library:2.6.7")
 
+    testImplementation("junit:junit:4.13.2")
+
     // Nguồn LINK (m3u8/HLS/RTSP/HTTP) → ExoPlayer render vào VideoSource của RootEncoder
     implementation("androidx.media3:media3-exoplayer:1.4.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.4.1")
@@ -183,4 +191,11 @@ dependencies {
     implementation("com.google.firebase:firebase-crashlytics-ktx")
     implementation("com.google.firebase:firebase-crashlytics-ndk")
     implementation("com.google.firebase:firebase-analytics-ktx")
+}
+
+// Forward -Dimou.token / -Dimou.device vào test JVM (cho ImouTransportTest).
+tasks.withType<Test> {
+    System.getProperty("imou.token")?.let { systemProperty("imou.token", it) }
+    System.getProperty("imou.device")?.let { systemProperty("imou.device", it) }
+    testLogging { showStandardStreams = true }
 }
