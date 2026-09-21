@@ -14,9 +14,18 @@ FB luôn nhận realtime — KHÔNG lộ 0.85x như server re-encode CFR.
 - `ImouLiveSource.swift` — bridge: pull DHAV → HEVCRenderer → CVPixelBuffer →
   bọc CMSampleBuffer (PTS wallclock) → `onSampleBuffer`.
 
+## ✅ Đã thêm tiếp: LiveStreamingService.preparePreviewImou(...)
+- Property `imouSource` + method `preparePreviewImou(session:deviceId:streamId:)`
+  (tái dùng applyQuality/offscreen/overlay/mic, bỏ camera, `stream.append(sb)`)
+  + dọn `imouSource` trong teardown. Đường camera cũ KHÔNG đổi.
+- ⚠️ File này giờ THAM CHIẾU ImouLiveSource/ImouSession (trong ImouCore) → BẮT
+  BUỘC làm bước 1 (thêm ImouCore vào target) trước, nếu không sẽ lỗi compile.
+
 ## Còn lại (cần môi trường Xcode/CI + iPhone + cam online + FB)
-1. **Xcode project**: thêm nhóm `ImouCore/*.swift` vào target PickleTourLive
-   (.pbxproj) — hiện các file ở trên đĩa nhưng CHƯA nằm trong build target.
+1. **Xcode project (BẮT BUỘC TRƯỚC)**: thêm nhóm `ImouCore/*.swift` +
+   `ImouLiveSource.swift` vào target PickleTourLive (kéo-thả trong Xcode / sửa
+   .pbxproj). Chưa làm được bằng tay ở đây (dễ hỏng project) — làm trong Xcode.
+   Nếu `stream.append(_:)` sai tên ở HaishinKit 1.9.9 → sửa theo API thật lúc build.
 2. **LiveStreamingService**: thêm chế độ nguồn Imou (KHÔNG sửa phá đường camera cũ):
    - Không `attachCamera(camera)` — thay bằng `stream.attachCamera(nil)`.
    - Tạo `ImouLiveSource(session:deviceId:productId:)`; set

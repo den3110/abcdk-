@@ -116,6 +116,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private let connection = RTMPConnection()
     private let stream: RTMPStream
     private let overlayEffect = LiveScoreboardVideoEffect()
+    // PLAN A: nguồn cam Imou (thay camera điện thoại). Set khi live cam Imou.
+    private var imouSource: ImouLiveSource?
     private var recorder = IOStreamRecorder()
 
     // Đích phụ đa nền tảng (ngoài stream chính). Đăng ký observer lên stream chính khi publish.
@@ -317,6 +319,48 @@ final class LiveStreamingService: NSObject, ObservableObject {
         }
     }
 
+    // PLAN A: dựng preview dùng NGUỒN CAM IMOU thay camera điện thoại. Tái dùng
+    // offscreen + overlay + quality như preparePreview; chỉ thay attachCamera bằng
+    // ImouLiveSource → stream.append (HaishinKit encode nhịp cố định → FB mượt).
+    // Gọi thay preparePreview trước startPublishing khi live cam Imou.
+    func preparePreviewImou(session: ImouSession, deviceId: String,
+                            streamId: String = "0",
+                            quality: LiveQualityPreset = .balanced1080) async throws {
+        let operationGeneration = lifecycleGeneration
+        connectionState = .preparingPreview
+        do {
+            try configureAudioSession()
+            applyQuality(quality)
+            registerOverlayEffectIfNeeded()
+            ensureOffscreenScreenRunning()
+            attachMicrophoneIfNeeded()
+            stream.attachCamera(nil)   // không dùng camera — nguồn là Imou
+
+            let src = ImouLiveSource(session: session, deviceId: deviceId, streamId: streamId)
+            src.onSampleBuffer = { [weak self] sb in self?.stream.append(sb) }
+            src.onState = { [weak self] st in
+                if case .error(let m) = st { self?.appendDiagnostic("Imou source error: \(m)") }
+            }
+            imouSource?.stop()
+            imouSource = src
+            src.start()
+
+            guard operationGeneration == lifecycleGeneration else {
+                src.stop(); imouSource = nil
+                appendDiagnostic("Imou preview ignored because lifecycle moved on.")
+                return
+            }
+            connectionState = .previewReady
+            startStatsTimer()
+            clearRecoveryIfNeeded()
+            appendDiagnostic("Preview attached to Imou source \(deviceId).")
+        } catch {
+            imouSource?.stop(); imouSource = nil
+            appendDiagnostic("Imou preview failed: \(error.localizedDescription)")
+            throw error
+        }
+    }
+
     /// Đặt danh sách đích phụ (ngoài đích chính) TRƯỚC khi gọi startPublishing. Rỗng = chỉ 1 đích.
     func setSecondaryDestinations(_ destinations: [(destination: RTMPDestination, label: String)]) {
         pendingSecondaryDestinations = destinations
@@ -428,6 +472,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
         resetTorchState()
         stopSecondaryOutputs()
         pendingSecondaryDestinations.removeAll()
+        imouSource?.stop(); imouSource = nil   // PLAN A: dừng nguồn Imou nếu có
         stream.attachCamera(nil)
         stream.attachAudio(nil)
         // Dừng DisplayLink của Screen offscreen khi thả preview (tránh render loop chạy nền).
