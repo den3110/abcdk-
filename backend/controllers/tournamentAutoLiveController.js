@@ -10,8 +10,16 @@ import FbToken from "../models/fbTokenModel.js";
 import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
-  refreshDestinationsForWorker, getWorkerConfig,
+  refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
 } from "../services/autoLive/tournamentAutoLive.service.js";
+
+// GET /api/tournament-auto-live/court-imou-session?imouDeviceId=xxx (admin)
+// App live iOS lấy session Imou đã giải mã của cam để tự kéo cam làm nguồn.
+export const courtImouSession = asyncHandler(async (req, res) => {
+  const r = await getCourtImouSessionForApp(req.query.imouDeviceId);
+  if (r?.error) { res.status(r.code || 400); throw new Error(r.error); }
+  res.json(r);
+});
 
 // GET /api/tournament-auto-live/:id/worker-config (admin) — app desktop lấy để tự chạy
 export const workerConfig = asyncHandler(async (req, res) => {

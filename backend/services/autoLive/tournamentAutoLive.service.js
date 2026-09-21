@@ -358,6 +358,33 @@ async function decryptVenueImouSession(venueId) {
 }
 
 /**
+ * App live iOS (Plan A): lấy session Imou (camelCase) theo deviceId cam đã gắn
+ * ở VenueCourt — để app tự kéo cam Imou làm nguồn (thay camera điện thoại) →
+ * HaishinKit → FB. KHÔNG tạo session auto-live server; app tự lo FB/overlay.
+ * Trả { imouDeviceId, venueId, imouSession:{uuidUser,uuidKey,sessionId,regionalHost} }
+ * hoặc { error, code }.
+ */
+export async function getCourtImouSessionForApp(imouDeviceId) {
+  const deviceId = String(imouDeviceId || "").trim();
+  if (!deviceId) return { error: "Thiếu imouDeviceId", code: 400 };
+  const VenueCourt = mongoose.model("VenueCourt");
+  const vc = await VenueCourt.findOne({
+    $or: [{ "imouCams.deviceId": deviceId }, { "imou.deviceId": deviceId }],
+  }).select("venue").lean();
+  if (!vc?.venue) return { error: "Không tìm thấy sân/venue cho deviceId này", code: 404 };
+  const sess = await decryptVenueImouSession(vc.venue); // snake_case
+  if (!sess) return { error: "Venue chưa có phiên Imou hợp lệ (cần đăng nhập Imou ở app quản lý)", code: 409 };
+  return {
+    imouDeviceId: deviceId,
+    venueId: String(vc.venue),
+    imouSession: {
+      uuidUser: sess.uuid_user, uuidKey: sess.uuid_key,
+      sessionId: sess.session_id, regionalHost: sess.regional_host,
+    },
+  };
+}
+
+/**
  * Start 1 session mới. `input`:
  *   { tournamentId, courtStationId, imouDeviceId, destinations[], startedBy, autoNext }
  * Trả về document session đã insert. Ném lỗi nếu court đã có session active.
