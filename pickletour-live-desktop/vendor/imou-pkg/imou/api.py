@@ -85,6 +85,33 @@ class Camera:
         """Open a DH-RTSP session yielding DHAV byte chunks."""
         return DhRtspSession(self.stream_url(), audio=with_audio)
 
+    def live_stream_url(self, stream_type: str = "1", channel: str = "0",
+                        apiver: str = None) -> dict:
+        """GetLiveStreamUrl — địa chỉ kéo LIVE từ cloud Imou (RTMP/RTSP/HLS),
+        KHÁC đường DHAV relay của stream_url(). Có thể mượt hơn (CDN).
+          stream_type: "1"=rtmp, "2"=rtsp, "3"=hls  (spec StreamType)
+          channel:     "0"=luồng chính, "1"=phụ1     (spec StreamChannel)
+        Trả về dict data thô (chứa URL). apiver thử được nhiều giá trị vì OpenAPI
+        không public rõ — mặc định dò các apiver phổ biến."""
+        s = self._client.session
+        apivers = [apiver] if apiver else ["197891", "191204", "202015", "195000"]
+        payload = {
+            "deviceId": self.device_id,
+            "productId": self.product_id,
+            "channelId": "0",
+            "StreamChannel": str(channel),
+            "StreamType": str(stream_type),
+            "owner": s["uuid_user"], "ownerType": "0",
+        }
+        last = None
+        for av in apivers:
+            r = call(s["regional_host"], "things.media.GetLiveStreamUrl",
+                     payload, uuid_auth(s, av))
+            last = r
+            if r.get("code") == 10000:
+                return r.get("data") or {}
+        raise RuntimeError(f"GetLiveStreamUrl failed: {last}")
+
     # ── convenience helpers built on top ─────────────────────────────────
     def snapshot(self, out_path: str | Path, *, timeout: float = 30.0) -> None:
         """Save a single JPEG snapshot using ffmpeg's dhav demuxer."""

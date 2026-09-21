@@ -471,6 +471,7 @@ function advancedEnv(a) {
   if (a.imouStreamId) env.AUTOLIVE_IMOU_STREAM_ID = String(a.imouStreamId); // "1"=luồng phụ nhẹ
   if (a.imouAudio) env.AUTOLIVE_IMOU_AUDIO = String(a.imouAudio);
   if (a.resyncSec != null && a.resyncSec !== "") env.AUTOLIVE_RESYNC_SEC = String(a.resyncSec); // re-sync mép live
+  if (a.imouLiveStream) env.AUTOLIVE_IMOU_LIVE_STREAM = String(a.imouLiveStream); // rtmp/hls/rtsp cloud live
   return env;
 }
 

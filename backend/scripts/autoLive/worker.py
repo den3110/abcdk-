@@ -84,6 +84,9 @@ IMOU_AUDIO = (os.environ.get("AUTOLIVE_IMOU_AUDIO") or "0").strip().lower() not 
 # mượt). Với cam 2K nặng, dùng "1" mượt hơn hẳn. ImouPkg đọc qua env IMOU_STREAM_ID.
 IMOU_STREAM_ID = (os.environ.get("AUTOLIVE_IMOU_STREAM_ID") or "0").strip()
 os.environ["IMOU_STREAM_ID"] = IMOU_STREAM_ID
+# Thử nghiệm: dùng GetLiveStreamUrl (live cloud RTMP/RTSP/HLS) thay DHAV relay —
+# đường CDN, có thể mượt như app xem cam. "" = tắt (dùng DHAV). "rtmp"/"rtsp"/"hls".
+IMOU_LIVE_STREAM = (os.environ.get("AUTOLIVE_IMOU_LIVE_STREAM") or "").strip().lower()
 # Re-sync định kỳ (chỉ Imou): relay cloud đẩy ~0.85x realtime → trễ dồn dần khi
 # live dài. Cứ RESYNC_S giây, worker ĐÓNG + MỞ LẠI nguồn Imou ở MÉP LIVE (relay
 # đang giữ backlog cũ → phiên mới bỏ backlog, nhảy về hiện tại) mà KHÔNG restart
@@ -93,6 +96,28 @@ RESYNC_S = int(os.environ.get("AUTOLIVE_RESYNC_SEC") or 600)
 # Preview HLS local cho app desktop (Electron) hiển thị — env là thư mục.
 PREVIEW_DIR = os.environ.get("AUTOLIVE_PREVIEW_HLS_DIR", "").strip()
 HEALTHY_AFTER_S = 60
+
+
+def _find_stream_url(data):
+    """Dò URL stream (rtmp/rtsp/http/hls) trong dict/list trả về từ GetLiveStreamUrl
+    (tên field không rõ ràng nên tìm đệ quy giá trị dạng URL)."""
+    def looks(u):
+        return isinstance(u, str) and (
+            u.startswith(("rtmp://", "rtmps://", "rtsp://")) or
+            (u.startswith(("http://", "https://")) and (".m3u8" in u or "/live" in u or "hls" in u)))
+    def walk(o):
+        if isinstance(o, str):
+            return o if looks(o) else None
+        if isinstance(o, dict):
+            for v in o.values():
+                r = walk(v)
+                if r: return r
+        if isinstance(o, list):
+            for v in o:
+                r = walk(v)
+                if r: return r
+        return None
+    return walk(data)
 
 
 def env(name, default=None, required=False):
@@ -707,6 +732,23 @@ def main():
             access = ImouAccess(sess_dict, creds, work_dir, post_session, get_session)
         except ImportError:
             log("imou-pkg chưa cài (pip install /opt/imou-pkg).", err=True); sys.exit(4)
+
+        # Thử nghiệm: lấy URL live cloud (RTMP/HLS/RTSP) thay DHAV relay → có thể
+        # mượt như app. Thành công → chuyển sang chế độ URL (ffmpeg kéo thẳng).
+        if IMOU_LIVE_STREAM:
+            stype = {"rtmp": "1", "rtsp": "2", "hls": "3"}.get(IMOU_LIVE_STREAM, "1")
+            try:
+                data = access.device(device_id).live_stream_url(
+                    stream_type=stype, channel=IMOU_STREAM_ID or "0")
+                url = _find_stream_url(data)
+                if url:
+                    global SOURCE_URL
+                    SOURCE_URL = url
+                    log(f"dùng Imou LIVE cloud ({IMOU_LIVE_STREAM}) thay DHAV: {url[:70]}…")
+                else:
+                    log(f"GetLiveStreamUrl không có URL trong data: {str(data)[:200]}", err=True)
+            except Exception as e:  # noqa: BLE001
+                log(f"GetLiveStreamUrl lỗi ({e!r}) → quay lại DHAV relay", err=True)
 
     # Overlay: kiểm tra tải được không (thử 10 lần). FIFO cho ffmpeg image2pipe
     # → điểm số cập nhật live (image2 -loop cache frame, không đọc lại file).
