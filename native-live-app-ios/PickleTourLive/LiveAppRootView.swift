@@ -2216,10 +2216,10 @@ private struct LiveStreamScreen: View {
                         }
                     }
                 } else if store.useCustomURL {
-                    Text("Link nguồn (m3u8 / HTTP). RTSP chưa hỗ trợ trên iOS.")
+                    Text("Link nguồn: m3u8 / HTTP hoặc RTSP (rtsp://user:pass@ip:554/…).")
                         .font(.system(size: 12))
                         .foregroundStyle(LivePalette.textSecondary)
-                    TextField("https://…/index.m3u8", text: Binding(
+                    TextField("rtsp://… hoặc https://…/index.m3u8", text: Binding(
                         get: { store.customSourceURL },
                         set: { store.customSourceURL = $0 }
                     ))

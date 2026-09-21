@@ -168,6 +168,44 @@ public final class HEVCRenderer {
     }
   }
 
+  // PLAN A (RTSP): nạp trực tiếp 1 access-unit dạng Annex-B (chuỗi NAL, mỗi NAL
+  // có start code 00 00 00 01) — dùng cho nguồn RTSP/RTP (không có bọc DHAV).
+  // Tái dùng toàn bộ logic detect codec / param-set / format-desc / decodeForLive.
+  public func enqueue(nalUnitStream payload: Data, isLive: Bool) {
+    guard !payload.isEmpty else { return }
+    var nalus = HEVCNalExtractor.extractNalus(payload, codecHint: detectedCodec)
+    if nalus.isEmpty { return }
+    if detectedCodec == nil {
+      for n in nalus where !n.bytes.isEmpty {
+        let b = n.bytes[n.bytes.startIndex]
+        if b == 0x40 || b == 0x42 || b == 0x44 { detectedCodec = .hevc; break }
+        if b == 0x67 || b == 0x68 { detectedCodec = .h264; break }
+      }
+      if let c = detectedCodec, c != nalus.first?.codec {
+        nalus = HEVCNalExtractor.extractNalus(payload, codecHint: c)
+      }
+    }
+    let psChanged = psCache.absorb(nalus)
+    if psChanged || formatDescription == nil {
+      if psCache.isComplete {
+        do { try rebuildFormatDescription() } catch { return }
+        awaitingKeyframe = true
+      } else { return }
+    }
+    let dataNals = nalus.filter { $0.type.isKeyframe || $0.type == .slice }
+    if dataNals.isEmpty { return }
+    let hasKeyframe = dataNals.contains(where: { $0.type.isKeyframe })
+    if awaitingKeyframe { if !hasKeyframe { return }; awaitingKeyframe = false }
+    // PTS 90kHz tăng theo host clock (đường live tự re-stamp host-clock lúc append).
+    let pts = CMTime(seconds: CACurrentMediaTime(), preferredTimescale: 90000)
+    do {
+      let sample = try buildSampleBuffer(nalus: dataNals, pts: pts, isKeyframe: hasKeyframe)
+      if onDecodedPixelBuffer != nil { decodeForLive(sample, pts: pts) }
+    } catch {
+      NSLog("[HEVCRenderer] annexB sample buffer failed: \(error)")
+    }
+  }
+
   // PLAN A: giải mã CMSampleBuffer HEVC (nén) → CVPixelBuffer → callback cho
   // HaishinKit. Session tạo lại khi formatDescription đổi. Async decode.
   private func decodeForLive(_ sample: CMSampleBuffer, pts: CMTime) {

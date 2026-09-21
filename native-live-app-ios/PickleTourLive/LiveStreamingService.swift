@@ -120,6 +120,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
     private var imouSource: ImouLiveSource?
     // Nguồn LINK tùy chỉnh (m3u8/HTTP) qua AVPlayer.
     private var urlSource: URLLiveSource?
+    // Nguồn RTSP thuần (H264/H265 over RTP/TCP).
+    private var rtspSource: RTSPLiveSource?
     // Chẩn đoán nguồn Imou: đếm frame đã append + watchdog + callback ra UI (banner).
     var onImouEvent: ((String) -> Void)?
     private var imouFrameCount = 0
@@ -414,31 +416,46 @@ final class LiveStreamingService: NSObject, ObservableObject {
             attachMicrophoneIfNeeded()
             stream.attachCamera(nil)
 
-            guard let src = URLLiveSource(urlString: urlString) else {
-                throw NSError(domain: "URLLiveSource", code: -1,
-                              userInfo: [NSLocalizedDescriptionKey: "Link không hợp lệ"])
-            }
             imouFrameCount = 0
-            src.onSampleBuffer = { [weak self] sb in
+            let onSB: (CMSampleBuffer) -> Void = { [weak self] sb in
                 guard let self else { return }
                 self.imouFrameCount &+= 1
                 self.stream.append(sb)
             }
-            src.onState = { [weak self] st in
-                NSLog("[URLSrc] state=\(st)")
+            let onErr: (String) -> Void = { [weak self] m in
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if case .error(let m) = st {
-                        self.appendDiagnostic("URL source error: \(m)")
-                        self.onImouEvent?("LỖI link: \(m)")
-                    } else if case .streaming = st {
-                        self.onImouEvent?("đã mở link, chờ hình…")
-                    }
+                    self?.appendDiagnostic("URL source error: \(m)")
+                    self?.onImouEvent?("LỖI link: \(m)")
                 }
             }
-            urlSource?.stop()
-            urlSource = src
-            src.start()
+            let onStreaming: () -> Void = { [weak self] in
+                Task { @MainActor [weak self] in self?.onImouEvent?("đã mở link, chờ hình…") }
+            }
+            if urlString.lowercased().hasPrefix("rtsp") {
+                // RTSP thuần → RTSPLiveSource.
+                guard let src = RTSPLiveSource(urlString: urlString) else {
+                    throw NSError(domain: "RTSPLiveSource", code: -1,
+                                  userInfo: [NSLocalizedDescriptionKey: "Link RTSP không hợp lệ"])
+                }
+                src.onSampleBuffer = onSB
+                src.onState = { st in
+                    NSLog("[RTSP] state=\(st)")
+                    if case .error(let m) = st { onErr(m) } else if case .streaming = st { onStreaming() }
+                }
+                rtspSource?.stop(); rtspSource = src; src.start()
+            } else {
+                // m3u8/HTTP → AVPlayer.
+                guard let src = URLLiveSource(urlString: urlString) else {
+                    throw NSError(domain: "URLLiveSource", code: -1,
+                                  userInfo: [NSLocalizedDescriptionKey: "Link không hợp lệ"])
+                }
+                src.onSampleBuffer = onSB
+                src.onState = { st in
+                    NSLog("[URLSrc] state=\(st)")
+                    if case .error(let m) = st { onErr(m) } else if case .streaming = st { onStreaming() }
+                }
+                urlSource?.stop(); urlSource = src; src.start()
+            }
             let gen = operationGeneration
             imouWatchdogTask?.cancel()
             imouWatchdogTask = Task { [weak self] in
@@ -453,7 +470,8 @@ final class LiveStreamingService: NSObject, ObservableObject {
             }
 
             guard operationGeneration == lifecycleGeneration else {
-                src.stop(); urlSource = nil
+                urlSource?.stop(); urlSource = nil
+                rtspSource?.stop(); rtspSource = nil
                 return
             }
             connectionState = .previewReady
@@ -462,6 +480,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
             appendDiagnostic("Preview attached to URL source.")
         } catch {
             urlSource?.stop(); urlSource = nil
+            rtspSource?.stop(); rtspSource = nil
             appendDiagnostic("URL preview failed: \(error.localizedDescription)")
             throw error
         }
@@ -580,6 +599,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
         pendingSecondaryDestinations.removeAll()
         imouSource?.stop(); imouSource = nil   // PLAN A: dừng nguồn Imou nếu có
         urlSource?.stop(); urlSource = nil     // PLAN A: dừng nguồn link nếu có
+        rtspSource?.stop(); rtspSource = nil   // PLAN A: dừng nguồn RTSP nếu có
         imouWatchdogTask?.cancel(); imouWatchdogTask = nil
         imouSourceActive = false
         stream.attachCamera(nil)
