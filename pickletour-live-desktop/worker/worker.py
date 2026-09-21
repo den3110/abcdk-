@@ -816,6 +816,16 @@ def main():
         # chỉ retry; quá nhiều lần fast-fail → dừng hẳn.
         if ran_s < 20:
             fast_fails += 1
+            if SOURCE_URL:
+                # Nguồn URL chết nhanh = NGUỒN đang lỗi/đứt (HTTP 5XX/timeout —
+                # vd m3u8 tạm down), KHÔNG phải lỗi cấu hình → KIÊN NHẪN retry với
+                # backoff, KHÔNG bỏ cuộc (nguồn có thể hồi lại, live tự nối tiếp).
+                # Admin bấm Dừng / backend stop mới thật sự dừng.
+                back = min(30, 5 + 3 * fast_fails)
+                log(f"nguồn URL lỗi/đứt (chết sau {ran_s:.0f}s) → thử lại sau {back}s "
+                    f"(lần {fast_fails}); nguồn hồi là live tiếp", err=True)
+                if _sleep_stop(stop_event, back): break
+                continue
             if fast_fails >= 3:
                 log(f"ffmpeg chết nhanh {fast_fails} lần (lỗi cấu hình) → dừng", err=True)
                 break
