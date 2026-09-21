@@ -45,35 +45,40 @@ class UrlStreamManager(
     var isPrepared: Boolean = false
         private set
 
-    /** Chuẩn bị nguồn cam Imou (chưa cần rtmp — rtmp truyền khi startStream). */
-    fun prepareImou(urlProvider: suspend () -> String, w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
+    /** Chuẩn bị nguồn cam Imou (chưa cần rtmp). withAudio=true → lấy cả tiếng cam. */
+    fun prepareImou(urlProvider: suspend () -> String, w: Int, h: Int, videoFps: Int, videoBitrate: Int,
+                    withAudio: Boolean = true): Boolean {
+        val audio = if (withAudio) com.pkt.live.streaming.imou.ExternalPcmAudioSource() else null
         val videoSource = com.pkt.live.streaming.imou.ImouVideoSource(
             urlProvider = urlProvider,
             onError = { msg -> _state.value = State.SourceError(msg) },
+            audioSink = audio,
         )
-        return prepareWith(videoSource, w, h, videoFps, videoBitrate)
+        return prepareWith(videoSource, audio, w, h, videoFps, videoBitrate)
     }
 
-    /** Chuẩn bị nguồn LINK (m3u8/RTSP/HTTP). */
+    /** Chuẩn bị nguồn LINK (m3u8/RTSP/HTTP). ExoPlayer có tiếng riêng (chưa route). */
     fun prepareUrl(sourceUrl: String, w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
         val videoSource = ExoPlayerVideoSource(
             context = context, url = sourceUrl,
             onError = { msg -> _state.value = State.SourceError(msg) },
         )
-        return prepareWith(videoSource, w, h, videoFps, videoBitrate)
+        return prepareWith(videoSource, null, w, h, videoFps, videoBitrate)
     }
 
     private fun prepareWith(videoSource: com.pedro.encoder.input.sources.video.VideoSource,
+                            audioSource: com.pedro.encoder.input.sources.audio.AudioSource?,
                             w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
         stop() // dọn stream cũ nếu có
         // Nguồn ngoài (Imou/link) LUÔN landscape → ép width>height, rotation=0.
         width = maxOf(w, h); height = minOf(w, h); fps = videoFps; bitrate = videoBitrate
-        val s = GenericStream(context, this, videoSource, NoAudioSource())
+        val s = GenericStream(context, this, videoSource, audioSource ?: NoAudioSource())
         stream = s
         val vOk = runCatching {
             s.prepareVideo(width, height, bitrate, fps, 2, 0)
         }.getOrElse { Log.e(TAG, "prepareVideo throw: $it"); false }
-        val aOk = runCatching { s.prepareAudio(32000, true, 128_000) }.getOrDefault(true)
+        // 44100 stereo: ExternalPcmAudioSource resample tiếng cam về mức này.
+        val aOk = runCatching { s.prepareAudio(44100, true, 128_000) }.getOrDefault(true)
         isPrepared = vOk
         Log.d(TAG, "prepare vOk=$vOk aOk=$aOk")
         return vOk

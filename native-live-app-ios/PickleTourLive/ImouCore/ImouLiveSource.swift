@@ -18,6 +18,7 @@ import Foundation
 import CoreMedia
 import CoreVideo
 import QuartzCore   // CACurrentMediaTime
+import AVFoundation // AVAudioPCMBuffer (audio cam)
 
 public final class ImouLiveSource {
     public enum State: Equatable { case idle, connecting, streaming, stopped, error(String) }
@@ -25,6 +26,8 @@ public final class ImouLiveSource {
     /// Mỗi CVPixelBuffer đã giải mã → bọc CMSampleBuffer (PTS wallclock) cho HaishinKit.
     public var onSampleBuffer: ((CMSampleBuffer) -> Void)?
     public var onState: ((State) -> Void)?
+    /// LIVE: mỗi AVAudioPCMBuffer giải mã từ tiếng cam (khi withAudio) → HaishinKit.
+    public var onAudioBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     /// Creds Imou để app TỰ đăng nhập lại khi session hết hạn/contention (12002).
     public struct Creds {
@@ -40,23 +43,27 @@ public final class ImouLiveSource {
     private var productId: String                 // rỗng → tự tìm qua listDevices()
     private let streamId: String                 // "0"=chính, "1"=phụ (nhẹ)
     private let renderer = HEVCRenderer()         // tái dùng decoder đã test
+    private let aacRenderer = AACRenderer()       // giải mã tiếng cam (AAC)
+    private let withAudio: Bool
     private var task: Task<Void, Never>?
     private var rtsp: DhRtspClient?
     private var startHostTime = CACurrentMediaTime()
     private var stopped = false
 
     public init(session: ImouSession?, creds: Creds? = nil, deviceId: String,
-                productId: String = "", streamId: String = "0") {
+                productId: String = "", streamId: String = "0", withAudio: Bool = false) {
         self.initialSession = session
         self.creds = creds
         self.deviceId = deviceId
         self.productId = productId
         self.streamId = streamId
+        self.withAudio = withAudio
         renderer.displayLayer = nil               // live-only: không cần hiển thị
         renderer.onDecodedPixelBuffer = { [weak self] px, _ in
             guard let self, let out = self.wrapWallclock(px) else { return }
             self.onSampleBuffer?(out)
         }
+        aacRenderer.onPCMBuffer = { [weak self] pcm in self?.onAudioBuffer?(pcm) }
     }
 
     public func start() {
@@ -114,7 +121,7 @@ public final class ImouLiveSource {
             let url = try await api.streamUrl(deviceId: deviceId, productId: productId,
                                               quality: quality)
             NSLog("[ImouSrc] streamUrl OK: \(url.prefix(80))…")
-            let client = DhRtspClient(.init(url: url, audio: false))
+            let client = DhRtspClient(.init(url: url, audio: withAudio))
             rtsp = client
             try await client.open()
             NSLog("[ImouSrc] rtsp open OK → chunk loop")
@@ -132,7 +139,8 @@ public final class ImouLiveSource {
                     // Demux theo byte type: 0xf0 = audio (bỏ, live không tiếng);
                     // còn lại (0xfd/0xfc) = video → renderer.
                     let ft = frame.count > 4 ? frame[frame.startIndex + 4] : 0
-                    if ft != 0xf0 { videoFrames += 1; self.renderer.enqueue(dhavFrame: frame, isLive: true) }
+                    if ft == 0xf0 { if self.withAudio { self.aacRenderer.enqueue(dhavFrame: frame) } }
+                    else { videoFrames += 1; self.renderer.enqueue(dhavFrame: frame, isLive: true) }
                 }
                 if CACurrentMediaTime() - lastLog >= 5 {
                     NSLog("[ImouSrc] chunks=\(chunks) videoFrames=\(videoFrames)")

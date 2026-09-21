@@ -345,11 +345,16 @@ final class LiveStreamingService: NSObject, ObservableObject {
             applyQuality(quality)
             registerOverlayEffectIfNeeded()
             ensureOffscreenScreenRunning()
-            attachMicrophoneIfNeeded()
+            stream.attachAudio(nil)    // KHÔNG dùng mic điện thoại — tiếng lấy từ cam (append PCM)
             stream.attachCamera(nil)   // không dùng camera — nguồn là Imou
 
-            let src = ImouLiveSource(session: session, creds: creds, deviceId: deviceId, streamId: streamId)
+            let src = ImouLiveSource(session: session, creds: creds, deviceId: deviceId,
+                                     streamId: streamId, withAudio: true)
             imouFrameCount = 0
+            // Tiếng cam Imou → HaishinKit (append audio PCM theo host time).
+            src.onAudioBuffer = { [weak self] pcm in
+                self?.stream.append(pcm, when: AVAudioTime(hostTime: mach_absolute_time()))
+            }
             src.onSampleBuffer = { [weak self] sb in
                 guard let self else { return }
                 self.imouFrameCount &+= 1

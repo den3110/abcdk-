@@ -22,7 +22,10 @@ class ImouVideoSource(
     private val urlProvider: suspend () -> String,
     private val onError: (String) -> Unit = {},
     private val onFrames: (Int) -> Unit = {},
+    private val audioSink: ExternalPcmAudioSource? = null,   // != null → lấy cả tiếng cam
 ) : VideoSource() {
+
+    private val audioDecoder: ImouAudioDecoder? = audioSink?.let { ImouAudioDecoder(it) }
 
     @Volatile private var running = false
     private var surface: Surface? = null
@@ -47,10 +50,10 @@ class ImouVideoSource(
             try {
                 val url = urlProvider()
                 Log.d(TAG, "streamUrl OK: ${url.take(70)}…")
-                val client = DhRtspClient(url, audio = false)
+                val client = DhRtspClient(url, audio = audioSink != null)
                 rtsp = client
                 client.open()
-                Log.d(TAG, "rtsp open → chunk loop")
+                Log.d(TAG, "rtsp open → chunk loop (audio=${audioSink != null})")
                 val asm = DhavParser.Assembler()
                 var chunks = 0
                 client.runChunkLoop { chunk ->
@@ -59,9 +62,9 @@ class ImouVideoSource(
                     asm.push(chunk)
                     for (frame in asm.popFrames()) {
                         val t = DhavParser.frameType(frame)
-                        if (t == DhavParser.TYPE_AUDIO) continue
                         val payload = DhavParser.extractPayload(frame) ?: continue
-                        feed(payload)
+                        if (t == DhavParser.TYPE_AUDIO) audioDecoder?.feed(payload)
+                        else feed(payload)
                     }
                     true
                 }
@@ -148,6 +151,7 @@ class ImouVideoSource(
     override fun stop() {
         running = false
         try { rtsp?.close() } catch (_: Exception) {}
+        audioDecoder?.release()
         job?.cancel()
         // release codec trên chính thread IO ở cuối runLoop; nếu runLoop đã dừng thì release ở đây.
         if (job?.isActive != true) releaseCodec()
