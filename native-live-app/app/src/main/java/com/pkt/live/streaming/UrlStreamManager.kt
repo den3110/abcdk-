@@ -42,42 +42,53 @@ class UrlStreamManager(
     private var fps = 30
     private var bitrate = 4_500_000
 
-    /**
-     * Chuẩn bị stream: mở link (ExoPlayer) làm nguồn, prepare encoder.
-     * @param sourceUrl link m3u8/rtsp/http; @param rtmp đích FB (rtmp://…/key).
-     */
-    fun prepare(sourceUrl: String, rtmp: String, w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
-        val videoSource = ExoPlayerVideoSource(
-            context = context,
-            url = sourceUrl,
-            onError = { msg -> _state.value = State.SourceError(msg) },
-            onReady = { Log.d(TAG, "url source ready") },
-        )
-        return prepareWith(videoSource, rtmp, w, h, videoFps, videoBitrate)
-    }
+    var isPrepared: Boolean = false
+        private set
 
-    /** Nguồn cam Imou cloud: urlProvider suspend lấy relay URL từ backend. */
-    fun prepareImou(urlProvider: suspend () -> String, rtmp: String,
-                    w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
+    /** Chuẩn bị nguồn cam Imou (chưa cần rtmp — rtmp truyền khi startStream). */
+    fun prepareImou(urlProvider: suspend () -> String, w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
         val videoSource = com.pkt.live.streaming.imou.ImouVideoSource(
             urlProvider = urlProvider,
             onError = { msg -> _state.value = State.SourceError(msg) },
         )
-        return prepareWith(videoSource, rtmp, w, h, videoFps, videoBitrate)
+        return prepareWith(videoSource, w, h, videoFps, videoBitrate)
+    }
+
+    /** Chuẩn bị nguồn LINK (m3u8/RTSP/HTTP). */
+    fun prepareUrl(sourceUrl: String, w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
+        val videoSource = ExoPlayerVideoSource(
+            context = context, url = sourceUrl,
+            onError = { msg -> _state.value = State.SourceError(msg) },
+        )
+        return prepareWith(videoSource, w, h, videoFps, videoBitrate)
     }
 
     private fun prepareWith(videoSource: com.pedro.encoder.input.sources.video.VideoSource,
-                            rtmp: String, w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
-        rtmpUrl = rtmp
-        width = w; height = h; fps = videoFps; bitrate = videoBitrate
+                            w: Int, h: Int, videoFps: Int, videoBitrate: Int): Boolean {
+        stop() // dọn stream cũ nếu có
+        // Nguồn ngoài (Imou/link) LUÔN landscape → ép width>height, rotation=0.
+        width = maxOf(w, h); height = minOf(w, h); fps = videoFps; bitrate = videoBitrate
         val s = GenericStream(context, this, videoSource, NoAudioSource())
         stream = s
         val vOk = runCatching {
             s.prepareVideo(width, height, bitrate, fps, 2, 0)
         }.getOrElse { Log.e(TAG, "prepareVideo throw: $it"); false }
         val aOk = runCatching { s.prepareAudio(32000, true, 128_000) }.getOrDefault(true)
+        isPrepared = vOk
         Log.d(TAG, "prepare vOk=$vOk aOk=$aOk")
         return vOk
+    }
+
+    /** Xem trước nguồn (chạy VideoSource + render vào view) — TRƯỚC khi go live. */
+    fun startPreview(view: android.view.TextureView) {
+        val s = stream ?: return
+        // autoHandleOrientation=false: nguồn ngoài đã landscape sẵn, KHÔNG xoay theo cảm biến.
+        runCatching { if (!s.isOnPreview) s.startPreview(view, false) }
+            .onFailure { Log.w(TAG, "startPreview fail: $it") }
+    }
+
+    fun stopPreview() {
+        runCatching { stream?.let { if (it.isOnPreview) it.stopPreview() } }
     }
 
     /** Cập nhật overlay (bitmap điểm số/logo) — gọi mỗi khi score đổi. */
@@ -95,20 +106,24 @@ class UrlStreamManager(
         }
     }
 
-    fun start() {
+    /** Bắt đầu phát tới rtmp (nguồn đã prepare + có thể đang preview). */
+    fun startStream(rtmp: String) {
         val s = stream ?: return
         if (s.isStreaming) return
-        _state.value = State.Connecting(rtmpUrl)
-        runCatching { s.startStream(rtmpUrl) }
+        rtmpUrl = rtmp
+        _state.value = State.Connecting(rtmp)
+        runCatching { s.startStream(rtmp) }
             .onFailure { _state.value = State.Failed(it.message ?: "startStream error") }
     }
 
     fun stop() {
         val s = stream ?: return
         runCatching { if (s.isStreaming) s.stopStream() }
+        runCatching { if (s.isOnPreview) s.stopPreview() }
         runCatching { s.release() }
         stream = null
         overlayFilter = null
+        isPrepared = false
         _state.value = State.Idle
     }
 

@@ -10,6 +10,14 @@
         android:layout_height="match_parent"
         android:layout_gravity="center" />
 
+    <!-- Preview nguồn LINK/Imou (GenericStream) — hiện khi chọn nguồn ngoài camera. -->
+    <TextureView
+        android:id="@+id/urlPreview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:visibility="gone" />
+
     <androidx.compose.ui.platform.ComposeView
         android:id="@+id/composeView"
         android:layout_width="match_parent"

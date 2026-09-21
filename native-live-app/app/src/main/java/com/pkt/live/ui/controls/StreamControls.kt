@@ -448,6 +448,7 @@ fun StreamControls(
             confirmButton = {
                 androidx.compose.material3.TextButton(onClick = {
                     viewModel.setCustomUrl(urlText)
+                    viewModel.previewSelectedSource()
                     showSourcePicker = false
                 }) { Text("Xong") }
             },

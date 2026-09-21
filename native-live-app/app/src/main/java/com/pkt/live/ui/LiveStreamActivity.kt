@@ -144,6 +144,20 @@ class LiveStreamActivity : AppCompatActivity() {
         val openGlView = findViewById<OpenGlView>(R.id.surfaceView)
         viewModel.streamManager.attachSurface(openGlView)
 
+        // Preview nguồn LINK/Imou: TextureView riêng, hiện khi chọn nguồn ngoài camera.
+        val urlPreview = findViewById<android.view.TextureView>(R.id.urlPreview)
+        viewModel.setUrlPreviewView(urlPreview)
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.CREATED) {
+                kotlinx.coroutines.flow.combine(
+                    viewModel.useUrlSource, viewModel.useImouSource
+                ) { u, i -> u || i }.collect { external ->
+                    urlPreview.visibility =
+                        if (external) android.view.View.VISIBLE else android.view.View.GONE
+                }
+            }
+        }
+
         // Register stream manager as lifecycle observer (anti-crash: formal lifecycle)
         lifecycle.addObserver(viewModel.streamManager)
 

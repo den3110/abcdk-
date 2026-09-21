@@ -271,13 +271,48 @@ class LiveStreamViewModel(
     private val _autoLiveCams = MutableStateFlow<List<com.pkt.live.data.model.AutoLiveCamDto>>(emptyList())
     val autoLiveCams: StateFlow<List<com.pkt.live.data.model.AutoLiveCamDto>> = _autoLiveCams.asStateFlow()
 
-    fun setUseUrlSource(on: Boolean) { _useUrlSource.value = on; if (on) _useImouSource.value = false }
+    private var urlPreviewView: java.lang.ref.WeakReference<android.view.TextureView>? = null
+    fun setUrlPreviewView(v: android.view.TextureView?) {
+        urlPreviewView = v?.let { java.lang.ref.WeakReference(it) }
+    }
+    fun setUseUrlSource(on: Boolean) {
+        _useUrlSource.value = on; if (on) _useImouSource.value = false
+        previewSelectedSource()
+    }
     fun setCustomUrl(url: String) { _customUrl.value = url }
     fun setUseImouSource(on: Boolean) {
         _useImouSource.value = on
         if (on) { _useUrlSource.value = false; if (_autoLiveCams.value.isEmpty()) loadAutoLiveCams() }
+        previewSelectedSource()
     }
-    fun setSelectedImouDeviceId(id: String) { _selectedImouDeviceId.value = id }
+    fun setSelectedImouDeviceId(id: String) { _selectedImouDeviceId.value = id; previewSelectedSource() }
+
+    private fun prepareExternalSource(): Boolean {
+        val q = _quality.value
+        return when {
+            _useImouSource.value && _selectedImouDeviceId.value.isNotBlank() -> {
+                val devId = _selectedImouDeviceId.value
+                urlStreamManager.prepareImou(
+                    { repository.getCourtImouStreamUrl(devId, "1").getOrThrow().url },
+                    q.width, q.height, q.fps, q.bitrate,
+                )
+            }
+            _useUrlSource.value && _customUrl.value.isNotBlank() ->
+                urlStreamManager.prepareUrl(_customUrl.value.trim(), q.width, q.height, q.fps, q.bitrate)
+            else -> false
+        }
+    }
+
+    /** Đổi PREVIEW theo nguồn vừa chọn (Imou/Link) NGAY — không chờ Go Live. */
+    fun previewSelectedSource() {
+        if (hasActiveLivestreamState()) return   // đang live → không đụng
+        val view = urlPreviewView?.get()
+        if (_useImouSource.value || _useUrlSource.value) {
+            if (view != null && prepareExternalSource()) urlStreamManager.startPreview(view)
+        } else {
+            urlStreamManager.stop()   // về camera
+        }
+    }
     fun loadAutoLiveCams() {
         viewModelScope.launch {
             repository.listAutoLiveCams().onSuccess { cams ->
@@ -292,21 +327,14 @@ class LiveStreamViewModel(
 
     /** Bắt đầu phát video: cam Imou / LINK (GenericStream) hoặc camera (mặc định). */
     private fun startVideoStream(rtmp: String) {
-        val q = _quality.value
-        when {
-            _useImouSource.value && _selectedImouDeviceId.value.isNotBlank() -> {
-                val devId = _selectedImouDeviceId.value
-                urlStreamManager.prepareImou(
-                    urlProvider = { repository.getCourtImouStreamUrl(devId, "1").getOrThrow().url },
-                    rtmp, q.width, q.height, q.fps, q.bitrate,
-                )
-                urlStreamManager.start()
-            }
-            _useUrlSource.value && _customUrl.value.isNotBlank() -> {
-                urlStreamManager.prepare(_customUrl.value.trim(), rtmp, q.width, q.height, q.fps, q.bitrate)
-                urlStreamManager.start()
-            }
-            else -> { urlStreamManager.stop(); streamManager.startStream(rtmp) }
+        val external = (_useImouSource.value && _selectedImouDeviceId.value.isNotBlank()) ||
+            (_useUrlSource.value && _customUrl.value.isNotBlank())
+        if (external) {
+            if (!urlStreamManager.isPrepared) prepareExternalSource()
+            urlStreamManager.startStream(rtmp)   // nguồn đã prepare (+ có thể đang preview)
+        } else {
+            urlStreamManager.stop()
+            streamManager.startStream(rtmp)
         }
     }
 
