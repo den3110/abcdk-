@@ -85,6 +85,9 @@ fun StreamControls(
     val observerConnectionState by viewModel.observerConnectionState.collectAsState()
     var showQualityPicker by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    var showSourcePicker by remember { mutableStateOf(false) }
+    val useUrlSource by viewModel.useUrlSource.collectAsState()
+    val customUrl by viewModel.customUrl.collectAsState()
     val preflightDialog by viewModel.preflightDialog.collectAsState()
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -321,6 +324,13 @@ fun StreamControls(
             )
 
             ControlButtonSmall(
+                icon = Icons.Default.Link,
+                label = "Nguồn",
+                active = useUrlSource,
+                onClick = { showSourcePicker = true },
+            )
+
+            ControlButtonSmall(
                 icon = Icons.Default.ReceiptLong,
                 label = "Request",
                 active = recordingUiState.activeRecordingId != null || recordingUiState.pendingUploads > 0,
@@ -370,6 +380,54 @@ fun StreamControls(
     }
 
     // Quality picker dialog
+    if (showSourcePicker) {
+        var urlText by remember { mutableStateOf(customUrl) }
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showSourcePicker = false },
+            title = { Text("Nguồn video") },
+            text = {
+                androidx.compose.foundation.layout.Column {
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.RadioButton(
+                            selected = !useUrlSource,
+                            onClick = { viewModel.setUseUrlSource(false) }
+                        )
+                        Text("Camera điện thoại")
+                    }
+                    androidx.compose.foundation.layout.Row(
+                        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                    ) {
+                        androidx.compose.material3.RadioButton(
+                            selected = useUrlSource,
+                            onClick = { viewModel.setUseUrlSource(true) }
+                        )
+                        Text("Link (m3u8 / RTSP / HTTP)")
+                    }
+                    if (useUrlSource) {
+                        androidx.compose.material3.OutlinedTextField(
+                            value = urlText,
+                            onValueChange = { urlText = it },
+                            placeholder = { Text("rtsp://… hoặc https://…/index.m3u8") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    viewModel.setCustomUrl(urlText)
+                    showSourcePicker = false
+                }) { Text("Xong") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showSourcePicker = false }) { Text("Huỷ") }
+            },
+        )
+    }
+
     if (showQualityPicker) {
         QualityPickerDialog(
             currentQuality = quality,

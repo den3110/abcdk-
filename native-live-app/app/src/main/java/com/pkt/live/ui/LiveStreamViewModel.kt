@@ -259,6 +259,28 @@ class LiveStreamViewModel(
     private val _quality = MutableStateFlow(Quality.DEFAULT)
     val quality: StateFlow<Quality> = _quality.asStateFlow()
 
+    // ===== Nguồn LINK (m3u8/HLS/RTSP/HTTP) — additive, mặc định TẮT (đi camera) =====
+    private val _useUrlSource = MutableStateFlow(false)
+    val useUrlSource: StateFlow<Boolean> = _useUrlSource.asStateFlow()
+    private val _customUrl = MutableStateFlow("")
+    val customUrl: StateFlow<String> = _customUrl.asStateFlow()
+    fun setUseUrlSource(on: Boolean) { _useUrlSource.value = on }
+    fun setCustomUrl(url: String) { _customUrl.value = url }
+    private val urlStreamManager by lazy { com.pkt.live.streaming.UrlStreamManager(appContext) }
+    val urlStreamState get() = urlStreamManager.state
+
+    /** Bắt đầu phát video: nếu bật nguồn LINK thì dùng ExoPlayer→GenericStream, else camera. */
+    private fun startVideoStream(rtmp: String) {
+        if (_useUrlSource.value && _customUrl.value.isNotBlank()) {
+            val q = _quality.value
+            urlStreamManager.prepare(_customUrl.value.trim(), rtmp, q.width, q.height, q.fps, q.bitrate)
+            urlStreamManager.start()
+        } else {
+            urlStreamManager.stop()
+            streamManager.startStream(rtmp)
+        }
+    }
+
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
@@ -1219,7 +1241,7 @@ class LiveStreamViewModel(
             stopRecordingIfNeeded(reason = "user_stop")
         }
         if (stopLivestream) {
-            streamManager.stopStream()
+            run { urlStreamManager.stop(); streamManager.stopStream() }
         } else {
             dismissEndingLiveSoon(700L)
         }
@@ -1380,7 +1402,7 @@ class LiveStreamViewModel(
                 if (!newUrl.isNullOrBlank()) {
                     _rtmpUrl.value = newUrl
                     activeLiveMatchId = targetMatchId
-                    streamManager.startStream(newUrl)
+                    startVideoStream(newUrl)
                 }
             }.onFailure {
                 Log.e(TAG, "recoverExpiredLease failed: ${it.message}")
@@ -2066,7 +2088,7 @@ class LiveStreamViewModel(
             leaseHeartbeatIntervalMs = 15_000L
         }
         _endingLive.value = false
-        streamManager.stopStream()
+        run { urlStreamManager.stop(); streamManager.stopStream() }
     }
 
     fun toggleTorch() = streamManager.toggleTorch()
@@ -2419,7 +2441,8 @@ class LiveStreamViewModel(
 
         overlayRenderer.onBitmapReady = { bmp ->
             if (!freshEntryRequired) {
-                streamManager.updateOverlayBitmap(bmp)
+                if (_useUrlSource.value) urlStreamManager.setOverlay(bmp)
+                else streamManager.updateOverlayBitmap(bmp)
             }
         }
         streamManager.onRecordingSegmentClosed = { segment ->
@@ -2659,7 +2682,7 @@ class LiveStreamViewModel(
                     // observer never fires and notifyStreamEnded never gets called.
                     if (hasActiveLivestreamState()) {
                         clearActiveLiveSession(notifyEnd = true)
-                        streamManager.stopStream()
+                        run { urlStreamManager.stop(); streamManager.stopStream() }
                     }
                 }
             }
@@ -2697,7 +2720,7 @@ class LiveStreamViewModel(
                                     leaseId = null
                                     ensureStreamClientSessionId(forceNew = true)
                                     _rtmpUrl.value = newUrl
-                                    streamManager.startStream(newUrl)
+                                    startVideoStream(newUrl)
                                 }
                             }.onFailure {
                                 // keep reconnect logic; just record error
@@ -2882,7 +2905,7 @@ class LiveStreamViewModel(
                 }
                 val s = streamManager.state.value
                 if (autoGoLive && (s is StreamState.Live || s is StreamState.Connecting || s is StreamState.Reconnecting)) {
-                    streamManager.stopStream()
+                    run { urlStreamManager.stop(); streamManager.stopStream() }
                     waitForStreamSwitchReady()
                 }
 
@@ -2951,7 +2974,7 @@ class LiveStreamViewModel(
                 try {
                     _loading.value = false
                     if (!runGoLiveCountdown(matchId)) return@launchGuarded
-                    streamManager.startStream(url)
+                    startVideoStream(url)
                     if (mode?.includesRecording == true) {
                         maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = true)
                     } else {
@@ -3010,7 +3033,7 @@ class LiveStreamViewModel(
                                 failed.joinToString(", ") { labelForMultiTarget(it) }
                         }
                         if (!runGoLiveCountdown(targetMatchId)) return@onSuccess
-                        streamManager.startStream(primaryUrl)
+                        startVideoStream(primaryUrl)
                         if (mode?.includesRecording == true) {
                             maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = true)
                         } else {
@@ -3037,7 +3060,7 @@ class LiveStreamViewModel(
                     ensureStreamClientSessionId()
                     _loading.value = false
                     if (!runGoLiveCountdown(targetMatchId)) return@onSuccess
-                    streamManager.startStream(newUrl)
+                    startVideoStream(newUrl)
                     if (mode?.includesRecording == true) {
                         maybeStartRecordingForCurrentMatch(allowSoftFailureForLivestream = true)
                     } else {
