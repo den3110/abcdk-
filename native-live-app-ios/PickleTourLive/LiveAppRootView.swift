@@ -931,10 +931,10 @@ private struct LiveStreamScreen: View {
         .sheet(isPresented: $showSignalsSheet) {
             signalCenterSheet
         }
-        .sheet(isPresented: $showSettingsSheet) {
+        .sheet(isPresented: $showSettingsSheet, onDismiss: { store.previewSelectedSource() }) {
             settingsSheet
         }
-        .sheet(isPresented: $store.autoPromptImouSource) {
+        .sheet(isPresented: $store.autoPromptImouSource, onDismiss: { store.previewSelectedSource() }) {
             imouSourcePickerSheet
         }
         .sheet(isPresented: $showQualitySheet) {

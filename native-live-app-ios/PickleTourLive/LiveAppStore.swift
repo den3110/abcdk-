@@ -2345,6 +2345,18 @@ final class LiveAppStore: ObservableObject {
 
     }
 
+    /// Đổi PREVIEW theo nguồn vừa chọn (Camera/Imou/Link) NGAY, không chờ Go Live.
+    /// Chỉ chạy khi CHƯA đang live (không cắt stream đang chạy).
+    func previewSelectedSource() {
+        guard !hasActiveLivestreamSession else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            self.streamingService.stopPreview()
+            do { try await self.preparePreviewHonoringSource() }
+            catch { self.errorMessage = error.localizedDescription }
+        }
+    }
+
     private func rebuildPreviewPipeline() async {
         do {
             streamingService.stopPublishing()
