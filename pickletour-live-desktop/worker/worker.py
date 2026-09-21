@@ -678,6 +678,7 @@ def drain_fifo(overlay_fifo):
 
 
 def main():
+    global ENCODER, OUT_FPS, SOURCE_URL
     session_id = env("AUTOLIVE_SESSION_ID", required=True)
     worker_token = env("AUTOLIVE_WORKER_TOKEN", required=True)
     overlay_url = env("AUTOLIVE_OVERLAY_URL", required=True)
@@ -690,7 +691,6 @@ def main():
     if env("AUTOLIVE_IMOU_PHONE") and env("AUTOLIVE_IMOU_PASSWORD"):
         creds = {"phone": env("AUTOLIVE_IMOU_PHONE"), "password": env("AUTOLIVE_IMOU_PASSWORD"),
                  "area_code": env("AUTOLIVE_IMOU_AREA_CODE", "84")}
-    global ENCODER, SOURCE_URL
     ENCODER = detect_encoder()
     log(f"encoder = {ENCODER}" + (f" · source URL={SOURCE_URL}" if SOURCE_URL else ""))
     tee = build_tee_output(destinations)
@@ -798,7 +798,6 @@ def main():
         has_audio, src_fps = probe_url(SOURCE_URL)
     else:
         has_audio, src_fps = probe_audio(access.device(device_id)) if not stop_event.is_set() else (False, 0)
-    global OUT_FPS
     if FPS_OVERRIDE and 10 <= FPS_OVERRIDE <= 60:
         OUT_FPS = FPS_OVERRIDE
     else:
