@@ -394,6 +394,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
             connectionState = .previewReady
             startStatsTimer()
             clearRecoveryIfNeeded()
+            applyExternalSourceOrientationIfNeeded()
             appendDiagnostic("Preview attached to Imou source \(deviceId).")
         } catch {
             imouSource?.stop(); imouSource = nil
@@ -477,6 +478,7 @@ final class LiveStreamingService: NSObject, ObservableObject {
             connectionState = .previewReady
             startStatsTimer()
             clearRecoveryIfNeeded()
+            applyExternalSourceOrientationIfNeeded()
             appendDiagnostic("Preview attached to URL source.")
         } catch {
             urlSource?.stop(); urlSource = nil
@@ -817,10 +819,22 @@ final class LiveStreamingService: NSObject, ObservableObject {
         ]
     }
 
+    /// Nguồn ngoài (Imou/link) LUÔN landscape → preview + stream ép ngang, bỏ qua hướng máy.
+    private var effectivePreviewOrientation: AVCaptureVideoOrientation {
+        imouSourceActive ? .landscapeRight : currentVideoOrientation
+    }
+
+    /// Ép preview + stream landscape khi đang dùng nguồn ngoài (gọi sau prepare).
+    private func applyExternalSourceOrientationIfNeeded() {
+        guard imouSourceActive else { return }
+        stream.videoOrientation = .landscapeRight
+        for view in previewViews.allObjects { view.videoOrientation = .landscapeRight }
+    }
+
     func attachPreviewView(_ view: MTHKView) {
         previewViews.add(view)
         view.videoGravity = .resizeAspect // WYSIWYG: hiện trọn frame 16:9 (fill sẽ crop mất overlay ở lề như Android không bị)
-        view.videoOrientation = currentVideoOrientation
+        view.videoOrientation = effectivePreviewOrientation
         view.attachStream(stream)
     }
 
