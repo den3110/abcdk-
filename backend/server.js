@@ -90,6 +90,7 @@ import venueRoutes from "./routes/venueRoutes.js";
 import imouRoutes from "./routes/imouRoutes.js";
 import tournamentAutoLiveRoutes from "./routes/tournamentAutoLiveRoutes.js";
 import bookingRoutes from "./routes/bookingRoutes.js";
+import clipRoutes from "./routes/clipRoutes.js";
 import spcRoutes from "./routes/spc.routes.js";
 import fbTokenRoutes from "./routes/fbTokenRoutes.js";
 import publicOverlayRoutes from "./routes/publicOverlayRoutes.js";
@@ -116,6 +117,7 @@ import { startOptimizedImageCleanupCron } from "./jobs/optimizedImageCleanupCron
 import { startSeoNewsImageRegenerationWorker } from "./services/seoNewsImageQueue.service.js";
 import { startSeoNewsPipelineWorker } from "./services/seoNewsPipelineQueue.service.js";
 import { startLiveRecordingAiCommentaryWorker } from "./services/liveRecordingAiCommentaryQueue.service.js";
+import { startClipWorker } from "./services/clip/clipWorker.service.js";
 import { startLiveRecordingAutoExportSweep } from "./services/liveRecordingMonitor.service.js";
 import { startFbLiveTestAutoStopSweep } from "./services/fbLiveTest.service.js";
 import { startYtLiveTestAutoStopSweep } from "./services/youtubeLiveTest.service.js";
@@ -370,6 +372,7 @@ app.use("/api/venues", venueRoutes);
 app.use("/api/imou", imouRoutes);
 app.use("/api/tournament-auto-live", tournamentAutoLiveRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/clips", clipRoutes);
 app.use("/api/admin/spc", spcRoutes);
 app.use("/api/public", publicOverlayRoutes);
 app.use("/api/public", publicHomeRoutes);
@@ -572,6 +575,7 @@ const startServer = async () => {
           startSeoNewsImageRegenerationWorker();
           startSeoNewsPipelineWorker();
           startLiveRecordingAiCommentaryWorker();
+          startClipWorker(); // cắt clip camera sân — xử lý TUẦN TỰ
         } else {
           console.log("[background-jobs] skipped on non-leader API process");
         }
