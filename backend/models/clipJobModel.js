@@ -36,12 +36,21 @@ const clipJobSchema = new Schema(
     durationSec: { type: Number, required: true, min: 1 },
 
     // ── Máy trạng thái (xử lý tuần tự) ──────────────────────────────────
+    // pending_approval: yêu cầu NGOÀI giờ đã đặt → chờ chủ sân duyệt trước khi vào hàng đợi.
+    // rejected: chủ sân từ chối.
     status: {
       type: String,
-      enum: ["queued", "processing", "done", "failed", "cancelled"],
+      enum: ["pending_approval", "queued", "processing", "done", "failed", "cancelled", "rejected"],
       default: "queued",
       index: true,
     },
+    // Khoảng cắt có NẰM TRONG giờ đã đặt không (true = tự chạy; false = cần duyệt).
+    withinBooking: { type: Boolean, default: true },
+    // Duyệt/từ chối bởi chủ sân (khi withinBooking=false).
+    approvedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    approvedAt: { type: Date, default: null },
+    rejectedBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    rejectReason: { type: String, default: "" },
     progressPct: { type: Number, default: 0, min: 0, max: 100 },
     error: { type: String, default: "" }, // thông báo lỗi thân thiện (tiếng Việt)
     attempts: { type: Number, default: 0 },

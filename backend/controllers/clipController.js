@@ -10,6 +10,8 @@ import ClipJob from "../models/clipJobModel.js";
 import Booking from "../models/bookingModel.js";
 import VenueCourt from "../models/venueCourtModel.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
+import { canManageVenue } from "../utils/venueAuth.js";
+import { pushToUsers, venueStaffIds } from "../services/venueNotify.js";
 
 const CLIP_MAX_MINUTES = Number(process.env.CLIP_MAX_MINUTES) || 30;
 const CLIP_MAX_ACTIVE_PER_USER = Number(process.env.CLIP_MAX_ACTIVE_PER_USER) || 3;
@@ -101,15 +103,18 @@ export async function createClip(req, res) {
     if (Number.isNaN(begin.getTime()) || Number.isNaN(end.getTime()) || end <= begin) {
       return res.status(400).json({ message: "Khoảng thời gian không hợp lệ." });
     }
-    // Phải NẰM TRONG khung giờ đã đặt.
-    if (begin < booking.startAt || end > booking.endAt) {
-      return res.status(400).json({ message: "Khoảng cắt phải nằm trong giờ bạn đã đặt sân." });
+    // Chỉ cắt được cảnh QUÁ KHỨ (thẻ SD chưa ghi tương lai).
+    if (end.getTime() > Date.now() + 60000) {
+      return res.status(400).json({ message: "Chỉ cắt được cảnh đã diễn ra." });
     }
     const durationSec = Math.round((end - begin) / 1000);
     if (durationSec < 1) return res.status(400).json({ message: "Clip quá ngắn." });
     if (durationSec > CLIP_MAX_MINUTES * 60) {
       return res.status(400).json({ message: `Clip tối đa ${CLIP_MAX_MINUTES} phút.` });
     }
+
+    // NẰM TRONG giờ đã đặt → tự chạy. NGOÀI giờ → cần chủ sân duyệt.
+    const withinBooking = begin >= booking.startAt && end <= booking.endAt;
 
     // Court của booking phải có đúng cam deviceId này.
     const court = await VenueCourt.findById(booking.court).lean();
@@ -119,13 +124,13 @@ export async function createClip(req, res) {
       return res.status(400).json({ message: "Camera này không thuộc sân bạn đã đặt." });
     }
 
-    // Chống spam: tối đa N job đang chờ/đang chạy mỗi user.
+    // Chống spam: tối đa N job đang chờ/đang chạy/chờ duyệt mỗi user.
     const activeCount = await ClipJob.countDocuments({
-      requestedBy: userId, status: { $in: ["queued", "processing"] },
+      requestedBy: userId, status: { $in: ["pending_approval", "queued", "processing"] },
     });
     if (activeCount >= CLIP_MAX_ACTIVE_PER_USER) {
       return res.status(429).json({
-        message: `Bạn đang có ${activeCount} clip chờ xử lý. Vui lòng đợi hoàn tất rồi tạo thêm.`,
+        message: `Bạn đang có ${activeCount} yêu cầu clip chờ xử lý. Vui lòng đợi hoàn tất rồi tạo thêm.`,
       });
     }
 
@@ -142,8 +147,29 @@ export async function createClip(req, res) {
       beginLocal: toImouLocal(begin),
       endLocal: toImouLocal(end),
       durationSec,
-      status: "queued",
+      withinBooking,
+      status: withinBooking ? "queued" : "pending_approval",
     });
+
+    // Ngoài giờ đặt → báo chủ sân / nhân viên có quyền duyệt booking.
+    if (!withinBooking) {
+      try {
+        const staff = await venueStaffIds(booking.venue, "bookings.manage");
+        await pushToUsers({
+          recipients: staff,
+          actorId: userId,
+          type: "BOOKING",
+          title: "✂️ Yêu cầu cắt clip cần duyệt",
+          body: `${req.user?.name || "Khách"} xin cắt clip NGOÀI giờ đặt tại ${court.name || "sân"} (${Math.round(durationSec / 60)} phút).`,
+          url: `/owner/clip-approvals?venueId=${booking.venue}`,
+          data: { kind: "clip_approval_request", clipJobId: String(job._id), venueId: String(booking.venue) },
+        });
+      } catch (err) { console.error("[clip approval notify]", err?.message || err); }
+    }
+
+    if (!withinBooking) {
+      return res.status(201).json({ job, requiresApproval: true, queueAhead: 0 });
+    }
 
     // Số job xếp trước (để hiển thị "đang chờ #N").
     const queueAhead = await ClipJob.countDocuments({
@@ -151,7 +177,7 @@ export async function createClip(req, res) {
       createdAt: { $lt: job.createdAt },
     });
 
-    return res.status(201).json({ job, queueAhead });
+    return res.status(201).json({ job, requiresApproval: false, queueAhead });
   } catch (e) {
     console.error("[clipController.createClip]", e);
     return res.status(500).json({ message: "Lỗi tạo yêu cầu cắt clip." });
@@ -203,7 +229,7 @@ export async function deleteClip(req, res) {
     if (job.status === "processing") {
       return res.status(409).json({ message: "Clip đang được xử lý, không thể xoá lúc này." });
     }
-    if (job.status === "queued") {
+    if (job.status === "queued" || job.status === "pending_approval") {
       job.status = "cancelled";
       await job.save();
       return res.json({ ok: true, cancelled: true });
@@ -218,5 +244,108 @@ export async function deleteClip(req, res) {
   } catch (e) {
     console.error("[clipController.deleteClip]", e);
     return res.status(500).json({ message: "Lỗi xoá clip." });
+  }
+}
+
+/* ═══════════════ CHỦ SÂN DUYỆT clip ngoài giờ ═══════════════ */
+
+/** GET /api/clips/pending?venueId= — danh sách yêu cầu chờ duyệt của 1 venue (chủ sân). */
+export async function listPendingApprovals(req, res) {
+  try {
+    const { venueId } = req.query || {};
+    if (!venueId || !mongoose.isValidObjectId(venueId)) {
+      return res.status(400).json({ message: "Thiếu/không hợp lệ venueId." });
+    }
+    if (!(await canManageVenue(req.user, venueId))) {
+      return res.status(403).json({ message: "Bạn không có quyền quản lý sân này." });
+    }
+    const jobs = await ClipJob.find({ venue: venueId, status: "pending_approval" })
+      .sort({ createdAt: 1 })
+      .limit(100)
+      .populate("requestedBy", "name phone avatar")
+      .lean();
+    return res.json({ jobs });
+  } catch (e) {
+    console.error("[clipController.listPendingApprovals]", e);
+    return res.status(500).json({ message: "Lỗi tải yêu cầu chờ duyệt." });
+  }
+}
+
+/** POST /api/clips/:id/approve — chủ sân duyệt → đưa vào hàng đợi xử lý. */
+export async function approveClip(req, res) {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "id không hợp lệ." });
+    }
+    const job = await ClipJob.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Không tìm thấy yêu cầu." });
+    if (!(await canManageVenue(req.user, job.venue))) {
+      return res.status(403).json({ message: "Bạn không có quyền duyệt yêu cầu này." });
+    }
+    if (job.status !== "pending_approval") {
+      return res.status(409).json({ message: "Yêu cầu không còn ở trạng thái chờ duyệt." });
+    }
+    job.status = "queued";
+    job.approvedBy = req.user._id;
+    job.approvedAt = new Date();
+    job.error = "";
+    await job.save();
+
+    try {
+      await pushToUsers({
+        recipients: [String(job.requestedBy)],
+        actorId: req.user._id,
+        type: "BOOKING",
+        title: "✅ Yêu cầu cắt clip đã được duyệt",
+        body: `Clip ${job.camName || ""} (${Math.round(job.durationSec / 60)} phút) đang được xử lý.`,
+        url: `/clips/${job._id}`,
+        data: { kind: "clip_approved", clipJobId: String(job._id) },
+      });
+    } catch (err) { console.error("[clip approve notify]", err?.message || err); }
+
+    return res.json({ ok: true, job });
+  } catch (e) {
+    console.error("[clipController.approveClip]", e);
+    return res.status(500).json({ message: "Lỗi duyệt yêu cầu." });
+  }
+}
+
+/** POST /api/clips/:id/reject — chủ sân từ chối (kèm lý do). */
+export async function rejectClip(req, res) {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "id không hợp lệ." });
+    }
+    const job = await ClipJob.findById(req.params.id);
+    if (!job) return res.status(404).json({ message: "Không tìm thấy yêu cầu." });
+    if (!(await canManageVenue(req.user, job.venue))) {
+      return res.status(403).json({ message: "Bạn không có quyền từ chối yêu cầu này." });
+    }
+    if (job.status !== "pending_approval") {
+      return res.status(409).json({ message: "Yêu cầu không còn ở trạng thái chờ duyệt." });
+    }
+    const reason = String(req.body?.reason || "").slice(0, 300);
+    job.status = "rejected";
+    job.rejectedBy = req.user._id;
+    job.rejectReason = reason;
+    job.finishedAt = new Date();
+    await job.save();
+
+    try {
+      await pushToUsers({
+        recipients: [String(job.requestedBy)],
+        actorId: req.user._id,
+        type: "BOOKING",
+        title: "❌ Yêu cầu cắt clip bị từ chối",
+        body: reason || "Chủ sân đã từ chối yêu cầu cắt clip ngoài giờ.",
+        url: `/clips/${job._id}`,
+        data: { kind: "clip_rejected", clipJobId: String(job._id) },
+      });
+    } catch (err) { console.error("[clip reject notify]", err?.message || err); }
+
+    return res.json({ ok: true, job });
+  } catch (e) {
+    console.error("[clipController.rejectClip]", e);
+    return res.status(500).json({ message: "Lỗi từ chối yêu cầu." });
   }
 }
