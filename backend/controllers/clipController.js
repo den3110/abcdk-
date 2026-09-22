@@ -302,8 +302,8 @@ export async function approveClip(req, res) {
         type: "BOOKING",
         title: "✅ Yêu cầu cắt clip đã được duyệt",
         body: `Clip ${job.camName || ""} (${Math.round(job.durationSec / 60)} phút) đang được xử lý.`,
-        url: `/clips/${job._id}`,
-        data: { kind: "clip_approved", clipJobId: String(job._id) },
+        url: job.booking ? `/clips?booking=${job.booking}` : `/clips/${job._id}`,
+        data: { kind: "clip_approved", clipJobId: String(job._id), bookingId: job.booking ? String(job.booking) : "" },
       });
     } catch (err) { console.error("[clip approve notify]", err?.message || err); }
 
@@ -342,8 +342,8 @@ export async function rejectClip(req, res) {
         type: "BOOKING",
         title: "❌ Yêu cầu cắt clip bị từ chối",
         body: reason || "Chủ sân đã từ chối yêu cầu cắt clip ngoài giờ.",
-        url: `/clips/${job._id}`,
-        data: { kind: "clip_rejected", clipJobId: String(job._id) },
+        url: job.booking ? `/clips?booking=${job.booking}` : `/clips/${job._id}`,
+        data: { kind: "clip_rejected", clipJobId: String(job._id), bookingId: job.booking ? String(job.booking) : "" },
       });
     } catch (err) { console.error("[clip reject notify]", err?.message || err); }
 

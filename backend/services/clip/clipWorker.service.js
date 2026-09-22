@@ -98,26 +98,28 @@ function isTransient(code, stderr) {
 
 async function notifyDone(job) {
   try {
+    const bid = job.booking ? String(job.booking) : "";
     await pushToUsers({
       recipients: [String(job.requestedBy)],
       type: "BOOKING",
       title: "🎬 Clip của bạn đã sẵn sàng",
       body: `Clip sân ${job.courtName || ""} (${job.durationSec}s) đã cắt xong. Bấm để xem.`,
-      url: `/clips/${job._id}`,
-      data: { kind: "clip_ready", clipJobId: String(job._id), fileUrl: job.fileUrl, bookingId: job.booking ? String(job.booking) : "" },
+      url: bid ? `/clips?booking=${bid}` : `/clips/${job._id}`,
+      data: { kind: "clip_ready", clipJobId: String(job._id), fileUrl: job.fileUrl, bookingId: bid },
     });
   } catch (e) { console.error("[clipWorker] notifyDone:", e?.message || e); }
 }
 
 async function notifyFailed(job, message) {
   try {
+    const bid = job.booking ? String(job.booking) : "";
     await pushToUsers({
       recipients: [String(job.requestedBy)],
       type: "BOOKING",
       title: "⚠️ Cắt clip thất bại",
       body: message || "Không cắt được clip. Vui lòng thử lại.",
-      url: `/clips/${job._id}`,
-      data: { kind: "clip_failed", clipJobId: String(job._id) },
+      url: bid ? `/clips?booking=${bid}` : `/clips/${job._id}`,
+      data: { kind: "clip_failed", clipJobId: String(job._id), bookingId: bid },
     });
   } catch (e) { console.error("[clipWorker] notifyFailed:", e?.message || e); }
 }
