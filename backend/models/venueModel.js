@@ -124,6 +124,11 @@ const venueSchema = new Schema(
       cipher: String,
       updatedAt: Date,
     },
+    /**
+     * Tự duyệt yêu cầu cắt clip NGOÀI khung giờ khách đặt. true = không cần chủ sân
+     * duyệt tay (yêu cầu ngoài giờ vào thẳng hàng đợi xử lý). Mặc định false.
+     */
+    clipAutoApprove: { type: Boolean, default: false },
   },
   { timestamps: true },
 );

@@ -9,6 +9,7 @@ import mongoose from "mongoose";
 import ClipJob from "../models/clipJobModel.js";
 import Booking from "../models/bookingModel.js";
 import VenueCourt from "../models/venueCourtModel.js";
+import Venue from "../models/venueModel.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
 import { canManageVenue } from "../utils/venueAuth.js";
 import { pushToUsers, venueStaffIds } from "../services/venueNotify.js";
@@ -113,8 +114,12 @@ export async function createClip(req, res) {
       return res.status(400).json({ message: `Clip tối đa ${CLIP_MAX_MINUTES} phút.` });
     }
 
-    // NẰM TRONG giờ đã đặt → tự chạy. NGOÀI giờ → cần chủ sân duyệt.
+    // NẰM TRONG giờ đã đặt → tự chạy. NGOÀI giờ → cần chủ sân duyệt (trừ khi
+    // sân bật tự duyệt: venue.clipAutoApprove).
     const withinBooking = begin >= booking.startAt && end <= booking.endAt;
+    const venue = await Venue.findById(booking.venue).select("clipAutoApprove").lean();
+    const autoApprove = !!venue?.clipAutoApprove;
+    const needsApproval = !withinBooking && !autoApprove;
 
     // Court của booking phải có đúng cam deviceId này.
     const court = await VenueCourt.findById(booking.court).lean();
@@ -148,11 +153,13 @@ export async function createClip(req, res) {
       endLocal: toImouLocal(end),
       durationSec,
       withinBooking,
-      status: withinBooking ? "queued" : "pending_approval",
+      status: needsApproval ? "pending_approval" : "queued",
+      // Ngoài giờ nhưng sân bật tự duyệt → ghi nhận đã auto-duyệt.
+      approvedAt: !withinBooking && autoApprove ? new Date() : null,
     });
 
-    // Ngoài giờ đặt → báo chủ sân / nhân viên có quyền duyệt booking.
-    if (!withinBooking) {
+    // Cần duyệt → báo chủ sân / nhân viên có quyền duyệt booking.
+    if (needsApproval) {
       try {
         const staff = await venueStaffIds(booking.venue, "bookings.manage");
         await pushToUsers({
@@ -165,9 +172,6 @@ export async function createClip(req, res) {
           data: { kind: "clip_approval_request", clipJobId: String(job._id), venueId: String(booking.venue) },
         });
       } catch (err) { console.error("[clip approval notify]", err?.message || err); }
-    }
-
-    if (!withinBooking) {
       return res.status(201).json({ job, requiresApproval: true, queueAhead: 0 });
     }
 
@@ -347,5 +351,41 @@ export async function rejectClip(req, res) {
   } catch (e) {
     console.error("[clipController.rejectClip]", e);
     return res.status(500).json({ message: "Lỗi từ chối yêu cầu." });
+  }
+}
+
+/** GET /api/clips/settings?venueId= — đọc cấu hình cắt clip của sân (chủ sân). */
+export async function getClipSettings(req, res) {
+  try {
+    const { venueId } = req.query || {};
+    if (!venueId || !mongoose.isValidObjectId(venueId)) {
+      return res.status(400).json({ message: "Thiếu/không hợp lệ venueId." });
+    }
+    if (!(await canManageVenue(req.user, venueId))) {
+      return res.status(403).json({ message: "Bạn không có quyền quản lý sân này." });
+    }
+    const venue = await Venue.findById(venueId).select("clipAutoApprove").lean();
+    return res.json({ autoApprove: !!venue?.clipAutoApprove });
+  } catch (e) {
+    console.error("[clipController.getClipSettings]", e);
+    return res.status(500).json({ message: "Lỗi tải cấu hình." });
+  }
+}
+
+/** PATCH /api/clips/settings { venueId, autoApprove } — bật/tắt tự duyệt clip ngoài giờ. */
+export async function setClipSettings(req, res) {
+  try {
+    const { venueId, autoApprove } = req.body || {};
+    if (!venueId || !mongoose.isValidObjectId(venueId)) {
+      return res.status(400).json({ message: "Thiếu/không hợp lệ venueId." });
+    }
+    if (!(await canManageVenue(req.user, venueId))) {
+      return res.status(403).json({ message: "Bạn không có quyền quản lý sân này." });
+    }
+    await Venue.updateOne({ _id: venueId }, { clipAutoApprove: !!autoApprove });
+    return res.json({ ok: true, autoApprove: !!autoApprove });
+  } catch (e) {
+    console.error("[clipController.setClipSettings]", e);
+    return res.status(500).json({ message: "Lỗi lưu cấu hình." });
   }
 }

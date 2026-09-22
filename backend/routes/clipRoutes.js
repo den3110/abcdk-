@@ -9,6 +9,8 @@ import {
   listPendingApprovals,
   approveClip,
   rejectClip,
+  getClipSettings,
+  setClipSettings,
 } from "../controllers/clipController.js";
 
 const router = express.Router();
@@ -19,6 +21,8 @@ router.get("/cams", protect, listBookingCams); // đặt TRƯỚC /:id
 router.get("/mine", protect, listMyClips); // đặt TRƯỚC /:id
 // Chủ sân duyệt clip ngoài giờ (đặt TRƯỚC /:id).
 router.get("/pending", protect, listPendingApprovals);
+router.get("/settings", protect, getClipSettings);
+router.patch("/settings", protect, setClipSettings);
 router.post("/:id/approve", protect, approveClip);
 router.post("/:id/reject", protect, rejectClip);
 router.get("/:id", protect, getClip);
