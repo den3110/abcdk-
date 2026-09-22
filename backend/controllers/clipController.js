@@ -9,6 +9,7 @@ import mongoose from "mongoose";
 import ClipJob from "../models/clipJobModel.js";
 import Booking from "../models/bookingModel.js";
 import VenueCourt from "../models/venueCourtModel.js";
+import { toPublicUrl } from "../utils/publicUrl.js";
 
 const CLIP_MAX_MINUTES = Number(process.env.CLIP_MAX_MINUTES) || 30;
 const CLIP_MAX_ACTIVE_PER_USER = Number(process.env.CLIP_MAX_ACTIVE_PER_USER) || 3;
@@ -21,6 +22,12 @@ function toImouLocal(date) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getUTCFullYear()}_${p(d.getUTCMonth() + 1)}_${p(d.getUTCDate())}_` +
     `${p(d.getUTCHours())}_${p(d.getUTCMinutes())}_${p(d.getUTCSeconds())}`;
+}
+
+/** fileUrl tương đối (/uploads/...) → URL tuyệt đối (host gốc, giống proofUrl) để app phát trực tiếp. */
+function withAbsoluteFileUrl(req, job) {
+  if (!job) return job;
+  return { ...job, fileUrl: job.fileUrl ? toPublicUrl(req, job.fileUrl) : "" };
 }
 
 /** Danh sách cam Imou của 1 court (imouCams mới, fallback imou legacy). */
@@ -159,7 +166,7 @@ export async function listMyClips(req, res) {
       q.booking = req.query.bookingId;
     }
     const jobs = await ClipJob.find(q).sort({ createdAt: -1 }).limit(30).lean();
-    return res.json({ jobs });
+    return res.json({ jobs: jobs.map((j) => withAbsoluteFileUrl(req, j)) });
   } catch (e) {
     console.error("[clipController.listMyClips]", e);
     return res.status(500).json({ message: "Lỗi tải danh sách clip." });
@@ -174,7 +181,7 @@ export async function getClip(req, res) {
     }
     const job = await ClipJob.findOne({ _id: req.params.id, requestedBy: req.user?._id }).lean();
     if (!job) return res.status(404).json({ message: "Không tìm thấy clip." });
-    return res.json({ job });
+    return res.json({ job: withAbsoluteFileUrl(req, job) });
   } catch (e) {
     console.error("[clipController.getClip]", e);
     return res.status(500).json({ message: "Lỗi tải clip." });
