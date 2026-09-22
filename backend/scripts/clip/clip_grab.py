@@ -33,6 +33,7 @@ Exit 0 = OK; 3 = không có data; ≠0 khác = lỗi (555 busy → worker requeu
 import faulthandler
 import json
 import os
+import struct
 import subprocess
 import sys
 import time
@@ -41,9 +42,27 @@ from datetime import datetime, timedelta
 faulthandler.dump_traceback_later(
     int(os.environ.get("CLIP_HARD_TIMEOUT", "3600")), exit=True)
 
-ASSUMED_FPS = 15.0  # playback SD Imou mặc định 15fps
+ASSUMED_FPS = 15.0  # fallback khi KHÔNG đọc được timestamp thật trong frame
 TIME_FMT_US = "%Y_%m_%d_%H_%M_%S"
 TIME_FMT_T = "%Y%m%dT%H%M%S"
+
+
+def frame_epoch(frame: bytes):
+    """Đọc timestamp THẬT (epoch giây) từ header DHAV (offset 16, uint32 LE).
+
+    Header DHAV 24 byte: size@12, ext_hdr_len@0x16; 6 byte 16..21 = timestamp(4)+ms(2).
+    Trả epoch nếu hợp lệ (2020..2035), else None → caller fallback sang ước lượng FPS.
+    Dùng để nối các đoạn SD CHÍNH XÁC theo thời gian thật (không phụ thuộc FPS)."""
+    if len(frame) < 22 or frame[:4] != b"DHAV":
+        return None
+    try:
+        ts = struct.unpack_from("<I", frame, 16)[0]
+    except struct.error:
+        return None
+    # 1577836800 = 2020-01-01, 2051222400 = 2035-01-01 (UTC) — chỉ nhận epoch hợp lý.
+    if 1577836800 <= ts <= 2051222400:
+        return ts
+    return None
 
 
 def _resolve_cam(params):
@@ -184,17 +203,29 @@ def main() -> int:
             if ffmpeg_done or time.time() > deadline:
                 break
             iv_target = (iv_end - iv_begin).total_seconds()
+            # Điểm nối tiếp theo. Ưu tiên timestamp THẬT trong frame (chính xác,
+            # không lệ thuộc FPS); fallback ước lượng FPS nếu cam không kèm ts.
+            iv_first_ts = None       # epoch frame đầu tiên của khoảng
+            iv_last_ts = None        # epoch frame video mới nhất
             iv_start_frames = video_frames
             empty_conns = 0
             while not ffmpeg_done and time.time() < deadline:
-                iv_watched = (video_frames - iv_start_frames) / ASSUMED_FPS
-                if iv_watched >= iv_target - 2:
+                # Đã lấy đủ khoảng? (theo ts thật nếu có, else theo FPS)
+                if iv_first_ts is not None and iv_last_ts is not None:
+                    watched = iv_last_ts - iv_first_ts
+                else:
+                    watched = (video_frames - iv_start_frames) / ASSUMED_FPS
+                if watched >= iv_target - 2:
                     break
-                seg_begin = iv_begin + timedelta(seconds=int(iv_watched))
+                # Điểm mở kết nối kế: đầu khoảng + số giây đã lấy (ts thật hoặc FPS).
+                seg_begin = iv_begin + timedelta(seconds=int(watched))
+                if seg_begin >= iv_end:
+                    break
                 seg_begin_str = seg_begin.strftime(TIME_FMT_US)
                 conn_idx += 1
                 print(f"SEGMENT #{conn_idx} begin={seg_begin_str} "
-                      f"≈{int(iv_watched)}/{int(iv_target)}s", flush=True)
+                      f"≈{int(watched)}/{int(iv_target)}s "
+                      f"({'ts' if iv_last_ts else 'fps'})", flush=True)
                 try:
                     rtsp = open_segment(cam, DhHttpSession, seg_begin_str,
                                         end_str, deadline)
@@ -218,10 +249,21 @@ def main() -> int:
                         total += len(frame)
                         if len(frame) > 4 and frame[4] in (0xFD, 0xFC):
                             video_frames += 1
+                            ep = frame_epoch(frame)
+                            if ep is not None:
+                                if iv_first_ts is None:
+                                    iv_first_ts = ep
+                                # Chống nhảy lùi (frame lỗi) → chỉ tiến.
+                                if iv_last_ts is None or ep >= iv_last_ts:
+                                    iv_last_ts = ep
                         now = time.time()
                         if now - last_report >= 2:
                             last_report = now
                             print(f"PROGRESS {total}", flush=True)
+                        # Đã tới cuối khoảng theo ts thật → dừng khoảng này.
+                        if (iv_first_ts is not None and iv_last_ts is not None
+                                and (iv_last_ts - iv_first_ts) >= iv_target - 1):
+                            break
                         if proc.poll() is not None:
                             print(f"FFMPEG EXITED rc={proc.returncode}", flush=True)
                             ffmpeg_done = True
@@ -243,7 +285,7 @@ def main() -> int:
                 else:
                     empty_conns = 0
                 if not ffmpeg_done:
-                    time.sleep(2)
+                    time.sleep(1)
     finally:
         try:
             os.close(proc.stdin.fileno())
