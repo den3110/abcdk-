@@ -560,6 +560,13 @@ struct CreateLiveRequest: Codable {
     var platform: String?
 }
 
+// ===== Trận ngẫu nhiên (UserMatch standalone) =====
+struct UserMatchParticipantInput: Codable {
+    var side: String   // "A" | "B"
+    var order: Int     // 1 | 2
+    var displayName: String
+}
+
 // ===== Đa đích (multi-destination) =====
 struct MultiLiveTargetRequestItem: Codable, Equatable {
     var platform: String     // "facebook" | "youtube"

@@ -388,6 +388,30 @@ final class LiveAPIClient {
         )
     }
 
+    // Tạo trận NGẪU NHIÊN (UserMatch standalone) → trả matchId để live như user-match.
+    func createUserMatch(title: String, participants: [UserMatchParticipantInput]) async throws -> String {
+        struct Body: Encodable { let title: String; let sportType: String; let participants: [UserMatchParticipantInput] }
+        struct Result: Decodable { let id: String; enum CodingKeys: String, CodingKey { case id = "_id" } }
+        let res: Result = try await request(
+            path: "api/user-matches",
+            method: "POST",
+            body: Body(title: title, sportType: "pickleball", participants: participants)
+        )
+        return res.id
+    }
+
+    // Chấm điểm trận ngẫu nhiên (referee inc ±1) — overlay tự cập nhật.
+    func patchUserMatchScore(matchId: String, side: String, delta: Int) async throws {
+        struct Body: Encodable { let op: String; let side: String; let delta: Int }
+        struct Empty: Decodable {}
+        let _: Empty = try await request(
+            path: "api/referee/matches/\(matchId)/score",
+            method: "PATCH",
+            body: Body(op: "inc", side: side, delta: delta),
+            extraHeaders: ["x-pkt-match-kind": "user"]
+        )
+    }
+
     func notifyStreamStarted(matchId: String, clientSessionId: String, platform: String = "facebook") async throws -> StreamNotifyResponse {
         try await request(
             path: "api/matches/\(matchId)/live/start",

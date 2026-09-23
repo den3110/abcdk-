@@ -333,6 +333,7 @@ private struct AdminHomeScreen: View {
     @EnvironmentObject private var store: LiveAppStore
     @State private var showSignOutDialog = false
     @State private var occupiedCourtAlert: OccupiedCourtAlert?
+    @State private var showRandomSheet = false
 
     private var isClusterStep: Bool {
         store.selectedCluster == nil
@@ -356,6 +357,29 @@ private struct AdminHomeScreen: View {
                         showSignOutDialog = true
                     }
                 )
+
+                LiveCard {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("🎲 Trận ngẫu nhiên")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Text("Tự nhập tên trận + tên VĐV 2 đội rồi live ngay (không cần vào giải). Bảng điểm chấm trực tiếp khi đang live.")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(LivePalette.textSecondary)
+                        Button {
+                            showRandomSheet = true
+                        } label: {
+                            Text("Tạo & Live trận ngẫu nhiên")
+                                .font(.system(size: 15, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(LivePalette.accent)
+                                .foregroundStyle(.black)
+                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
 
                 if store.clusters.isEmpty {
                     LiveCard {
@@ -457,6 +481,66 @@ private struct AdminHomeScreen: View {
                 message: Text(alert.message),
                 dismissButton: .default(Text("Đóng"))
             )
+        }
+        .sheet(isPresented: $showRandomSheet) {
+            RandomMatchSheet()
+        }
+    }
+}
+
+// Form tạo trận NGẪU NHIÊN: tên trận + tên VĐV 2 đội → tạo + vào live ngay.
+private struct RandomMatchSheet: View {
+    @EnvironmentObject private var store: LiveAppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var a1 = ""
+    @State private var a2 = ""
+    @State private var b1 = ""
+    @State private var b2 = ""
+    @State private var busy = false
+
+    private var createDisabled: Bool {
+        busy || (a1.trimmingCharacters(in: .whitespaces).isEmpty && b1.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("Tên trận") {
+                    TextField("VD: Giao huu san 5", text: $title)
+                }
+                Section("Đội A") {
+                    TextField("Tên VĐV A1", text: $a1)
+                    TextField("Tên VĐV A2 (nếu đánh đôi)", text: $a2)
+                }
+                Section("Đội B") {
+                    TextField("Tên VĐV B1", text: $b1)
+                    TextField("Tên VĐV B2 (nếu đánh đôi)", text: $b2)
+                }
+                Section {
+                    Text("Nguồn cam chọn ở màn live (camera máy / Imou / link). Điểm số chấm trực tiếp trong app khi đang live.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Trận ngẫu nhiên")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Huỷ") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(busy ? "Đang tạo…" : "Tạo & Live") {
+                        busy = true
+                        Task {
+                            await store.startRandomMatch(title: title, teamA: [a1, a2], teamB: [b1, b2])
+                            busy = false
+                            dismiss()
+                        }
+                    }
+                    .disabled(createDisabled)
+                }
+            }
         }
     }
 }
@@ -1980,6 +2064,18 @@ private struct LiveStreamScreen: View {
                                 score: snapshot.scoreB ?? 0,
                                 accent: LivePalette.teamB
                             )
+                        }
+
+                        // Trận ngẫu nhiên: chấm điểm trực tiếp (±1) — overlay tự cập nhật.
+                        if store.launchTarget.isUserMatchLaunch {
+                            HStack(spacing: 12) {
+                                RandomScoreStepper(accent: LivePalette.teamA,
+                                    onMinus: { Task { await store.adjustRandomScore(side: "A", delta: -1) } },
+                                    onPlus: { Task { await store.adjustRandomScore(side: "A", delta: 1) } })
+                                RandomScoreStepper(accent: LivePalette.teamB,
+                                    onMinus: { Task { await store.adjustRandomScore(side: "B", delta: -1) } },
+                                    onPlus: { Task { await store.adjustRandomScore(side: "B", delta: 1) } })
+                            }
                         }
 
                         WrapBadgeFlow {
@@ -5055,6 +5151,33 @@ private struct TournamentLogoView: View {
         Image(systemName: "flag.filled.and.flag.crossed")
             .font(.system(size: 22, weight: .bold))
             .foregroundStyle(.white.opacity(0.82))
+    }
+}
+
+// Nút chấm điểm ±1 cho trận ngẫu nhiên (không hiện điểm — điểm đã ở TeamScorePanel).
+private struct RandomScoreStepper: View {
+    let accent: Color
+    let onMinus: () -> Void
+    let onPlus: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onMinus) {
+                Image(systemName: "minus")
+                    .font(.system(size: 18, weight: .bold))
+                    .frame(maxWidth: .infinity, minHeight: 40)
+            }
+            Button(action: onPlus) {
+                Image(systemName: "plus")
+                    .font(.system(size: 18, weight: .bold))
+                    .frame(maxWidth: .infinity, minHeight: 40)
+            }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.white)
+        .background(accent.opacity(0.25))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .frame(maxWidth: .infinity)
     }
 }
 

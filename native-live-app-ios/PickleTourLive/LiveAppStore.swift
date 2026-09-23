@@ -4492,6 +4492,34 @@ final class LiveAppStore: ObservableObject {
         await continueFromSetup()
     }
 
+    // Trận NGẪU NHIÊN: tạo UserMatch (tên trận + tên VĐV 2 đội) rồi vào live như
+    // user-match (overlay bảng điểm tự vẽ từ /api/overlay/match/:id). Nguồn cam dùng
+    // lựa chọn nguồn hiện tại (camera máy / Imou / link).
+    func startRandomMatch(title: String, teamA: [String], teamB: [String]) async {
+        var parts: [UserMatchParticipantInput] = []
+        func add(_ side: String, _ order: Int, _ name: String) {
+            let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !n.isEmpty { parts.append(UserMatchParticipantInput(side: side, order: order, displayName: n)) }
+        }
+        add("A", 1, teamA.first ?? ""); add("A", 2, teamA.count > 1 ? teamA[1] : "")
+        add("B", 1, teamB.first ?? ""); add("B", 2, teamB.count > 1 ? teamB[1] : "")
+        guard !parts.isEmpty else { bannerMessage = "Nhập tên VĐV ít nhất 1 đội."; return }
+        do {
+            let matchId = try await environment.apiClient.createUserMatch(title: title, participants: parts)
+            let target = LiveLaunchTarget(courtId: nil, matchId: matchId, pageId: launchTarget.pageId, launchMode: .userMatch)
+            await applyLaunchTarget(target)
+        } catch {
+            bannerMessage = "Tạo trận lỗi: \(error.localizedDescription)"
+        }
+    }
+
+    // Chấm điểm trận ngẫu nhiên (±1 cho đội A/B). Overlay tự cập nhật.
+    func adjustRandomScore(side: String, delta: Int) async {
+        guard let mid = launchTarget.matchId?.trimmedNilIfBlank else { return }
+        do { try await environment.apiClient.patchUserMatchScore(matchId: mid, side: side, delta: delta) }
+        catch { bannerMessage = "Chấm điểm lỗi: \(error.localizedDescription)" }
+    }
+
     private func findCourt(by courtId: String) async -> (cluster: CourtClusterData, courts: [AdminCourtData], court: AdminCourtData)? {
         for cluster in clusters {
             guard let loaded = try? await environment.apiClient.listCourts(clusterId: cluster.id) else {
