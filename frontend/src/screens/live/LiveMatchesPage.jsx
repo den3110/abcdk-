@@ -251,6 +251,7 @@ export default function LiveMatchesPage() {
     DEFAULT_EXCLUDE_FINISHED,
   );
   const [windowHours, setWindowHours] = useState(DEFAULT_WINDOW_HOURS);
+  const [tournamentId, setTournamentId] = useState(""); // "" = tất cả giải
   const [page, setPage] = useState(1);
   const [autoRefresh, setAutoRefresh] = useState(DEFAULT_AUTO_REFRESH);
   const [refreshSec, setRefreshSec] = useState(DEFAULT_REFRESH_SEC);
@@ -343,8 +344,9 @@ export default function LiveMatchesPage() {
       windowMs: windowHours * 3600 * 1000,
     };
     if (!excludeFinished) args.excludeFinished = false;
+    if (tournamentId) args.tournamentId = tournamentId;
     return args;
-  }, [keyword, page, statuses, excludeFinished, windowHours]);
+  }, [keyword, page, statuses, excludeFinished, windowHours, tournamentId]);
 
   const { data, isLoading, isFetching, refetch } = useGetLiveMatchesQuery(
     qArgs,
@@ -366,6 +368,25 @@ export default function LiveMatchesPage() {
     [data?.items],
   );
   const total = data?.rawCount ?? 0;
+
+  // Danh sách giải cho dropdown — backend trả FULL list (tính trước khi lọc theo giải),
+  // giữ lại lần có dữ liệu gần nhất để không mất option khi đang refetch/đã chọn 1 giải.
+  const [tournamentOptions, setTournamentOptions] = useState([]);
+  useEffect(() => {
+    if (Array.isArray(data?.tournaments) && data.tournaments.length) {
+      setTournamentOptions(data.tournaments);
+    }
+  }, [data?.tournaments]);
+  // Giải đang chọn không còn trong danh sách (đã kết thúc/khỏi cửa sổ) → về "tất cả".
+  useEffect(() => {
+    if (
+      tournamentId &&
+      tournamentOptions.length &&
+      !tournamentOptions.some((tt) => String(tt._id) === String(tournamentId))
+    ) {
+      setTournamentId("");
+    }
+  }, [tournamentId, tournamentOptions]);
 
   const tick = useTickingAgo();
   const lastFetchRef = useRef(Date.now());
@@ -532,6 +553,38 @@ export default function LiveMatchesPage() {
           }
           sx={{ flex: 1, minWidth: 240 }}
         />
+        <Select
+          size="small"
+          displayEmpty
+          value={tournamentId}
+          onChange={(e) => {
+            setTournamentId(e.target.value);
+            setPage(1);
+            setRemovedIds([]);
+          }}
+          renderValue={(val) => {
+            if (!val) return t("live.matches.allTournaments");
+            const sel = tournamentOptions.find(
+              (tt) => String(tt._id) === String(val),
+            );
+            return sel?.name || t("live.matches.allTournaments");
+          }}
+          sx={{ minWidth: 200, maxWidth: 320 }}
+        >
+          <MenuItem value="">{t("live.matches.allTournaments")}</MenuItem>
+          {tournamentOptions.map((tt) => (
+            <MenuItem key={tt._id} value={tt._id}>
+              <ListItemText
+                primary={tt.name}
+                secondary={t("live.matches.tournamentCounts", {
+                  live: tt.liveCount || 0,
+                  total: tt.count || 0,
+                })}
+                secondaryTypographyProps={{ variant: "caption" }}
+              />
+            </MenuItem>
+          ))}
+        </Select>
         <Tooltip title={t("live.matches.filterTitle")}>
           <Button
             variant="outlined"

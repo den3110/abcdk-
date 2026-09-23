@@ -342,7 +342,7 @@ const App = () => {
     "/checkpoint",
     "/oauth/authorize",
   ].some((path) => location.pathname.startsWith(path));
-  const isImmersiveLiveFeedPage = location.pathname === "/live";
+  const isImmersiveLiveFeedPage = location.pathname === "/live/feed";
   const isLiveWatchPage = /^\/live\/watch\/[^/]+\/?$/.test(location.pathname);
   const isOverlayStudioPage = /\/tournament\/[^/]+\/overlay-studio$/.test(
     location.pathname,

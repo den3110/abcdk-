@@ -1402,6 +1402,8 @@ export default {
       seconds: "{count}s",
       searchPlaceholder: "Search match code, court, platform…",
       filterButton: "Filters",
+      allTournaments: "All tournaments",
+      tournamentCounts: "{live} live · {total} matches",
       refreshTooltip: "Refresh",
       statusChip: "Status: {value}",
       windowChip: "Window: {value}h",

@@ -121,6 +121,7 @@ import VenueRevenuePage from "./screens/courts/owner/VenueRevenuePage.jsx";
 import VenueStaffPage from "./screens/courts/owner/VenueStaffPage.jsx";
 import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
 import LiveFeedPage from "./screens/LiveScreen.jsx";
+import LiveMatchesPage from "./screens/live/LiveMatchesPage.jsx";
 import LiveWatchPage from "./screens/live/LiveWatchPage.jsx";
 import LiveCourtClustersPage from "./screens/live/LiveCourtClustersPage.jsx";
 import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
@@ -312,7 +313,9 @@ const router = sentryCreateBrowserRouter(
         <Route path="/courts/:id" element={<VenueDetailPage />} />
         <Route path="/events/:id" element={<EventDetailPage />} />
         <Route path="/live/watch/:matchId" element={<LiveWatchPage />} />
-        <Route path="/live" element={<LiveFeedPage />} />
+        {/* /live = duyệt theo giải/trận (mặc định). Lướt kiểu TikTok chuyển sang /live/feed. */}
+        <Route path="/live" element={<LiveMatchesPage />} />
+        <Route path="/live/feed" element={<LiveFeedPage />} />
         <Route path="/live/event" element={<EventLivePage />} />
         <Route path="/live/clusters" element={<LiveCourtClustersPage />} />
         <Route path="/settings/facebook" element={<FacebookLiveSettings />} />

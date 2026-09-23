@@ -1400,6 +1400,8 @@ export default {
       seconds: "{count} giây",
       searchPlaceholder: "Tìm mã trận, sân, nền tảng…",
       filterButton: "Bộ lọc",
+      allTournaments: "Tất cả giải đấu",
+      tournamentCounts: "{live} đang live · {total} trận",
       refreshTooltip: "Làm mới",
       statusChip: "Trạng thái: {value}",
       windowChip: "Cửa sổ: {value}h",
