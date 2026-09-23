@@ -29,6 +29,13 @@ EXE="ptlive-worker"; [ "$(uname)" = "MINGW"* ] || true
   worker/worker.py
 cp "$ROOT/.builddist/ptlive-worker"* "$BIN/" 2>/dev/null || true
 chmod +x "$BIN/"* 2>/dev/null || true
+# macOS (Apple Silicon): cp phá chữ ký ad-hoc của PyInstaller → binary bị SIGKILL
+# (Killed: 9) khi chạy, KHÔNG log/không frame. Ký lại ad-hoc sau khi copy.
+if [ "$(uname)" = "Darwin" ]; then
+  codesign --force --sign - "$BIN/ptlive-worker" 2>/dev/null \
+    && echo "==> đã ký ad-hoc ptlive-worker" \
+    || echo "!! codesign thất bại — nếu binary bị 'Killed: 9', chạy: codesign --force --sign - bin/ptlive-worker"
+fi
 rm -rf "$ROOT/.buildwork" "$ROOT/.builddist" ptlive-worker.spec 2>/dev/null || true
 
 echo "==> Xong. bin/:"
