@@ -136,6 +136,20 @@ export const getVenueDahua = asyncHandler(async (req, res) => {
   });
 });
 
+// GET /api/tournament-auto-live/dahua-venues (admin) — danh sách venue ĐÃ cấu
+// hình đầu thu Dahua (cho app desktop chọn nguồn). KHÔNG trả mật khẩu.
+export const listDahuaVenues = asyncHandler(async (req, res) => {
+  const venues = await Venue.find({ "dahuaNvr.serial": { $exists: true, $ne: "" } })
+    .select("_id name dahuaNvr").sort({ name: 1 }).lean();
+  res.json((venues || []).map((v) => ({
+    venueId: String(v._id),
+    venueName: v.name || "",
+    serial: v.dahuaNvr?.serial || "",
+    channels: v.dahuaNvr?.channels || 8,
+    hasPassword: !!v.dahuaNvr?.credCipher,
+  })));
+});
+
 // POST /api/tournament-auto-live/venue-dahua (admin) — lưu cấu hình đầu thu Dahua
 // P2P cho venue. Body: { venueId, serial, username?, password?, channels? }.
 export const setVenueDahua = asyncHandler(async (req, res) => {

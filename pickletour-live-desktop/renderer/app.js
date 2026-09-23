@@ -173,18 +173,48 @@ async function loadCourts() {
     `<option value="${c._id}">${c.name}${c.hasMatch ? " · (đang có trận)" : ""}</option>`).join("");
 }
 
-// ── Nguồn video: Imou cam vs Custom link ──
+// ── Nguồn video: Imou cam / Đầu thu Dahua P2P / Custom link ──
 $("srcType").onchange = () => {
-  const url = $("srcType").value === "url";
-  $("camWrap").classList.toggle("hidden", url);
-  $("urlWrap").classList.toggle("hidden", !url);
+  const t = $("srcType").value;
+  $("camWrap").classList.toggle("hidden", t !== "imou");
+  $("dahuaWrap").classList.toggle("hidden", t !== "dahua");
+  $("urlWrap").classList.toggle("hidden", t !== "url");
+  if (t === "dahua") loadDahuaVenues();
   stopSetupPreview(); // đổi nguồn → tắt preview cũ
 };
+
+// Danh sách venue đã cấu hình đầu thu Dahua (mật khẩu lưu ở backend, mã hoá).
+async function loadDahuaVenues() {
+  if (state._dahuaLoading) return;
+  state._dahuaLoading = true;
+  try {
+    const venues = await apiGet("/api/tournament-auto-live/dahua-venues").catch(() => []);
+    state.dahuaVenues = venues || [];
+    $("dahuaVenue").innerHTML = state.dahuaVenues.length
+      ? state.dahuaVenues.map((v, i) =>
+          `<option value="${i}">${v.venueName}${v.hasPassword ? "" : " (chưa có mật khẩu)"}</option>`).join("")
+      : `<option value="">(chưa có venue cấu hình đầu thu — cấu hình ở trang admin)</option>`;
+    renderDahuaChannels();
+  } finally { state._dahuaLoading = false; }
+}
+function renderDahuaChannels() {
+  const v = state.dahuaVenues?.[+$("dahuaVenue").value];
+  const n = Math.max(1, Number(v?.channels) || 8);
+  $("dahuaChannel").innerHTML = Array.from({ length: n }, (_, i) => i + 1)
+    .map((c) => `<option value="${c}">Kênh ${c}</option>`).join("");
+  $("dahuaHint").textContent = v
+    ? `Serial ${v.serial}${v.hasPassword ? " · 1 tunnel/đầu thu, nhiều kênh chạy chung" : " · CHƯA có mật khẩu → cấu hình ở admin trước"}`
+    : "";
+}
+$("dahuaVenue").addEventListener("change", renderDahuaChannels);
 
 // ── Xem thử nguồn (preview trước khi live) ──
 $("testPreview").onclick = async () => {
   $("previewHint").textContent = "";
   try {
+    if ($("srcType").value === "dahua") {
+      throw new Error("Nguồn Dahua P2P: bấm ● BẮT ĐẦU LIVE luôn (không xem thử để tránh mở 2 phiên P2P).");
+    }
     let source;
     if ($("srcType").value === "url") {
       const u = $("srcUrl").value.trim();
@@ -311,11 +341,17 @@ $("goLive").onclick = async () => {
   $("setupErr").textContent = "";
   stopSetupPreview(); // bắt đầu live → tắt preview xem thử
   try {
-    const useUrl = $("srcType").value === "url";
-    let imouDeviceId = "", venueId = "", sourceUrl = "";
-    if (useUrl) {
+    const srcT = $("srcType").value;
+    let imouDeviceId = "", venueId = "", sourceUrl = "", dahuaP2p;
+    if (srcT === "url") {
       sourceUrl = $("srcUrl").value.trim();
       if (!sourceUrl) throw new Error("Nhập Custom link");
+    } else if (srcT === "dahua") {
+      const v = state.dahuaVenues?.[+$("dahuaVenue").value];
+      if (!v) throw new Error("Chọn venue có đầu thu Dahua (cấu hình ở admin)");
+      if (!v.hasPassword) throw new Error("Venue này chưa có mật khẩu đầu thu — cấu hình ở trang admin trước");
+      venueId = v.venueId;
+      dahuaP2p = { channel: Number($("dahuaChannel").value) || 1, subtype: 0 };
     } else {
       const cam = state.cams[+$("cam").value];
       if (!cam) throw new Error("Chọn camera");
@@ -325,7 +361,7 @@ $("goLive").onclick = async () => {
     const form = {
       tournamentId: $("tournament").value,
       courtStationId: $("court").value,
-      imouDeviceId, venueId, sourceUrl,
+      imouDeviceId, venueId, sourceUrl, dahuaP2p,
       destinations: state.destinations,
       encoder: $("encoder").value,
       runnerLabel: state.runnerLabel,
@@ -361,6 +397,9 @@ $("goDirect").onclick = async () => {
   $("setupErr").textContent = "";
   stopSetupPreview(); // tắt preview xem thử nếu đang mở
   try {
+    if ($("srcType").value === "dahua") {
+      throw new Error("Nguồn Dahua P2P: dùng nút ● BẮT ĐẦU LIVE (cần lấy khoá đầu thu qua phiên).");
+    }
     let source;
     if ($("srcType").value === "url") {
       const u = $("srcUrl").value.trim();
@@ -411,6 +450,9 @@ $("goRandom").onclick = async () => {
   $("setupErr").textContent = "";
   stopSetupPreview();
   try {
+    if ($("srcType").value === "dahua") {
+      throw new Error("Nguồn Dahua P2P: dùng nút ● BẮT ĐẦU LIVE (cần lấy khoá đầu thu qua phiên).");
+    }
     let source;
     if ($("srcType").value === "url") {
       const u = $("srcUrl").value.trim();

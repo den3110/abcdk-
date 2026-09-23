@@ -49,10 +49,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Rust (build dh-p2p — tunnel Dahua/DMSS P2P)
+        uses: dtolnay/rust-toolchain@stable
+
       - name: Install deps
         run: npm ci
 
-      - name: Prepare self-contained bundle (ffmpeg tĩnh + worker PyInstaller)
+      - name: Prepare self-contained bundle (ffmpeg tĩnh + worker PyInstaller + dh-p2p)
         shell: bash
         run: bash scripts/prepare-bundle.sh
 

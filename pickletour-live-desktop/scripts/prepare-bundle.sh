@@ -38,6 +38,29 @@ if [ "$(uname)" = "Darwin" ]; then
 fi
 rm -rf "$ROOT/.buildwork" "$ROOT/.builddist" ptlive-worker.spec 2>/dev/null || true
 
+echo "==> dh-p2p (tunnel Dahua/DMSS P2P) — build từ ../backend/scripts/dahua-p2p"
+OS_WIN=0
+case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) OS_WIN=1;; esac
+DHSRC="$ROOT/../backend/scripts/dahua-p2p"
+if [ -d "$DHSRC" ]; then
+  command -v cargo >/dev/null 2>&1 || . "$HOME/.cargo/env" 2>/dev/null || true
+  if command -v cargo >/dev/null 2>&1; then
+    ( cd "$DHSRC" && cargo build --release )
+    DHEXE="dh-p2p"; [ "$OS_WIN" = "1" ] && DHEXE="dh-p2p.exe"
+    if cp "$DHSRC/target/release/$DHEXE" "$BIN/$DHEXE" 2>/dev/null; then
+      chmod +x "$BIN/$DHEXE" 2>/dev/null || true
+      [ "$(uname)" = "Darwin" ] && codesign --force --sign - "$BIN/dh-p2p" 2>/dev/null || true
+      echo "  → bin/$DHEXE"
+    else
+      echo "  !! không thấy binary sau build ($DHSRC/target/release/$DHEXE)"
+    fi
+  else
+    echo "  !! cargo/rust chưa cài → BỎ QUA dh-p2p (nguồn Dahua P2P sẽ không dùng được ở bản này)"
+  fi
+else
+  echo "  !! không thấy $DHSRC → bỏ qua dh-p2p"
+fi
+
 echo "==> Xong. bin/:"
 ls -lah "$BIN"
 echo "Giờ chạy: npm run dist:mac  (hoặc dist:win trên Windows)"

@@ -5,7 +5,7 @@ import {
   getOverlayImage, getUserMatchOverlayImage, internalHeartbeat, listAvailableCams, internalImouSession,
   internalGetImouSession, getStats, internalRefreshDestinations, workerConfig,
   listTournamentsForApp, listCourtsForApp, listFbPagesForApp, courtImouSession,
-  courtImouStreamUrl, getVenueDahua, setVenueDahua,
+  courtImouStreamUrl, getVenueDahua, setVenueDahua, listDahuaVenues,
 } from "../controllers/tournamentAutoLiveController.js";
 
 const router = express.Router();
@@ -32,6 +32,7 @@ router.get("/court-imou-session", protect, admin, courtImouSession);
 router.get("/court-imou-stream-url", protect, admin, courtImouStreamUrl);
 router.get("/venue-dahua", protect, admin, getVenueDahua);
 router.post("/venue-dahua", protect, admin, express.json(), setVenueDahua);
+router.get("/dahua-venues", protect, admin, listDahuaVenues);
 router.get("/:id/worker-config", protect, admin, workerConfig);
 router.get("/:id", protect, admin, getSession);
 
