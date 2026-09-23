@@ -28,6 +28,7 @@ import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionMod
 import { decryptToken } from "../secret.service.js";
 import { loadOverlayData, loadOverlayDataFromUserMatch, renderOverlayPng } from "./overlayRenderer.service.js";
 import { sampleProcessTree, clearProcSample, systemCapacity } from "./procStat.service.js";
+import { ensureDahuaTunnel, dahuaChannelUrl, triggerDahuaReconcile } from "./dahuaTunnel.service.js";
 import { getValidPageToken } from "../fbTokenService.js";
 import { fbCreateLiveOnPage, fbGetLiveVideo, fbEndLiveVideo } from "../facebookLive.service.js";
 
@@ -619,7 +620,20 @@ export async function startAutoLive(input) {
   }
 
   try {
-    const proc = spawnWorker(session, imouSession, imouCreds, dahuaCfg);
+    // Nguồn đầu thu Dahua P2P (server-runner): mở/tái dùng MỘT tunnel dùng chung
+    // cho serial này (nhiều court cùng đầu thu → cùng 1 phiên P2P, khác kênh) →
+    // đưa RTSP local cho worker như nguồn URL thường.
+    let dahuaSourceUrl = "";
+    if (dahuaCfg) {
+      const { port } = await ensureDahuaTunnel({
+        serial: dahuaCfg.serial, username: dahuaCfg.username, password: dahuaCfg.password,
+      });
+      dahuaSourceUrl = dahuaChannelUrl({
+        username: dahuaCfg.username, password: dahuaCfg.password, port,
+        channel: dahuaCfg.channel, subtype: dahuaCfg.subtype,
+      });
+    }
+    const proc = spawnWorker(session, imouSession, imouCreds, dahuaCfg, dahuaSourceUrl);
     const entry = { proc, overlayCache: null, pollTimer: null };
     registry.set(String(session._id), entry);
     session.workerPid = proc.pid || 0;
@@ -655,7 +669,7 @@ function advancedEnv(a) {
   return env;
 }
 
-function spawnWorker(session, imouSession, imouCreds, dahuaCfg) {
+function spawnWorker(session, imouSession, imouCreds, dahuaCfg, dahuaSourceUrl) {
   const backendBase = process.env.PUBLIC_BACKEND_URL || "http://localhost:5001";
   const overlayUrl = `${backendBase}/api/tournament-auto-live/overlay/${session._id}.png`;
   const heartbeatUrl = `${backendBase}/api/tournament-auto-live/internal/heartbeat`;
@@ -673,9 +687,11 @@ function spawnWorker(session, imouSession, imouCreds, dahuaCfg) {
     AUTOLIVE_IMOU_PASSWORD: imouCreds?.password || "",
     AUTOLIVE_IMOU_AREA_CODE: imouCreds?.areaCode || "84",
     AUTOLIVE_IMOU_DEVICE_ID: session.imouDeviceId || "",
-    AUTOLIVE_SOURCE_URL: session.sourceUrl || "",
-    // Nguồn đầu thu Dahua P2P: worker tự spawn tunnel → RTSP local → SOURCE_URL.
-    AUTOLIVE_DAHUA_P2P_JSON: dahuaCfg ? JSON.stringify(dahuaCfg) : "",
+    // Dahua P2P (server): backend đã mở tunnel dùng chung → truyền thẳng RTSP local
+    // như nguồn URL (KHÔNG để worker tự spawn tunnel → tránh mở thêm phiên P2P).
+    // Fallback: nếu vì lý do gì không có dahuaSourceUrl thì để worker tự spawn.
+    AUTOLIVE_SOURCE_URL: dahuaSourceUrl || session.sourceUrl || "",
+    AUTOLIVE_DAHUA_P2P_JSON: (dahuaCfg && !dahuaSourceUrl) ? JSON.stringify(dahuaCfg) : "",
     AUTOLIVE_DAHUA_P2P_BIN: process.env.AUTOLIVE_DAHUA_P2P_BIN || DAHUA_P2P_BIN_DEFAULT,
     AUTOLIVE_DESTINATIONS: JSON.stringify(session.destinations.map((d) => ({
       type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
@@ -721,6 +737,9 @@ export async function stopAutoLive(sessionId) {
   stopPoll(sessionId);
   registry.delete(String(sessionId));
   clearProcSample(String(sessionId));
+  // Nếu là phiên đầu thu Dahua: chạy reconcile để nhả tunnel dùng chung khi
+  // không còn court nào dùng serial này (nếu còn court khác thì giữ nguyên).
+  if (session.dahuaP2p?.serial) { try { triggerDahuaReconcile(); } catch {} }
   // Kết thúc live FB để page không treo "đang phát" với hình đứng.
   for (const d of session.destinations || []) {
     if (d.type !== "fb" || !d.broadcastId || !d.pageId) continue;

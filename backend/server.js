@@ -118,6 +118,7 @@ import { startSeoNewsImageRegenerationWorker } from "./services/seoNewsImageQueu
 import { startSeoNewsPipelineWorker } from "./services/seoNewsPipelineQueue.service.js";
 import { startLiveRecordingAiCommentaryWorker } from "./services/liveRecordingAiCommentaryQueue.service.js";
 import { startClipWorker } from "./services/clip/clipWorker.service.js";
+import { startDahuaTunnelReconcile } from "./services/autoLive/dahuaTunnel.service.js";
 import { startLiveRecordingAutoExportSweep } from "./services/liveRecordingMonitor.service.js";
 import { startFbLiveTestAutoStopSweep } from "./services/fbLiveTest.service.js";
 import { startYtLiveTestAutoStopSweep } from "./services/youtubeLiveTest.service.js";
@@ -576,6 +577,7 @@ const startServer = async () => {
           startSeoNewsPipelineWorker();
           startLiveRecordingAiCommentaryWorker();
           startClipWorker(); // cắt clip camera sân — xử lý TUẦN TỰ
+          startDahuaTunnelReconcile(); // giữ tunnel P2P Dahua khớp phiên auto-live
         } else {
           console.log("[background-jobs] skipped on non-leader API process");
         }
