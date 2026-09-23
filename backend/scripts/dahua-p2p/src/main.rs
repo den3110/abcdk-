@@ -104,6 +104,41 @@ async fn main() {
         dh_reader(session2, reader, channels, conn_channels).await;
     });
 
+    // Graceful shutdown: khi nhận SIGTERM/SIGINT, đóng các realm đang mở (gửi
+    // DISC) trước khi thoát → đầu thu nhả phiên P2P sớm/sạch hơn (giống DMSS),
+    // giảm nguy cơ "kẹt ~1 phiên" và rate-limit khi mở phiên kế tiếp.
+    {
+        let shutdown_tx = dh_tx.clone();
+        let shutdown_channels = channels2.clone();
+        tokio::spawn(async move {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                match signal(SignalKind::terminate()) {
+                    Ok(mut term) => {
+                        tokio::select! {
+                            _ = tokio::signal::ctrl_c() => {}
+                            _ = term.recv() => {}
+                        }
+                    }
+                    Err(_) => {
+                        let _ = tokio::signal::ctrl_c().await;
+                    }
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = tokio::signal::ctrl_c().await;
+            }
+            let realms: Vec<u32> = shutdown_channels.lock().unwrap().keys().cloned().collect();
+            for r in realms {
+                let _ = shutdown_tx.send(PTCPEvent::Disconnect(r)).await;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
+            std::process::exit(0);
+        });
+    }
+
     println!("Ready to connect!");
     if remote_port == 554 {
         println!(

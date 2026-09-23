@@ -178,17 +178,16 @@ function pickFreePort() {
   });
 }
 
-// d = { serial, username, password, channel, subtype }. logFd (tuỳ chọn) để ghi
-// log tunnel. Trả { proc, port, rtspUrl }. Ném lỗi nếu không Ready.
-async function spawnDahuaTunnel(d, logFd) {
+function dahuaChannelUrl(port, user, pass, channel, subtype) {
+  const u = encodeURIComponent(user || "admin");
+  const p = encodeURIComponent(pass || "");
+  return `rtsp://${u}:${p}@127.0.0.1:${port}/cam/realmonitor?channel=${channel || 1}&subtype=${subtype || 0}`;
+}
+
+// Spawn tiến trình tunnel cho 1 serial, chờ "Ready". Trả { proc, port }.
+async function spawnDahuaTunnelProc(serial, user, pass, logFd) {
   const bin = bundledDhP2p();
   if (!bin) throw new Error("Bản build chưa kèm tunnel Dahua (thiếu bin/dh-p2p). Tải bản mới hơn.");
-  const serial = String(d.serial || "").trim();
-  const user = String(d.username || "admin").trim();
-  const pass = String(d.password || "");
-  const channel = Number(d.channel) || 1;
-  const subtype = Number(d.subtype) || 0;
-  if (!serial || !pass) throw new Error("Cấu hình đầu thu Dahua thiếu serial hoặc mật khẩu.");
   const port = await pickFreePort();
   // DIRECT hole-punch (KHÔNG --relay): relay không có media.
   const args = ["-u", user, "-w", pass, "-p", `127.0.0.1:${port}:554`, serial];
@@ -208,12 +207,69 @@ async function spawnDahuaTunnel(d, logFd) {
   if (!ready) {
     try { proc.kill("SIGKILL"); } catch {}
     throw new Error("Không kết nối được đầu thu Dahua qua P2P (đầu thu đang bận phiên khác "
-      + "hoặc Dahua cloud rate-limit — thử lại sau vài phút).");
+      + "hoặc Dahua cloud rate-limit — thử lại sau).");
   }
-  const u = encodeURIComponent(user);
-  const p = encodeURIComponent(pass);
-  const rtspUrl = `rtsp://${u}:${p}@127.0.0.1:${port}/cam/realmonitor?channel=${channel}&subtype=${subtype}`;
-  return { proc, port, rtspUrl };
+  return { proc, port };
+}
+
+// ── Quản lý tunnel DÙNG CHUNG theo serial (cư xử giống DMSS) ────────────────
+// 1 phiên P2P/đầu thu, tái dùng cho nhiều court trên MÁY NÀY; LINGER giữ phiên
+// sau khi court cuối dừng (start lại nhanh → tái dùng, không mở phiên mới);
+// BACKOFF khi lỗi để không kết nối dồn dập (thứ nuôi rate-limit).
+const dahuaTunnels = new Map(); // serial -> { proc, port, user, pass, refs:Set, lingerTimer }
+const dahuaBackoff = new Map(); // serial -> nextAttemptAt(ms)
+const DAHUA_LINGER_MS = 90000;
+
+// d = { serial, username, password, channel, subtype }. Trả rtspUrl kênh yêu cầu.
+async function acquireDahuaTunnel(sid, d, logFd) {
+  const serial = String(d.serial || "").trim();
+  const user = String(d.username || "admin").trim();
+  const pass = String(d.password || "");
+  if (!serial || !pass) throw new Error("Cấu hình đầu thu Dahua thiếu serial hoặc mật khẩu.");
+
+  let t = dahuaTunnels.get(serial);
+  if (t && t.proc && !t.proc.killed) {
+    if (t.lingerTimer) { clearTimeout(t.lingerTimer); t.lingerTimer = null; } // huỷ linger → tái dùng
+    t.refs.add(sid);
+    return dahuaChannelUrl(t.port, t.user, t.pass, d.channel, d.subtype);
+  }
+  const wait = (dahuaBackoff.get(serial) || 0) - Date.now();
+  if (wait > 0) {
+    throw new Error(`Đầu thu đang tạm bị Dahua giới hạn — thử lại sau ~${Math.ceil(wait / 1000)}s.`);
+  }
+  let spawned;
+  try {
+    spawned = await spawnDahuaTunnelProc(serial, user, pass, logFd);
+  } catch (e) {
+    const fails = ((dahuaBackoff.get(serial + ":f") || 0) + 1);
+    dahuaBackoff.set(serial + ":f", fails);
+    dahuaBackoff.set(serial, Date.now() + Math.min(300000, 15000 * 2 ** (fails - 1)));
+    throw e;
+  }
+  dahuaBackoff.delete(serial); dahuaBackoff.delete(serial + ":f");
+  t = { proc: spawned.proc, port: spawned.port, user, pass, refs: new Set([sid]), lingerTimer: null };
+  // Tunnel chết ngoài ý muốn → xoá khỏi map để lần sau spawn lại.
+  spawned.proc.on("exit", () => { if (dahuaTunnels.get(serial) === t) dahuaTunnels.delete(serial); });
+  dahuaTunnels.set(serial, t);
+  return dahuaChannelUrl(t.port, user, pass, d.channel, d.subtype);
+}
+
+function releaseDahuaTunnel(sid) {
+  for (const [serial, t] of dahuaTunnels) {
+    if (!t.refs.has(sid)) continue;
+    t.refs.delete(sid);
+    if (t.refs.size === 0 && !t.lingerTimer) {
+      // LINGER: giữ phiên thêm 1 lúc rồi mới kill (tái dùng nếu start lại nhanh).
+      t.lingerTimer = setTimeout(() => {
+        if (t.refs.size === 0) {
+          try { t.proc.kill("SIGTERM"); } catch {}
+          const p = t.proc;
+          setTimeout(() => { try { p.kill("SIGKILL"); } catch {} }, 4000);
+          dahuaTunnels.delete(serial);
+        }
+      }, DAHUA_LINGER_MS);
+    }
+  }
 }
 
 function detectFfmpeg() {
@@ -305,13 +361,14 @@ async function startWorker({ baseUrl, token, form }) {
 
   // 3b) Nguồn đầu thu Dahua P2P: mở tunnel NGAY TRÊN MÁY NÀY (client) → RTSP local.
   // Hoàn toàn tài nguyên client, không qua VPS. Nếu lỗi → dừng sớm, báo rõ.
-  let dahuaTunnel = null;
+  let dahuaSerial = "";
   let dahuaSourceUrl = "";
   if (cfg.dahuaP2p && cfg.dahuaP2p.serial) {
+    dahuaSerial = cfg.dahuaP2p.serial;
     const tlogFd = fs.openSync(path.join(previewDir, "dahua-tunnel.log"), "a");
     try {
-      dahuaTunnel = await spawnDahuaTunnel(cfg.dahuaP2p, tlogFd);
-      dahuaSourceUrl = dahuaTunnel.rtspUrl;
+      // Tunnel DÙNG CHUNG theo serial (nhiều court cùng đầu thu → 1 phiên P2P).
+      dahuaSourceUrl = await acquireDahuaTunnel(sid, cfg.dahuaP2p, tlogFd);
     } catch (e) {
       try { fs.closeSync(tlogFd); } catch {}
       try { await apiFetch(baseUrl, `/api/tournament-auto-live/${sid}/stop`, { method: "POST", token }); } catch {}
@@ -357,7 +414,7 @@ async function startWorker({ baseUrl, token, form }) {
   const proc = selfContained
     ? spawn(bundledWorkerBin(), [], { env, stdio: ["ignore", logFd, logFd] })
     : spawn(python, [workerScriptPath()], { env, stdio: ["ignore", logFd, logFd] });
-  running.set(sid, { proc, previewDir, previewServer, previewPort, cfg, logFile, dahuaTunnel });
+  running.set(sid, { proc, previewDir, previewServer, previewPort, cfg, logFile, dahuaSerial });
 
   proc.on("exit", (code) => {
     sendToRenderer("worker-exit", { sessionId: sid, code });
@@ -376,12 +433,9 @@ function cleanupWorker(sid) {
   const r = running.get(sid);
   if (!r) return;
   try { r.previewServer?.close(); } catch {}
-  // Đóng tunnel Dahua P2P đi kèm phiên này (nếu có) → nhả phiên P2P cho đầu thu.
-  if (r.dahuaTunnel?.proc) {
-    try { r.dahuaTunnel.proc.kill("SIGTERM"); } catch {}
-    const tp = r.dahuaTunnel.proc;
-    setTimeout(() => { try { tp.kill("SIGKILL"); } catch {} }, 4000);
-  }
+  // Nhả tunnel Dahua dùng chung: refcount-- + LINGER (giữ phiên P2P thêm 1 lúc để
+  // start lại nhanh thì tái dùng, tránh mở phiên mới → tránh rate-limit).
+  try { releaseDahuaTunnel(sid); } catch {}
   running.delete(sid);
 }
 

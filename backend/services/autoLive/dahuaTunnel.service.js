@@ -32,8 +32,31 @@ export function portForSerial(serial) {
   return 15000 + (h.readUInt16BE(0) % 2000);
 }
 
-// state theo serial: { proc, port, ready, startingPromise, username, password }
+// state theo serial: { proc, port, ready, startingPromise, username, password, idleSince }
 const tunnels = new Map();
+
+// ── Cư xử "giống DMSS" để tránh Dahua cloud rate-limit ──────────────────────
+// 1) LINGER: sau khi court cuối dừng, GIỮ tunnel sống thêm 1 lúc thay vì kill
+//    ngay → start lại nhanh thì TÁI DÙNG phiên cũ (không mở phiên P2P mới).
+// 2) BACKOFF: khi connect lỗi (đầu thu bận/throttle) thì GIÃN dần lần thử, không
+//    respawn dồn dập (respawn dồn chính là thứ nuôi rate-limit).
+const LINGER_MS = Number(process.env.AUTOLIVE_DAHUA_TUNNEL_LINGER_MS) || 90000;
+const backoffState = new Map(); // serial -> { fails, nextAttemptAt }
+
+function backoffRemainingMs(serial) {
+  const b = backoffState.get(serial);
+  return b ? Math.max(0, b.nextAttemptAt - Date.now()) : 0;
+}
+function recordSpawnFail(serial) {
+  const b = backoffState.get(serial) || { fails: 0, nextAttemptAt: 0 };
+  b.fails += 1;
+  // 15s, 30s, 60s, 120s, … cap 5 phút.
+  const delay = Math.min(300000, 15000 * 2 ** (b.fails - 1));
+  b.nextAttemptAt = Date.now() + delay;
+  backoffState.set(serial, b);
+  return delay;
+}
+function recordSpawnOk(serial) { backoffState.delete(serial); }
 
 function isPidAlive(pid) {
   if (!pid) return false;
@@ -89,10 +112,18 @@ export async function ensureDahuaTunnel({ serial, username, password }) {
   const cur = tunnels.get(serial);
   if (cur?.startingPromise) { await cur.startingPromise; return { port }; }
   if (cur?.proc && isPidAlive(cur.proc.pid) && (await isPortListening(port))) {
+    cur.idleSince = 0; // đang được dùng lại → huỷ linger, TÁI DÙNG phiên (như DMSS)
     return { port };
   }
 
-  const entry = { proc: null, port, ready: false, startingPromise: null, username, password };
+  // Backoff: nếu vừa fail gần đây, không thử dồn (respawn dồn nuôi rate-limit).
+  const wait = backoffRemainingMs(serial);
+  if (wait > 0) {
+    throw new Error(`Đầu thu đang tạm bị Dahua cloud giới hạn — thử lại sau ~${Math.ceil(wait / 1000)}s `
+      + "(tránh kết nối dồn dập).");
+  }
+
+  const entry = { proc: null, port, ready: false, startingPromise: null, username, password, idleSince: 0 };
   const startingPromise = (async () => {
     try { fs.writeFileSync(logPath(serial), ""); } catch {}
     if (!fs.existsSync(DAHUA_P2P_BIN)) {
@@ -104,10 +135,12 @@ export async function ensureDahuaTunnel({ serial, username, password }) {
     if (!ok) {
       try { process.kill(proc.pid, "SIGKILL"); } catch {}
       tunnels.delete(serial);
+      const delay = recordSpawnFail(serial);
       throw new Error("dh-p2p tunnel không Ready (đầu thu đang bận phiên P2P khác "
-        + "hoặc Dahua cloud rate-limit serial này — thử lại sau vài phút)");
+        + `hoặc Dahua cloud rate-limit) — sẽ giãn ~${Math.ceil(delay / 1000)}s trước khi thử lại.`);
     }
     entry.ready = true;
+    recordSpawnOk(serial);
   })();
   entry.startingPromise = startingPromise;
   tunnels.set(serial, entry);
@@ -165,9 +198,14 @@ async function reconcile() {
     // Serial còn phiên active → đảm bảo tunnel sống (respawn nếu chết, cùng cổng).
     for (const [serial, venueId] of wanted) {
       const port = portForSerial(serial);
-      const alive = isPidAlive(tunnels.get(serial)?.proc?.pid);
+      const entry = tunnels.get(serial);
+      if (entry) entry.idleSince = 0; // đang dùng → huỷ linger
+      const alive = isPidAlive(entry?.proc?.pid);
       const listening = await isPortListening(port);
       if (alive && listening) continue;
+      // Backoff: đang trong cửa sổ giãn thì KHÔNG respawn (tránh dồn dập).
+      const wait = backoffRemainingMs(serial);
+      if (wait > 0) continue;
       const creds = await credsForSerial(venueId, serial);
       if (!creds) continue;
       try {
@@ -178,11 +216,17 @@ async function reconcile() {
       }
     }
 
-    // Serial không còn phiên active → kill tunnel để nhả phiên P2P cho đầu thu.
+    // Serial không còn phiên active → LINGER: giữ tunnel thêm LINGER_MS rồi mới
+    // kill (start lại nhanh sẽ tái dùng phiên cũ, không mở phiên P2P mới — như DMSS).
+    const now = Date.now();
     for (const serial of Array.from(tunnels.keys())) {
-      if (!wanted.has(serial)) {
+      if (wanted.has(serial)) continue;
+      const entry = tunnels.get(serial);
+      if (!entry) continue;
+      if (!entry.idleSince) { entry.idleSince = now; continue; }
+      if (now - entry.idleSince >= LINGER_MS) {
         killDahuaTunnel(serial);
-        console.log(`[dahua-tunnel] reconcile: killed idle tunnel serial=${serial}`);
+        console.log(`[dahua-tunnel] reconcile: killed idle tunnel serial=${serial} (linger hết)`);
       }
     }
   } catch (e) {
