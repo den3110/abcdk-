@@ -26,6 +26,7 @@ import {
   Swords,
   Clock3,
   UserPlus,
+  MessageCircle,
 } from "lucide-react";
 
 import SEOHead from "../../components/SEOHead.jsx";
@@ -443,6 +444,16 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
             <Network size={13} strokeWidth={2.2} />
             {tr("v3.tournaments.bracket")}
           </A>
+          {/* Nhóm Zalo của giải (link ngoài → dùng <a>, không dùng <A>/Link) */}
+          <a
+            href={t?.zaloGroupUrl || DEFAULT_ZALO_GROUP}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={miniZalo}
+          >
+            <MessageCircle size={13} strokeWidth={2.4} />
+            Zalo
+          </a>
           <A
             href={`/tournament/${t._id}`}
             className="pk-link"
@@ -482,6 +493,16 @@ const miniGhost = {
   color: "light-dark(#33373B, #DFE2E5)",
   border: "1px solid light-dark(rgba(0,0,0,.14), rgba(255,255,255,.14))",
 };
+// Nút Nhóm Zalo (xanh Zalo) — như bản V1.
+const miniZalo = {
+  ...miniBase,
+  background: "#0068FF",
+  color: "#FFFFFF",
+  border: "1px solid #0068FF",
+  textDecoration: "none",
+};
+// Nhóm Zalo cộng đồng — fallback khi giải chưa đặt link Zalo riêng (khớp V1).
+const DEFAULT_ZALO_GROUP = "https://zalo.me/g/yarnhm129";
 
 const chip = {
   display: "inline-flex",
