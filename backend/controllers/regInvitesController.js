@@ -552,11 +552,11 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
 
     const [rank1, rank2] = await Promise.all([
       getRankingScore(u1._id, eventType),
-      isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
+      (isSingle || solo) ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
     ]);
 
     const s1 = preferScore(rank1, null, u1?.score, u1);
-    const s2 = isSingle ? null : preferScore(rank2, null, u2?.score, u2);
+    const s2 = (isSingle || solo) ? null : preferScore(rank2, null, u2?.score, u2);
 
     const snap = (u, score) => ({
       user: u._id,
@@ -589,7 +589,8 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       tournament: tour._id,
       eventType,
       player1: snap(u1, s1),
-      player2: isSingle ? null : snap(u2, s2),
+      player2: (isSingle || solo) ? null : snap(u2, s2),
+      lookingForPartner: solo,
       message,
       createdBy: me._id,
       payment: buildFreeTournamentPayment(tour),

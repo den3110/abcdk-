@@ -2156,8 +2156,8 @@ export default function TournamentRegistration() {
       if (!isLoggedIn)
         return toast.info(t("tournaments.registration.toasts.loginRequired"));
       const selfId = String(me?._id || "");
-      // Đăng ký đơn (tìm partner): chỉ áp cho giải đôi + user thường + đã bật.
-      const soloFindPartner = isDoubles && !isAdmin && lookingForPartner;
+      // Đăng ký đơn (tìm partner): áp cho giải đôi khi đã bật (cả admin lẫn user).
+      const soloFindPartner = isDoubles && lookingForPartner;
       const selfAsPlayer2 =
         isDoubles && !isAdmin && !soloFindPartner && selfSlot === "p2";
       const p1Id = isAdmin ? p1?._id : selfAsPlayer2 ? p1?._id : selfId;
@@ -3332,8 +3332,8 @@ export default function TournamentRegistration() {
                     </Box>
                   )}
 
-                  {/* Đăng ký ĐƠN — tìm partner (chỉ giải đôi + user thường) */}
-                  {isDoubles && !isAdmin && (
+                  {/* Đăng ký ĐƠN — tìm partner (giải đôi) */}
+                  {isDoubles && (
                     <Box mb={lookingForPartner ? 2.5 : 1}>
                       <FormControlLabel
                         control={
