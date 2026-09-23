@@ -73,6 +73,10 @@ MAX_RSS_MB = int(os.environ.get("AUTOLIVE_MAX_RSS_MB") or 1800)
 # Nguồn video: rỗng = cam Imou (DHAV qua stdin); có = link tuỳ chỉnh
 # (m3u8/RTSP/RTMP/http) → ffmpeg đọc thẳng URL.
 SOURCE_URL = (os.environ.get("AUTOLIVE_SOURCE_URL") or "").strip()
+# PREVIEW-ONLY: xem thử nguồn TRƯỚC khi live (RTSP/m3u8/RTMP/HTTP hoặc Imou). Chỉ
+# xuất HLS cục bộ (AUTOLIVE_PREVIEW_HLS_DIR), KHÔNG overlay/heartbeat/destinations
+# FB-YT. Tái dùng nguyên đường đọc nguồn (URL + Imou DHAV) của worker.
+PREVIEW_ONLY = (os.environ.get("AUTOLIVE_PREVIEW_ONLY") or "").strip() in ("1", "true", "yes")
 # Cam Imou: mặc định KÉO CHỈ VIDEO (bỏ audio cam). Lý do: live thể thao overlay
 # không cần tiếng cam; audio DHAV của Imou hay lỗi timestamp (hàng loạt "timestamp
 # discontinuity" trên aac) làm A/V lệch + kéo speed xuống. Bỏ audio → relay tải
@@ -679,14 +683,15 @@ def drain_fifo(overlay_fifo):
 
 def main():
     global ENCODER, OUT_FPS, SOURCE_URL
-    session_id = env("AUTOLIVE_SESSION_ID", required=True)
-    worker_token = env("AUTOLIVE_WORKER_TOKEN", required=True)
-    overlay_url = env("AUTOLIVE_OVERLAY_URL", required=True)
-    heartbeat_url = env("AUTOLIVE_HEARTBEAT_URL", required=True)
+    # PREVIEW-ONLY: không cần session/overlay/heartbeat của backend.
+    session_id = env("AUTOLIVE_SESSION_ID", "preview", required=not PREVIEW_ONLY)
+    worker_token = env("AUTOLIVE_WORKER_TOKEN", "", required=not PREVIEW_ONLY)
+    overlay_url = env("AUTOLIVE_OVERLAY_URL", "", required=not PREVIEW_ONLY)
+    heartbeat_url = env("AUTOLIVE_HEARTBEAT_URL", "", required=not PREVIEW_ONLY)
     session_post_url = env("AUTOLIVE_SESSION_POST_URL", "")
     session_json = env("AUTOLIVE_IMOU_SESSION_JSON", "")
     device_id = env("AUTOLIVE_IMOU_DEVICE_ID", required=not SOURCE_URL)
-    destinations = json.loads(env("AUTOLIVE_DESTINATIONS", "[]"))
+    destinations = [] if PREVIEW_ONLY else json.loads(env("AUTOLIVE_DESTINATIONS", "[]"))
     creds = None
     if env("AUTOLIVE_IMOU_PHONE") and env("AUTOLIVE_IMOU_PASSWORD"):
         creds = {"phone": env("AUTOLIVE_IMOU_PHONE"), "password": env("AUTOLIVE_IMOU_PASSWORD"),
@@ -752,7 +757,7 @@ def main():
     # Overlay: kiểm tra tải được không (thử 10 lần). FIFO cho ffmpeg image2pipe
     # → điểm số cập nhật live (image2 -loop cache frame, không đọc lại file).
     have_overlay = False
-    for _ in range(10):
+    for _ in range(0 if PREVIEW_ONLY else 10):
         if fetch_overlay_bytes(overlay_url):
             have_overlay = True
             break
@@ -790,9 +795,10 @@ def main():
         "runnerLabel": os.environ.get("AUTOLIVE_RUNNER_LABEL", "") or _sock.gethostname(),
         "runnerOs": f"{platform.system()} {platform.machine()}",
     }
-    threading.Thread(target=heartbeat_loop,
-                     args=(heartbeat_url, worker_token, session_id, stop_event, hb_extra),
-                     daemon=True).start()
+    if not PREVIEW_ONLY:
+        threading.Thread(target=heartbeat_loop,
+                         args=(heartbeat_url, worker_token, session_id, stop_event, hb_extra),
+                         daemon=True).start()
 
     if SOURCE_URL:
         has_audio, src_fps = probe_url(SOURCE_URL)
@@ -876,11 +882,13 @@ def main():
                 log(f"ffmpeg chết quá {MAX_ATTEMPTS} lần → dừng", err=True)
                 break
             # Chỉ tạo FB mới khi đã chạy ổn 1 lúc rồi mới chết (đứt thật).
-            new_tee = refresh_destinations(session_post_url.replace("/imou-session", "/destinations"),
-                                           worker_token, session_id)
-            if new_tee:
-                tee = new_tee
-                log("đã lấy destination FB mới sau khi ffmpeg chết")
+            # PREVIEW-ONLY không có destination FB → bỏ qua.
+            if not PREVIEW_ONLY:
+                new_tee = refresh_destinations(session_post_url.replace("/imou-session", "/destinations"),
+                                               worker_token, session_id)
+                if new_tee:
+                    tee = new_tee
+                    log("đã lấy destination FB mới sau khi ffmpeg chết")
         if _sleep_stop(stop_event, min(10, 2 + 2 * fast_fails)): break
 
     cleanup()

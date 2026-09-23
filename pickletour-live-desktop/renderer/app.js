@@ -178,7 +178,64 @@ $("srcType").onchange = () => {
   const url = $("srcType").value === "url";
   $("camWrap").classList.toggle("hidden", url);
   $("urlWrap").classList.toggle("hidden", !url);
+  stopSetupPreview(); // đổi nguồn → tắt preview cũ
 };
+
+// ── Xem thử nguồn (preview trước khi live) ──
+$("testPreview").onclick = async () => {
+  $("previewHint").textContent = "";
+  try {
+    let source;
+    if ($("srcType").value === "url") {
+      const u = $("srcUrl").value.trim();
+      if (!u) throw new Error("Nhập link nguồn (m3u8 / RTSP / RTMP).");
+      source = { kind: "url", sourceUrl: u, encoder: $("encoder").value };
+    } else {
+      const cam = state.cams[+$("cam").value];
+      if (!cam) throw new Error("Chọn camera Imou.");
+      source = { kind: "imou", imouDeviceId: cam.deviceId, encoder: $("encoder").value };
+    }
+    $("testPreview").disabled = true; $("testPreview").textContent = "Đang mở…";
+    $("previewHint").textContent = "Đang kết nối nguồn… (RTSP/Imou có thể mất 5–10s).";
+    const res = await window.api.previewStart({ baseUrl: state.baseUrl, token: state.token, source });
+    $("setupPreview").classList.remove("hidden");
+    $("stopPreview").classList.remove("hidden");
+    startSetupPreview(res.previewUrl);
+  } catch (e) {
+    $("previewHint").textContent = e.message;
+  } finally {
+    $("testPreview").disabled = false; $("testPreview").textContent = "👁 Xem thử nguồn";
+  }
+};
+$("stopPreview").onclick = () => stopSetupPreview();
+
+function startSetupPreview(url) {
+  const v = $("setupPreview");
+  if (state.setupHls) { try { state.setupHls.destroy(); } catch {} state.setupHls = null; }
+  const tryLoad = (attempt = 0) => {
+    if (!$("setupPreview") || $("setupPreview").classList.contains("hidden")) return;
+    if (window.Hls && window.Hls.isSupported()) {
+      const hls = new window.Hls({ liveSyncDurationCount: 2, lowLatencyMode: true });
+      state.setupHls = hls;
+      hls.on(window.Hls.Events.ERROR, (_e, data) => {
+        if (data.fatal && attempt < 30) setTimeout(() => tryLoad(attempt + 1), 2000);
+      });
+      hls.loadSource(url); hls.attachMedia(v);
+    } else { v.src = url; }
+  };
+  setTimeout(() => tryLoad(), 3000); // chờ segment HLS đầu
+  $("previewHint").textContent = "Đang tải hình xem thử…";
+}
+
+function stopSetupPreview() {
+  if (state.setupHls) { try { state.setupHls.destroy(); } catch {} state.setupHls = null; }
+  const v = $("setupPreview");
+  try { v.pause(); v.removeAttribute("src"); v.load(); } catch {}
+  v.classList.add("hidden");
+  $("stopPreview").classList.add("hidden");
+  $("previewHint").textContent = "";
+  try { window.api.previewStop(); } catch {}
+}
 
 // ── Corner map preview ──
 function renderCornerMap() {
@@ -235,6 +292,7 @@ function renderDests() {
 // ── Go live ──
 $("goLive").onclick = async () => {
   $("setupErr").textContent = "";
+  stopSetupPreview(); // bắt đầu live → tắt preview xem thử
   try {
     const useUrl = $("srcType").value === "url";
     let imouDeviceId = "", venueId = "", sourceUrl = "";

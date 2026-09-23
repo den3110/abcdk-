@@ -11,6 +11,8 @@ const { spawn, spawnSync } = require("child_process");
 let win;
 // sessionId → { proc, previewDir, previewServer, previewPort, cfg }
 const running = new Map();
+// Xem thử nguồn TRƯỚC khi live (1 preview tại 1 thời điểm): { proc, dir, server }
+let previewState = null;
 
 function createWindow() {
   win = new BrowserWindow({
@@ -205,6 +207,8 @@ async function startWorker({ baseUrl, token, form }) {
     throw new Error("Chưa cài Python + ImouPkg. Bấm 'Cài đặt tự động' hoặc chạy scripts/setup (xem README).");
   }
 
+  stopPreview(); // bắt đầu live → giải phóng preview đang xem thử (nếu có)
+
   // 1) Tạo phiên trên backend (runner=client) — backend tạo FB live + overlay.
   const session = await apiFetch(baseUrl, "/api/tournament-auto-live/start", {
     method: "POST", token,
@@ -296,6 +300,88 @@ function stopWorker(sid) {
   cleanupWorker(sid);
 }
 
+// ───────────────────────── Xem thử nguồn (preview trước khi live) ─────────
+// Chạy worker.py ở chế độ AUTOLIVE_PREVIEW_ONLY: chỉ đọc nguồn (RTSP/m3u8/RTMP/
+// HTTP hoặc Imou DHAV) → xuất HLS cục bộ, KHÔNG overlay/heartbeat/đích FB-YT.
+async function startPreview({ baseUrl, token, source }) {
+  const selfContained = isSelfContained();
+  const python = selfContained ? null : detectPython();
+  const ffmpeg = detectFfmpeg();
+  if (!ffmpeg) throw new Error("Chưa cài ffmpeg. Cài ffmpeg rồi thử lại (xem README).");
+  if (!selfContained && !python) {
+    throw new Error("Chưa cài Python + ImouPkg. Bấm 'Cài đặt tự động' hoặc chạy scripts/setup (xem README).");
+  }
+
+  stopPreview(); // chỉ 1 preview 1 lúc
+
+  // Nguồn → env cho worker
+  const srcEnv = {};
+  if (source?.kind === "url") {
+    const u = String(source.sourceUrl || "").trim();
+    if (!u) throw new Error("Nhập link nguồn (m3u8 / RTSP / RTMP).");
+    srcEnv.AUTOLIVE_SOURCE_URL = u;
+  } else if (source?.kind === "imou") {
+    if (!source.imouDeviceId) throw new Error("Chọn camera Imou.");
+    // Lấy session Imou đã giải mã của cam (như app iOS/Android).
+    const r = await apiFetch(
+      baseUrl,
+      `/api/tournament-auto-live/court-imou-session?imouDeviceId=${encodeURIComponent(source.imouDeviceId)}`,
+      { token }
+    );
+    const s = r?.imouSession || null; // camelCase từ backend → snake_case cho imou-pkg
+    srcEnv.AUTOLIVE_IMOU_DEVICE_ID = source.imouDeviceId;
+    srcEnv.AUTOLIVE_IMOU_SESSION_JSON = s ? JSON.stringify({
+      uuid_user: s.uuidUser, uuid_key: s.uuidKey,
+      session_id: s.sessionId, regional_host: s.regionalHost,
+    }) : "";
+    srcEnv.AUTOLIVE_IMOU_PHONE = r?.imouCreds?.phone || "";
+    srcEnv.AUTOLIVE_IMOU_PASSWORD = r?.imouCreds?.password || "";
+    srcEnv.AUTOLIVE_IMOU_AREA_CODE = r?.imouCreds?.areaCode || "84";
+  } else {
+    throw new Error("Nguồn xem thử không hợp lệ.");
+  }
+
+  const previewId = `preview-${Date.now()}`;
+  const dir = path.join(os.tmpdir(), `ptlive-${previewId}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const server = await startPreviewServer(dir);
+  const port = server.address().port;
+
+  const env = {
+    ...process.env,
+    PICKLETOUR_PYTHON: undefined,
+    AUTOLIVE_PREVIEW_ONLY: "1",
+    AUTOLIVE_SESSION_ID: previewId,
+    AUTOLIVE_PREVIEW_HLS_DIR: dir,
+    AUTOLIVE_ENCODER: source.encoder || "auto",
+    FFMPEG_PATH: ffmpeg,
+    ...srcEnv,
+    ...(selfContained
+      ? { PATH: `${path.join(__dirname, "bin")}${path.delimiter}${process.env.PATH || ""}` }
+      : {}),
+  };
+  const logFile = path.join(dir, "preview.log");
+  const logFd = fs.openSync(logFile, "a");
+  const proc = selfContained
+    ? spawn(bundledWorkerBin(), [], { env, stdio: ["ignore", logFd, logFd] })
+    : spawn(python, [workerScriptPath()], { env, stdio: ["ignore", logFd, logFd] });
+  previewState = { proc, dir, server, logFile };
+  proc.on("exit", (code) => {
+    sendToRenderer("preview-exit", { code });
+  });
+
+  return { previewUrl: `http://127.0.0.1:${port}/index.m3u8`, logFile };
+}
+
+function stopPreview() {
+  const p = previewState;
+  previewState = null;
+  if (!p) return;
+  try { p.proc.kill("SIGTERM"); } catch {}
+  setTimeout(() => { try { p.proc.kill("SIGKILL"); } catch {} }, 4000);
+  try { p.server?.close(); } catch {}
+}
+
 function sendToRenderer(channel, payload) {
   try { win?.webContents.send(channel, payload); } catch {}
 }
@@ -332,6 +418,8 @@ ipcMain.handle("api-get", async (_e, { baseUrl, token, path: p }) =>
   apiFetch(baseUrl, p, { token }));
 
 ipcMain.handle("start", async (_e, args) => startWorker(args));
+ipcMain.handle("preview-start", async (_e, args) => startPreview(args));
+ipcMain.handle("preview-stop", () => { stopPreview(); return { ok: true }; });
 ipcMain.handle("stop", async (_e, { baseUrl, token, sessionId }) => {
   stopWorker(sessionId);
   try { await apiFetch(baseUrl, `/api/tournament-auto-live/${sessionId}/stop`, { method: "POST", token }); } catch {}

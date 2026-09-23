@@ -62,6 +62,12 @@
           <label>Link nguồn</label>
           <input id="srcUrl" placeholder="https://cam.lavong.club/hls/cam_1/stream.m3u8" />
         </div>
+        <div class="previewBox" style="margin-top:12px">
+          <button id="testPreview" class="ghost">👁 Xem thử nguồn</button>
+          <button id="stopPreview" class="ghost hidden">■ Dừng xem thử</button>
+          <video id="setupPreview" class="hidden" controls autoplay muted playsinline style="margin-top:10px"></video>
+          <div id="previewHint" class="hint"></div>
+        </div>
       </div>
 
       <div class="card">
