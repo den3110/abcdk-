@@ -109,6 +109,9 @@ const registrationSchema = new mongoose.Schema(
     teamFactionName: { type: String, default: "" },
     player1: { type: playerSchema, required: true },
     player2: { type: playerSchema, required: false, default: null },
+    // Đăng ký ĐƠN cho giải ĐÔI: VĐV đăng ký 1 mình, chờ người khác bấm "Tham gia"
+    // để ghép vào slot player2. true = đang tìm partner (player2 rỗng).
+    lookingForPartner: { type: Boolean, default: false, index: true },
     message: { type: String },
 
     payment: {
@@ -170,10 +173,12 @@ registrationSchema.pre("validate", async function (next) {
       // singles: player2 phải null
       this.player2 = null;
     } else {
-      // doubles: bắt buộc có player2
-      if (!this.player2 || !this.player2.fullName) {
+      // doubles: cần player2 — TRỪ khi đăng ký ĐƠN "tìm partner" (ghép sau).
+      if (!this.lookingForPartner && (!this.player2 || !this.player2.fullName)) {
         return next(new Error("Doubles requires two players"));
       }
+      // Đã có player2 hợp lệ → không còn ở trạng thái tìm partner.
+      if (this.player2 && this.player2.fullName) this.lookingForPartner = false;
     }
 
     // 🔢 Tạo mã đăng ký nếu chưa có (áp dụng cho cả tài liệu cũ khi được update lại)

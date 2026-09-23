@@ -2231,6 +2231,9 @@ export default {
         noteLabel: "Message to the organizer",
         notePlaceholder:
           "Example: Please pair me up, please schedule me later...",
+        soloFindPartner: "Register solo — find a partner (pair up later)",
+        soloFindPartnerHint:
+          "You'll appear in the list with an open Player 2 slot. Others tap \"Join\" to pair up with you.",
         submitting: "Processing...",
         submit: "Submit registration now",
         agreement: "By registering, you agree to the tournament rules.",
@@ -2241,6 +2244,11 @@ export default {
         searchPlaceholder: "Search name, phone, code...",
         empty: "No registrations yet.",
         addPlayer2: "Add player 2",
+        joinAsPartner: "Join (pair up)",
+        joining: "Joining...",
+        joinConfirm: "Pair up on the same team as this player?",
+        joinSuccess: "Paired up successfully!",
+        joinError: "Could not pair up. Please try again.",
         totalScore: "Total score",
       },
       dialogs: {

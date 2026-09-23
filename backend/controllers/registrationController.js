@@ -1763,6 +1763,128 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
   res.json({ message: "Đã thay VĐV", registration: reg });
 });
 
+// PATCH /api/registrations/:regId/join-as-partner
+// VĐV đang đăng nhập bấm "Tham gia" để GHÉP vào slot VĐV 2 của một đăng ký ĐƠN
+// (lookingForPartner) trong giải ĐÔI. Kiểm tra: đúng giải đôi, còn tìm partner,
+// không tự ghép mình, không trùng đăng ký, không vượt cap điểm. Xong: điền
+// player2, tắt cờ tìm partner, báo cho VĐV 1.
+export const joinAsPartner = expressAsyncHandler(async (req, res) => {
+  const { regId } = req.params;
+  const authedUserId = req.user?._id || req.user?.id;
+  if (!authedUserId) {
+    res.status(401);
+    throw new Error("Chưa đăng nhập");
+  }
+
+  const reg = await Registration.findById(regId);
+  if (!reg) {
+    res.status(404);
+    throw new Error("Không tìm thấy đăng ký");
+  }
+
+  const tour = await Tournament.findById(reg.tournament).select(
+    "eventType tournamentMode scoreCap singleCap scoreGap allowExceedMaxRating status finishedAt endDate endAt",
+  );
+  if (!tour) {
+    res.status(404);
+    throw new Error("Không tìm thấy giải đấu");
+  }
+
+  const evType = String(tour.eventType || "").toLowerCase();
+  const isDoubles = evType === "double" || evType === "doubles";
+  if (!isDoubles) {
+    res.status(400);
+    throw new Error("Chỉ giải đôi mới ghép cặp được");
+  }
+  if (!reg.lookingForPartner || (reg.player2 && reg.player2.user)) {
+    res.status(400);
+    throw new Error("Đăng ký này đã đủ đôi hoặc không còn tìm partner");
+  }
+  if (isTournamentFinished(tour)) {
+    res.status(403);
+    throw new Error("Giải đã kết thúc, không thể ghép cặp");
+  }
+  if (String(reg.player1?.user || "") === String(authedUserId)) {
+    res.status(400);
+    throw new Error("Bạn không thể tự ghép cặp với chính mình");
+  }
+
+  const user = await User.findById(authedUserId)
+    .select("name nickname phone avatar gender")
+    .lean();
+  if (!user) {
+    res.status(404);
+    throw new Error("Không tìm thấy tài khoản");
+  }
+
+  // Không cho ghép nếu bạn đã đăng ký giải này (ở đăng ký khác)
+  const dup = await findDuplicateRegistration({
+    tournamentId: reg.tournament,
+    userIds: [user._id],
+    excludeRegId: reg._id,
+  });
+  if (dup) {
+    res.status(400);
+    throw new Error(
+      buildDuplicateRegistrationMessage(dup, [user._id], { isSingles: false }),
+    );
+  }
+
+  // Kiểm tra cap điểm (VĐV lẻ + tổng đôi)
+  const joinerScore = await getCurrentScore(user._id, tour.eventType, user);
+  const p1Score = Number(reg.player1?.score) || 0;
+  if (!tour.allowExceedMaxRating) {
+    const singleCap = Number(tour.singleCap);
+    if (singleCap > 0 && Math.round(joinerScore * 1000) > Math.round(singleCap * 1000)) {
+      res.status(400);
+      throw new Error("Điểm trình của bạn vượt giới hạn từng VĐV của giải này");
+    }
+    const pairCap = Number(tour.scoreCap);
+    const gap = Number(tour.scoreGap) || 0;
+    if (
+      pairCap > 0 &&
+      Math.round((p1Score + joinerScore) * 1000) > Math.round((pairCap + gap) * 1000)
+    ) {
+      res.status(400);
+      throw new Error("Tổng điểm đôi (bạn + VĐV 1) vượt giới hạn của giải");
+    }
+  }
+
+  const before = reg.toObject({ depopulate: true });
+  reg.player2 = {
+    user: user._id,
+    phone: user.phone || "",
+    fullName: user.name || user.nickname || "",
+    nickName: user.nickname || "",
+    avatar: user.avatar || "",
+    score: joinerScore,
+  };
+  reg.lookingForPartner = false;
+  await reg.save();
+
+  await writeRegistrationAudit(req, {
+    registrationId: reg._id,
+    action: "UPDATE",
+    before,
+    after: reg.toObject({ depopulate: true }),
+    note: "joinAsPartner",
+  });
+
+  // Báo cho VĐV 1 rằng đã có người ghép cặp
+  try {
+    if (reg.player1?.user) {
+      publishNotification(EVENTS.INVITE_ACCEPTED, {
+        inviterUserId: reg.player1.user,
+        tournamentId: reg.tournament,
+      });
+    }
+  } catch (e) {
+    console.warn("[joinAsPartner] notify failed:", e?.message || e);
+  }
+
+  res.json({ message: "Đã ghép cặp thành công", registration: reg });
+});
+
 const { ObjectId } = mongoose.Types;
 
 const escapeRegExp = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

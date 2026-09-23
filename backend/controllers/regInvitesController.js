@@ -194,6 +194,8 @@ function inRegWindow(tour) {
  */
 async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
   const isSingle = eventType === "single";
+  // Đăng ký ĐƠN cho giải ĐÔI (chưa có partner): bỏ qua điểm p2 + cap đôi.
+  const soloDouble = !isSingle && !p2UserId;
   const ids = [p1UserId, p2UserId].filter(Boolean).map(String);
 
   // (1) Khung thời gian
@@ -241,7 +243,7 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
   const userMap = new Map(userRows.map((user) => [String(user._id), user]));
   const [rank1, rank2] = await Promise.all([
     getRankingScore(p1UserId, eventType),
-    isSingle ? Promise.resolve(null) : getRankingScore(p2UserId, eventType),
+    (isSingle || soloDouble) ? Promise.resolve(null) : getRankingScore(p2UserId, eventType),
   ]);
   const key = eventType === "double" ? "double" : "single";
   const s1 = preferScore(
@@ -250,7 +252,7 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
     null,
     userMap.get(String(p1UserId))
   );
-  const s2 = isSingle
+  const s2 = (isSingle || soloDouble)
     ? 0
     : preferScore(
         rank2,
@@ -270,7 +272,7 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
   if (singleCapEnabled && !tour.allowExceedMaxRating) {
     if (
       Math.round(s1 * 1000) > Math.round(singleCap * 1000) ||
-      (!isSingle && Math.round(s2 * 1000) > Math.round(singleCap * 1000))
+      (!isSingle && !soloDouble && Math.round(s2 * 1000) > Math.round(singleCap * 1000))
     ) {
       return {
         ok: false,
@@ -280,7 +282,7 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
     }
   }
 
-  if (!isSingle && pairCapEnabled && !tour.allowExceedMaxRating) {
+  if (!isSingle && !soloDouble && pairCapEnabled && !tour.allowExceedMaxRating) {
     if (Math.round((s1 + s2) * 1000) > Math.round((pairCap + gap) * 1000)) {
       return {
         ok: false,
@@ -458,6 +460,8 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     player1Id,
     player2Id,
     message = "",
+    // Đăng ký ĐƠN cho giải ĐÔI: VĐV đăng ký 1 mình, chờ người khác "Tham gia".
+    lookingForPartner: lfpRaw = false,
     // Admin có thể ép trạng thái đăng ký khi vượt cap (48/48+):
     // - "approved": duyệt luôn (bỏ qua cap, đội thứ 49 vẫn approved)
     // - "waitlisted": chờ duyệt (dù còn slot cũng vào waitlist)
@@ -494,17 +498,19 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const eventType = normET(tour.eventType);
   const isSingle = eventType === "single";
   const isDouble = eventType === "double";
+  // Đăng ký ĐƠN giải đôi (tìm partner): chỉ áp cho giải đôi + có cờ + chưa có p2.
+  const solo = isDouble && !!lfpRaw && !player2Id;
 
   // ====== VALIDATE cơ bản ======
   if (!player1Id) {
     res.status(400);
     throw new Error("Thiếu VĐV 1");
   }
-  if (isDouble && !player2Id) {
+  if (isDouble && !player2Id && !solo) {
     res.status(400);
     throw new Error("Giải đôi cần 2 VĐV");
   }
-  if (isDouble && String(player1Id) === String(player2Id)) {
+  if (isDouble && player2Id && String(player1Id) === String(player2Id)) {
     res.status(400);
     throw new Error("Hai VĐV phải khác nhau");
   }
@@ -516,7 +522,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   }
 
   // lấy user snapshots (kèm cccd/cccdStatus + dob/birthYear)
-  const ids = isDouble ? [player1Id, player2Id] : [player1Id];
+  const ids = (isDouble && !solo) ? [player1Id, player2Id] : [player1Id];
   const users = await User.find({ _id: { $in: ids } })
     .select(
       "_id name nickname phone avatar province score gender cccd cccdStatus verified dob dateOfBirth birthYear"
@@ -529,7 +535,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   }
   const byId = new Map(users.map((u) => [String(u._id), u]));
   const u1 = byId.get(String(player1Id));
-  const u2 = isDouble ? byId.get(String(player2Id)) : null;
+  const u2 = (isDouble && !solo) ? byId.get(String(player2Id)) : null;
 
   // ====== NHÁNH ADMIN: tạo trực tiếp, bỏ qua mọi kiểm tra ======
   if (isAdmin) {
@@ -640,7 +646,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     const allow = new Set(scope.provinces.map(norm));
     const bad = [];
     if (!allow.has(norm(u1?.province))) bad.push("VĐV 1");
-    if (isDouble && !allow.has(norm(u2?.province))) bad.push("VĐV 2");
+    if (isDouble && !solo && !allow.has(norm(u2?.province))) bad.push("VĐV 2");
 
     if (bad.length) {
       const list = scope.provinces.join(", ");
@@ -681,10 +687,10 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     };
 
     const a1 = getAge(u1);
-    const a2 = isSingle ? null : getAge(u2);
+    const a2 = (isSingle || solo) ? null : getAge(u2);
 
     const needAgeP1 = a1 == null;
-    const needAgeP2 = isDouble ? a2 == null : false;
+    const needAgeP2 = (isDouble && !solo) ? a2 == null : false;
 
     if (needAgeP1 || needAgeP2) {
       const baseMsg =
@@ -720,7 +726,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     }
 
     const outP1 = a1 < minAge || a1 > maxAge;
-    const outP2 = isDouble ? a2 < minAge || a2 > maxAge : false;
+    const outP2 = (isDouble && !solo) ? a2 < minAge || a2 > maxAge : false;
 
     if (outP1 || outP2) {
       const rangeMsg = `Tuổi yêu cầu từ ${minAge}–${maxAge}.`;
@@ -761,7 +767,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     };
 
     const needKycP1 = !isKycVerified(u1);
-    const needKycP2 = isDouble ? !isKycVerified(u2) : false;
+    const needKycP2 = (isDouble && !solo) ? !isKycVerified(u2) : false;
 
     if (needKycP1 || needKycP2) {
       const baseMsg =
@@ -813,11 +819,11 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   // 5) Tạo Registration trực tiếp
   const [rank1, rank2] = await Promise.all([
     getRankingScore(u1._id, eventType),
-    isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
+    (isSingle || solo) ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
   ]);
 
   const p1Score = preferScore(rank1, pf.s1, u1?.score, u1);
-  const p2Score = isSingle ? null : preferScore(rank2, pf.s2, u2?.score, u2);
+  const p2Score = (isSingle || solo) ? null : preferScore(rank2, pf.s2, u2?.score, u2);
 
   const snap = (u, score) => ({
     user: u._id,
@@ -836,7 +842,8 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     tournament: tour._id,
     eventType,
     player1: snap(u1, p1Score),
-    player2: isSingle ? null : snap(u2, p2Score),
+    player2: (isSingle || solo) ? null : snap(u2, p2Score),
+    lookingForPartner: solo,
     message,
     createdBy: me._id,
     payment: buildFreeTournamentPayment(tour),

@@ -27,6 +27,8 @@ import {
   Tooltip,
   Skeleton,
   Grid,
+  FormControlLabel,
+  Checkbox,
 } from "@mui/material";
 import { toast } from "react-toastify";
 import {
@@ -66,6 +68,7 @@ import {
   useGetTournamentQuery,
   useGetRegistrationsQuery,
   useCreateRegInviteMutation,
+  useJoinAsPartnerMutation,
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
@@ -1347,6 +1350,27 @@ const RegCard = memo(
                   {t("tournaments.registration.list.addPlayer2")}
                 </Button>
               )}
+              {/* VĐV bấm Tham gia để ghép cặp vào đăng ký đơn (giải đôi) */}
+              {!isSingles &&
+                !r.player2 &&
+                r.lookingForPartner &&
+                props.isLoggedIn &&
+                String(r.player1?.user || "") !== props.myUserId && (
+                  <Button
+                    size="small"
+                    color="success"
+                    startIcon={<PersonAdd />}
+                    onClick={() => props.onJoinPartner(r)}
+                    disabled={props.joinBusy}
+                    sx={{ mt: 1 }}
+                    fullWidth
+                    variant="contained"
+                  >
+                    {props.joinBusy
+                      ? t("tournaments.registration.list.joining")
+                      : t("tournaments.registration.list.joinAsPartner")}
+                  </Button>
+                )}
             </Box>
 
             <Divider sx={{ borderStyle: "dashed" }} />
@@ -1655,6 +1679,8 @@ export default function TournamentRegistration() {
 
   /* API Actions */
   const [createInvite, { isLoading: saving }] = useCreateRegInviteMutation();
+  const [joinAsPartner, { isLoading: joining }] = useJoinAsPartnerMutation();
+  const [joinBusyId, setJoinBusyId] = useState("");
   const [cancelReg] = useCancelRegistrationMutation();
   const [setPaymentStatus, { isLoading: settingPayment }] =
     useManagerSetRegPaymentStatusMutation();
@@ -1666,6 +1692,31 @@ export default function TournamentRegistration() {
   const [uploadAvatar] = useUploadRealAvatarMutation();
   const [managerSetRegStatus] = useManagerSetRegStatusMutation();
   const [promotingId, setPromotingId] = useState(null);
+
+  // VĐV bấm "Tham gia" ghép cặp vào 1 đăng ký đơn (giải đôi)
+  const handleJoinPartner = useCallback(
+    async (reg) => {
+      if (!isLoggedIn)
+        return toast.info(t("tournaments.registration.toasts.loginRequired"));
+      if (
+        !window.confirm(t("tournaments.registration.list.joinConfirm"))
+      )
+        return;
+      try {
+        setJoinBusyId(String(reg._id));
+        await joinAsPartner({ regId: reg._id, tourId: id }).unwrap();
+        toast.success(t("tournaments.registration.list.joinSuccess"));
+      } catch (err) {
+        toast.error(
+          err?.data?.message ||
+            t("tournaments.registration.list.joinError"),
+        );
+      } finally {
+        setJoinBusyId("");
+      }
+    },
+    [isLoggedIn, joinAsPartner, id, t],
+  );
   const handlePromoteWaitlist = useCallback(
     async (regId) => {
       try {
@@ -1715,6 +1766,8 @@ export default function TournamentRegistration() {
   const [p1, setP1] = useState(null);
   const [p2, setP2] = useState(null);
   const [selfSlot, setSelfSlot] = useState("p1");
+  // Đăng ký ĐƠN cho giải ĐÔI: tự đăng ký 1 mình, tìm partner (ghép sau).
+  const [lookingForPartner, setLookingForPartner] = useState(false);
   const [msg, setMsg] = useState("");
   const [cancelingId, setCancelingId] = useState(null);
 
@@ -2103,15 +2156,20 @@ export default function TournamentRegistration() {
       if (!isLoggedIn)
         return toast.info(t("tournaments.registration.toasts.loginRequired"));
       const selfId = String(me?._id || "");
-      const selfAsPlayer2 = isDoubles && !isAdmin && selfSlot === "p2";
+      // Đăng ký đơn (tìm partner): chỉ áp cho giải đôi + user thường + đã bật.
+      const soloFindPartner = isDoubles && !isAdmin && lookingForPartner;
+      const selfAsPlayer2 =
+        isDoubles && !isAdmin && !soloFindPartner && selfSlot === "p2";
       const p1Id = isAdmin ? p1?._id : selfAsPlayer2 ? p1?._id : selfId;
-      const p2Id = isDoubles
-        ? isAdmin
-          ? p2?._id
-          : selfAsPlayer2
-            ? selfId
-            : p2?._id
-        : undefined;
+      const p2Id = soloFindPartner
+        ? undefined
+        : isDoubles
+          ? isAdmin
+            ? p2?._id
+            : selfAsPlayer2
+              ? selfId
+              : p2?._id
+          : undefined;
 
       if (!p1Id)
         return toast.error(
@@ -2121,7 +2179,7 @@ export default function TournamentRegistration() {
               ? t("tournaments.registration.toasts.doublesNeedTwo")
               : t("tournaments.registration.toasts.ownInfoError"),
         );
-      if (isDoubles && !p2Id)
+      if (isDoubles && !p2Id && !soloFindPartner)
         return toast.error(t("tournaments.registration.toasts.doublesNeedTwo"));
 
       const basePayload = {
@@ -2129,6 +2187,7 @@ export default function TournamentRegistration() {
         message: msg,
         player1Id: p1Id,
         player2Id: p2Id,
+        lookingForPartner: soloFindPartner,
       };
 
       // Nếu admin + giải đã đủ cap (48/48+) → hỏi Chờ hay Duyệt luôn
@@ -3273,8 +3332,34 @@ export default function TournamentRegistration() {
                     </Box>
                   )}
 
+                  {/* Đăng ký ĐƠN — tìm partner (chỉ giải đôi + user thường) */}
+                  {isDoubles && !isAdmin && (
+                    <Box mb={lookingForPartner ? 2.5 : 1}>
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={lookingForPartner}
+                            onChange={(e) =>
+                              setLookingForPartner(e.target.checked)
+                            }
+                          />
+                        }
+                        label={t(
+                          "tournaments.registration.form.soloFindPartner",
+                        )}
+                      />
+                      {lookingForPartner && (
+                        <Alert severity="info" sx={{ mt: 0.5 }}>
+                          {t(
+                            "tournaments.registration.form.soloFindPartnerHint",
+                          )}
+                        </Alert>
+                      )}
+                    </Box>
+                  )}
+
                   {/* VĐV 2 */}
-                  {isDoubles && (
+                  {isDoubles && !lookingForPartner && (
                     <Box mb={2.5}>
                       <Typography
                         variant="subtitle2"
@@ -3586,6 +3671,10 @@ export default function TournamentRegistration() {
                             canEditAvatar={canEditAvatar}
                             canReplacePlayer={canReplacePlayer}
                             isOwner={String(r.createdBy) === String(me?._id)}
+                            isLoggedIn={isLoggedIn}
+                            myUserId={String(me?._id || "")}
+                            onJoinPartner={handleJoinPartner}
+                            joinBusy={joinBusyId === String(r._id)}
                             onCancel={handleCancel}
                             onTogglePayment={togglePayment}
                             onOpenReplace={handleOpenReplace}

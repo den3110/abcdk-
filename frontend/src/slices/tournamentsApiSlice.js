@@ -340,17 +340,30 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
 
     // NEW: tạo lời mời đăng ký
     createRegInvite: builder.mutation({
-      query: ({ tourId, message, player1Id, player2Id, status }) => ({
+      query: ({ tourId, message, player1Id, player2Id, status, lookingForPartner }) => ({
         url: `/api/tournaments/${tourId}/registration-invites`,
         method: "POST",
         // status = "approved"|"waitlisted" khi admin ép trạng thái
-        body: { message, player1Id, player2Id, status },
+        // lookingForPartner = true → đăng ký ĐƠN cho giải đôi (tìm partner)
+        body: { message, player1Id, player2Id, status, lookingForPartner },
       }),
       invalidatesTags: (res, error, { tourId }) => [
         "Registrations",
         { type: "Registrations", id: tourId },
         { type: "RegistrationHistory", id: tourId },
         { type: "RegistrationHistory", id: "LIST" },
+      ],
+    }),
+
+    // NEW: VĐV bấm "Tham gia" ghép cặp vào 1 đăng ký đơn (giải đôi)
+    joinAsPartner: builder.mutation({
+      query: ({ regId }) => ({
+        url: `/api/registrations/${regId}/join-as-partner`,
+        method: "PATCH",
+      }),
+      invalidatesTags: (res, error, { tourId }) => [
+        "Registrations",
+        { type: "Registrations", id: tourId },
       ],
     }),
 
@@ -1102,6 +1115,7 @@ export const {
   useGetMatchPublicQuery,
   useCancelRegistrationMutation,
   useCreateRegInviteMutation,
+  useJoinAsPartnerMutation,
   useListMyRegInvitesQuery,
   useRespondRegInviteMutation,
   useManagerSetRegPaymentStatusMutation,

@@ -2225,6 +2225,9 @@ export default {
         noPhone: "Chưa có SĐT",
         noteLabel: "Lời nhắn cho BTC",
         notePlaceholder: "Ví dụ: Xin ghép cặp, xin đánh trễ...",
+        soloFindPartner: "Đăng ký đơn — tìm partner (ghép sau)",
+        soloFindPartnerHint:
+          "Bạn sẽ xuất hiện trong danh sách với slot VĐV 2 còn trống. Người khác bấm \"Tham gia\" để ghép cặp cùng bạn.",
         submitting: "Đang xử lý...",
         submit: "Gửi Đăng Ký Ngay",
         agreement: "Bằng việc đăng ký, bạn đồng ý với điều lệ giải.",
@@ -2235,6 +2238,11 @@ export default {
         searchPlaceholder: "Tìm tên, SĐT, mã...",
         empty: "Chưa có đăng ký nào.",
         addPlayer2: "Thêm VĐV 2",
+        joinAsPartner: "Tham gia (ghép cặp)",
+        joining: "Đang ghép...",
+        joinConfirm: "Ghép cặp cùng đội với VĐV này?",
+        joinSuccess: "Đã ghép cặp thành công!",
+        joinError: "Không ghép cặp được. Vui lòng thử lại.",
         totalScore: "Tổng điểm",
       },
       dialogs: {
