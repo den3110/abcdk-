@@ -439,6 +439,25 @@ data class CreateLiveRequest(
     val platform: String? = null,
 )
 
+// Trận ngẫu nhiên (UserMatch standalone)
+data class UserMatchParticipant(
+    val side: String,        // "A" | "B"
+    val order: Int,          // 1 | 2
+    val displayName: String,
+)
+
+data class CreateUserMatchRequest(
+    val title: String,
+    val sportType: String = "pickleball",
+    val participants: List<UserMatchParticipant>,
+)
+
+data class ScoreIncRequest(
+    val op: String = "inc",
+    val side: String,        // "A" | "B"
+    val delta: Int,          // +1 | -1
+)
+
 data class NextCourtMatchResponse(
     val matchId: String? = null,
 )

@@ -3,6 +3,8 @@ package com.pkt.live.data.api
 import com.pkt.live.data.model.AutoLiveCamDto
 import com.pkt.live.data.model.ImouStreamUrlDto
 import com.pkt.live.data.model.CreateLiveRequest
+import com.pkt.live.data.model.CreateUserMatchRequest
+import com.pkt.live.data.model.ScoreIncRequest
 import com.pkt.live.data.model.CreateMultiLiveRequest
 import com.pkt.live.data.model.CreateMultiLiveResponse
 import com.pkt.live.data.model.AdminCourtData
@@ -112,7 +114,21 @@ interface PickleTourApi {
     @GET("api/matches/{matchId}")
     suspend fun getMatchInfo(
         @Path("matchId") matchId: String,
+        @Header("x-pkt-match-kind") matchKind: String? = null,
     ): Response<MatchData>
+
+    // Trận ngẫu nhiên (UserMatch standalone): tạo trận + chấm điểm.
+    @POST("api/user-matches")
+    suspend fun createUserMatch(
+        @Body body: CreateUserMatchRequest,
+    ): Response<JsonElement>
+
+    @PATCH("api/referee/matches/{matchId}/score")
+    suspend fun patchUserMatchScore(
+        @Path("matchId") matchId: String,
+        @Body body: ScoreIncRequest,
+        @Header("x-pkt-match-kind") matchKind: String = "user",
+    ): Response<JsonElement>
 
     @GET("api/live-app/matches/{matchId}/runtime")
     suspend fun getMatchRuntime(
@@ -126,6 +142,7 @@ interface PickleTourApi {
         @Path("matchId") matchId: String,
         @Query("force") force: Int? = null,
         @Body body: CreateLiveRequest = CreateLiveRequest(),
+        @Header("x-pkt-match-kind") matchKind: String? = null,
     ): Response<LiveSession>
 
     @POST("api/live-app/matches/{matchId}/live/create-multi")
@@ -138,18 +155,21 @@ interface PickleTourApi {
     suspend fun notifyStreamStarted(
         @Path("matchId") matchId: String,
         @Body body: StreamNotifyRequest,
+        @Header("x-pkt-match-kind") matchKind: String? = null,
     ): Response<StreamNotifyResponse>
 
     @POST("api/matches/{matchId}/live/heartbeat")
     suspend fun notifyStreamHeartbeat(
         @Path("matchId") matchId: String,
         @Body body: StreamNotifyRequest,
+        @Header("x-pkt-match-kind") matchKind: String? = null,
     ): Response<StreamNotifyResponse>
 
     @POST("api/matches/{matchId}/live/end")
     suspend fun notifyStreamEnded(
         @Path("matchId") matchId: String,
         @Body body: StreamNotifyRequest,
+        @Header("x-pkt-match-kind") matchKind: String? = null,
     ): Response<StreamNotifyResponse>
 
     @POST("api/live-app/courts/{courtId}/presence/start")

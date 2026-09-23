@@ -2345,6 +2345,14 @@ export const getMatchById = asyncHandler(async (req, res) => {
     throw new Error("Invalid match id");
   }
 
+  // Trận ngẫu nhiên (UserMatch standalone): app live gửi header x-pkt-match-kind
+  // → trả UserMatch (đã có embedded pairA/pairB + gameScores như Match).
+  const kindHeader = req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
+  if (kindHeader) {
+    const um = await UserMatch.findById(id).lean();
+    if (um) { res.json(um); return; }
+  }
+
   const match = await Match.findById(id)
     .populate([
       { path: "pairA", select: "player1 player2" },

@@ -526,6 +526,35 @@ class LiveRepository(
         }
     }
 
+    /** Trận ngẫu nhiên: tạo UserMatch (tên trận + tên VĐV 2 đội) → trả matchId. */
+    suspend fun createUserMatch(title: String, participants: List<UserMatchParticipant>): Result<String> {
+        return try {
+            val resp = api.createUserMatch(CreateUserMatchRequest(title = title, participants = participants))
+            val body = resp.body()
+            if (resp.isSuccessful && body != null && body.isJsonObject) {
+                val id = body.asJsonObject.get("_id")?.asString
+                if (!id.isNullOrBlank()) Result.success(id) else Result.failure(Exception("Không nhận được id trận"))
+            } else {
+                Result.failure(Exception("Tạo trận lỗi: ${resp.code()}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "createUserMatch error", e)
+            Result.failure(e)
+        }
+    }
+
+    /** Chấm điểm trận ngẫu nhiên (±1). Overlay tự cập nhật. */
+    suspend fun patchUserMatchScore(matchId: String, side: String, delta: Int): Result<Unit> {
+        return try {
+            val resp = api.patchUserMatchScore(matchId, ScoreIncRequest(side = side, delta = delta))
+            if (resp.isSuccessful) Result.success(Unit)
+            else Result.failure(Exception("Chấm điểm lỗi: ${resp.code()}"))
+        } catch (e: Exception) {
+            Log.e(TAG, "patchUserMatchScore error", e)
+            Result.failure(e)
+        }
+    }
+
     /** Get overlay config (sponsors, logos) */
     suspend fun getOverlayConfig(tournamentId: String? = null): Result<OverlayConfig> {
         return try {

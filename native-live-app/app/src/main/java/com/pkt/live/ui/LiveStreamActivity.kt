@@ -54,6 +54,13 @@ class LiveStreamActivity : AppCompatActivity() {
         const val EXTRA_PAGE_ID = "extra_page_id"
         const val EXTRA_COURT_ID = "extra_court_id"
         const val EXTRA_TOKEN = "extra_token"
+        // Trận ngẫu nhiên (tạo trận + live không cần giải)
+        const val EXTRA_RANDOM = "extra_random"
+        const val EXTRA_RND_TITLE = "extra_rnd_title"
+        const val EXTRA_RND_A1 = "extra_rnd_a1"
+        const val EXTRA_RND_A2 = "extra_rnd_a2"
+        const val EXTRA_RND_B1 = "extra_rnd_b1"
+        const val EXTRA_RND_B2 = "extra_rnd_b2"
     }
 
     private val viewModel: LiveStreamViewModel by viewModel()
@@ -64,6 +71,10 @@ class LiveStreamActivity : AppCompatActivity() {
     private var pendingPageId: String? = null
     private var pendingCourtId: String = ""
     private var currentToken: String = ""
+    // Trận ngẫu nhiên
+    private var pendingRandom: Boolean = false
+    private var pendingRndTitle: String = ""
+    private var pendingRndNames: List<String> = emptyList() // [a1, a2, b1, b2]
     private var contentReady: Boolean = false
     private var loginInFlight: Boolean = false
     private val permissionsLauncher = registerForActivityResult(
@@ -379,6 +390,17 @@ class LiveStreamActivity : AppCompatActivity() {
         pendingCourtId = courtId
         currentToken = tokenToUse
 
+        pendingRandom = sourceIntent?.getBooleanExtra(EXTRA_RANDOM, false) ?: false
+        if (pendingRandom) {
+            pendingRndTitle = sourceIntent?.getStringExtra(EXTRA_RND_TITLE).orEmpty()
+            pendingRndNames = listOf(
+                sourceIntent?.getStringExtra(EXTRA_RND_A1).orEmpty(),
+                sourceIntent?.getStringExtra(EXTRA_RND_A2).orEmpty(),
+                sourceIntent?.getStringExtra(EXTRA_RND_B1).orEmpty(),
+                sourceIntent?.getStringExtra(EXTRA_RND_B2).orEmpty(),
+            )
+        }
+
         if (reinitialize) {
             routeToLiveTarget()
         }
@@ -386,6 +408,15 @@ class LiveStreamActivity : AppCompatActivity() {
 
     private fun routeToLiveTarget() {
         when {
+            pendingRandom && currentToken.isNotBlank() -> {
+                viewModel.startRandomMatch(
+                    title = pendingRndTitle,
+                    teamA = listOf(pendingRndNames.getOrElse(0) { "" }, pendingRndNames.getOrElse(1) { "" }),
+                    teamB = listOf(pendingRndNames.getOrElse(2) { "" }, pendingRndNames.getOrElse(3) { "" }),
+                    token = currentToken,
+                    pageId = pendingPageId,
+                )
+            }
             pendingMatchId.isNotBlank() && currentToken.isNotBlank() -> {
                 viewModel.init(pendingMatchId, currentToken, pendingPageId)
             }

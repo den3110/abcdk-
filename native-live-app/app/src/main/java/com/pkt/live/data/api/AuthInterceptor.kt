@@ -23,6 +23,11 @@ class AuthInterceptor : Interceptor {
     @Volatile
     var token: String? = null
 
+    // Trận ngẫu nhiên: khi = "user", mọi request cùng origin gắn header
+    // x-pkt-match-kind để backend hiểu là UserMatch (getMatchInfo/live/referee…).
+    @Volatile
+    var matchKind: String? = null
+
     private val apiBaseUrl = BuildConfig.BASE_URL.toHttpUrlOrNull()
 
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -43,9 +48,13 @@ class AuthInterceptor : Interceptor {
             }
         }
 
-        val authed = original.newBuilder()
+        val builder = original.newBuilder()
             .header("Authorization", "Bearer $t")
-            .build()
+        val mk = matchKind
+        if (!mk.isNullOrBlank() && original.header("x-pkt-match-kind") == null) {
+            builder.header("x-pkt-match-kind", mk)
+        }
+        val authed = builder.build()
         val response = chain.proceed(authed)
 
         // Fix #5: Detect and log token expiry (401) for Crashlytics tracking

@@ -79,6 +79,7 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
     val rtmpUrl by viewModel.rtmpUrl.collectAsState()
     val facebookLive by viewModel.facebookLive.collectAsState()
     val waitingForCourt by viewModel.waitingForCourt.collectAsState()
+    val isUserMatch by viewModel.isUserMatch.collectAsState()
     val waitingForMatchLive by viewModel.waitingForMatchLive.collectAsState()
     val waitingForNextMatch by viewModel.waitingForNextMatch.collectAsState()
     val batterySaver by viewModel.batterySaver.collectAsState()
@@ -794,6 +795,27 @@ fun LiveScreen(viewModel: LiveStreamViewModel) {
                 streamState = streamState,
                 hasLiveSession = liveStartTime != null,
             )
+        }
+
+        // ---- Chấm điểm trận ngẫu nhiên (±1) ----
+        if (isUserMatch) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                RandomScoreRow(
+                    label = overlayData.teamAName,
+                    onMinus = { viewModel.adjustRandomScore("A", -1) },
+                    onPlus = { viewModel.adjustRandomScore("A", 1) },
+                )
+                RandomScoreRow(
+                    label = overlayData.teamBName,
+                    onMinus = { viewModel.adjustRandomScore("B", -1) },
+                    onPlus = { viewModel.adjustRandomScore("B", 1) },
+                )
+            }
         }
 
         // ---- Loading overlay ----
@@ -3338,3 +3360,19 @@ private fun streamStateLabel(state: StreamState): String =
         is StreamState.Error -> "Error: ${state.message}"
         is StreamState.Stopped -> "Stopped"
     }
+
+// Hàng chấm điểm ±1 cho 1 đội (trận ngẫu nhiên).
+@Composable
+private fun RandomScoreRow(label: String, onMinus: () -> Unit, onPlus: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier
+            .background(Color.Black.copy(alpha = 0.55f))
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    ) {
+        Text(text = label.take(10), color = Color.White, fontSize = 12.sp)
+        TextButton(onClick = onMinus) { Text("−", color = Color.White, fontSize = 22.sp) }
+        TextButton(onClick = onPlus) { Text("+", color = Color.White, fontSize = 22.sp) }
+    }
+}

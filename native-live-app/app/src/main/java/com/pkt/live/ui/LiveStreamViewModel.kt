@@ -241,6 +241,10 @@ class LiveStreamViewModel(
     private val _waitingForCourt = MutableStateFlow(false)
     val waitingForCourt: StateFlow<Boolean> = _waitingForCourt.asStateFlow()
 
+    // Trận ngẫu nhiên (UserMatch standalone) → hiện panel chấm điểm trong UI.
+    private val _isUserMatch = MutableStateFlow(false)
+    val isUserMatch: StateFlow<Boolean> = _isUserMatch.asStateFlow()
+
     private val _waitingForMatchLive = MutableStateFlow(false)
     val waitingForMatchLive: StateFlow<Boolean> = _waitingForMatchLive.asStateFlow()
 
@@ -1551,8 +1555,9 @@ class LiveStreamViewModel(
     /**
      * Initialize with deeplink params. Called once from Activity.
      */
-    fun init(matchId: String, token: String, pageId: String? = null) {
+    fun init(matchId: String, token: String, pageId: String? = null, userMatch: Boolean = false) {
         if (!freshEntryRequired && this.matchId == matchId && this.token == token && this.pageId == pageId) return
+        _isUserMatch.value = userMatch
         _recordOnlyArmed.value = false
         setAutoGoLive(false)
         freshEntryRequired = false
@@ -1580,6 +1585,8 @@ class LiveStreamViewModel(
 
         // Set auth token for API calls
         authInterceptor.token = token
+        // Trận ngẫu nhiên → mọi request gắn header x-pkt-match-kind=user.
+        authInterceptor.matchKind = if (userMatch) "user" else null
         refreshObserverBootstrapForTelemetry(token)
 
         ensureObservers()
@@ -1746,6 +1753,41 @@ class LiveStreamViewModel(
         if (courtId.isNotBlank()) persistPlatformFor(courtId, p)
     }
 
+    // Trận NGẪU NHIÊN: tạo UserMatch (tên trận + tên VĐV 2 đội) rồi vào live như
+    // user-match (init userMatch=true → header x-pkt-match-kind + overlay bảng điểm).
+    fun startRandomMatch(title: String, teamA: List<String>, teamB: List<String>, token: String, pageId: String? = null) {
+        val parts = mutableListOf<UserMatchParticipant>()
+        fun add(side: String, order: Int, name: String?) {
+            val n = name?.trim().orEmpty()
+            if (n.isNotEmpty()) parts.add(UserMatchParticipant(side = side, order = order, displayName = n))
+        }
+        add("A", 1, teamA.getOrNull(0)); add("A", 2, teamA.getOrNull(1))
+        add("B", 1, teamB.getOrNull(0)); add("B", 2, teamB.getOrNull(1))
+        if (parts.isEmpty()) { _errorMessage.value = "Nhập tên VĐV ít nhất 1 đội."; return }
+        // Cần token trước khi gọi API tạo trận.
+        authInterceptor.token = token
+        viewModelScope.launch {
+            val created = withContext(Dispatchers.IO) {
+                repository.createUserMatch(title.ifBlank { "Trận giao hữu" }, parts)
+            }
+            created.onSuccess { newId ->
+                init(matchId = newId, token = token, pageId = pageId, userMatch = true)
+            }.onFailure {
+                _errorMessage.value = "Tạo trận lỗi: ${it.message}"
+            }
+        }
+    }
+
+    // Chấm điểm trận ngẫu nhiên (±1 cho đội A/B) — overlay tự cập nhật.
+    fun adjustRandomScore(side: String, delta: Int) {
+        val mid = matchId.trim()
+        if (mid.isBlank()) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.patchUserMatchScore(mid, side, delta) }
+                .onFailure { _errorMessage.value = "Chấm điểm lỗi: ${it.message}" }
+        }
+    }
+
     fun initByCourt(courtId: String, token: String, pageId: String? = null) {
         val cid = courtId.trim()
         if (cid.isBlank()) {
@@ -1753,6 +1795,9 @@ class LiveStreamViewModel(
             return
         }
         if (!freshEntryRequired && this.courtId == cid && this.token == token && this.pageId == pageId && this.matchId.isBlank()) return
+
+        _isUserMatch.value = false
+        authInterceptor.matchKind = null // vào theo court = trận giải, KHÔNG phải user-match
 
         nextSessionEpoch()
         val courtWatchEpoch = nextCourtWatchEpoch()

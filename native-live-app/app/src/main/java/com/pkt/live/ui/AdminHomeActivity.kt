@@ -27,6 +27,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -139,6 +140,20 @@ class AdminHomeActivity : AppCompatActivity() {
                             }
                         )
                     },
+                    onStartRandomMatch = { title, a1, a2, b1, b2 ->
+                        startActivity(
+                            Intent(this@AdminHomeActivity, LiveStreamActivity::class.java).apply {
+                                putExtra(LiveStreamActivity.EXTRA_RANDOM, true)
+                                putExtra(LiveStreamActivity.EXTRA_RND_TITLE, title)
+                                putExtra(LiveStreamActivity.EXTRA_RND_A1, a1)
+                                putExtra(LiveStreamActivity.EXTRA_RND_A2, a2)
+                                putExtra(LiveStreamActivity.EXTRA_RND_B1, b1)
+                                putExtra(LiveStreamActivity.EXTRA_RND_B2, b2)
+                                putExtra(LiveStreamActivity.EXTRA_TOKEN, tokenState.value)
+                                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            }
+                        )
+                    },
                 )
             }
         }
@@ -163,10 +178,22 @@ private fun AdminHomeScreen(
     onLogout: () -> Unit,
     repository: LiveRepository,
     onStartLiveByCourt: (String) -> Unit,
+    onStartRandomMatch: (String, String, String, String, String) -> Unit,
 ) {
     var step by remember { mutableStateOf(AdminStep.CLUSTERS) }
     var isLoading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var showRandomDialog by remember { mutableStateOf(false) }
+
+    if (showRandomDialog) {
+        RandomMatchDialog(
+            onDismiss = { showRandomDialog = false },
+            onConfirm = { title, a1, a2, b1, b2 ->
+                showRandomDialog = false
+                onStartRandomMatch(title, a1, a2, b1, b2)
+            }
+        )
+    }
 
     var clusters by remember { mutableStateOf<List<CourtClusterData>>(emptyList()) }
     var courts by remember { mutableStateOf<List<AdminCourtData>>(emptyList()) }
@@ -499,6 +526,17 @@ private fun AdminHomeScreen(
             error?.let {
                 Text(text = it, color = Color(0xFFFF6B6B), fontSize = 12.sp)
                 Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            if (step == AdminStep.CLUSTERS) {
+                Button(
+                    onClick = { showRandomDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = LiveColors.AccentGreen),
+                ) {
+                    Text("🎲 Live trận ngẫu nhiên (không cần giải)", fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
             }
 
             when (step) {
@@ -1374,4 +1412,35 @@ private fun statusColor(raw: String): Color {
         "queued" -> Color(0xFF06B6D4)
         else -> Color(0xFF64748B)
     }
+}
+
+// Form tạo trận NGẪU NHIÊN: tên trận + tên VĐV 2 đội.
+@Composable
+private fun RandomMatchDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String, String, String, String, String) -> Unit,
+) {
+    var title by remember { mutableStateOf("") }
+    var a1 by remember { mutableStateOf("") }
+    var a2 by remember { mutableStateOf("") }
+    var b1 by remember { mutableStateOf("") }
+    var b2 by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("🎲 Trận ngẫu nhiên") },
+        text = {
+            Column {
+                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Tên trận") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(value = a1, onValueChange = { a1 = it }, label = { Text("Đội A - VĐV 1") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = a2, onValueChange = { a2 = it }, label = { Text("Đội A - VĐV 2 (đôi)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = b1, onValueChange = { b1 = it }, label = { Text("Đội B - VĐV 1") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = b2, onValueChange = { b2 = it }, label = { Text("Đội B - VĐV 2 (đôi)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(title, a1, a2, b1, b2) }, enabled = a1.isNotBlank() || b1.isNotBlank()) { Text("Tạo & Live") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Huỷ") } }
+    )
 }
