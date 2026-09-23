@@ -691,7 +691,9 @@ def main():
     session_post_url = env("AUTOLIVE_SESSION_POST_URL", "")
     session_json = env("AUTOLIVE_IMOU_SESSION_JSON", "")
     device_id = env("AUTOLIVE_IMOU_DEVICE_ID", required=not SOURCE_URL)
-    destinations = [] if PREVIEW_ONLY else json.loads(env("AUTOLIVE_DESTINATIONS", "[]"))
+    # PREVIEW_ONLY vẫn đọc destinations từ env: rỗng = chỉ xem thử; có RTMP =
+    # "live thẳng" (đẩy RTMP trực tiếp, không qua server pickletour).
+    destinations = json.loads(env("AUTOLIVE_DESTINATIONS", "[]"))
     creds = None
     if env("AUTOLIVE_IMOU_PHONE") and env("AUTOLIVE_IMOU_PASSWORD"):
         creds = {"phone": env("AUTOLIVE_IMOU_PHONE"), "password": env("AUTOLIVE_IMOU_PASSWORD"),

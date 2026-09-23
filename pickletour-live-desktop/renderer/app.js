@@ -211,7 +211,7 @@ $("testPreview").onclick = async () => {
 $("stopPreview").onclick = () => stopSetupPreview();
 $("previewLog").onclick = () => { try { window.api.previewOpenLog(); } catch {} };
 
-function startSetupPreview(url) {
+function startSetupPreview(url, readyText = "") {
   const v = $("setupPreview");
   if (state.setupHls) { try { state.setupHls.destroy(); } catch {} state.setupHls = null; }
   const tryLoad = (attempt = 0) => {
@@ -226,12 +226,12 @@ function startSetupPreview(url) {
           setTimeout(() => tryLoad(attempt + 1), 2000);
         }
       });
-      hls.on(window.Hls.Events.FRAG_LOADED, () => { $("previewHint").textContent = ""; });
+      hls.on(window.Hls.Events.FRAG_LOADED, () => { $("previewHint").textContent = readyText; });
       hls.loadSource(url); hls.attachMedia(v);
     } else { v.src = url; }
   };
   setTimeout(() => tryLoad(), 3000); // chờ segment HLS đầu
-  $("previewHint").textContent = "Đang tải hình xem thử…";
+  $("previewHint").textContent = readyText || "Đang tải hình xem thử…";
 }
 
 function stopSetupPreview() {
@@ -245,11 +245,13 @@ function stopSetupPreview() {
   try { window.api.previewStop(); } catch {}
 }
 
-// Worker preview chết (nguồn lỗi/đứt) → báo + cho mở log.
+// Worker preview / live-thẳng chết (nguồn lỗi/đứt) → báo + cho mở log.
 window.api.onPreviewExit(({ code, log }) => {
-  if (!$("stopPreview") || $("stopPreview").classList.contains("hidden")) return;
+  const active = ($("stopPreview") && !$("stopPreview").classList.contains("hidden")) ||
+                 ($("stopDirect") && !$("stopDirect").classList.contains("hidden"));
+  if (!active) return;
   const last = (log || "").trim().split("\n").filter(Boolean).slice(-1)[0] || "";
-  $("previewHint").textContent = `Tiến trình xem thử dừng (mã ${code}). ${last} — bấm "Mở log" xem chi tiết.`;
+  $("previewHint").textContent = `Tiến trình dừng (mã ${code}). ${last} — bấm "Mở log" xem chi tiết.`;
 });
 
 // ── Corner map preview ──
@@ -352,6 +354,56 @@ $("goLive").onclick = async () => {
   } finally {
     $("goLive").disabled = false; $("goLive").textContent = "● BẮT ĐẦU LIVE";
   }
+};
+
+// ── Live THẲNG tới RTMP (không qua server pickletour) ──
+$("goDirect").onclick = async () => {
+  $("setupErr").textContent = "";
+  stopSetupPreview(); // tắt preview xem thử nếu đang mở
+  try {
+    let source;
+    if ($("srcType").value === "url") {
+      const u = $("srcUrl").value.trim();
+      if (!u) throw new Error("Nhập link nguồn (m3u8 / RTSP / RTMP).");
+      source = { kind: "url", sourceUrl: u, encoder: $("encoder").value };
+    } else {
+      const cam = state.cams[+$("cam").value];
+      if (!cam) throw new Error("Chọn camera Imou.");
+      source = { kind: "imou", imouDeviceId: cam.deviceId, encoder: $("encoder").value };
+    }
+    // Chỉ nhận đích RTMP (YouTube được thêm dưới dạng rtmp). FB cần server → loại.
+    const rtmpDests = state.destinations.filter((d) => d.type === "rtmp" && d.streamUrl);
+    if (!rtmpDests.length) {
+      throw new Error("Thêm ít nhất 1 đích 'RTMP tuỳ chỉnh' hoặc 'YouTube' ở mục 3.");
+    }
+    $("goDirect").disabled = true; $("goDirect").textContent = "Đang kết nối…";
+    const res = await window.api.directStart({
+      baseUrl: state.baseUrl, token: state.token, source, destinations: rtmpDests,
+    });
+    $("setupPreview").classList.remove("hidden");
+    $("previewLog").classList.remove("hidden");
+    $("stopDirect").classList.remove("hidden");
+    $("goDirect").classList.add("hidden");
+    $("goLive").disabled = true;
+    const names = rtmpDests.map((d) => d.label || "RTMP").join(", ");
+    startSetupPreview(res.previewUrl, `🔴 Đang live thẳng tới: ${names} (trễ ~2–4s).`);
+  } catch (e) {
+    $("setupErr").textContent = e.message;
+  } finally {
+    $("goDirect").disabled = false; $("goDirect").textContent = "⚡ Live thẳng RTMP";
+  }
+};
+$("stopDirect").onclick = () => {
+  try { window.api.directStop(); } catch {}
+  if (state.setupHls) { try { state.setupHls.destroy(); } catch {} state.setupHls = null; }
+  const v = $("setupPreview");
+  try { v.pause(); v.removeAttribute("src"); v.load(); } catch {}
+  v.classList.add("hidden");
+  $("stopDirect").classList.add("hidden");
+  $("previewLog").classList.add("hidden");
+  $("goDirect").classList.remove("hidden");
+  $("goLive").disabled = false;
+  $("previewHint").textContent = "";
 };
 
 function startPreview(url) {

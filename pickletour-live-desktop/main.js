@@ -316,7 +316,7 @@ function stopWorker(sid) {
 // ───────────────────────── Xem thử nguồn (preview trước khi live) ─────────
 // Chạy worker.py ở chế độ AUTOLIVE_PREVIEW_ONLY: chỉ đọc nguồn (RTSP/m3u8/RTMP/
 // HTTP hoặc Imou DHAV) → xuất HLS cục bộ, KHÔNG overlay/heartbeat/đích FB-YT.
-async function startPreview({ baseUrl, token, source }) {
+async function startPreview({ baseUrl, token, source, destinations }) {
   const selfContained = isSelfContained();
   const python = selfContained ? null : detectPython();
   const ffmpeg = detectFfmpeg();
@@ -367,6 +367,8 @@ async function startPreview({ baseUrl, token, source }) {
     AUTOLIVE_SESSION_ID: previewId,
     AUTOLIVE_PREVIEW_HLS_DIR: dir,
     AUTOLIVE_ENCODER: source.encoder || "auto",
+    // Rỗng = chỉ xem thử; có đích RTMP = live thẳng (không qua server pickletour).
+    AUTOLIVE_DESTINATIONS: JSON.stringify(Array.isArray(destinations) ? destinations : []),
     FFMPEG_PATH: ffmpeg,
     ...srcEnv,
     ...(selfContained
@@ -432,8 +434,11 @@ ipcMain.handle("api-get", async (_e, { baseUrl, token, path: p }) =>
   apiFetch(baseUrl, p, { token }));
 
 ipcMain.handle("start", async (_e, args) => startWorker(args));
-ipcMain.handle("preview-start", async (_e, args) => startPreview(args));
+ipcMain.handle("preview-start", async (_e, args) => startPreview({ ...args, destinations: [] }));
 ipcMain.handle("preview-stop", () => { stopPreview(); return { ok: true }; });
+// Live THẲNG tới RTMP (không qua server pickletour): như preview nhưng có đích RTMP.
+ipcMain.handle("direct-start", async (_e, args) => startPreview(args));
+ipcMain.handle("direct-stop", () => { stopPreview(); return { ok: true }; });
 ipcMain.handle("preview-log", () => ({ log: lastPreviewLog ? tailFile(lastPreviewLog) : "" }));
 ipcMain.handle("preview-openlog", () => { if (lastPreviewLog) shell.openPath(lastPreviewLog); });
 ipcMain.handle("stop", async (_e, { baseUrl, token, sessionId }) => {
