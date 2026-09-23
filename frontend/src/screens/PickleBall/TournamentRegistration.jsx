@@ -1431,7 +1431,7 @@ const RegCard = memo(
                                 variant="caption"
                                 color="text.secondary"
                               >
-                                {t("tournaments.registration.list.scorePrefix")}{" "}
+                                {t("tournaments.registration.form.scorePrefix")}{" "}
                                 {Number(jr.score || 0).toFixed(3)}
                               </Typography>
                             </Box>
