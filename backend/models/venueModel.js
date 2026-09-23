@@ -129,6 +129,19 @@ const venueSchema = new Schema(
      * duyệt tay (yêu cầu ngoài giờ vào thẳng hàng đợi xử lý). Mặc định false.
      */
     clipAutoApprove: { type: Boolean, default: false },
+    /**
+     * Đầu thu Dahua/DMSS truy cập TỪ XA qua P2P (serial + mật khẩu, không cần
+     * port-forward/VPN). Dùng làm nguồn auto-live. Mật khẩu mã hoá AES-GCM
+     * (encryptToken/decryptToken). GIỚI HẠN: đầu thu ~1 phiên P2P/lúc → 1 cam/lúc.
+     * Xem scripts/dahua-p2p/README-PICKLETOUR.md.
+     */
+    dahuaNvr: {
+      serial: { type: String, default: "" },
+      username: { type: String, default: "admin" },
+      channels: { type: Number, default: 8 }, // số kênh (cam) trong đầu thu
+      credCipher: String, // encryptToken(password)
+      updatedAt: Date,
+    },
   },
   { timestamps: true },
 );

@@ -73,6 +73,12 @@ MAX_RSS_MB = int(os.environ.get("AUTOLIVE_MAX_RSS_MB") or 1800)
 # Nguồn video: rỗng = cam Imou (DHAV qua stdin); có = link tuỳ chỉnh
 # (m3u8/RTSP/RTMP/http) → ffmpeg đọc thẳng URL.
 SOURCE_URL = (os.environ.get("AUTOLIVE_SOURCE_URL") or "").strip()
+# Nguồn đầu thu Dahua/DMSS qua P2P (serial+mật khẩu, khác mạng, không port-forward).
+# JSON {serial, username, password, channel, subtype, bin}. Khi có → worker tự spawn
+# tunnel dh-p2p (scripts/dahua-p2p) → RTSP local → đặt SOURCE_URL. Xem
+# scripts/dahua-p2p/README-PICKLETOUR.md. GIỚI HẠN: đầu thu ~1 phiên P2P/lúc.
+DAHUA_P2P_JSON = (os.environ.get("AUTOLIVE_DAHUA_P2P_JSON") or "").strip()
+DAHUA_P2P_BIN = (os.environ.get("AUTOLIVE_DAHUA_P2P_BIN") or "").strip()
 # Cam Imou: mặc định KÉO CHỈ VIDEO (bỏ audio cam). Lý do: live thể thao overlay
 # không cần tiếng cam; audio DHAV của Imou hay lỗi timestamp (hàng loạt "timestamp
 # discontinuity" trên aac) làm A/V lệch + kéo speed xuống. Bỏ audio → relay tải
@@ -463,7 +469,10 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
         # Cờ input theo scheme (nếu áp sai scheme ffmpeg báo "Option not found").
         u = SOURCE_URL.lower()
         if u.startswith("rtsp://"):
-            args += ["-rtsp_transport", "tcp"]
+            # -rtsp_transport tcp: ổn định qua tunnel/NAT. -rw_timeout 15s: nếu
+            # nguồn (vd tunnel Dahua P2P) đứng im → ffmpeg thoát thay vì treo, để
+            # vòng lặp ngoài restart (tunnel supervisor tự dựng lại kết nối).
+            args += ["-rtsp_transport", "tcp", "-rw_timeout", "15000000"]
         elif u.startswith("http://") or u.startswith("https://"):
             # KHÔNG dùng -reconnect_at_eof với HLS: playlist HTTP trả EOF sau mỗi
             # lần đọc là bình thường (hls demuxer tự refresh), reconnect_at_eof
@@ -677,10 +686,162 @@ def drain_fifo(overlay_fifo):
         pass
 
 
+# ── Đầu thu Dahua/DMSS qua P2P ────────────────────────────────────────────
+# Spawn binary dh-p2p (đã vá auth+reassembler, xem scripts/dahua-p2p) làm tiến
+# trình con → mở RTSP local 127.0.0.1:<port> tới đầu thu từ xa chỉ bằng
+# serial+mật khẩu. Supervisor giữ tunnel sống trên CÙNG port đến khi worker dừng.
+_dahua_tunnel = {"proc": None, "stop": None, "thread": None}
+
+
+def _pick_free_port():
+    import socket as _s
+    s = _s.socket(_s.AF_INET, _s.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+    finally:
+        s.close()
+
+
+def _default_dahua_bin():
+    here = os.path.dirname(os.path.abspath(__file__))
+    return os.path.normpath(os.path.join(here, "..", "dahua-p2p", "target", "release", "dh-p2p"))
+
+
+def start_dahua_tunnel(cfg):
+    """Mở tunnel dh-p2p (DIRECT hole-punch, KHÔNG --relay) → trả RTSP URL local.
+    Ném RuntimeError nếu thiếu binary/creds hoặc tunnel chết trước khi Ready."""
+    import queue as _queue
+    from urllib.parse import quote
+    serial = str(cfg.get("serial") or "").strip()
+    user = str(cfg.get("username") or "admin").strip()
+    pwd = str(cfg.get("password") or "")
+    channel = int(cfg.get("channel") or 1)
+    subtype = int(cfg.get("subtype") or 0)
+    binp = str(cfg.get("bin") or "").strip() or DAHUA_P2P_BIN or _default_dahua_bin()
+    binp = os.path.abspath(binp)
+    if not serial or not pwd:
+        raise RuntimeError("Dahua P2P thiếu serial hoặc password")
+    if not os.path.exists(binp):
+        raise RuntimeError(f"Không thấy dh-p2p binary: {binp} (chạy scripts/dahua-p2p/build.sh)")
+    port = _pick_free_port()
+    rtsp = (f"rtsp://{quote(user, safe='')}:{quote(pwd, safe='')}@127.0.0.1:{port}"
+            f"/cam/realmonitor?channel={channel}&subtype={subtype}")
+    stop = threading.Event()
+    _dahua_tunnel["stop"] = stop
+
+    def _spawn_once(ready_timeout=45):
+        # DIRECT hole-punch (relay không có media). Cổng local cố định → SOURCE_URL
+        # ổn định qua các lần respawn.
+        args = [binp, "-u", user, "-w", pwd, "-p", f"127.0.0.1:{port}:554", serial]
+        p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             text=True, bufsize=1)
+        _dahua_tunnel["proc"] = p
+        q = _queue.Queue()
+
+        def _reader():
+            try:
+                for line in iter(p.stdout.readline, ""):
+                    if not line:
+                        break
+                    log(f"[dahua-p2p] {line.rstrip()}")
+                    q.put(line)
+            except Exception:  # noqa: BLE001
+                pass
+            finally:
+                q.put(None)
+
+        threading.Thread(target=_reader, daemon=True).start()
+        ready = False
+        deadline = time.time() + ready_timeout
+        while time.time() < deadline and p.poll() is None:
+            try:
+                line = q.get(timeout=1)
+            except _queue.Empty:
+                continue
+            if line is None:
+                break
+            if "Ready to connect" in line:
+                ready = True
+                break
+        return p, ready
+
+    p, ready = _spawn_once()
+    if not ready:
+        try:
+            if p.poll() is None:
+                p.terminate()
+        except Exception:  # noqa: BLE001
+            pass
+        raise RuntimeError(
+            "dh-p2p tunnel không Ready (sai serial/mật khẩu, hoặc đầu thu đang bận "
+            "phiên P2P khác — đầu thu chỉ cho ~1 phiên đồng thời)")
+
+    def _supervise():
+        backoff = 2
+        while not stop.is_set():
+            proc = _dahua_tunnel["proc"]
+            if proc is None or proc.poll() is not None:
+                if stop.wait(backoff):
+                    break
+                log("[dahua-p2p] tunnel chết → respawn…", err=True)
+                try:
+                    _spawn_once()
+                    backoff = 2
+                except Exception as e:  # noqa: BLE001
+                    log(f"[dahua-p2p] respawn lỗi: {e!r}", err=True)
+                    backoff = min(backoff * 2, 30)
+            else:
+                if stop.wait(3):
+                    break
+        proc = _dahua_tunnel["proc"]
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+            except Exception:  # noqa: BLE001
+                pass
+
+    t = threading.Thread(target=_supervise, daemon=True)
+    t.start()
+    _dahua_tunnel["thread"] = t
+    log(f"[dahua-p2p] tunnel sẵn sàng: kênh {channel} → 127.0.0.1:{port}")
+    return rtsp
+
+
+def stop_dahua_tunnel():
+    st = _dahua_tunnel.get("stop")
+    if st:
+        st.set()
+    proc = _dahua_tunnel.get("proc")
+    if proc and proc.poll() is None:
+        try:
+            proc.terminate()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            proc.wait(timeout=4)
+        except Exception:  # noqa: BLE001
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 def main():
     global ENCODER, OUT_FPS, SOURCE_URL
     session_id = env("AUTOLIVE_SESSION_ID", required=True)
     worker_token = env("AUTOLIVE_WORKER_TOKEN", required=True)
+    # Nguồn đầu thu Dahua/DMSS qua P2P: mở tunnel → RTSP local, rồi coi như một
+    # nguồn RTSP thường (ffmpeg kéo thẳng). Phải chạy TRƯỚC khi đọc device_id
+    # (device_id chỉ bắt buộc khi không có SOURCE_URL).
+    if DAHUA_P2P_JSON and not SOURCE_URL:
+        try:
+            _dcfg = json.loads(DAHUA_P2P_JSON)
+            SOURCE_URL = start_dahua_tunnel(_dcfg)
+            log(f"nguồn = Đầu thu Dahua P2P (kênh {_dcfg.get('channel', 1)})")
+        except Exception as e:  # noqa: BLE001
+            log(f"Dahua P2P tunnel lỗi: {e!r}", err=True)
+            sys.exit(6)
     overlay_url = env("AUTOLIVE_OVERLAY_URL", required=True)
     heartbeat_url = env("AUTOLIVE_HEARTBEAT_URL", required=True)
     session_post_url = env("AUTOLIVE_SESSION_POST_URL", "")
@@ -774,6 +935,7 @@ def main():
 
     def cleanup(*_):
         stop_event.set()
+        stop_dahua_tunnel()
         ff = ff_holder[0]
         if ff is not None:
             try: ff.stdin.close()

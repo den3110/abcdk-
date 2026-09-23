@@ -11,7 +11,7 @@ import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, getUserMatchOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
   refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
-  getCourtImouStreamUrlForApp,
+  getCourtImouStreamUrlForApp, saveVenueDahuaNvr,
 } from "../services/autoLive/tournamentAutoLive.service.js";
 
 // GET /api/tournament-auto-live/court-imou-session?imouDeviceId=xxx (admin)
@@ -100,6 +100,7 @@ export const startSession = asyncHandler(async (req, res) => {
     imouDeviceId: body.imouDeviceId,
     venueId: body.venueId,
     sourceUrl: body.sourceUrl,
+    dahuaP2p: body.dahuaP2p, // { serial?, channel, subtype, password?, username? }
     destinations: body.destinations,
     autoNext: body.autoNext !== false,
     layout: body.layout,
@@ -114,6 +115,36 @@ export const startSession = asyncHandler(async (req, res) => {
 export const stopSession = asyncHandler(async (req, res) => {
   const doc = await stopAutoLive(req.params.id);
   res.json(stripSecrets(doc));
+});
+
+// GET /api/tournament-auto-live/venue-dahua?venueId= (admin) — trạng thái đầu thu
+// Dahua P2P của venue (KHÔNG trả mật khẩu).
+export const getVenueDahua = asyncHandler(async (req, res) => {
+  const venueId = req.query.venueId;
+  if (!venueId) { res.status(400); throw new Error("Thiếu venueId"); }
+  const venue = await Venue.findById(venueId).select("dahuaNvr name").lean();
+  if (!venue) { res.status(404); throw new Error("Venue không tồn tại"); }
+  const n = venue.dahuaNvr || {};
+  res.json({
+    venueId: String(venueId),
+    venueName: venue.name || "",
+    serial: n.serial || "",
+    username: n.username || "admin",
+    channels: n.channels || 8,
+    hasPassword: !!n.credCipher,
+    updatedAt: n.updatedAt || null,
+  });
+});
+
+// POST /api/tournament-auto-live/venue-dahua (admin) — lưu cấu hình đầu thu Dahua
+// P2P cho venue. Body: { venueId, serial, username?, password?, channels? }.
+export const setVenueDahua = asyncHandler(async (req, res) => {
+  const { venueId, serial, username, password, channels } = req.body || {};
+  if (!venueId) { res.status(400); throw new Error("Thiếu venueId"); }
+  const venue = await Venue.findById(venueId).select("_id").lean();
+  if (!venue) { res.status(404); throw new Error("Venue không tồn tại"); }
+  await saveVenueDahuaNvr(venueId, { serial, username, password, channels });
+  res.status(201).json({ ok: true });
 });
 
 // GET /api/tournament-auto-live/sessions?tournamentId=...

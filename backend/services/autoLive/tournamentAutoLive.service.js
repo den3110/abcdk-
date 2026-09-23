@@ -34,6 +34,9 @@ import { fbCreateLiveOnPage, fbGetLiveVideo, fbEndLiveVideo } from "../facebookL
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const WORKER_SCRIPT = path.resolve(__dirname, "../../scripts/autoLive/worker.py");
+// Binary tunnel dh-p2p (nguồn đầu thu Dahua P2P). Build: scripts/dahua-p2p/build.sh
+const DAHUA_P2P_BIN_DEFAULT = path.resolve(
+  __dirname, "../../scripts/dahua-p2p/target/release/dh-p2p");
 const PYTHON_BIN = process.env.PYTHON_BIN || "python3";
 // Lưới an toàn tuyệt đối (server-runner): worker.py đã có watchdog restart ở
 // ~1800MB; nếu vì lý do gì đó nó vượt ngưỡng NÀY thì backend cưỡng bức dừng phiên
@@ -350,6 +353,39 @@ async function decryptVenueImouCreds(venueId) {
 }
 
 /**
+ * Đầu thu Dahua/DMSS: trả { serial, username, password, channels } từ venue.dahuaNvr
+ * (mật khẩu giải mã). null nếu venue chưa cấu hình đầu thu.
+ */
+async function decryptVenueDahuaCreds(venueId) {
+  if (!venueId) return null;
+  const venue = await Venue.findById(venueId).select("dahuaNvr").lean();
+  const nvr = venue?.dahuaNvr;
+  if (!nvr?.serial || !nvr?.credCipher) return null;
+  const password = decryptToken(nvr.credCipher);
+  if (!password) return null;
+  return {
+    serial: String(nvr.serial).trim(),
+    username: String(nvr.username || "admin").trim(),
+    channels: Number(nvr.channels) || 8,
+    password,
+  };
+}
+
+/** Lưu cấu hình đầu thu Dahua P2P cho venue (mật khẩu mã hoá). */
+export async function saveVenueDahuaNvr(venueId, { serial, username, password, channels }) {
+  const { encryptToken } = await import("../secret.service.js");
+  const set = {
+    "dahuaNvr.serial": String(serial || "").trim(),
+    "dahuaNvr.username": String(username || "admin").trim(),
+    "dahuaNvr.updatedAt": new Date(),
+  };
+  if (channels != null && channels !== "") set["dahuaNvr.channels"] = Number(channels) || 8;
+  if (password) set["dahuaNvr.credCipher"] = encryptToken(String(password));
+  await Venue.updateOne({ _id: venueId }, { $set: set });
+  return true;
+}
+
+/**
  * Session lưu bởi mobile app (camelCase): {uuidUser,uuidKey,sessionId,regionalHost}.
  * Python cần snake_case: {uuid_user,uuid_key,session_id,regional_host}. Convert.
  */
@@ -467,23 +503,46 @@ export async function startAutoLive(input) {
   const {
     tournamentId, courtStationId, imouDeviceId, destinations,
     startedBy, autoNext = true, venueId: explicitVenueId, layout, advanced,
-    sourceUrl,
+    sourceUrl, dahuaP2p,
   } = input || {};
   const src = (sourceUrl || "").trim();
+  const useDahua = !!(dahuaP2p && typeof dahuaP2p === "object"
+    && (dahuaP2p.serial || dahuaP2p.channel != null || dahuaP2p.enabled));
   if (!tournamentId || !courtStationId || !Array.isArray(destinations) || !destinations.length) {
     const err = new Error("Thiếu tournamentId/courtStationId/destinations");
     err.status = 400; throw err;
   }
-  if (!src && !imouDeviceId) {
-    const err = new Error("Cần chọn camera Imou hoặc nhập Custom link");
+  if (!src && !imouDeviceId && !useDahua) {
+    const err = new Error("Cần chọn camera Imou / đầu thu Dahua hoặc nhập Custom link");
     err.status = 400; throw err;
   }
   const station = await CourtStation.findById(courtStationId).select("_id clusterId").lean();
   if (!station) { const e = new Error("Court không tồn tại"); e.status = 404; throw e; }
 
   // Nguồn Imou cần venue + session; nguồn URL thì bỏ qua toàn bộ Imou.
-  let venueId, imouSession = null, imouCreds = null;
-  if (!src) {
+  let venueId, imouSession = null, imouCreds = null, dahuaCfg = null;
+  if (useDahua) {
+    // Đầu thu Dahua P2P: cần venue (để lấy creds mã hoá). serial/pass ưu tiên
+    // input (test), fallback venue.dahuaNvr.
+    venueId = explicitVenueId;
+    if (!venueId) {
+      const e = new Error("Nguồn đầu thu Dahua cần chọn venue (venueId)");
+      e.status = 400; throw e;
+    }
+    const stored = await decryptVenueDahuaCreds(venueId);
+    const serial = String(dahuaP2p.serial || stored?.serial || "").trim();
+    const username = String(dahuaP2p.username || stored?.username || "admin").trim();
+    const password = String(dahuaP2p.password || stored?.password || "");
+    if (!serial || !password) {
+      const e = new Error("Chưa cấu hình đầu thu Dahua (serial + mật khẩu) cho venue này");
+      e.status = 400; throw e;
+    }
+    dahuaCfg = {
+      serial, username, password,
+      channel: Number(dahuaP2p.channel) || 1,
+      subtype: Number(dahuaP2p.subtype) || 0,
+    };
+  } else if (!src) {
     venueId = explicitVenueId;
     if (!venueId) {
       const VenueCourt = mongoose.model("VenueCourt");
@@ -528,6 +587,9 @@ export async function startAutoLive(input) {
   const session = await TournamentAutoLiveSession.create({
     tournament: tournamentId, court: courtStationId, venue: venueId,
     imouDeviceId: imouDeviceId || "", sourceUrl: src,
+    dahuaP2p: dahuaCfg
+      ? { serial: dahuaCfg.serial, channel: dahuaCfg.channel, subtype: dahuaCfg.subtype }
+      : undefined,
     startedBy, destinations: preparedDest, autoNext,
     layout: layout && typeof layout === "object" ? layout : undefined,
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
@@ -557,7 +619,7 @@ export async function startAutoLive(input) {
   }
 
   try {
-    const proc = spawnWorker(session, imouSession, imouCreds);
+    const proc = spawnWorker(session, imouSession, imouCreds, dahuaCfg);
     const entry = { proc, overlayCache: null, pollTimer: null };
     registry.set(String(session._id), entry);
     session.workerPid = proc.pid || 0;
@@ -593,7 +655,7 @@ function advancedEnv(a) {
   return env;
 }
 
-function spawnWorker(session, imouSession, imouCreds) {
+function spawnWorker(session, imouSession, imouCreds, dahuaCfg) {
   const backendBase = process.env.PUBLIC_BACKEND_URL || "http://localhost:5001";
   const overlayUrl = `${backendBase}/api/tournament-auto-live/overlay/${session._id}.png`;
   const heartbeatUrl = `${backendBase}/api/tournament-auto-live/internal/heartbeat`;
@@ -612,6 +674,9 @@ function spawnWorker(session, imouSession, imouCreds) {
     AUTOLIVE_IMOU_AREA_CODE: imouCreds?.areaCode || "84",
     AUTOLIVE_IMOU_DEVICE_ID: session.imouDeviceId || "",
     AUTOLIVE_SOURCE_URL: session.sourceUrl || "",
+    // Nguồn đầu thu Dahua P2P: worker tự spawn tunnel → RTSP local → SOURCE_URL.
+    AUTOLIVE_DAHUA_P2P_JSON: dahuaCfg ? JSON.stringify(dahuaCfg) : "",
+    AUTOLIVE_DAHUA_P2P_BIN: process.env.AUTOLIVE_DAHUA_P2P_BIN || DAHUA_P2P_BIN_DEFAULT,
     AUTOLIVE_DESTINATIONS: JSON.stringify(session.destinations.map((d) => ({
       type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
     }))),
@@ -781,10 +846,23 @@ export async function getWorkerConfig(sessionId) {
   const imouSession = await decryptVenueImouSession(s.venue);
   const imouCreds = await decryptVenueImouCreds(s.venue);
   const base = process.env.PUBLIC_BACKEND_URL || "http://localhost:5001";
+  // Nguồn đầu thu Dahua P2P: kèm creds (từ venue) để client tự spawn tunnel.
+  let dahuaP2p = null;
+  if (s.dahuaP2p?.serial) {
+    const stored = await decryptVenueDahuaCreds(s.venue);
+    dahuaP2p = {
+      serial: s.dahuaP2p.serial,
+      username: stored?.username || "admin",
+      password: stored?.password || "",
+      channel: s.dahuaP2p.channel || 1,
+      subtype: s.dahuaP2p.subtype || 0,
+    };
+  }
   return {
     sessionId: String(s._id),
     imouDeviceId: s.imouDeviceId || "",
     sourceUrl: s.sourceUrl || "",
+    dahuaP2p,
     imouSession: imouSession || null,
     imouCreds: imouCreds ? {
       phone: imouCreds.phone, password: imouCreds.password, areaCode: imouCreds.areaCode || "84",

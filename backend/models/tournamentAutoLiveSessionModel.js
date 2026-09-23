@@ -37,6 +37,13 @@ const tournamentAutoLiveSessionSchema = new Schema(
     imouCamName: { type: String, default: "" },
     // Nguồn video tuỳ chỉnh (m3u8/RTSP/RTMP/http) thay cho cam Imou
     sourceUrl: { type: String, default: "" },
+    // Nguồn đầu thu Dahua/DMSS qua P2P (serial+mật khẩu). Mật khẩu KHÔNG lưu ở
+    // session — lấy từ venue.dahuaNvr (mã hoá) lúc spawn worker. Chỉ metadata.
+    dahuaP2p: {
+      serial: { type: String, default: "" },
+      channel: { type: Number, default: 1 },
+      subtype: { type: Number, default: 0 },
+    },
     // User bấm Start (owner giải / staff)
     startedBy: { type: Schema.Types.ObjectId, ref: "User" },
     status: {
