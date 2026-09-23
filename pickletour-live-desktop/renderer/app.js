@@ -406,6 +406,93 @@ $("stopDirect").onclick = () => {
   $("previewHint").textContent = "";
 };
 
+// ── Trận NGẪU NHIÊN (không cần giải) — tạo trận + live + chấm điểm ──
+$("goRandom").onclick = async () => {
+  $("setupErr").textContent = "";
+  stopSetupPreview();
+  try {
+    let source;
+    if ($("srcType").value === "url") {
+      const u = $("srcUrl").value.trim();
+      if (!u) throw new Error("Nhập link nguồn (mục 1).");
+      source = { kind: "url", sourceUrl: u, encoder: $("encoder").value };
+    } else {
+      const cam = state.cams[+$("cam").value];
+      if (!cam) throw new Error("Chọn camera Imou (mục 1).");
+      source = { kind: "imou", imouDeviceId: cam.deviceId, encoder: $("encoder").value };
+    }
+    const rtmpDests = state.destinations.filter((d) => d.type === "rtmp" && d.streamUrl);
+    if (!rtmpDests.length) throw new Error("Thêm ít nhất 1 đích RTMP/YouTube (mục 3).");
+    const teamA = [$("rndA1").value, $("rndA2").value];
+    const teamB = [$("rndB1").value, $("rndB2").value];
+    if (!teamA[0].trim() && !teamB[0].trim()) throw new Error("Nhập tên VĐV ít nhất 1 đội.");
+    $("goRandom").disabled = true; $("goRandom").textContent = "Đang tạo trận…";
+    const res = await window.api.randomStart({
+      baseUrl: state.baseUrl, token: state.token, source, destinations: rtmpDests,
+      title: $("rndTitle").value, teamA, teamB,
+    });
+    state.randomMatchId = res.matchId;
+    $("setupPreview").classList.remove("hidden");
+    $("previewLog").classList.remove("hidden");
+    $("stopRandom").classList.remove("hidden");
+    $("goRandom").classList.add("hidden");
+    $("goLive").disabled = true; $("goDirect").disabled = true;
+    $("scoreAName").textContent = teamA.filter((x) => x.trim()).join(" / ") || "Đội A";
+    $("scoreBName").textContent = teamB.filter((x) => x.trim()).join(" / ") || "Đội B";
+    $("scorePanel").classList.remove("hidden");
+    const names = rtmpDests.map((d) => d.label || "RTMP").join(", ");
+    startSetupPreview(res.previewUrl, `🔴 Đang live trận "${$("rndTitle").value.trim() || "Giao hữu"}" tới: ${names}.`);
+    startScorePoll();
+  } catch (e) {
+    $("setupErr").textContent = e.message;
+  } finally {
+    $("goRandom").disabled = false; $("goRandom").textContent = "🎲 Live trận ngẫu nhiên";
+  }
+};
+$("stopRandom").onclick = () => {
+  try { window.api.randomStop(); } catch {}
+  clearInterval(state.scoreTimer);
+  if (state.setupHls) { try { state.setupHls.destroy(); } catch {} state.setupHls = null; }
+  const v = $("setupPreview");
+  try { v.pause(); v.removeAttribute("src"); v.load(); } catch {}
+  v.classList.add("hidden");
+  $("stopRandom").classList.add("hidden");
+  $("previewLog").classList.add("hidden");
+  $("scorePanel").classList.add("hidden");
+  $("goRandom").classList.remove("hidden");
+  $("goLive").disabled = false; $("goDirect").disabled = false;
+  $("previewHint").textContent = "";
+  state.randomMatchId = null;
+};
+document.querySelectorAll(".sbtn").forEach((b) => {
+  b.onclick = async () => {
+    if (!state.randomMatchId) return;
+    try {
+      await window.api.matchScore({
+        baseUrl: state.baseUrl, token: state.token,
+        matchId: state.randomMatchId, side: b.dataset.side, delta: Number(b.dataset.d),
+      });
+      refreshScore();
+    } catch (e) { $("setupErr").textContent = e.message; }
+  };
+});
+function startScorePoll() {
+  clearInterval(state.scoreTimer);
+  refreshScore();
+  state.scoreTimer = setInterval(refreshScore, 2000);
+}
+async function refreshScore() {
+  if (!state.randomMatchId) return;
+  try {
+    const m = await apiGet(`/api/user-matches/${state.randomMatchId}`);
+    const gs = Array.isArray(m.gameScores) ? m.gameScores : [];
+    let idx = Number.isInteger(m.currentGame) ? m.currentGame : gs.length - 1;
+    const g = gs[idx] || gs[gs.length - 1] || { a: 0, b: 0 };
+    $("scoreA").textContent = g.a || 0;
+    $("scoreB").textContent = g.b || 0;
+  } catch {}
+}
+
 function startPreview(url) {
   const v = $("preview");
   if (state.hls) { state.hls.destroy(); state.hls = null; }

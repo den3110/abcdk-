@@ -5,6 +5,7 @@
 import { createCanvas, loadImage } from "canvas";
 import mongoose from "mongoose";
 import Match from "../../models/matchModel.js";
+import UserMatch from "../../models/userMatchModel.js";
 import CourtStation from "../../models/courtStationModel.js";
 import Tournament from "../../models/tournamentModel.js";
 import { Sponsor } from "../../models/sponsorModel.js";
@@ -126,6 +127,23 @@ export async function loadOverlayData(courtStationId) {
     .filter(Boolean);
 
   return { station, match, tournament, sponsorLogos };
+}
+
+// Overlay cho TRẬN NGẪU NHIÊN (UserMatch standalone, không thuộc giải). UserMatch
+// đã lưu sẵn pairA/pairB (build từ participants) + gameScores/currentGame/serve/rules
+// — cùng shape với Match, nên tái dùng renderOverlayPng nguyên vẹn.
+export async function loadOverlayDataFromUserMatch(userMatchId) {
+  if (!mongoose.isValidObjectId(userMatchId)) return null;
+  const m = await UserMatch.findById(userMatchId)
+    .select("_id status pairA pairB gameScores currentGame serve rules title winner")
+    .lean();
+  if (!m) return null;
+  return {
+    station: { name: String(m.title || "").trim() }, // tiêu đề trận thay tên sân
+    match: m,
+    tournament: null,
+    sponsorLogos: [],
+  };
 }
 
 function playerLabel(p) {

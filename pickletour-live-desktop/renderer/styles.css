@@ -86,3 +86,9 @@ video { width: 100%; border-radius: 12px; background: #000; aspect-ratio: 16/9; 
 }
 .cornermap .pin.brand { background: rgba(14,165,233,0.9); }
 .cornermap .pin.sponsor { background: rgba(245,158,11,0.9); }
+
+/* Trận ngẫu nhiên — bảng chấm điểm */
+.scorerow { display:flex; align-items:center; gap:12px; padding:8px 0; }
+.scorerow b { flex:1; }
+.scoreval { min-width:44px; text-align:center; font-size:22px; font-weight:800; }
+.sbtn { width:44px; height:40px; font-size:22px; line-height:1; }

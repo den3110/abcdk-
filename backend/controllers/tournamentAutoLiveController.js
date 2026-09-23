@@ -8,7 +8,7 @@ import CourtStation from "../models/courtStationModel.js";
 import CourtCluster from "../models/courtClusterModel.js";
 import FbToken from "../models/fbTokenModel.js";
 import {
-  startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, backfillWatchUrls,
+  startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, getUserMatchOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
   refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
   getCourtImouStreamUrlForApp,
@@ -157,6 +157,17 @@ export const getSession = asyncHandler(async (req, res) => {
 export const getOverlayImage = asyncHandler(async (req, res) => {
   const sessionId = String(req.params.id).replace(/\.png$/, "");
   const buf = await getCachedOverlayPng(sessionId);
+  if (!buf) { res.status(404).end(); return; }
+  res.setHeader("Content-Type", "image/png");
+  res.setHeader("Cache-Control", "no-store, must-revalidate");
+  res.send(buf);
+});
+
+// GET /api/tournament-auto-live/overlay/usermatch/:id.png — overlay trận ngẫu nhiên
+// (UserMatch). App desktop worker fetch trực tiếp bằng userMatchId, không cần session.
+export const getUserMatchOverlayImage = asyncHandler(async (req, res) => {
+  const id = String(req.params.id).replace(/\.png$/, "");
+  const buf = await getUserMatchOverlayPng(id);
   if (!buf) { res.status(404).end(); return; }
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Cache-Control", "no-store, must-revalidate");

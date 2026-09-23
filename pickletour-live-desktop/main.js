@@ -47,13 +47,14 @@ function stopAll() {
 }
 
 // ───────────────────────── HTTP helpers (authed) ─────────────────────────
-async function apiFetch(baseUrl, apiPath, { method = "GET", token, body } = {}) {
+async function apiFetch(baseUrl, apiPath, { method = "GET", token, body, headers } = {}) {
   const url = baseUrl.replace(/\/$/, "") + apiPath;
   const res = await fetch(url, {
     method,
     headers: {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(headers || {}),
     },
     body: body ? JSON.stringify(body) : undefined,
   });
@@ -316,7 +317,7 @@ function stopWorker(sid) {
 // ───────────────────────── Xem thử nguồn (preview trước khi live) ─────────
 // Chạy worker.py ở chế độ AUTOLIVE_PREVIEW_ONLY: chỉ đọc nguồn (RTSP/m3u8/RTMP/
 // HTTP hoặc Imou DHAV) → xuất HLS cục bộ, KHÔNG overlay/heartbeat/đích FB-YT.
-async function startPreview({ baseUrl, token, source, destinations }) {
+async function startPreview({ baseUrl, token, source, destinations, overlayUrl }) {
   const selfContained = isSelfContained();
   const python = selfContained ? null : detectPython();
   const ffmpeg = detectFfmpeg();
@@ -369,6 +370,8 @@ async function startPreview({ baseUrl, token, source, destinations }) {
     AUTOLIVE_ENCODER: source.encoder || "auto",
     // Rỗng = chỉ xem thử; có đích RTMP = live thẳng (không qua server pickletour).
     AUTOLIVE_DESTINATIONS: JSON.stringify(Array.isArray(destinations) ? destinations : []),
+    // Trận ngẫu nhiên: overlay bảng điểm PNG từ backend (userMatch).
+    ...(overlayUrl ? { AUTOLIVE_OVERLAY_URL: overlayUrl } : {}),
     FFMPEG_PATH: ffmpeg,
     ...srcEnv,
     ...(selfContained
@@ -439,6 +442,43 @@ ipcMain.handle("preview-stop", () => { stopPreview(); return { ok: true }; });
 // Live THẲNG tới RTMP (không qua server pickletour): như preview nhưng có đích RTMP.
 ipcMain.handle("direct-start", async (_e, args) => startPreview(args));
 ipcMain.handle("direct-stop", () => { stopPreview(); return { ok: true }; });
+
+// Trận NGẪU NHIÊN (standalone, không thuộc giải): tạo UserMatch (tên trận + tên
+// VĐV 2 đội) → live thẳng RTMP kèm overlay bảng điểm. Chấm điểm qua referee API.
+let randomMatchId = null;
+ipcMain.handle("random-start", async (_e, { baseUrl, token, source, destinations, title, teamA, teamB }) => {
+  const participants = [];
+  const push = (side, order, name) => {
+    const n = String(name || "").trim();
+    if (n) participants.push({ side, order, displayName: n });
+  };
+  push("A", 1, teamA?.[0]); push("A", 2, teamA?.[1]);
+  push("B", 1, teamB?.[0]); push("B", 2, teamB?.[1]);
+  if (participants.length < 2) throw new Error("Nhập tối thiểu 1 VĐV mỗi đội.");
+  // 1) Tạo UserMatch trên backend (chỉ để có id + overlay + nơi chấm điểm).
+  const match = await apiFetch(baseUrl, "/api/user-matches", {
+    method: "POST", token,
+    body: { title: String(title || "").trim() || "Trận giao hữu", participants, sportType: "pickleball" },
+  });
+  const matchId = match?._id || match?.id;
+  if (!matchId) throw new Error("Không tạo được trận (UserMatch).");
+  randomMatchId = String(matchId);
+  // 2) Live thẳng RTMP + overlay bảng điểm PNG (userMatch).
+  const overlayUrl = `${baseUrl.replace(/\/$/, "")}/api/tournament-auto-live/overlay/usermatch/${matchId}.png`;
+  const res = await startPreview({ baseUrl, token, source, destinations, overlayUrl });
+  return { ...res, matchId: randomMatchId };
+});
+ipcMain.handle("random-stop", () => { stopPreview(); randomMatchId = null; return { ok: true }; });
+// Chấm điểm trận ngẫu nhiên: PATCH referee (header user-match). side A/B, delta ±1.
+ipcMain.handle("match-score", async (_e, { baseUrl, token, matchId, side, delta }) => {
+  const id = matchId || randomMatchId;
+  if (!id) throw new Error("Chưa có trận đang live.");
+  return apiFetch(baseUrl, `/api/referee/matches/${id}/score`, {
+    method: "PATCH", token,
+    headers: { "x-pkt-match-kind": "user" },
+    body: { op: "inc", side, delta: Number(delta) || 1 },
+  });
+});
 ipcMain.handle("preview-log", () => ({ log: lastPreviewLog ? tailFile(lastPreviewLog) : "" }));
 ipcMain.handle("preview-openlog", () => { if (lastPreviewLog) shell.openPath(lastPreviewLog); });
 ipcMain.handle("stop", async (_e, { baseUrl, token, sessionId }) => {

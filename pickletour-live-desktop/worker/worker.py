@@ -758,8 +758,10 @@ def main():
 
     # Overlay: kiểm tra tải được không (thử 10 lần). FIFO cho ffmpeg image2pipe
     # → điểm số cập nhật live (image2 -loop cache frame, không đọc lại file).
+    # Có overlay_url thì luôn thử tải (kể cả PREVIEW_ONLY — dùng cho "trận ngẫu nhiên"
+    # standalone có bảng điểm). Preview/direct thuần không truyền overlay_url → bỏ qua.
     have_overlay = False
-    for _ in range(0 if PREVIEW_ONLY else 10):
+    for _ in range(10 if overlay_url else 0):
         if fetch_overlay_bytes(overlay_url):
             have_overlay = True
             break

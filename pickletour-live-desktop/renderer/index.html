@@ -138,6 +138,41 @@
       <div id="destList" class="chips"></div>
     </div>
 
+    <div class="card">
+      <h3>🎲 Trận ngẫu nhiên (không cần giải)</h3>
+      <div class="hint" style="margin-bottom:8px">Tự nhập tên trận + tên VĐV 2 đội → tạo trận có bảng điểm rồi live thẳng tới đích RTMP/YouTube (mục 3), dùng nguồn ở mục 1. Chấm điểm ngay dưới đây hoặc từ web/máy khác.</div>
+      <label>Tên trận</label>
+      <input id="rndTitle" placeholder="VD: Giao hữu sân 5" />
+      <div class="row3" style="margin-top:8px">
+        <div>
+          <label>Đội A — VĐV</label>
+          <input id="rndA1" placeholder="Tên VĐV A1" />
+          <input id="rndA2" placeholder="Tên VĐV A2 (nếu đánh đôi)" style="margin-top:6px" />
+        </div>
+        <div>
+          <label>Đội B — VĐV</label>
+          <input id="rndB1" placeholder="Tên VĐV B1" />
+          <input id="rndB2" placeholder="Tên VĐV B2 (nếu đánh đôi)" style="margin-top:6px" />
+        </div>
+        <div></div>
+      </div>
+      <div class="actions" style="margin-top:10px">
+        <button id="goRandom" class="primary big">🎲 Live trận ngẫu nhiên</button>
+        <button id="stopRandom" class="danger big hidden">■ DỪNG</button>
+      </div>
+      <div id="scorePanel" class="hidden" style="margin-top:12px">
+        <div class="scorerow"><b id="scoreAName">Đội A</b>
+          <button class="ghost sbtn" data-side="A" data-d="-1">−</button>
+          <span id="scoreA" class="scoreval">0</span>
+          <button class="ghost sbtn" data-side="A" data-d="1">+</button></div>
+        <div class="scorerow"><b id="scoreBName">Đội B</b>
+          <button class="ghost sbtn" data-side="B" data-d="-1">−</button>
+          <span id="scoreB" class="scoreval">0</span>
+          <button class="ghost sbtn" data-side="B" data-d="1">+</button></div>
+        <div class="hint">Bảng điểm overlay tự cập nhật ~1–2s.</div>
+      </div>
+    </div>
+
     <div class="actions">
       <button id="goLive" class="primary big">● BẮT ĐẦU LIVE</button>
       <button id="goDirect" class="primary big">⚡ Live thẳng RTMP</button>

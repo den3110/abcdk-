@@ -26,7 +26,7 @@ import Match from "../../models/matchModel.js";
 import Tournament from "../../models/tournamentModel.js";
 import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionModel.js";
 import { decryptToken } from "../secret.service.js";
-import { loadOverlayData, renderOverlayPng } from "./overlayRenderer.service.js";
+import { loadOverlayData, loadOverlayDataFromUserMatch, renderOverlayPng } from "./overlayRenderer.service.js";
 import { sampleProcessTree, clearProcSample, systemCapacity } from "./procStat.service.js";
 import { getValidPageToken } from "../fbTokenService.js";
 import { fbCreateLiveOnPage, fbGetLiveVideo, fbEndLiveVideo } from "../facebookLive.service.js";
@@ -106,6 +106,23 @@ export async function getCachedOverlayPng(sessionId) {
   if (data) data.layout = doc.layout || {};
   const buf = await renderOverlayPng(data);
   overlayCache.set(String(sessionId), { buf, token });
+  return buf;
+}
+
+// Overlay PNG cho trận ngẫu nhiên (UserMatch) — desktop worker fetch trực tiếp
+// bằng userMatchId (không cần session auto-live). Cache ~1s theo mốc thời gian.
+const userOverlayCache = new Map();
+export async function getUserMatchOverlayPng(userMatchId) {
+  const id = String(userMatchId || "");
+  const data = await loadOverlayDataFromUserMatch(id);
+  if (!data) return null;
+  // Token đổi ~mỗi 800ms để overlay bắt kịp điểm số mới (referee patch) mà vẫn
+  // tránh render mọi request (~2fps worker fetch).
+  const token = Math.floor(Date.now() / 800);
+  const cached = userOverlayCache.get(id);
+  if (cached && cached.token === token) return cached.buf;
+  const buf = await renderOverlayPng(data);
+  userOverlayCache.set(id, { buf, token });
   return buf;
 }
 
