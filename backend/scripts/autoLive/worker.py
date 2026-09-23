@@ -813,6 +813,12 @@ def main():
     # destination FB mới (FB không cho re-publish cùng key sau khi publisher rớt).
     ff_restarts = 0
     fast_fails = 0
+    # Đã thử NỐI LẠI CÙNG link FB (cùng stream key) ở lần spawn hiện tại chưa.
+    # Mục tiêu: 1 trận = 1 video FB duy nhất. Khi ffmpeg chết vì blip mạng tới FB
+    # (I/O error ở muxer RTMP), ta republish CÙNG key trong ~6s — FB còn trong cửa
+    # sổ reconnect nên tiếp tục CÙNG video. Chỉ khi republish cùng key CHẾT NHANH
+    # (FB đã đóng video) mới xin link FB mới.
+    pending_same_url_reconnect = False
     while not stop_event.is_set():
         args = build_ffmpeg_args(overlay_fifo, has_audio, tee)
         log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} restart#{ff_restarts}")
@@ -855,6 +861,22 @@ def main():
         # không phải đứt mạng → KHÔNG tạo lại FB live (tránh spam video mới),
         # chỉ retry; quá nhiều lần fast-fail → dừng hẳn.
         if ran_s < 20:
+            # ffmpeg vừa NỐI LẠI CÙNG link FB mà chết nhanh → FB đã ĐÓNG video cũ
+            # (không nhận lại key) → giờ mới xin link FB mới (đây là lần DUY NHẤT
+            # tạo video FB mới). Nhờ vậy blip mạng thoáng qua vẫn giữ 1 video.
+            if pending_same_url_reconnect and not SOURCE_URL:
+                pending_same_url_reconnect = False
+                fast_fails = 0
+                log("nối lại CÙNG link FB thất bại (FB đã đóng video) → xin link FB MỚI",
+                    err=True)
+                new_tee = refresh_destinations(
+                    session_post_url.replace("/imou-session", "/destinations"),
+                    worker_token, session_id)
+                if new_tee:
+                    tee = new_tee
+                    log("đã lấy destination FB mới")
+                if _sleep_stop(stop_event, 3): break
+                continue
             fast_fails += 1
             if SOURCE_URL:
                 # Nguồn URL chết nhanh = NGUỒN đang lỗi/đứt (HTTP 5XX/timeout —
@@ -875,12 +897,12 @@ def main():
             if ff_restarts > MAX_ATTEMPTS:
                 log(f"ffmpeg chết quá {MAX_ATTEMPTS} lần → dừng", err=True)
                 break
-            # Chỉ tạo FB mới khi đã chạy ổn 1 lúc rồi mới chết (đứt thật).
-            new_tee = refresh_destinations(session_post_url.replace("/imou-session", "/destinations"),
-                                           worker_token, session_id)
-            if new_tee:
-                tee = new_tee
-                log("đã lấy destination FB mới sau khi ffmpeg chết")
+            # Đã chạy ổn rồi mới đứt (blip mạng tới FB). GIỮ 1 VIDEO: thử NỐI LẠI
+            # CÙNG link FB trước (republish cùng key trong ~vài giây, FB còn cửa sổ
+            # reconnect nên tiếp tục cùng video). KHÔNG xin link mới ở đây nữa —
+            # chỉ xin link mới nếu lần nối lại này chết nhanh (nhánh ran_s<20 trên).
+            pending_same_url_reconnect = True
+            log("ffmpeg đứt (I/O tới FB) → NỐI LẠI CÙNG link FB (giữ 1 video)")
         if _sleep_stop(stop_event, min(10, 2 + 2 * fast_fails)): break
 
     cleanup()
