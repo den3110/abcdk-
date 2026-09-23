@@ -491,6 +491,23 @@ export async function startAutoLive(input) {
   const preparedDest = await prepareDestinations(destinations, title);
 
   const runner = input.runner === "client" ? "client" : "server";
+
+  // Court exclusivity: 1 sân chỉ 1 phiên active. Dọn phiên cũ còn "sống" trên
+  // cùng sân (thường là phiên treo/mồ côi lần chạy trước chưa stop) → set "stopped".
+  // Nếu không, phiên mới lên "live" sẽ đụng unique index {court,status} → E11000
+  // ở heartbeat (client-runner chỉ lên "live" qua heartbeat).
+  try {
+    await TournamentAutoLiveSession.updateMany(
+      { court: courtStationId, status: { $in: ["starting", "live", "reconnecting", "paused"] } },
+      { $set: {
+          status: "stopped", stoppedAt: new Date(),
+          lastError: "Bị thay bởi phiên mới trên cùng sân", lastErrorAt: new Date(),
+        } }
+    );
+  } catch (e) {
+    console.warn("[autolive] dedupe court sessions error:", e?.message || e);
+  }
+
   const session = await TournamentAutoLiveSession.create({
     tournament: tournamentId, court: courtStationId, venue: venueId,
     imouDeviceId: imouDeviceId || "", sourceUrl: src,
@@ -703,11 +720,39 @@ export async function recordHeartbeat(sessionId, extra = {}) {
   if (Number.isFinite(extra.bitrateKbps)) set.bitrateKbps = Math.max(0, Math.round(extra.bitrateKbps));
   if (Number.isFinite(extra.fps)) set.fps = Math.max(0, Math.round(extra.fps));
   if (Number.isFinite(extra.speed)) set.speed = Math.round((extra.speed) * 100) / 100;
-  const doc = await TournamentAutoLiveSession.findById(sessionId).select("status runner");
+  const doc = await TournamentAutoLiveSession.findById(sessionId).select("status runner court");
   if (!doc) return null;
   // Client tự stop khi admin đã dừng phiên.
   if (doc.status === "stopped") return { _stopped: true };
-  await TournamentAutoLiveSession.updateOne({ _id: sessionId }, { $set: set });
+  try {
+    await TournamentAutoLiveSession.updateOne({ _id: sessionId }, { $set: set });
+  } catch (e) {
+    // E11000 {court,status:"live"}: có phiên "ma" khác đang giữ slot live trên cùng
+    // sân (lần chạy trước chưa stop). Phiên đang gửi heartbeat MỚI là phiên thật →
+    // dọn các phiên khác trên sân rồi thử lại. KHÔNG 500 (tránh spam Telegram + để
+    // worker vẫn nhận được phản hồi stop).
+    if (e?.code === 11000 && doc.court) {
+      try {
+        await TournamentAutoLiveSession.updateMany(
+          {
+            _id: { $ne: sessionId },
+            court: doc.court,
+            status: { $in: ["starting", "live", "reconnecting", "paused"] },
+          },
+          { $set: {
+              status: "stopped", stoppedAt: new Date(),
+              lastError: "Bị thay bởi phiên đang chạy trên cùng sân (dedupe heartbeat)",
+              lastErrorAt: new Date(),
+            } }
+        );
+        await TournamentAutoLiveSession.updateOne({ _id: sessionId }, { $set: set });
+      } catch (e2) {
+        console.warn("[autolive] heartbeat dedupe retry failed:", e2?.message || e2);
+      }
+    } else {
+      console.warn("[autolive] heartbeat update failed:", e?.message || e);
+    }
+  }
   return { _stopped: false };
 }
 
