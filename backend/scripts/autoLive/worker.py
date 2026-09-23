@@ -469,10 +469,11 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
         # Cờ input theo scheme (nếu áp sai scheme ffmpeg báo "Option not found").
         u = SOURCE_URL.lower()
         if u.startswith("rtsp://"):
-            # -rtsp_transport tcp: ổn định qua tunnel/NAT. -rw_timeout 15s: nếu
-            # nguồn (vd tunnel Dahua P2P) đứng im → ffmpeg thoát thay vì treo, để
-            # vòng lặp ngoài restart (tunnel supervisor tự dựng lại kết nối).
-            args += ["-rtsp_transport", "tcp", "-rw_timeout", "15000000"]
+            # -rtsp_transport tcp: ổn định qua tunnel/NAT. KHÔNG dùng -rw_timeout
+            # (ffmpeg cũ trên VPS không có option này → "Option not found" làm
+            # HỎNG mọi nguồn RTSP). Nếu tunnel đứng im, tunnel supervisor tự dựng
+            # lại; ffmpeg chết → vòng lặp ngoài restart.
+            args += ["-rtsp_transport", "tcp"]
         elif u.startswith("http://") or u.startswith("https://"):
             # KHÔNG dùng -reconnect_at_eof với HLS: playlist HTTP trả EOF sau mỗi
             # lần đọc là bình thường (hls demuxer tự refresh), reconnect_at_eof
