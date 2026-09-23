@@ -355,11 +355,35 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    // NEW: VĐV bấm "Tham gia" ghép cặp vào 1 đăng ký đơn (giải đôi)
+    // NEW: VĐV gửi YÊU CẦU ghép cặp vào 1 đăng ký đơn (giải đôi) — chờ VĐV 1 duyệt
     joinAsPartner: builder.mutation({
       query: ({ regId }) => ({
         url: `/api/registrations/${regId}/join-as-partner`,
         method: "PATCH",
+      }),
+      invalidatesTags: (res, error, { tourId }) => [
+        "Registrations",
+        { type: "Registrations", id: tourId },
+      ],
+    }),
+    // NEW: VĐV 1 duyệt 1 người trong danh sách xin ghép
+    approvePartner: builder.mutation({
+      query: ({ regId, userId }) => ({
+        url: `/api/registrations/${regId}/approve-partner`,
+        method: "PATCH",
+        body: { userId },
+      }),
+      invalidatesTags: (res, error, { tourId }) => [
+        "Registrations",
+        { type: "Registrations", id: tourId },
+      ],
+    }),
+    // NEW: VĐV 1 từ chối 1 người xin ghép
+    rejectPartner: builder.mutation({
+      query: ({ regId, userId }) => ({
+        url: `/api/registrations/${regId}/reject-partner`,
+        method: "PATCH",
+        body: { userId },
       }),
       invalidatesTags: (res, error, { tourId }) => [
         "Registrations",
@@ -1116,6 +1140,8 @@ export const {
   useCancelRegistrationMutation,
   useCreateRegInviteMutation,
   useJoinAsPartnerMutation,
+  useApprovePartnerMutation,
+  useRejectPartnerMutation,
   useListMyRegInvitesQuery,
   useRespondRegInviteMutation,
   useManagerSetRegPaymentStatusMutation,

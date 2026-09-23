@@ -1768,6 +1768,51 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
 // (lookingForPartner) trong giải ĐÔI. Kiểm tra: đúng giải đôi, còn tìm partner,
 // không tự ghép mình, không trùng đăng ký, không vượt cap điểm. Xong: điền
 // player2, tắt cờ tìm partner, báo cho VĐV 1.
+// Load reg + tour + validate giải đôi đang tìm partner; trả { reg, tour, isDoubles }.
+async function loadPartnerContext(res, regId) {
+  const reg = await Registration.findById(regId);
+  if (!reg) {
+    res.status(404);
+    throw new Error("Không tìm thấy đăng ký");
+  }
+  const tour = await Tournament.findById(reg.tournament).select(
+    "eventType tournamentMode scoreCap singleCap scoreGap allowExceedMaxRating createdBy managers status finishedAt endDate endAt",
+  );
+  if (!tour) {
+    res.status(404);
+    throw new Error("Không tìm thấy giải đấu");
+  }
+  const evType = String(tour.eventType || "").toLowerCase();
+  const isDoubles = evType === "double" || evType === "doubles";
+  if (!isDoubles) {
+    res.status(400);
+    throw new Error("Chỉ giải đôi mới ghép cặp được");
+  }
+  return { reg, tour, isDoubles };
+}
+
+function assertPairCapOk(res, tour, p1Score, joinerScore) {
+  if (tour.allowExceedMaxRating) return;
+  const singleCap = Number(tour.singleCap);
+  if (singleCap > 0 && Math.round(joinerScore * 1000) > Math.round(singleCap * 1000)) {
+    res.status(400);
+    throw new Error("Điểm trình vượt giới hạn từng VĐV của giải này");
+  }
+  const pairCap = Number(tour.scoreCap);
+  const gap = Number(tour.scoreGap) || 0;
+  if (
+    pairCap > 0 &&
+    Math.round(((Number(p1Score) || 0) + joinerScore) * 1000) >
+      Math.round((pairCap + gap) * 1000)
+  ) {
+    res.status(400);
+    throw new Error("Tổng điểm đôi vượt giới hạn của giải");
+  }
+}
+
+// PATCH /api/registrations/:regId/join-as-partner
+// VĐV đang đăng nhập GỬI YÊU CẦU ghép cặp vào đăng ký đơn (giải đôi). Không điền
+// player2 ngay — chỉ thêm vào joinRequests để VĐV 1 duyệt chọn 1 người.
 export const joinAsPartner = expressAsyncHandler(async (req, res) => {
   const { regId } = req.params;
   const authedUserId = req.user?._id || req.user?.id;
@@ -1775,27 +1820,8 @@ export const joinAsPartner = expressAsyncHandler(async (req, res) => {
     res.status(401);
     throw new Error("Chưa đăng nhập");
   }
+  const { reg, tour } = await loadPartnerContext(res, regId);
 
-  const reg = await Registration.findById(regId);
-  if (!reg) {
-    res.status(404);
-    throw new Error("Không tìm thấy đăng ký");
-  }
-
-  const tour = await Tournament.findById(reg.tournament).select(
-    "eventType tournamentMode scoreCap singleCap scoreGap allowExceedMaxRating status finishedAt endDate endAt",
-  );
-  if (!tour) {
-    res.status(404);
-    throw new Error("Không tìm thấy giải đấu");
-  }
-
-  const evType = String(tour.eventType || "").toLowerCase();
-  const isDoubles = evType === "double" || evType === "doubles";
-  if (!isDoubles) {
-    res.status(400);
-    throw new Error("Chỉ giải đôi mới ghép cặp được");
-  }
   if (!reg.lookingForPartner || (reg.player2 && reg.player2.user)) {
     res.status(400);
     throw new Error("Đăng ký này đã đủ đôi hoặc không còn tìm partner");
@@ -1808,6 +1834,9 @@ export const joinAsPartner = expressAsyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Bạn không thể tự ghép cặp với chính mình");
   }
+  if ((reg.joinRequests || []).some((jr) => String(jr.user) === String(authedUserId))) {
+    return res.json({ message: "Bạn đã gửi yêu cầu ghép cặp rồi", registration: reg });
+  }
 
   const user = await User.findById(authedUserId)
     .select("name nickname phone avatar gender")
@@ -1817,7 +1846,7 @@ export const joinAsPartner = expressAsyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy tài khoản");
   }
 
-  // Không cho ghép nếu bạn đã đăng ký giải này (ở đăng ký khác)
+  // Không cho xin ghép nếu bạn đã đăng ký giải này (ở đăng ký khác)
   const dup = await findDuplicateRegistration({
     tournamentId: reg.tournament,
     userIds: [user._id],
@@ -1830,27 +1859,110 @@ export const joinAsPartner = expressAsyncHandler(async (req, res) => {
     );
   }
 
-  // Kiểm tra cap điểm (VĐV lẻ + tổng đôi)
+  // Kiểm tra cap ngay khi xin (chặn yêu cầu không hợp lệ sớm)
   const joinerScore = await getCurrentScore(user._id, tour.eventType, user);
-  const p1Score = Number(reg.player1?.score) || 0;
-  if (!tour.allowExceedMaxRating) {
-    const singleCap = Number(tour.singleCap);
-    if (singleCap > 0 && Math.round(joinerScore * 1000) > Math.round(singleCap * 1000)) {
-      res.status(400);
-      throw new Error("Điểm trình của bạn vượt giới hạn từng VĐV của giải này");
+  assertPairCapOk(res, tour, reg.player1?.score, joinerScore);
+
+  reg.joinRequests = [
+    ...(reg.joinRequests || []),
+    {
+      user: user._id,
+      fullName: user.name || user.nickname || "",
+      nickName: user.nickname || "",
+      avatar: user.avatar || "",
+      score: joinerScore,
+      createdAt: new Date(),
+    },
+  ];
+  await reg.save();
+
+  // Báo VĐV 1 có người xin ghép
+  try {
+    if (reg.player1?.user) {
+      publishNotification(EVENTS.INVITE_SENT, {
+        inviteeUserId: reg.player1.user,
+        inviterUserId: user._id,
+        tournamentId: reg.tournament,
+      });
     }
-    const pairCap = Number(tour.scoreCap);
-    const gap = Number(tour.scoreGap) || 0;
-    if (
-      pairCap > 0 &&
-      Math.round((p1Score + joinerScore) * 1000) > Math.round((pairCap + gap) * 1000)
-    ) {
-      res.status(400);
-      throw new Error("Tổng điểm đôi (bạn + VĐV 1) vượt giới hạn của giải");
-    }
+  } catch (e) {
+    console.warn("[joinAsPartner] notify failed:", e?.message || e);
   }
 
+  res.json({ message: "Đã gửi yêu cầu ghép cặp, chờ VĐV 1 duyệt", registration: reg });
+});
+
+// Ai được duyệt/từ chối: VĐV 1 (player1.user hoặc createdBy) hoặc admin/manager.
+async function assertCanManagePartner(res, req, reg, tour) {
+  const authedUserId = String(req.user?._id || req.user?.id || "");
+  const isOwner =
+    authedUserId &&
+    (authedUserId === String(reg.player1?.user || "") ||
+      authedUserId === String(reg.createdBy || ""));
+  const isAdmin = isAdminUser(req.user);
+  const isManager = !isOwner && !isAdmin ? await isTourManager(authedUserId, tour) : false;
+  if (!isOwner && !isAdmin && !isManager) {
+    res.status(403);
+    throw new Error("Chỉ VĐV 1 (hoặc BTC) mới được duyệt ghép cặp");
+  }
+}
+
+// PATCH /api/registrations/:regId/approve-partner  body { userId }
+// VĐV 1 CHỌN 1 người trong joinRequests → điền player2, xoá cờ tìm partner.
+export const approvePartner = expressAsyncHandler(async (req, res) => {
+  const { regId } = req.params;
+  const { userId } = req.body || {};
+  if (!userId) {
+    res.status(400);
+    throw new Error("Thiếu userId");
+  }
+  const { reg, tour } = await loadPartnerContext(res, regId);
+  await assertCanManagePartner(res, req, reg, tour);
+
+  if (!reg.lookingForPartner || (reg.player2 && reg.player2.user)) {
+    res.status(400);
+    throw new Error("Đăng ký này đã đủ đôi rồi");
+  }
+  if (isTournamentFinished(tour)) {
+    res.status(403);
+    throw new Error("Giải đã kết thúc");
+  }
+  const chosen = (reg.joinRequests || []).find(
+    (jr) => String(jr.user) === String(userId),
+  );
+  if (!chosen) {
+    res.status(404);
+    throw new Error("Người này không có trong danh sách xin ghép");
+  }
+
+  const user = await User.findById(userId)
+    .select("name nickname phone avatar gender")
+    .lean();
+  if (!user) {
+    res.status(404);
+    throw new Error("Không tìm thấy tài khoản VĐV được chọn");
+  }
+
+  // Người được chọn không được trùng đăng ký khác (có thể vừa đăng ký nơi khác)
+  const dup = await findDuplicateRegistration({
+    tournamentId: reg.tournament,
+    userIds: [user._id],
+    excludeRegId: reg._id,
+  });
+  if (dup) {
+    res.status(400);
+    throw new Error(
+      buildDuplicateRegistrationMessage(dup, [user._id], { isSingles: false }),
+    );
+  }
+
+  const joinerScore = await getCurrentScore(user._id, tour.eventType, user);
+  assertPairCapOk(res, tour, reg.player1?.score, joinerScore);
+
   const before = reg.toObject({ depopulate: true });
+  const rejected = (reg.joinRequests || [])
+    .map((jr) => String(jr.user))
+    .filter((uid) => uid !== String(user._id));
   reg.player2 = {
     user: user._id,
     phone: user.phone || "",
@@ -1860,6 +1972,7 @@ export const joinAsPartner = expressAsyncHandler(async (req, res) => {
     score: joinerScore,
   };
   reg.lookingForPartner = false;
+  reg.joinRequests = [];
   await reg.save();
 
   await writeRegistrationAudit(req, {
@@ -1867,22 +1980,49 @@ export const joinAsPartner = expressAsyncHandler(async (req, res) => {
     action: "UPDATE",
     before,
     after: reg.toObject({ depopulate: true }),
-    note: "joinAsPartner",
+    note: "approvePartner",
   });
 
-  // Báo cho VĐV 1 rằng đã có người ghép cặp
+  // Báo người được duyệt + những người bị từ chối
   try {
-    if (reg.player1?.user) {
-      publishNotification(EVENTS.INVITE_ACCEPTED, {
-        inviterUserId: reg.player1.user,
+    publishNotification(EVENTS.INVITE_ACCEPTED, {
+      inviterUserId: user._id,
+      tournamentId: reg.tournament,
+    });
+    for (const uid of rejected) {
+      publishNotification(EVENTS.INVITE_SENT, {
+        inviteeUserId: uid,
         tournamentId: reg.tournament,
       });
     }
   } catch (e) {
-    console.warn("[joinAsPartner] notify failed:", e?.message || e);
+    console.warn("[approvePartner] notify failed:", e?.message || e);
   }
 
   res.json({ message: "Đã ghép cặp thành công", registration: reg });
+});
+
+// PATCH /api/registrations/:regId/reject-partner  body { userId }
+export const rejectPartner = expressAsyncHandler(async (req, res) => {
+  const { regId } = req.params;
+  const { userId } = req.body || {};
+  if (!userId) {
+    res.status(400);
+    throw new Error("Thiếu userId");
+  }
+  const { reg, tour } = await loadPartnerContext(res, regId);
+  await assertCanManagePartner(res, req, reg, tour);
+
+  const n0 = (reg.joinRequests || []).length;
+  reg.joinRequests = (reg.joinRequests || []).filter(
+    (jr) => String(jr.user) !== String(userId),
+  );
+  if (reg.joinRequests.length === n0) {
+    res.status(404);
+    throw new Error("Người này không có trong danh sách xin ghép");
+  }
+  await reg.save();
+  res.json({ message: "Đã từ chối yêu cầu ghép cặp", registration: reg });
 });
 
 const { ObjectId } = mongoose.Types;

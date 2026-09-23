@@ -69,6 +69,8 @@ import {
   useGetRegistrationsQuery,
   useCreateRegInviteMutation,
   useJoinAsPartnerMutation,
+  useApprovePartnerMutation,
+  useRejectPartnerMutation,
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
@@ -1350,12 +1352,15 @@ const RegCard = memo(
                   {t("tournaments.registration.list.addPlayer2")}
                 </Button>
               )}
-              {/* VĐV bấm Tham gia để ghép cặp vào đăng ký đơn (giải đôi) */}
+              {/* Người khác: gửi yêu cầu "Xin ghép cặp" (chờ VĐV 1 duyệt) */}
               {!isSingles &&
                 !r.player2 &&
                 r.lookingForPartner &&
                 props.isLoggedIn &&
-                String(r.player1?.user || "") !== props.myUserId && (
+                String(r.player1?.user || "") !== props.myUserId &&
+                !(r.joinRequests || []).some(
+                  (jr) => String(jr.user) === props.myUserId,
+                ) && (
                   <Button
                     size="small"
                     color="success"
@@ -1370,6 +1375,89 @@ const RegCard = memo(
                       ? t("tournaments.registration.list.joining")
                       : t("tournaments.registration.list.joinAsPartner")}
                   </Button>
+                )}
+              {/* Người đã gửi yêu cầu → hiện trạng thái chờ */}
+              {!isSingles &&
+                !r.player2 &&
+                r.lookingForPartner &&
+                (r.joinRequests || []).some(
+                  (jr) => String(jr.user) === props.myUserId,
+                ) && (
+                  <Chip
+                    size="small"
+                    color="warning"
+                    variant="outlined"
+                    label={t("tournaments.registration.list.requestSent")}
+                    sx={{ mt: 1 }}
+                  />
+                )}
+              {/* VĐV 1 (chủ đăng ký đơn): duyệt/chọn 1 người trong danh sách xin ghép */}
+              {!isSingles &&
+                !r.player2 &&
+                r.lookingForPartner &&
+                (props.isOwner ||
+                  String(r.player1?.user || "") === props.myUserId) &&
+                (r.joinRequests || []).length > 0 && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      fontWeight={700}
+                    >
+                      {t("tournaments.registration.list.applicants")} (
+                      {(r.joinRequests || []).length})
+                    </Typography>
+                    <Stack spacing={1} sx={{ mt: 0.5 }}>
+                      {(r.joinRequests || []).map((jr) => {
+                        const busy =
+                          props.partnerActBusy ===
+                          String(r._id) + ":" + String(jr.user);
+                        return (
+                          <Stack
+                            key={String(jr.user)}
+                            direction="row"
+                            alignItems="center"
+                            spacing={1}
+                          >
+                            <Avatar
+                              src={jr.avatar || undefined}
+                              sx={{ width: 28, height: 28 }}
+                            />
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography variant="body2" noWrap>
+                                {jr.nickName || jr.fullName}
+                              </Typography>
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                {t("tournaments.registration.list.scorePrefix")}{" "}
+                                {Number(jr.score || 0).toFixed(3)}
+                              </Typography>
+                            </Box>
+                            <Button
+                              size="small"
+                              color="success"
+                              variant="contained"
+                              disabled={busy}
+                              onClick={() => props.onApprovePartner(r, jr)}
+                            >
+                              {t("tournaments.registration.list.approve")}
+                            </Button>
+                            <Button
+                              size="small"
+                              color="inherit"
+                              variant="outlined"
+                              disabled={busy}
+                              onClick={() => props.onRejectPartner(r, jr)}
+                            >
+                              {t("tournaments.registration.list.reject")}
+                            </Button>
+                          </Stack>
+                        );
+                      })}
+                    </Stack>
+                  </Box>
                 )}
             </Box>
 
@@ -1680,7 +1768,10 @@ export default function TournamentRegistration() {
   /* API Actions */
   const [createInvite, { isLoading: saving }] = useCreateRegInviteMutation();
   const [joinAsPartner, { isLoading: joining }] = useJoinAsPartnerMutation();
+  const [approvePartner] = useApprovePartnerMutation();
+  const [rejectPartner] = useRejectPartnerMutation();
   const [joinBusyId, setJoinBusyId] = useState("");
+  const [partnerActBusy, setPartnerActBusy] = useState("");
   const [cancelReg] = useCancelRegistrationMutation();
   const [setPaymentStatus, { isLoading: settingPayment }] =
     useManagerSetRegPaymentStatusMutation();
@@ -1693,14 +1784,12 @@ export default function TournamentRegistration() {
   const [managerSetRegStatus] = useManagerSetRegStatusMutation();
   const [promotingId, setPromotingId] = useState(null);
 
-  // VĐV bấm "Tham gia" ghép cặp vào 1 đăng ký đơn (giải đôi)
+  // VĐV bấm "Xin ghép cặp" → gửi yêu cầu (chờ VĐV 1 duyệt)
   const handleJoinPartner = useCallback(
     async (reg) => {
       if (!isLoggedIn)
         return toast.info(t("tournaments.registration.toasts.loginRequired"));
-      if (
-        !window.confirm(t("tournaments.registration.list.joinConfirm"))
-      )
+      if (!window.confirm(t("tournaments.registration.list.joinConfirm")))
         return;
       try {
         setJoinBusyId(String(reg._id));
@@ -1708,14 +1797,65 @@ export default function TournamentRegistration() {
         toast.success(t("tournaments.registration.list.joinSuccess"));
       } catch (err) {
         toast.error(
-          err?.data?.message ||
-            t("tournaments.registration.list.joinError"),
+          err?.data?.message || t("tournaments.registration.list.joinError"),
         );
       } finally {
         setJoinBusyId("");
       }
     },
     [isLoggedIn, joinAsPartner, id, t],
+  );
+
+  // VĐV 1 duyệt 1 người trong danh sách xin ghép
+  const handleApprovePartner = useCallback(
+    async (reg, applicant) => {
+      if (
+        !window.confirm(
+          t("tournaments.registration.list.approveConfirm").replace(
+            "{name}",
+            applicant.nickName || applicant.fullName || "",
+          ),
+        )
+      )
+        return;
+      try {
+        setPartnerActBusy(String(reg._id) + ":" + String(applicant.user));
+        await approvePartner({
+          regId: reg._id,
+          userId: applicant.user,
+          tourId: id,
+        }).unwrap();
+        toast.success(t("tournaments.registration.list.approveSuccess"));
+      } catch (err) {
+        toast.error(
+          err?.data?.message || t("tournaments.registration.list.joinError"),
+        );
+      } finally {
+        setPartnerActBusy("");
+      }
+    },
+    [approvePartner, id, t],
+  );
+
+  // VĐV 1 từ chối 1 người xin ghép
+  const handleRejectPartner = useCallback(
+    async (reg, applicant) => {
+      try {
+        setPartnerActBusy(String(reg._id) + ":" + String(applicant.user));
+        await rejectPartner({
+          regId: reg._id,
+          userId: applicant.user,
+          tourId: id,
+        }).unwrap();
+      } catch (err) {
+        toast.error(
+          err?.data?.message || t("tournaments.registration.list.joinError"),
+        );
+      } finally {
+        setPartnerActBusy("");
+      }
+    },
+    [rejectPartner, id, t],
   );
   const handlePromoteWaitlist = useCallback(
     async (regId) => {
@@ -2210,6 +2350,7 @@ export default function TournamentRegistration() {
       p1,
       p2,
       selfSlot,
+      lookingForPartner,
       msg,
       me,
       id,
@@ -3675,6 +3816,9 @@ export default function TournamentRegistration() {
                             myUserId={String(me?._id || "")}
                             onJoinPartner={handleJoinPartner}
                             joinBusy={joinBusyId === String(r._id)}
+                            onApprovePartner={handleApprovePartner}
+                            onRejectPartner={handleRejectPartner}
+                            partnerActBusy={partnerActBusy}
                             onCancel={handleCancel}
                             onTogglePayment={togglePayment}
                             onOpenReplace={handleOpenReplace}

@@ -109,9 +109,24 @@ const registrationSchema = new mongoose.Schema(
     teamFactionName: { type: String, default: "" },
     player1: { type: playerSchema, required: true },
     player2: { type: playerSchema, required: false, default: null },
-    // Đăng ký ĐƠN cho giải ĐÔI: VĐV đăng ký 1 mình, chờ người khác bấm "Tham gia"
-    // để ghép vào slot player2. true = đang tìm partner (player2 rỗng).
+    // Đăng ký ĐƠN cho giải ĐÔI: VĐV đăng ký 1 mình, chờ người khác xin ghép.
+    // true = đang tìm partner (player2 rỗng).
     lookingForPartner: { type: Boolean, default: false, index: true },
+    // Danh sách VĐV XIN ghép cặp (chờ VĐV 1 duyệt chọn 1 người). KHÔNG lưu phone.
+    joinRequests: {
+      type: [
+        {
+          _id: false,
+          user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+          fullName: String,
+          nickName: String,
+          avatar: String,
+          score: { type: Number, default: 0 },
+          createdAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
     message: { type: String },
 
     payment: {
