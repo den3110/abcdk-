@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld("api", {
   stop: (args) => ipcRenderer.invoke("stop", args),
   previewStart: (args) => ipcRenderer.invoke("preview-start", args),
   previewStop: () => ipcRenderer.invoke("preview-stop"),
+  previewLog: () => ipcRenderer.invoke("preview-log"),
+  previewOpenLog: () => ipcRenderer.invoke("preview-openlog"),
   onPreviewExit: (cb) => ipcRenderer.on("preview-exit", (_e, p) => cb(p)),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
   openLog: (sid) => ipcRenderer.invoke("open-log", sid),

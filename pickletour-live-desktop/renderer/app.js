@@ -200,6 +200,7 @@ $("testPreview").onclick = async () => {
     const res = await window.api.previewStart({ baseUrl: state.baseUrl, token: state.token, source });
     $("setupPreview").classList.remove("hidden");
     $("stopPreview").classList.remove("hidden");
+    $("previewLog").classList.remove("hidden");
     startSetupPreview(res.previewUrl);
   } catch (e) {
     $("previewHint").textContent = e.message;
@@ -208,6 +209,7 @@ $("testPreview").onclick = async () => {
   }
 };
 $("stopPreview").onclick = () => stopSetupPreview();
+$("previewLog").onclick = () => { try { window.api.previewOpenLog(); } catch {} };
 
 function startSetupPreview(url) {
   const v = $("setupPreview");
@@ -215,11 +217,16 @@ function startSetupPreview(url) {
   const tryLoad = (attempt = 0) => {
     if (!$("setupPreview") || $("setupPreview").classList.contains("hidden")) return;
     if (window.Hls && window.Hls.isSupported()) {
-      const hls = new window.Hls({ liveSyncDurationCount: 2, lowLatencyMode: true });
+      const hls = new window.Hls({ liveSyncDurationCount: 3 });
       state.setupHls = hls;
       hls.on(window.Hls.Events.ERROR, (_e, data) => {
-        if (data.fatal && attempt < 30) setTimeout(() => tryLoad(attempt + 1), 2000);
+        // Segment HLS chưa sinh kịp / nguồn đang kết nối → thử lại tới ~60s.
+        if (data.fatal && attempt < 30) {
+          $("previewHint").textContent = `Đang chờ nguồn… (${attempt + 1}) — nếu lâu, bấm "Mở log".`;
+          setTimeout(() => tryLoad(attempt + 1), 2000);
+        }
       });
+      hls.on(window.Hls.Events.FRAG_LOADED, () => { $("previewHint").textContent = ""; });
       hls.loadSource(url); hls.attachMedia(v);
     } else { v.src = url; }
   };
@@ -233,9 +240,17 @@ function stopSetupPreview() {
   try { v.pause(); v.removeAttribute("src"); v.load(); } catch {}
   v.classList.add("hidden");
   $("stopPreview").classList.add("hidden");
+  $("previewLog").classList.add("hidden");
   $("previewHint").textContent = "";
   try { window.api.previewStop(); } catch {}
 }
+
+// Worker preview chết (nguồn lỗi/đứt) → báo + cho mở log.
+window.api.onPreviewExit(({ code, log }) => {
+  if (!$("stopPreview") || $("stopPreview").classList.contains("hidden")) return;
+  const last = (log || "").trim().split("\n").filter(Boolean).slice(-1)[0] || "";
+  $("previewHint").textContent = `Tiến trình xem thử dừng (mã ${code}). ${last} — bấm "Mở log" xem chi tiết.`;
+});
 
 // ── Corner map preview ──
 function renderCornerMap() {
@@ -344,7 +359,7 @@ function startPreview(url) {
   if (state.hls) { state.hls.destroy(); state.hls = null; }
   const tryLoad = (attempt = 0) => {
     if (window.Hls && window.Hls.isSupported()) {
-      const hls = new window.Hls({ liveSyncDurationCount: 2, lowLatencyMode: true });
+      const hls = new window.Hls({ liveSyncDurationCount: 3 });
       state.hls = hls;
       hls.on(window.Hls.Events.ERROR, (_e, data) => {
         if (data.fatal && attempt < 30) setTimeout(() => tryLoad(attempt + 1), 2000);

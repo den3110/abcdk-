@@ -13,6 +13,19 @@ let win;
 const running = new Map();
 // Xem thử nguồn TRƯỚC khi live (1 preview tại 1 thời điểm): { proc, dir, server }
 let previewState = null;
+let lastPreviewLog = null; // đường log preview gần nhất (đọc tail khi lỗi)
+
+function tailFile(fp, maxBytes = 6000) {
+  try {
+    const st = fs.statSync(fp);
+    const start = Math.max(0, st.size - maxBytes);
+    const fd = fs.openSync(fp, "r");
+    const buf = Buffer.alloc(st.size - start);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    fs.closeSync(fd);
+    return buf.toString("utf8");
+  } catch { return ""; }
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -361,13 +374,14 @@ async function startPreview({ baseUrl, token, source }) {
       : {}),
   };
   const logFile = path.join(dir, "preview.log");
+  lastPreviewLog = logFile;
   const logFd = fs.openSync(logFile, "a");
   const proc = selfContained
     ? spawn(bundledWorkerBin(), [], { env, stdio: ["ignore", logFd, logFd] })
     : spawn(python, [workerScriptPath()], { env, stdio: ["ignore", logFd, logFd] });
   previewState = { proc, dir, server, logFile };
   proc.on("exit", (code) => {
-    sendToRenderer("preview-exit", { code });
+    sendToRenderer("preview-exit", { code, log: tailFile(logFile) });
   });
 
   return { previewUrl: `http://127.0.0.1:${port}/index.m3u8`, logFile };
@@ -420,6 +434,8 @@ ipcMain.handle("api-get", async (_e, { baseUrl, token, path: p }) =>
 ipcMain.handle("start", async (_e, args) => startWorker(args));
 ipcMain.handle("preview-start", async (_e, args) => startPreview(args));
 ipcMain.handle("preview-stop", () => { stopPreview(); return { ok: true }; });
+ipcMain.handle("preview-log", () => ({ log: lastPreviewLog ? tailFile(lastPreviewLog) : "" }));
+ipcMain.handle("preview-openlog", () => { if (lastPreviewLog) shell.openPath(lastPreviewLog); });
 ipcMain.handle("stop", async (_e, { baseUrl, token, sessionId }) => {
   stopWorker(sessionId);
   try { await apiFetch(baseUrl, `/api/tournament-auto-live/${sessionId}/stop`, { method: "POST", token }); } catch {}
