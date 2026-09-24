@@ -1419,21 +1419,35 @@ const RegCard = memo(
                             alignItems="center"
                             spacing={1}
                           >
-                            <Avatar
-                              src={jr.avatar || undefined}
-                              sx={{ width: 28, height: 28 }}
-                            />
-                            <Box sx={{ flex: 1, minWidth: 0 }}>
-                              <Typography variant="body2" noWrap>
-                                {jr.nickName || jr.fullName}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                              >
-                                {t("tournaments.registration.form.scorePrefix")}{" "}
-                                {Number(jr.score || 0).toFixed(3)}
-                              </Typography>
+                            <Box
+                              onClick={() =>
+                                props.onOpenProfile?.({ user: jr.user })
+                              }
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 1,
+                                flex: 1,
+                                minWidth: 0,
+                                cursor: "pointer",
+                              }}
+                            >
+                              <Avatar
+                                src={jr.avatar || undefined}
+                                sx={{ width: 32, height: 32 }}
+                              />
+                              <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="body2" noWrap>
+                                  {jr.nickName || jr.fullName}
+                                </Typography>
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
+                                  {t("tournaments.registration.form.scorePrefix")}{" "}
+                                  {Number(jr.score || 0).toFixed(3)}
+                                </Typography>
+                              </Box>
                             </Box>
                             <Button
                               size="small"
