@@ -473,7 +473,7 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
 /* Card GOM NHÓM: nhiều nội dung cùng 1 sự kiện → 1 card, bung ra danh sách nội dung */
 function GroupedTournamentCard({ group, index, onZoom, canManage }) {
   const { t: tr } = useLanguage();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true); // mặc định hiện đủ nội dung
   const items = group.items || [];
   const cover = items.find((x) => imgUrl(x.image)) || items[0];
   const img = imgUrl(cover?.image);
@@ -557,11 +557,16 @@ function GroupedTournamentCard({ group, index, onZoom, canManage }) {
               <div key={it._id} style={{ padding: "9px 10px", borderRadius: 12, background: "var(--pk-surface-2)", border: "1px solid light-dark(rgba(0,0,0,.08), rgba(255,255,255,.08))" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                   <div style={{ minWidth: 0, fontWeight: 700, fontSize: 13.5, color: "var(--pk-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>
-                  <div style={{ flexShrink: 0, fontSize: 12, color: "light-dark(#6B7075, #9AA0A6)", fontWeight: 650 }}>
+                  <div style={{ flexShrink: 0, fontSize: 12, color: cap > 0 && reg >= cap ? "#F2555A" : "light-dark(#6B7075, #9AA0A6)", fontWeight: 700 }}>
                     {cap > 0 ? `${reg}/${cap}` : `${reg}`}
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                {cap > 0 && (
+                  <div style={{ height: 4, borderRadius: 99, background: "light-dark(rgba(0,0,0,.08), rgba(255,255,255,.08))", overflow: "hidden", marginTop: 7 }}>
+                    <div style={{ width: `${Math.min(100, Math.round((reg / cap) * 100))}%`, height: "100%", borderRadius: 99, background: reg >= cap ? "#F2555A" : "#3E9EFB" }} />
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 6, marginTop: 9, flexWrap: "wrap" }}>
                   {(manage || ist === "upcoming") && (
                     <A href={`/tournament/${it._id}/register`} style={{ ...miniPrimary, padding: "5px 11px", fontSize: 12 }}>
                       <UserPlus size={12} strokeWidth={2.4} />{tr("v3.tournaments.register")}
