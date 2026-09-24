@@ -36,6 +36,8 @@ import SiteFooter from "./SiteFooter.jsx";
 import PickleMark from "./PickleMark.jsx";
 import { A, WhitePill, GrayPill, Lightbox } from "./ui.jsx";
 import { useListTournamentsQuery } from "../../slices/tournamentsApiSlice.js";
+import { groupTournaments, subLabelOf, groupDateRange } from "../../utils/groupTournaments.js";
+import { ChevronDown } from "lucide-react";
 import { useLanguage } from "../../context/LanguageContext.jsx";
 
 /* ------------------------------- helpers ------------------------------- */
@@ -468,6 +470,140 @@ function TournamentCard({ t, index, big = false, onZoom, manage = false }) {
   );
 }
 
+/* Card GOM NHÓM: nhiều nội dung cùng 1 sự kiện → 1 card, bung ra danh sách nội dung */
+function GroupedTournamentCard({ group, index, onZoom, canManage }) {
+  const { t: tr } = useLanguage();
+  const [open, setOpen] = useState(false);
+  const items = group.items || [];
+  const cover = items.find((x) => imgUrl(x.image)) || items[0];
+  const img = imgUrl(cover?.image);
+  // Trạng thái nhóm: ưu tiên ongoing > upcoming > finished.
+  const st = items.some((x) => statusOf(x) === "ongoing")
+    ? "ongoing"
+    : items.some((x) => statusOf(x) === "upcoming")
+      ? "upcoming"
+      : "finished";
+  const meta = STATUS_META[st];
+  const { start, end } = groupDateRange(items);
+  const totalReg = items.reduce((s, x) => s + regCount(x), 0);
+  const zalo = items.find((x) => x.zaloGroupUrl)?.zaloGroupUrl || DEFAULT_ZALO_GROUP;
+  const visible = open ? items : items.slice(0, 3);
+
+  return (
+    <div
+      className="pk-tcard pk-reveal-card"
+      style={{
+        display: "block",
+        borderRadius: 18,
+        overflow: "hidden",
+        background: "var(--color-background-surface)",
+        border: "1px solid var(--color-border)",
+        animationDelay: `${Math.min(index, 8) * 0.05}s`,
+      }}
+    >
+      <div
+        style={{ position: "relative", height: 168, overflow: "hidden", background: "light-dark(#ECEEF1, #191A1D)", cursor: img ? "zoom-in" : undefined }}
+        onClick={img ? (e) => { e.preventDefault(); e.stopPropagation(); onZoom?.(img); } : undefined}
+      >
+        {img ? (
+          <div className="pk-tcard-img" style={{ position: "absolute", inset: 0, backgroundImage: `url("${img}")`, backgroundSize: "cover", backgroundPosition: "center" }} />
+        ) : (
+          <div style={{ position: "absolute", inset: 0, display: "grid", placeItems: "center", background: "radial-gradient(70% 90% at 50% 0%, rgba(61,135,255,.18), transparent 70%)" }}>
+            <PickleMark size={44} />
+          </div>
+        )}
+        <div aria-hidden style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(10,11,13,.22) 0%, transparent 38%, rgba(10,11,13,.80) 100%)" }} />
+        <div style={{ position: "absolute", top: 12, left: 12 }}>
+          {st === "ongoing" ? (
+            <span className="pk-live" style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 750, background: "rgba(20,21,24,.72)", color: "#FF8A8E", border: "1px solid rgba(242,85,90,.4)", backdropFilter: "blur(6px)" }}>
+              <span style={{ width: 6, height: 6, borderRadius: 99, background: "#F2555A" }} />
+              LIVE
+            </span>
+          ) : (
+            meta && <Badge variant={meta.variant} label={tr(meta.label)} />
+          )}
+        </div>
+        <span style={{ position: "absolute", top: 12, right: 12, display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 700, background: "rgba(61,135,255,.9)", color: "#fff", boxShadow: "0 2px 8px rgba(61,135,255,.4)" }}>
+          {tr("v3.tournaments.eventsCount", { count: items.length })}
+        </span>
+        <span style={{ position: "absolute", bottom: 12, left: 12, display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 999, fontSize: 11.5, fontWeight: 650, background: "rgba(20,21,24,.72)", color: "#fff", border: "1px solid rgba(255,255,255,.12)", backdropFilter: "blur(6px)" }}>
+          <CalendarDays size={11} />
+          {fmtRange(start, end)}
+        </span>
+      </div>
+
+      <div style={{ padding: "16px 16px 15px" }}>
+        <div style={{ color: "var(--pk-text-strong)", fontWeight: 800, fontSize: 17, lineHeight: 1.3, letterSpacing: "-0.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+          {group.title}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 9, color: "light-dark(#6B7075, #9AA0A6)", fontSize: 13 }}>
+          <MapPin size={13} style={{ flexShrink: 0 }} />
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{items[0]?.location || "—"}</span>
+        </div>
+        <div style={{ display: "flex", gap: 7, marginTop: 10, flexWrap: "wrap" }}>
+          <span style={chip}>{tr("v3.tournaments.eventsCount", { count: items.length })}</span>
+          {totalReg > 0 && <span style={chip}>{tr("v3.tournaments.teamsOnly", { reg: totalReg })}</span>}
+        </div>
+
+        {/* Danh sách nội dung con */}
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+          {visible.map((it) => {
+            const sub = subLabelOf(it.name, group.title) || (String(it.eventType || "").toLowerCase() === "single" ? tr("v3.tournaments.eventSingle") : tr("v3.tournaments.eventDouble"));
+            const ist = statusOf(it);
+            const cap = Number(it.maxPairs || 0);
+            const reg = regCount(it);
+            const manage = canManage?.(it);
+            return (
+              <div key={it._id} style={{ padding: "9px 10px", borderRadius: 12, background: "var(--pk-surface-2)", border: "1px solid light-dark(rgba(0,0,0,.08), rgba(255,255,255,.08))" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                  <div style={{ minWidth: 0, fontWeight: 700, fontSize: 13.5, color: "var(--pk-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>
+                  <div style={{ flexShrink: 0, fontSize: 12, color: "light-dark(#6B7075, #9AA0A6)", fontWeight: 650 }}>
+                    {cap > 0 ? `${reg}/${cap}` : `${reg}`}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                  {(manage || ist === "upcoming") && (
+                    <A href={`/tournament/${it._id}/register`} style={{ ...miniPrimary, padding: "5px 11px", fontSize: 12 }}>
+                      <UserPlus size={12} strokeWidth={2.4} />{tr("v3.tournaments.register")}
+                    </A>
+                  )}
+                  {(manage || ist === "ongoing") && (
+                    <A href={`/tournament/${it._id}/schedule`} style={{ ...miniGhost, padding: "5px 11px", fontSize: 12 }}>
+                      <CalendarRange size={12} strokeWidth={2.2} />{tr("v3.tournaments.schedule")}
+                    </A>
+                  )}
+                  <A href={`/tournament/${it._id}/bracket`} style={{ ...miniGhost, padding: "5px 11px", fontSize: 12 }}>
+                    <Network size={12} strokeWidth={2.2} />{tr("v3.tournaments.bracket")}
+                  </A>
+                  <A href={`/tournament/${it._id}`} className="pk-link" style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 4, color: "var(--color-text-accent, #3E9EFB)", fontSize: 12, fontWeight: 650, textDecoration: "none" }}>
+                    {tr("v3.tournaments.details")}<ArrowUpRight size={13} />
+                  </A>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+          {items.length > 3 && (
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              style={{ ...miniGhost, cursor: "pointer", border: "1px solid light-dark(rgba(0,0,0,.14), rgba(255,255,255,.14))", background: "var(--pk-surface-2)", color: "light-dark(#33373B, #DFE2E5)" }}
+            >
+              {open ? tr("v3.tournaments.collapse") : tr("v3.tournaments.showAllEvents", { count: items.length })}
+              <ChevronDown size={13} style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+            </button>
+          )}
+          <a href={zalo} target="_blank" rel="noopener noreferrer" style={{ ...miniZalo, marginLeft: items.length > 3 ? 0 : "auto" }}>
+            <MessageCircle size={13} strokeWidth={2.4} />Zalo
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* pill hành động nhỏ trên card */
 const miniBase = {
   display: "inline-flex",
@@ -585,6 +721,9 @@ export default function TournamentsPage() {
     return { counts, shown: pool };
   }, [list, tab, q]);
 
+  // Gom nhóm giải cùng sự kiện (cùng tên gốc / cùng cụm sân ~2 ngày)
+  const groups = useMemo(() => groupTournaments(shown), [shown]);
+
   const spotlightOk =
     tab === "all" && !q.trim() && shown.length > 0 && statusOf(shown[0]) === "ongoing";
 
@@ -609,11 +748,28 @@ export default function TournamentsPage() {
                       <CardSkeleton key={i} />
                     ))}
                   </div>
-                ) : shown.length ? (
+                ) : groups.length ? (
                   <div className="pk-tgrid" style={gridStyle}>
-                    {shown.map((t, i) => (
-                      <TournamentCard key={t._id || i} t={t} index={i} big={i === 0 && spotlightOk} onZoom={setZoomSrc} manage={canManage(t)} />
-                    ))}
+                    {groups.map((g, i) =>
+                      g.isGroup ? (
+                        <GroupedTournamentCard
+                          key={g.key}
+                          group={g}
+                          index={i}
+                          onZoom={setZoomSrc}
+                          canManage={canManage}
+                        />
+                      ) : (
+                        <TournamentCard
+                          key={g.key}
+                          t={g.items[0]}
+                          index={i}
+                          big={i === 0 && spotlightOk}
+                          onZoom={setZoomSrc}
+                          manage={canManage(g.items[0])}
+                        />
+                      ),
+                    )}
                   </div>
                 ) : (
                   <div style={{ textAlign: "center", padding: "90px 0 70px" }}>
