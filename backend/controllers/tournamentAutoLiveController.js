@@ -131,6 +131,7 @@ export const getVenueDahua = asyncHandler(async (req, res) => {
     serial: n.serial || "",
     username: n.username || "admin",
     channels: n.channels || 8,
+    directHost: n.directHost || "",
     hasPassword: !!n.credCipher,
     updatedAt: n.updatedAt || null,
   });
@@ -153,11 +154,11 @@ export const listDahuaVenues = asyncHandler(async (req, res) => {
 // POST /api/tournament-auto-live/venue-dahua (admin) — lưu cấu hình đầu thu Dahua
 // P2P cho venue. Body: { venueId, serial, username?, password?, channels? }.
 export const setVenueDahua = asyncHandler(async (req, res) => {
-  const { venueId, serial, username, password, channels } = req.body || {};
+  const { venueId, serial, username, password, channels, directHost } = req.body || {};
   if (!venueId) { res.status(400); throw new Error("Thiếu venueId"); }
   const venue = await Venue.findById(venueId).select("_id").lean();
   if (!venue) { res.status(404); throw new Error("Venue không tồn tại"); }
-  await saveVenueDahuaNvr(venueId, { serial, username, password, channels });
+  await saveVenueDahuaNvr(venueId, { serial, username, password, channels, directHost });
   res.status(201).json({ ok: true });
 });
 

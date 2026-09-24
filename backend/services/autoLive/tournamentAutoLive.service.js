@@ -368,12 +368,13 @@ async function decryptVenueDahuaCreds(venueId) {
     serial: String(nvr.serial).trim(),
     username: String(nvr.username || "admin").trim(),
     channels: Number(nvr.channels) || 8,
+    directHost: String(nvr.directHost || "").trim(),
     password,
   };
 }
 
 /** Lưu cấu hình đầu thu Dahua P2P cho venue (mật khẩu mã hoá). */
-export async function saveVenueDahuaNvr(venueId, { serial, username, password, channels }) {
+export async function saveVenueDahuaNvr(venueId, { serial, username, password, channels, directHost }) {
   const { encryptToken } = await import("../secret.service.js");
   const set = {
     "dahuaNvr.serial": String(serial || "").trim(),
@@ -381,6 +382,10 @@ export async function saveVenueDahuaNvr(venueId, { serial, username, password, c
     "dahuaNvr.updatedAt": new Date(),
   };
   if (channels != null && channels !== "") set["dahuaNvr.channels"] = Number(channels) || 8;
+  if (directHost != null) {
+    // Chuẩn hoá: bỏ scheme rtsp:// nếu người dùng dán vào, giữ host[:port].
+    set["dahuaNvr.directHost"] = String(directHost).trim().replace(/^rtsp:\/\//i, "").replace(/\/+$/, "");
+  }
   if (password) set["dahuaNvr.credCipher"] = encryptToken(String(password));
   await Venue.updateOne({ _id: venueId }, { $set: set });
   return true;
@@ -542,6 +547,7 @@ export async function startAutoLive(input) {
       serial, username, password,
       channel: Number(dahuaP2p.channel) || 1,
       subtype: Number(dahuaP2p.subtype) || 0,
+      directHost: stored?.directHost || "", // có → RTSP trực tiếp, bỏ P2P/relay
     };
   } else if (!src) {
     venueId = explicitVenueId;
@@ -625,13 +631,23 @@ export async function startAutoLive(input) {
     // đưa RTSP local cho worker như nguồn URL thường.
     let dahuaSourceUrl = "";
     if (dahuaCfg) {
-      const { port } = await ensureDahuaTunnel({
-        serial: dahuaCfg.serial, username: dahuaCfg.username, password: dahuaCfg.password,
-      });
-      dahuaSourceUrl = dahuaChannelUrl({
-        username: dahuaCfg.username, password: dahuaCfg.password, port,
-        channel: dahuaCfg.channel, subtype: dahuaCfg.subtype,
-      });
+      const u = encodeURIComponent(dahuaCfg.username || "admin");
+      const p = encodeURIComponent(dahuaCfg.password || "");
+      if (dahuaCfg.directHost) {
+        // RTSP TRỰC TIẾP (LAN/DDNS) — full bitrate, KHÔNG qua P2P/relay.
+        dahuaSourceUrl =
+          `rtsp://${u}:${p}@${dahuaCfg.directHost}/cam/realmonitor` +
+          `?channel=${dahuaCfg.channel}&subtype=${dahuaCfg.subtype}`;
+      } else {
+        // Fallback: P2P tunnel (có thể rơi relay → kém ổn định).
+        const { port } = await ensureDahuaTunnel({
+          serial: dahuaCfg.serial, username: dahuaCfg.username, password: dahuaCfg.password,
+        });
+        dahuaSourceUrl = dahuaChannelUrl({
+          username: dahuaCfg.username, password: dahuaCfg.password, port,
+          channel: dahuaCfg.channel, subtype: dahuaCfg.subtype,
+        });
+      }
     }
     const proc = spawnWorker(session, imouSession, imouCreds, dahuaCfg, dahuaSourceUrl);
     const entry = { proc, overlayCache: null, pollTimer: null };

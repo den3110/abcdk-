@@ -140,6 +140,10 @@ const venueSchema = new Schema(
       username: { type: String, default: "admin" },
       channels: { type: Number, default: 8 }, // số kênh (cam) trong đầu thu
       credCipher: String, // encryptToken(password)
+      // Địa chỉ RTSP TRỰC TIẾP (LAN hoặc DDNS+cổng, vd "picapo-qt.smartddns.tv:8554"
+      // hoặc "192.168.1.10:554"). Có → auto-live kéo RTSP thẳng (KHÔNG qua P2P/relay
+      // → full bitrate, ổn định). Rỗng → fallback P2P tunnel.
+      directHost: { type: String, default: "" },
       updatedAt: Date,
     },
   },
