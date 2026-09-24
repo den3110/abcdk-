@@ -79,6 +79,8 @@ SOURCE_URL = (os.environ.get("AUTOLIVE_SOURCE_URL") or "").strip()
 # scripts/dahua-p2p/README-PICKLETOUR.md. GIỚI HẠN: đầu thu ~1 phiên P2P/lúc.
 DAHUA_P2P_JSON = (os.environ.get("AUTOLIVE_DAHUA_P2P_JSON") or "").strip()
 DAHUA_P2P_BIN = (os.environ.get("AUTOLIVE_DAHUA_P2P_BIN") or "").strip()
+# Phủ kín màn 16:9 (cắt viền) thay vì pad đen — hữu ích cho nguồn 4:3 (luồng phụ).
+FILL_SCREEN = (os.environ.get("AUTOLIVE_FILL_SCREEN") or "0").strip().lower() not in ("0", "false", "no", "")
 # Cam Imou: mặc định KÉO CHỈ VIDEO (bỏ audio cam). Lý do: live thể thao overlay
 # không cần tiếng cam; audio DHAV của Imou hay lỗi timestamp (hàng loạt "timestamp
 # discontinuity" trên aac) làm A/V lệch + kéo speed xuống. Bỏ audio → relay tải
@@ -460,8 +462,14 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
     # → out_time bám thời gian thực, speed ~1.0, hết trễ dồn. Link URL có PTS
     # chuẩn nên KHÔNG cần (giữ nguyên).
     retime = "" if SOURCE_URL else "setpts=(RTCTIME-RTCSTART)/(TB*1000000),"
-    base = (f"[0:v]{retime}scale=1920:1080:force_original_aspect_ratio=decrease,"
-            "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
+    # FILL_SCREEN: nguồn 4:3 (vd luồng phụ Dahua/D1) → phủ kín 16:9 bằng cách
+    # scale-to-cover rồi crop (mất viền trên/dưới) thay vì pad đen 2 bên.
+    if FILL_SCREEN:
+        scalepad = "scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080"
+    else:
+        scalepad = ("scale=1920:1080:force_original_aspect_ratio=decrease,"
+                    "pad=1920:1080:(ow-iw)/2:(oh-ih)/2")
+    base = f"[0:v]{retime}{scalepad},format=yuv420p"
     args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin"]
     if SOURCE_URL:
         # Link tự có timestamp chuẩn → dùng genpts giữ đồng hồ liên tục.

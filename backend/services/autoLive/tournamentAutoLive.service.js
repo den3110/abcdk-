@@ -707,6 +707,7 @@ function advancedEnv(a) {
   if (a.imouAudio) env.AUTOLIVE_IMOU_AUDIO = String(a.imouAudio);
   if (a.resyncSec != null && a.resyncSec !== "") env.AUTOLIVE_RESYNC_SEC = String(a.resyncSec); // re-sync mép live
   if (a.imouLiveStream) env.AUTOLIVE_IMOU_LIVE_STREAM = String(a.imouLiveStream); // rtmp/hls/rtsp cloud live
+  if (a.fillScreen) env.AUTOLIVE_FILL_SCREEN = "1"; // phủ kín 16:9 (cắt viền) — cho nguồn 4:3
   return env;
 }
 
