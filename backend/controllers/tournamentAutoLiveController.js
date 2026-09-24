@@ -155,15 +155,18 @@ export const dahuaSnapshot = asyncHandler(async (req, res) => {
   const args = [
     "-hide_banner", "-loglevel", "error",
     "-rtsp_transport", "tcp",
+    "-probesize", "500000",
+    "-analyzeduration", "1500000",
+    "-an", // bỏ audio → lấy khung nhanh hơn
     "-i", url,
     "-frames:v", "1",
-    "-q:v", "5",
+    "-q:v", "6",
     "-f", "image2", "pipe:1",
   ];
   const ff = spawn(process.env.FFMPEG_PATH || "ffmpeg", args);
   const chunks = [];
   let done = false;
-  const finish = (code) => {
+  const finish = () => {
     if (done) return;
     done = true;
     clearTimeout(killer);
@@ -173,16 +176,17 @@ export const dahuaSnapshot = asyncHandler(async (req, res) => {
       res.set("Cache-Control", "no-store, max-age=0");
       return res.send(buf);
     }
-    res.status(502).json({ message: "Không lấy được hình từ camera (nguồn chưa sẵn sàng / relay chập chờn). Thử lại." });
+    // 409 (KHÔNG 5xx): chưa lấy được khung — nguồn chưa sẵn sàng / relay chập chờn.
+    // Đây không phải lỗi máy chủ nên KHÔNG để rơi vào cảnh báo ops 5xx.
+    res.status(409).json({ message: "Chưa lấy được hình từ camera (nguồn chưa sẵn sàng / relay chập chờn). Thử lại." });
   };
   ff.stdout.on("data", (d) => chunks.push(d));
-  ff.on("error", () => finish(-1));
-  ff.on("close", (code) => finish(code));
-  // Timeout cứng: quá lâu (relay chậm) thì kill + báo lỗi.
+  ff.on("error", () => finish());
+  ff.on("close", () => finish());
   const killer = setTimeout(() => {
     try { ff.kill("SIGKILL"); } catch {}
-    finish(-2);
-  }, 15000);
+    finish();
+  }, 20000);
 });
 
 // GET /api/tournament-auto-live/dahua-venues (admin) — danh sách venue ĐÃ cấu
