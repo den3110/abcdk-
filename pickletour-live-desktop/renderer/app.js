@@ -351,7 +351,10 @@ $("goLive").onclick = async () => {
       if (!v) throw new Error("Chọn venue có đầu thu Dahua (cấu hình ở admin)");
       if (!v.hasPassword) throw new Error("Venue này chưa có mật khẩu đầu thu — cấu hình ở trang admin trước");
       venueId = v.venueId;
-      dahuaP2p = { channel: Number($("dahuaChannel").value) || 1, subtype: 0 };
+      dahuaP2p = {
+        channel: Number($("dahuaChannel").value) || 1,
+        subtype: Number($("dahuaSubtype")?.value ?? 1),
+      };
     } else {
       const cam = state.cams[+$("cam").value];
       if (!cam) throw new Error("Chọn camera");
