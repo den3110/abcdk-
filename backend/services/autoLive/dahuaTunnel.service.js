@@ -9,7 +9,7 @@
 // SOURCE_URL của worker không đổi khi respawn). reconcile() (chạy ở background
 // job leader) đảm bảo: serial nào còn phiên auto-live active thì tunnel sống;
 // serial nào hết thì kill tunnel.
-import { spawn } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import fs from "fs";
 import os from "os";
 import net from "net";
@@ -75,7 +75,31 @@ function logPath(serial) {
   return path.join(os.tmpdir(), `dahua-tunnel-${String(serial).replace(/[^A-Za-z0-9]/g, "")}.log`);
 }
 
+// Giải phóng cổng cố định trước khi bind: kill tiến trình MỒ CÔI đang giữ cổng
+// (vd tunnel cũ sống sót qua pm2 restart) → tránh panic AddrInUse khi spawn lại.
+function killPortOccupant(port) {
+  try {
+    const out = spawnSync(
+      "bash",
+      [
+        "-c",
+        `ss -ltnpH 'sport = :${port}' 2>/dev/null | grep -oE 'pid=[0-9]+' | head -1 | cut -d= -f2`,
+      ],
+      { encoding: "utf8", timeout: 4000 },
+    );
+    const pid = parseInt(String(out.stdout || "").trim(), 10);
+    if (pid && pid > 0 && pid !== process.pid) {
+      try { process.kill(pid, "SIGKILL"); } catch {}
+      // chờ chút cho OS nhả cổng
+      spawnSync("bash", ["-c", "sleep 0.6"], { timeout: 2000 });
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
 function spawnTunnelProc(serial, username, password, port) {
+  killPortOccupant(port);
   // DIRECT hole-punch (KHÔNG --relay): relay không có media.
   const args = ["-u", username || "admin", "-w", password, "-p", `127.0.0.1:${port}:554`, serial];
   let fd;
