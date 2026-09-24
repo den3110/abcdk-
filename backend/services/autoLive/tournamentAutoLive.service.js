@@ -373,6 +373,31 @@ async function decryptVenueDahuaCreds(venueId) {
   };
 }
 
+/**
+ * Trả RTSP URL để kéo cam đầu thu Dahua của venue cho 1 kênh: ưu tiên directHost
+ * (RTSP trực tiếp, full nét) → fallback P2P tunnel dùng chung. Dùng cho cả
+ * auto-live lẫn preview (snapshot) ở admin. Ném lỗi nếu chưa cấu hình.
+ */
+export async function resolveDahuaRtsp({ venueId, channel = 1, subtype = 0 }) {
+  const creds = await decryptVenueDahuaCreds(venueId);
+  if (!creds?.serial || !creds?.password) {
+    const e = new Error("Venue chưa cấu hình đầu thu Dahua (serial + mật khẩu)");
+    e.status = 400;
+    throw e;
+  }
+  const u = encodeURIComponent(creds.username || "admin");
+  const p = encodeURIComponent(creds.password || "");
+  const ch = Number(channel) || 1;
+  const sub = Number(subtype) || 0;
+  if (creds.directHost) {
+    return `rtsp://${u}:${p}@${creds.directHost}/cam/realmonitor?channel=${ch}&subtype=${sub}`;
+  }
+  const { port } = await ensureDahuaTunnel({
+    serial: creds.serial, username: creds.username, password: creds.password,
+  });
+  return dahuaChannelUrl({ username: creds.username, password: creds.password, port, channel: ch, subtype: sub });
+}
+
 /** Lưu cấu hình đầu thu Dahua P2P cho venue (mật khẩu mã hoá). */
 export async function saveVenueDahuaNvr(venueId, { serial, username, password, channels, directHost }) {
   const { encryptToken } = await import("../secret.service.js");

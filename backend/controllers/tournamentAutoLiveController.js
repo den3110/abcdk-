@@ -11,8 +11,9 @@ import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, getUserMatchOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
   refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
-  getCourtImouStreamUrlForApp, saveVenueDahuaNvr,
+  getCourtImouStreamUrlForApp, saveVenueDahuaNvr, resolveDahuaRtsp,
 } from "../services/autoLive/tournamentAutoLive.service.js";
+import { spawn } from "child_process";
 
 // GET /api/tournament-auto-live/court-imou-session?imouDeviceId=xxx (admin)
 // App live iOS lấy session Imou đã giải mã của cam để tự kéo cam làm nguồn.
@@ -135,6 +136,53 @@ export const getVenueDahua = asyncHandler(async (req, res) => {
     hasPassword: !!n.credCipher,
     updatedAt: n.updatedAt || null,
   });
+});
+
+// GET /api/tournament-auto-live/dahua-snapshot?venueId=&channel=&subtype= (admin)
+// Preview camera đầu thu Dahua: ffmpeg lấy 1 khung hình JPEG từ nguồn (direct
+// RTSP hoặc P2P tunnel dùng chung — không mở thêm phiên). Admin <img> refresh.
+export const dahuaSnapshot = asyncHandler(async (req, res) => {
+  const { venueId, channel, subtype } = req.query || {};
+  if (!venueId) { res.status(400); throw new Error("Thiếu venueId"); }
+  let url;
+  try {
+    url = await resolveDahuaRtsp({ venueId, channel, subtype });
+  } catch (e) {
+    res.status(e?.status || 400);
+    throw new Error(e?.message || "Không lấy được nguồn cam");
+  }
+
+  const args = [
+    "-hide_banner", "-loglevel", "error",
+    "-rtsp_transport", "tcp",
+    "-i", url,
+    "-frames:v", "1",
+    "-q:v", "5",
+    "-f", "image2", "pipe:1",
+  ];
+  const ff = spawn(process.env.FFMPEG_PATH || "ffmpeg", args);
+  const chunks = [];
+  let done = false;
+  const finish = (code) => {
+    if (done) return;
+    done = true;
+    clearTimeout(killer);
+    const buf = Buffer.concat(chunks);
+    if (buf.length > 0) {
+      res.set("Content-Type", "image/jpeg");
+      res.set("Cache-Control", "no-store, max-age=0");
+      return res.send(buf);
+    }
+    res.status(502).json({ message: "Không lấy được hình từ camera (nguồn chưa sẵn sàng / relay chập chờn). Thử lại." });
+  };
+  ff.stdout.on("data", (d) => chunks.push(d));
+  ff.on("error", () => finish(-1));
+  ff.on("close", (code) => finish(code));
+  // Timeout cứng: quá lâu (relay chậm) thì kill + báo lỗi.
+  const killer = setTimeout(() => {
+    try { ff.kill("SIGKILL"); } catch {}
+    finish(-2);
+  }, 15000);
 });
 
 // GET /api/tournament-auto-live/dahua-venues (admin) — danh sách venue ĐÃ cấu
