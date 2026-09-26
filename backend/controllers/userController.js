@@ -218,16 +218,11 @@ const authUser = asyncHandler(async (req, res) => {
       )
       .lean();
 
-    const ratingSingle = pickFiniteNumber(
-      rankDoc?.single,
-      user.ratingSingle,
-      user.localRatings?.singles
-    );
-    const ratingDouble = pickFiniteNumber(
-      rankDoc?.double,
-      user.ratingDouble,
-      user.localRatings?.doubles
-    );
+    // Chỉ coi là "đã có điểm" khi tồn tại Ranking doc (admin đã chấm hoặc đã thi đấu).
+    // Nếu chưa: KHÔNG trả điểm khởi tạo mặc định (2.5) để UI khỏi hiện điểm trình ảo.
+    const rated = Boolean(rankDoc);
+    const ratingSingle = rated ? pickFiniteNumber(rankDoc?.single) : 0;
+    const ratingDouble = rated ? pickFiniteNumber(rankDoc?.double) : 0;
 
     const rank = rankDoc
       ? {
@@ -296,6 +291,7 @@ const authUser = asyncHandler(async (req, res) => {
       cccdStatus: user.cccdStatus,
       ratingSingle,
       ratingDouble,
+      rated,
       createdAt: user.createdAt,
       cccd: user.cccd,
       role: user.role,
@@ -629,11 +625,11 @@ const authUser = asyncHandler(async (req, res) => {
     }
   }
 
-  // Điểm ưu tiên lấy từ Ranking; fallback legacy User
-  const ratingSingle =
-    (rank?.single ?? user.ratingSingle ?? user.localRatings?.singles) || 0;
-  const ratingDouble =
-    (rank?.double ?? user.ratingDouble ?? user.localRatings?.doubles) || 0;
+  // Điểm chỉ tính khi đã có Ranking doc (admin chấm / đã thi đấu).
+  // Chưa có => 0 để UI không hiện điểm trình khởi tạo mặc định (2.5).
+  const rated = hasRankingDoc;
+  const ratingSingle = rated ? Number(rank?.single) || 0 : 0;
+  const ratingDouble = rated ? Number(rank?.double) || 0 : 0;
 
   /* ---------- Token & response ---------- */
   generateToken(res, user._id);
@@ -675,6 +671,7 @@ const authUser = asyncHandler(async (req, res) => {
     cccdStatus: user.cccdStatus,
     ratingSingle,
     ratingDouble,
+    rated,
     createdAt: user.createdAt,
     cccd: user.cccd,
     role: user.role,
@@ -803,12 +800,10 @@ export const getMyRank = asyncHandler(async (req, res) => {
   const rankNo = rankedRows?.[0]?.rankNo ?? null;
   const rankTotal = totalRows?.[0]?.n ?? 0;
 
-  const ratingSingle =
-    (rank?.single ?? req.user.ratingSingle ?? req.user.localRatings?.singles) ||
-    0;
-  const ratingDouble =
-    (rank?.double ?? req.user.ratingDouble ?? req.user.localRatings?.doubles) ||
-    0;
+  // Chỉ trả điểm khi user đã có Ranking doc; chưa có => 0 (không lấy 2.5 mặc định).
+  const rated = Boolean(rank);
+  const ratingSingle = rated ? Number(rank?.single) || 0 : 0;
+  const ratingDouble = rated ? Number(rank?.double) || 0 : 0;
 
   res.json({
     rank,
@@ -816,6 +811,7 @@ export const getMyRank = asyncHandler(async (req, res) => {
     rankTotal,
     ratingSingle,
     ratingDouble,
+    rated,
     rankDeferred: false,
   });
 });
@@ -4873,11 +4869,10 @@ export const reauthUser = asyncHandler(async (req, res) => {
     rankNo = null;
   }
 
-  // Tính điểm để nhét vào token/user object (ưu tiên Ranking)
-  const ratingSingle =
-    (rank?.single ?? user.ratingSingle ?? user.localRatings?.singles) || 0;
-  const ratingDouble =
-    (rank?.double ?? user.ratingDouble ?? user.localRatings?.doubles) || 0;
+  // Tính điểm để nhét vào token/user object; chỉ khi đã có Ranking doc.
+  const rated = Boolean(meAgg[0]);
+  const ratingSingle = rated ? Number(rank?.single) || 0 : 0;
+  const ratingDouble = rated ? Number(rank?.double) || 0 : 0;
 
   // Gia hạn phiên (tuỳ bạn, có thể bỏ nếu không muốn)
   generateToken(res, user._id);
@@ -4921,6 +4916,7 @@ export const reauthUser = asyncHandler(async (req, res) => {
       cccdStatus: user.cccdStatus,
       ratingSingle,
       ratingDouble,
+      rated,
       createdAt: user.createdAt,
       cccd: user.cccd,
       role: user.role,
