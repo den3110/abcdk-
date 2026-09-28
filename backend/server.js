@@ -171,7 +171,9 @@ import {
   startSmartLogNightlySync,
 } from "./services/smartLogNightlySync.service.js";
 
-dotenv.config();
+// override: true để .env luôn thắng env cũ mà PM2 cache (tránh sửa .env không ăn,
+// vd key OpenAI / OPENAI_POSTER_DAILY_LIMIT bị kẹt key cũ trong pm2_env).
+dotenv.config({ override: true });
 const port = process.env.PORT;
 const WHITELIST = [
   "https://abcdk.vercel.app",
