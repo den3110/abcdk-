@@ -56,8 +56,16 @@ function roleOf(mb) {
   if (su.includes("trash") || su.includes("deleted")) return "trash";
   if (su.includes("draft")) return "drafts";
   if (su.includes("archive")) return "archive";
+  // Fallback theo tên folder (Hostinger có thể không set special-use).
   const p = (mb.path || "").toLowerCase();
+  const leaf = p.split(/[/.]/).pop(); // "inbox.sent" -> "sent"
   if (p === "inbox") return "inbox";
+  if (["sent", "sent items", "sent messages"].includes(leaf)) return "sent";
+  if (["trash", "deleted", "deleted items", "deleted messages"].includes(leaf))
+    return "trash";
+  if (["junk", "spam", "junk email"].includes(leaf)) return "spam";
+  if (["drafts", "draft"].includes(leaf)) return "drafts";
+  if (["archive", "archives", "all mail"].includes(leaf)) return "archive";
   return "other";
 }
 
