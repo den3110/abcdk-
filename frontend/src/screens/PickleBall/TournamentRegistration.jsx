@@ -117,11 +117,13 @@ const totalChipStyle = (total, cap, delta, t) => {
   }
 
   const d = Number.isFinite(delta) && delta > 0 ? Number(delta) : 0;
+  const overMax = cap + d; // mức tối đa cho phép (max)
   const EPS = 1e-6;
 
-  // Vượt TRẦN điểm (nominal cap) => ĐỎ, giống bản V1. (delta chỉ là dung sai
-  // backend dùng để chặn đăng ký, không dùng để "xanh hoá" cặp đã quá trần.)
-  if (total > cap + EPS) {
+  // > max (cap + delta)        => ĐỎ  (vượt trần cho phép)
+  // cap < total <= max         => VÀNG (đã quá điểm trình nhưng còn trong dung sai)
+  // total <= cap               => XANH (hợp lệ)
+  if (total > overMax + EPS) {
     return {
       color: "error",
       title: t("tournaments.registration.totalChip.over", {
@@ -131,7 +133,7 @@ const totalChipStyle = (total, cap, delta, t) => {
     };
   }
 
-  if (Math.abs(total - cap) <= EPS) {
+  if (total > cap + EPS) {
     return {
       color: "warning",
       title: t("tournaments.registration.totalChip.maxed", {
@@ -1248,11 +1250,13 @@ const RegCard = memo(
     const total = totalScoreOf(r, isSingles);
     const chip = totalChipStyle(total, cap, delta, t);
 
+    // Hex tường minh + áp qua inline style để KHÔNG bị CSS global của giao diện V3
+    // (sport-v3-global.css ép mọi .MuiTypography-root = #d7e5f5) đè mất màu.
     const colorMap = {
-      default: "text.primary",
-      success: "success.main",
-      warning: "warning.main",
-      error: "error.main",
+      default: null,
+      success: "#22c55e", // xanh: hợp lệ (<= cap)
+      warning: "#f5a623", // vàng: quá cap nhưng còn trong dung sai (cap < x <= max)
+      error: "#f44336", // đỏ: vượt max (cap + delta)
     };
 
     return (
@@ -1499,7 +1503,11 @@ const RegCard = memo(
                   <Typography
                     variant="h6"
                     fontWeight={700}
-                    color={colorMap[chip.color] || "text.primary"}
+                    style={
+                      colorMap[chip.color]
+                        ? { color: colorMap[chip.color] }
+                        : undefined
+                    }
                     title={chip.title}
                   >
                     {fmt3(total)}
@@ -2096,11 +2104,12 @@ export default function TournamentRegistration() {
     const EPS = 0.001;
     const players = [r?.player1, r?.player2].filter(Boolean);
     if (key === "over") {
-      // "Vượt điểm trình" = vượt TRẦN (nominal cap), khớp với chip tổng màu đỏ.
+      // "Vượt điểm trình" = vượt MAX (cap + delta), khớp chip tổng màu ĐỎ.
       const total = totalScoreOf(r, isSingles);
-      const overTotal = cap > 0 && total != null && total > cap + EPS;
+      const overTotal = cap > 0 && total != null && total > cap + delta + EPS;
       const overSingle =
-        eachCap > 0 && players.some((p) => Number(p.score) > eachCap + EPS);
+        eachCap > 0 &&
+        players.some((p) => Number(p.score) > eachCap + delta + EPS);
       return overTotal || overSingle;
     }
     if (key === "unpaid") {
