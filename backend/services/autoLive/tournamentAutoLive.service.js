@@ -174,6 +174,11 @@ async function pollOnce(sessionId) {
     catch (e) { console.warn("[auto-live] per-match poll lỗi:", e?.message || e); }
     return;
   }
+  if (session.splitPerTournament) {
+    try { await pollSplitTournament(session, station); }
+    catch (e) { console.warn("[auto-live] split-tournament poll lỗi:", e?.message || e); }
+    return;
+  }
 
   if (newMatchId !== oldMatchId) {
     // Live xuyên suốt: gỡ link khỏi trận cũ, gắn vào trận mới đang trên sân → mỗi
@@ -706,8 +711,10 @@ export async function startAutoLive(input) {
     tournamentId, courtStationId, imouDeviceId, destinations,
     startedBy, autoNext = true, venueId: explicitVenueId, layout, advanced,
     sourceUrl, dahuaP2p, perMatchLive = false, title: customTitle,
-    recordClips = false,
+    recordClips = false, splitPerTournament = false,
   } = input || {};
+  // Tách live theo giải: chạy theo cơ chế status-driven (paused→live) như per-match.
+  const lazyBroadcast = !!perMatchLive || !!splitPerTournament;
   const src = (sourceUrl || "").trim();
   const useDahua = !!(dahuaP2p && typeof dahuaP2p === "object"
     && (dahuaP2p.serial || dahuaP2p.channel != null || dahuaP2p.enabled));
@@ -769,8 +776,8 @@ export async function startAutoLive(input) {
   const tournament = await Tournament.findById(tournamentId).select("name").lean();
   // Tiêu đề live: dùng tiêu đề tuỳ chỉnh (nếu nhập), fallback tên giải.
   const baseTitle = String(customTitle || "").trim() || tournament?.name || "PickleTour Live";
-  // perMatchLive: CHƯA tạo broadcast — chờ trận bắt đầu (pollOnce sẽ tạo). Chỉ lưu spec.
-  const preparedDest = perMatchLive ? [] : await prepareDestinations(destinations, baseTitle);
+  // perMatch / splitPerTournament: CHƯA tạo broadcast — chờ trận (pollOnce sẽ tạo). Chỉ lưu spec.
+  const preparedDest = lazyBroadcast ? [] : await prepareDestinations(destinations, baseTitle);
 
   const runner = input.runner === "client" ? "client" : "server";
 
@@ -797,14 +804,16 @@ export async function startAutoLive(input) {
       ? { serial: dahuaCfg.serial, channel: dahuaCfg.channel, subtype: dahuaCfg.subtype }
       : undefined,
     startedBy, destinations: preparedDest, autoNext, perMatchLive: !!perMatchLive,
-    destSpecs: perMatchLive ? (destinations || []) : [],
+    splitPerTournament: !perMatchLive && !!splitPerTournament,
+    // destSpecs: cần cho tạo lại broadcast (per-match từng trận / split khi đổi giải).
+    destSpecs: lazyBroadcast ? (destinations || []) : [],
     liveTitle: baseTitle,
     // Ghi + cắt clip từng trận lên Drive: chỉ live xuyên suốt (không per-match).
     recordClips: !perMatchLive && !!recordClips,
     layout: layout && typeof layout === "object" ? layout : undefined,
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     runner,
-    status: perMatchLive ? "paused" : "starting", workerId: crypto.randomUUID(),
+    status: lazyBroadcast ? "paused" : "starting", workerId: crypto.randomUUID(),
     startedAt: new Date(),
   });
 
@@ -815,9 +824,9 @@ export async function startAutoLive(input) {
     return session.toObject();
   }
 
-  // perMatchLive (server): CHƯA lên live — chỉ poll, chờ trận BẮT ĐẦU (status="live")
-  // thì pollOnce mới tạo broadcast + spawn worker. Chỉ gán sân sẽ KHÔNG live.
-  if (perMatchLive) {
+  // perMatch / split (server): CHƯA lên live — chỉ poll, chờ trận (pollOnce sẽ tạo
+  // broadcast + spawn worker). Chỉ gán sân sẽ KHÔNG live.
+  if (lazyBroadcast) {
     startPoll(session._id);
     return session.toObject();
   }
@@ -1046,8 +1055,10 @@ async function perMatchGoLive(session, matchId) {
   perMatchInFlight.add(sid);
   try {
     session.currentMatch = matchId;
-    session.currentMatchLabel = await matchShortLabel(matchId);
-    const tour = await Tournament.findById(session.tournament).select("name").lean();
+    // Lấy giải TỪ CHÍNH TRẬN (không phải session) → sang nội dung khác thì title đúng giải.
+    const m = await Match.findById(matchId).select("tournament code labelKey").lean();
+    session.currentMatchLabel = m?.code || m?.labelKey || String(matchId).slice(-6);
+    const tour = await Tournament.findById(m?.tournament || session.tournament).select("name").lean();
     // perMatchLive: tiêu đề TỰ ĐỘNG = "Tên giải - Tên trận" (bỏ qua tiêu đề tuỳ chỉnh).
     const base = tour?.name || "PickleTour Live";
     const title = `${base}${session.currentMatchLabel ? " - " + session.currentMatchLabel : ""}`.slice(0, 120);
@@ -1094,6 +1105,7 @@ async function perMatchStop(session) {
     await endDestinationBroadcasts(session.destinations || []);
     session.destinations = [];
     session.liveMatchId = null;
+    session.liveTournament = null; // split: hết broadcast của giải hiện tại
     session.workerPid = 0;
     session.cpuPct = 0; session.memMB = 0;
     session.status = "paused";
@@ -1104,6 +1116,76 @@ async function perMatchStop(session) {
   } finally {
     perMatchInFlight.delete(sid);
   }
+}
+
+// ── Tách live theo GIẢI (splitPerTournament): live xuyên suốt trong 1 giải, đổi
+//    giải thì end live cũ + tạo live mới (title = tên giải mới). ─────────────
+async function splitGoLive(session, matchId, tournamentId) {
+  const sid = String(session._id);
+  if (perMatchInFlight.has(sid)) return;
+  perMatchInFlight.add(sid);
+  try {
+    const m = await Match.findById(matchId).select("code labelKey").lean();
+    session.currentMatch = matchId;
+    session.currentMatchLabel = m?.code || m?.labelKey || String(matchId).slice(-6);
+    const tour = await Tournament.findById(tournamentId).select("name").lean();
+    const title = (tour?.name || "PickleTour Live").slice(0, 120);
+    const specs = Array.isArray(session.destSpecs) ? session.destSpecs : [];
+    if (!specs.length) { console.warn(`[auto-live] split go-live ${sid}: thiếu destSpecs`); return; }
+    let fresh;
+    try { fresh = await prepareDestinations(specs, title); }
+    catch (e) { console.warn(`[auto-live] split tạo broadcast lỗi ${sid}:`, e?.message || e); return; }
+    session.destinations = fresh;
+    session.liveTournament = tournamentId;
+    session.liveMatchId = matchId;
+    session.liveTitle = title;
+    session.status = "live";
+    session.lastMatchChangeAt = new Date();
+    await session.save();
+    await applyLiveLinksToMatch(session, matchId);
+    if (session.runner === "server") await respawnWorkerForSession(session);
+    console.log(`[auto-live] split GO LIVE ${sid} tournament=${tournamentId} (${title})`);
+  } finally {
+    perMatchInFlight.delete(sid);
+  }
+}
+
+async function pollSplitTournament(session, station) {
+  const sid = String(session._id);
+  const curMatchId = station?.currentMatch ? String(station.currentMatch) : "";
+  let curTid = "";
+  if (curMatchId) {
+    const m = await Match.findById(curMatchId).select("tournament").lean();
+    curTid = m?.tournament ? String(m.tournament) : "";
+  }
+  const liveTid = session.liveTournament ? String(session.liveTournament) : "";
+
+  // 1) Có trận thuộc GIẢI KHÁC (hoặc chưa live) → end live cũ + tạo live mới cho giải đó.
+  if (curMatchId && curTid && curTid !== liveTid) {
+    if (liveTid) await perMatchStop(session); // end broadcast cũ + pause (client tự dừng ffmpeg)
+    await splitGoLive(session, curMatchId, curTid);
+    return;
+  }
+  // 2) Cùng giải → live xuyên suốt, follow trận (overlay + link theo trận hiện tại).
+  if (liveTid && curMatchId && curTid === liveTid) {
+    if (String(session.currentMatch || "") !== curMatchId) {
+      const prev = session.currentMatch ? String(session.currentMatch) : "";
+      if (prev) await clearLiveLinksFromMatch(prev, sessionWatchUrls(session));
+      session.currentMatch = curMatchId;
+      session.currentMatchLabel = await matchShortLabel(curMatchId);
+      session.lastMatchChangeAt = new Date();
+      await session.save();
+      await applyLiveLinksToMatch(session, curMatchId);
+    }
+    await bumpOverlayForSession(sid);
+    if (session.runner === "server") {
+      try { const { cpuPct, memMB } = sampleProcessTree(session.workerPid, sid); session.cpuPct = cpuPct; session.memMB = memMB; await session.save(); } catch {}
+    }
+    return;
+  }
+  // 3) Đang live nhưng sân tạm trống (giữa 2 trận cùng giải) → GIỮ live, chỉ bump overlay.
+  if (liveTid && !curMatchId) { await bumpOverlayForSession(sid); return; }
+  // 4) Chưa live + chưa có trận → chờ.
 }
 
 export async function stopAutoLive(sessionId) {

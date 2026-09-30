@@ -141,6 +141,7 @@ export const startSession = asyncHandler(async (req, res) => {
     perMatchLive: body.perMatchLive === true, // true → mỗi trận 1 broadcast riêng
     title: body.title, // tiêu đề live tuỳ chỉnh (per-match: tự đặt Tên giải - Tên trận)
     recordClips: body.recordClips === true, // ghi + cắt clip từng trận lên Drive (live xuyên suốt)
+    splitPerTournament: body.splitPerTournament === true, // tách live theo giải (đổi giải → live mới)
 
     layout: body.layout,
     advanced: body.advanced,

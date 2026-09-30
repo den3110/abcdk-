@@ -6,6 +6,7 @@
   <title>PickleTour Live</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="vendor/hls.min.js"></script>
+  <script src="vendor/qrcode.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -68,6 +69,10 @@
           <button id="controlPinBtn" class="ghost hidden">Đổi PIN</button>
           <label class="chk" style="margin:0"><input type="checkbox" id="controlToggle" /> Bật</label>
         </div>
+      </div>
+      <div id="controlQr" class="hidden" style="margin-top:12px; display:flex; align-items:center; gap:14px; flex-wrap:wrap">
+        <div style="background:#fff; padding:8px; border-radius:10px; line-height:0"><img id="controlQrImg" alt="QR" width="150" height="150" /></div>
+        <div class="hint" id="controlQrCap"></div>
       </div>
     </div>
     <div id="dashEmpty" class="hint" style="margin:8px 0">Chưa có sân nào đang live. Bấm “＋ Thêm sân để live” để bắt đầu (mỗi sân cấu hình overlay/tài trợ/logo/tiêu đề riêng).</div>
@@ -211,6 +216,8 @@
       <div id="destList" class="chips"></div>
       <label class="chk" style="margin-top:10px"><input type="checkbox" id="perMatchLive" /> Live riêng từng trận (chỉ live khi trận bắt đầu, mỗi trận 1 broadcast)</label>
       <div id="perMatchHint" class="hint">Không tích = live xuyên suốt mọi trận trong 1 live. Tích = chờ tới khi trận bắt đầu mới lên live; hết trận tự dừng, chờ trận kế.</div>
+      <label class="chk" style="margin-top:10px"><input type="checkbox" id="splitPerTournament" /> Tách live theo giải/nội dung (đổi giải → tự tạo live mới)</label>
+      <div id="splitHint" class="hint">Chỉ dùng cho <b>live xuyên suốt</b>. Live liên tục các trận trong 1 giải/nội dung; khi sân chuyển sang trận của <b>giải/nội dung khác</b> (vd 3.7 → 4.0) thì tự end live cũ + tạo live mới, title tự đổi theo giải. Treo máy cả ngày, tự chạy hết các nội dung trên sân.</div>
       <label class="chk" style="margin-top:10px"><input type="checkbox" id="recordClips" /> Ghi + cắt clip từng trận rồi lưu Google Drive (ban đêm)</label>
       <div id="recordClipsHint" class="hint">Chỉ dùng cho <b>live xuyên suốt</b>. Máy này ghi lại video, đến khung giờ đêm tự đẩy về server → server cắt clip mỗi trận (từ lúc bắt đầu đến kết thúc) và upload Google Drive. Máy phải bật tới khi đẩy xong.</div>
     </div>

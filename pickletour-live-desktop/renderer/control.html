@@ -77,6 +77,7 @@
     <div id="a_fbWrap"><label>Facebook Page</label><select id="a_fb"></select></div>
     <label>Tiêu đề (để trống = Tên giải - Tên sân)</label><input id="a_title" />
     <label class="row" style="margin-top:12px"><span>Live riêng từng trận</span><input type="checkbox" id="a_perMatch" style="width:auto" /></label>
+    <label class="row"><span>Tách live theo giải (đổi giải → live mới)</span><input type="checkbox" id="a_split" style="width:auto" /></label>
     <label class="row"><span>Ghi + cắt clip lên Drive</span><input type="checkbox" id="a_rec" style="width:auto" /></label>
     <button class="pri full" style="margin-top:12px" id="a_go" onclick="doStart()">● Bắt đầu live</button>
     <div id="a_err" class="err-msg"></div>
@@ -179,6 +180,7 @@ async function doStart(){
       courtStationId:$("a_court").value, courtName,
       source, destinations,
       perMatchLive:$("a_perMatch").checked, recordClips:$("a_rec").checked,
+      splitPerTournament:$("a_split").checked,
       title:$("a_title").value.trim(),
     });
     closeAdd(); load();

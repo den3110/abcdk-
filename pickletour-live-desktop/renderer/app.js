@@ -380,11 +380,10 @@ $("perMatchLive").addEventListener("change", () => {
   $("liveTitle").placeholder = on
     ? "Tự động: Tên giải - Tên trận (mỗi trận)"
     : "Để trống = Tên giải - Tên sân";
-  // Ghi + cắt clip từng trận chỉ dùng cho live xuyên suốt → per-match thì tắt.
-  const rec = $("recordClips");
-  if (rec) {
-    rec.disabled = on;
-    if (on) rec.checked = false;
+  // Ghi + cắt clip / tách live theo giải chỉ dùng cho live xuyên suốt → per-match thì tắt.
+  for (const id of ["recordClips", "splitPerTournament"]) {
+    const el = $(id);
+    if (el) { el.disabled = on; if (on) el.checked = false; }
   }
 });
 $("destType").onchange = () => {
@@ -479,6 +478,8 @@ $("goLive").onclick = async () => {
       browserOverlayUrl: $("browserOverlayUrl").value.trim(),
       // Ghi + cắt clip từng trận lên Drive: chỉ live xuyên suốt (không per-match).
       recordClips: $("recordClips").checked && !perMatch,
+      // Tách live theo giải: chỉ live xuyên suốt (không per-match).
+      splitPerTournament: $("splitPerTournament").checked && !perMatch,
       layout: {
         scoreboard: $("lay_scoreboard").value,
         brand: $("lay_brand").value,
@@ -997,6 +998,7 @@ function resetSetupForNewCourt() {
   $("perMatchLive").checked = false;
   $("recordClips").checked = false;
   $("recordClips").disabled = false;
+  if ($("splitPerTournament")) { $("splitPerTournament").checked = false; $("splitPerTournament").disabled = false; }
   $("liveTitle").disabled = false;
   $("setupErr").textContent = "";
   stopSetupPreview();
@@ -1066,6 +1068,7 @@ async function remoteStart(p = {}) {
     title: perMatch ? "" : (p.title || [p.tournamentName, p.courtName].filter(Boolean).join(" - ")),
     browserOverlayUrl: "",
     recordClips: !!p.recordClips && !perMatch,
+    splitPerTournament: !!p.splitPerTournament && !perMatch,
     layout: { scoreboard: "top-left", brand: "top-right", sponsor: "bottom-right" },
     advanced: { videoBitrateKbps: 4500, resolutionH: 1080, fps: 0, audioBitrateKbps: 128, encoder: "auto" },
   };
@@ -1098,11 +1101,31 @@ function renderControl(c) {
   const on = !!c.enabled;
   $("controlToggle").checked = on;
   $("controlPinBtn").classList.toggle("hidden", !on);
-  if (!on) { $("controlInfo").textContent = "Tắt — bật để điều khiển từ điện thoại."; return; }
+  const qrBox = $("controlQr");
+  if (!on) {
+    $("controlInfo").textContent = "Tắt — bật để điều khiển từ điện thoại.";
+    if (qrBox) qrBox.classList.add("hidden");
+    return;
+  }
   const ips = (c.ips || []);
   const urls = ips.map((ip) => `http://${ip.address}:${c.port}/?k=${c.pin}${ip.tailscale ? " (Tailscale)" : ""}`);
   $("controlInfo").innerHTML = `PIN: <b>${esc(c.pin)}</b> · mở trên điện thoại:<br>` +
     (urls.length ? urls.map((u) => esc(u)).join("<br>") : `http://&lt;IP máy&gt;:${c.port}/?k=${esc(c.pin)}`);
+  // QR: ưu tiên IP Tailscale (ip.tailscale), fallback IP đầu tiên.
+  const primary = ips.find((ip) => ip.tailscale) || ips[0];
+  if (qrBox && primary && window.qrcode) {
+    const url = `http://${primary.address}:${c.port}/?k=${c.pin}`;
+    try {
+      const qr = window.qrcode(0, "M");
+      qr.addData(url);
+      qr.make();
+      $("controlQrImg").src = qr.createDataURL(6, 8);
+      $("controlQrCap").innerHTML = `Quét QR để mở thẳng${primary.tailscale ? " (Tailscale)" : ""}:<br><b>${esc(url)}</b>`;
+      qrBox.classList.remove("hidden");
+    } catch { qrBox.classList.add("hidden"); }
+  } else if (qrBox) {
+    qrBox.classList.add("hidden");
+  }
 }
 if ($("controlToggle")) {
   $("controlToggle").onchange = async () => {

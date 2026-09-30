@@ -91,6 +91,11 @@ const tournamentAutoLiveSessionSchema = new Schema(
     perMatchLive: { type: Boolean, default: false },
     // perMatchLive: trận đang được stream (null = đang chờ trận bắt đầu).
     liveMatchId: { type: Schema.Types.ObjectId, ref: "Match", default: null },
+    // Tách live theo GIẢI: live xuyên suốt trong 1 giải, khi sân chuyển sang trận
+    // của giải/nội dung KHÁC thì tự end live cũ + tạo live mới (title = tên giải mới).
+    splitPerTournament: { type: Boolean, default: false },
+    // Giải của broadcast đang phát (để phát hiện khi đổi giải → tách live).
+    liveTournament: { type: Schema.Types.ObjectId, ref: "Tournament", default: null },
     // perMatchLive: spec điểm đến để TẠO broadcast khi trận bắt đầu (lazy).
     // [{type, pageId?, pageName?, label?, streamUrl?, streamKey?}]
     destSpecs: { type: [Schema.Types.Mixed], default: [] },

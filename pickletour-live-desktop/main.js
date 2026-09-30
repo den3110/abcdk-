@@ -577,6 +577,7 @@ async function startWorker({ baseUrl, token, form }) {
       layout: form.layout,
       advanced: form.advanced,
       perMatchLive: !!form.perMatchLive,
+      splitPerTournament: !!form.splitPerTournament, // tách live theo giải (đổi giải → live mới)
       title: form.title || "",
       recordClips: !!form.recordClips, // ghi + cắt clip từng trận lên Drive (live xuyên suốt)
       runner: "client",
@@ -584,9 +585,9 @@ async function startWorker({ baseUrl, token, form }) {
   });
   const sid = session._id;
 
-  // perMatchLive: CHƯA live — chờ trận BẮT ĐẦU (backend đặt status="live") thì mới
-  // start ffmpeg; hết trận (status="paused") thì dừng, chờ trận kế.
-  if (form.perMatchLive) {
+  // perMatch / split: CHƯA live — backend đặt status="live"/"paused" theo trận/giải;
+  // app desktop tự start/stop ffmpeg theo status (armPerMatch dùng chung cho cả 2).
+  if (form.perMatchLive || form.splitPerTournament) {
     armPerMatch({ baseUrl, token, form, sid });
     return { sessionId: sid, perMatchArmed: true, watchUrls: [] };
   }
