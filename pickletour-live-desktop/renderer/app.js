@@ -1009,6 +1009,11 @@ function buildRemoteState() {
   const sessions = [...state.sessions.values()].map((S) => {
     const s = S.lastStatus || {};
     const clips = S.clips || [];
+    // Link xem live: từ destinations (đã có watchUrl) hoặc watchUrls lúc start.
+    const watchUrls = [...new Set([
+      ...((s.destinations || []).map((d) => d.watchUrl).filter(Boolean)),
+      ...((S.watchUrls || []).filter(Boolean)),
+    ])];
     return {
       sid: S.sid,
       court: S.courtName || "",
@@ -1020,6 +1025,7 @@ function buildRemoteState() {
       recordClips: !!S.recordClips,
       clipsDone: clips.filter((c) => c.status === "done").length,
       clipsTotal: clips.length,
+      watchUrls,
       exited: !!(S.exited && !S.perMatch),
     };
   });
@@ -1044,6 +1050,11 @@ async function remoteOptions(payload = {}) {
     cams: (state.cams || []).map((c, i) => ({ i, label: `${c.venueName}/${c.courtName}·${c.camName}`, deviceId: c.deviceId, venueId: c.venueId })),
     fbPages: (state.fbPages || []).map((p) => ({ pageId: p.pageId, pageName: p.pageName })),
     rtspSources: (Array.isArray(rtsp) ? rtsp : []).map((s) => ({ label: s.label, url: s.url })),
+    encoders: (state.encoders || []).map((e) => ({ value: e.value, label: e.label })),
+    corners: [
+      ["top-left", "Trên·Trái"], ["top-right", "Trên·Phải"],
+      ["bottom-left", "Dưới·Trái"], ["bottom-right", "Dưới·Phải"],
+    ],
   };
 }
 
@@ -1062,15 +1073,25 @@ async function remoteStart(p = {}) {
     sourceUrl: src.sourceUrl || "",
     dahuaP2p: src.dahua || undefined,
     destinations: dests,
-    encoder: "auto",
+    encoder: p.encoder || "auto",
     runnerLabel: state.runnerLabel,
     perMatchLive: perMatch,
     title: perMatch ? "" : (p.title || [p.tournamentName, p.courtName].filter(Boolean).join(" - ")),
-    browserOverlayUrl: "",
+    browserOverlayUrl: p.browserOverlayUrl || "",
     recordClips: !!p.recordClips && !perMatch,
     splitPerTournament: !!p.splitPerTournament && !perMatch,
-    layout: { scoreboard: "top-left", brand: "top-right", sponsor: "bottom-right" },
-    advanced: { videoBitrateKbps: 4500, resolutionH: 1080, fps: 0, audioBitrateKbps: 128, encoder: "auto" },
+    layout: {
+      scoreboard: p.layout?.scoreboard || "top-left",
+      brand: p.layout?.brand || "top-right",
+      sponsor: p.layout?.sponsor || "bottom-right",
+    },
+    advanced: {
+      videoBitrateKbps: Number(p.advanced?.videoBitrateKbps) || 4500,
+      resolutionH: Number(p.advanced?.resolutionH) || 1080,
+      fps: Number(p.advanced?.fps) || 0,
+      audioBitrateKbps: Number(p.advanced?.audioBitrateKbps) || 128,
+      encoder: p.encoder || "auto",
+    },
   };
   const res = await startCourt(form, { tournamentName: p.tournamentName, courtName: p.courtName, perMatch });
   if (!state.activeSid && $("dashboardView") && !$("dashboardView").classList.contains("hidden")) renderDashboard();

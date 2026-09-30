@@ -75,6 +75,20 @@
       <option value="youtube">YouTube (tự tạo)</option>
     </select>
     <div id="a_fbWrap"><label>Facebook Page</label><select id="a_fb"></select></div>
+    <div id="a_crosspostWrap"><label>Crosspost sang page khác (giữ Ctrl/Cmd chọn nhiều — cần đã thiết lập crossposting)</label><select id="a_crosspost" multiple size="3"></select></div>
+
+    <label style="margin-top:14px"><b>Encoder & Overlay</b></label>
+    <label>Encoder</label><select id="a_encoder"></select>
+    <label>Vị trí Bảng điểm</label><select id="a_lay_sb"></select>
+    <label>Vị trí Logo PickleTour</label><select id="a_lay_brand"></select>
+    <label>Vị trí Tài trợ</label><select id="a_lay_sponsor"></select>
+    <label>Browser overlay URL (tuỳ chọn)</label><input id="a_bov" placeholder="https://… (trang overlay nền trong suốt)" />
+    <label>Độ phân giải</label>
+    <select id="a_res"><option value="1080">1080p</option><option value="720">720p</option><option value="480">480p</option></select>
+    <label>FPS</label>
+    <select id="a_fps"><option value="0">Khớp nguồn</option><option value="30">30</option><option value="25">25</option><option value="20">20</option></select>
+    <label>Video bitrate (kbps)</label><input id="a_vbr" inputmode="numeric" placeholder="4500" value="4500" />
+
     <label>Tiêu đề (để trống = Tên giải - Tên sân)</label><input id="a_title" />
     <label class="row" style="margin-top:12px"><span>Live riêng từng trận</span><input type="checkbox" id="a_perMatch" style="width:auto" /></label>
     <label class="row"><span>Tách live theo giải (đổi giải → live mới)</span><input type="checkbox" id="a_split" style="width:auto" /></label>
@@ -117,13 +131,25 @@ async function load(){
 function cardHtml(s){
   const clip = s.recordClips ? `<div class="mut">🎬 Clip: ${s.clipsDone}/${s.clipsTotal} lên Drive</div>` : "";
   const ex = s.exited ? `<div class="mut" style="color:#fca5a5">Worker đã dừng</div>` : "";
+  const links = (s.watchUrls||[]).length
+    ? `<div style="margin-top:6px">` + s.watchUrls.map((u)=>
+        `<div class="chip" style="justify-content:space-between;width:100%;margin-top:4px">
+           <a href="${esc(u)}" target="_blank" style="color:#38bdf8;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">↗ ${esc(u)}</a>
+           <button class="ghost" style="padding:4px 10px" onclick="copyLink('${esc(u)}')">Copy</button>
+         </div>`).join("") + `</div>`
+    : `<div class="mut" style="margin-top:6px">Link sẽ có sau ~10s…</div>`;
   return `<div class="card">
     <div class="row"><div><b>${esc(s.court||"Sân")}</b> ${badge(s.status)}</div>
       <button class="danger" onclick="stopOne('${s.sid}')">■ Dừng</button></div>
     <div class="mut">${esc(s.tournament||"")}</div>
     <div class="mut">Trận: <b>${esc(s.match||"—")}</b> · ${s.bitrateKbps?(s.bitrateKbps/1000).toFixed(2)+"Mbps":"—"} · ${fmtSpeed(s.speed)}</div>
-    ${clip}${ex}
+    ${clip}${ex}${links}
   </div>`;
+}
+async function copyLink(u){
+  try{ await navigator.clipboard.writeText(u); }
+  catch{ const t=document.createElement("textarea"); t.value=u; document.body.appendChild(t); t.select(); try{document.execCommand("copy");}catch{} t.remove(); }
+  alert("Đã copy link:\n"+u);
 }
 async function stopOne(sid){ if(!confirm("Dừng sân này?"))return; try{ await api("/api/stop","POST",{sid}); load(); }catch(e){ alert(e.message); } }
 async function stopAll(){ if(!confirm("Dừng TẤT CẢ sân?"))return; try{ await api("/api/stop-all","POST",{}); load(); }catch(e){ alert(e.message); } }
@@ -137,6 +163,14 @@ async function openAdd(){
     $("a_rtsp").innerHTML = (OPT.rtspSources||[]).map((s,i)=>`<option value="${i}">${esc(s.label)}</option>`).join("") || '<option value="">(không có)</option>';
     $("a_cam").innerHTML = (OPT.cams||[]).map(c=>`<option value="${c.i}">${esc(c.label)}</option>`).join("") || '<option value="">(không có)</option>';
     $("a_fb").innerHTML = (OPT.fbPages||[]).map(p=>`<option value="${p.pageId}">${esc(p.pageName)}</option>`).join("") || '<option value="">(không có)</option>';
+    $("a_crosspost").innerHTML = (OPT.fbPages||[]).map(p=>`<option value="${p.pageId}">${esc(p.pageName)}</option>`).join("");
+    $("a_encoder").innerHTML = '<option value="auto">Tự động (ưu tiên GPU)</option>' + (OPT.encoders||[]).map(e=>`<option value="${esc(e.value)}">${esc(e.label)}</option>`).join("");
+    const corners = OPT.corners||[["top-left","Trên·Trái"],["top-right","Trên·Phải"],["bottom-left","Dưới·Trái"],["bottom-right","Dưới·Phải"]];
+    const copt = (sel)=>corners.map(([v,l])=>`<option value="${v}" ${v===sel?"selected":""}>${l}</option>`).join("");
+    $("a_lay_sb").innerHTML = copt("top-left");
+    $("a_lay_brand").innerHTML = copt("top-right");
+    $("a_lay_sponsor").innerHTML = copt("bottom-right");
+    onDest();
     await loadCourts();
   }catch(e){ $("a_err").textContent = e.message; }
 }
@@ -160,7 +194,7 @@ async function loadCourts(){
   }catch(e){ $("a_err").textContent = e.message; }
 }
 function onSrc(){ const t=$("a_srcType").value; $("a_rtspWrap").classList.toggle("hidden",t!=="rtsp"); $("a_urlWrap").classList.toggle("hidden",t!=="url"); $("a_imouWrap").classList.toggle("hidden",t!=="imou"); }
-function onDest(){ $("a_fbWrap").classList.toggle("hidden",$("a_destType").value!=="fb"); }
+function onDest(){ const fb=$("a_destType").value==="fb"; $("a_fbWrap").classList.toggle("hidden",!fb); $("a_crosspostWrap").classList.toggle("hidden",!fb); }
 
 async function doStart(){
   $("a_err").textContent="";
@@ -173,7 +207,13 @@ async function doStart(){
     else if(srcType==="url"){ const u=$("a_url").value.trim(); if(!u) throw new Error("Nhập link nguồn"); source={sourceUrl:u}; }
     else { const c=OPT.cams[+$("a_cam").value]; if(!c) throw new Error("Chọn camera"); source={imouDeviceId:c.deviceId, venueId:c.venueId}; }
     const destType=$("a_destType").value; let destinations=[];
-    if(destType==="fb"){ const p=OPT.fbPages.find(x=>x.pageId===$("a_fb").value); if(!p) throw new Error("Chọn Facebook Page"); destinations=[{type:"fb",pageId:p.pageId,pageName:p.pageName,label:p.pageName}]; }
+    if(destType==="fb"){
+      const p=OPT.fbPages.find(x=>x.pageId===$("a_fb").value); if(!p) throw new Error("Chọn Facebook Page");
+      const cpIds=Array.from($("a_crosspost").selectedOptions||[]).map(o=>o.value).filter(id=>id&&id!==p.pageId);
+      const dest={type:"fb",pageId:p.pageId,pageName:p.pageName,label:p.pageName};
+      if(cpIds.length){ dest.crosspostPageIds=cpIds; dest.crosspostNames=cpIds.map(id=>OPT.fbPages.find(x=>x.pageId===id)?.pageName||id); }
+      destinations=[dest];
+    }
     else destinations=[{type:"youtube",label:"YouTube (tự tạo qua API)"}];
     await api("/api/start","POST",{
       tournamentId:$("a_tour").value, tournamentName: t?t.name:"",
@@ -182,6 +222,10 @@ async function doStart(){
       perMatchLive:$("a_perMatch").checked, recordClips:$("a_rec").checked,
       splitPerTournament:$("a_split").checked,
       title:$("a_title").value.trim(),
+      encoder:$("a_encoder").value,
+      browserOverlayUrl:$("a_bov").value.trim(),
+      layout:{ scoreboard:$("a_lay_sb").value, brand:$("a_lay_brand").value, sponsor:$("a_lay_sponsor").value },
+      advanced:{ resolutionH:Number($("a_res").value)||1080, fps:Number($("a_fps").value)||0, videoBitrateKbps:Number($("a_vbr").value)||4500 },
     });
     closeAdd(); load();
   }catch(e){ $("a_err").textContent = e.message; }
