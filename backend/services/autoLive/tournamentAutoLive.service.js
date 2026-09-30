@@ -172,12 +172,17 @@ async function pollOnce(sessionId) {
   }
 
   if (newMatchId !== oldMatchId) {
+    // Live xuyên suốt: gỡ link khỏi trận cũ, gắn vào trận mới đang trên sân → mỗi
+    // trận hiện link "Xem trực tiếp" đúng khoảng thời gian nó được live.
+    const urls = sessionWatchUrls(session);
+    if (oldMatchId) await clearLiveLinksFromMatch(oldMatchId, urls);
     session.currentMatch = newMatchId || null;
     session.currentMatchLabel = newMatchId
       ? await matchShortLabel(newMatchId)
       : "";
     session.lastMatchChangeAt = new Date();
     await session.save();
+    if (newMatchId) await applyLiveLinksToMatch(session, newMatchId);
     await bumpOverlayForSession(sessionId);
   } else {
     // Cùng match nhưng có thể tỉ số đổi — vẫn re-render để cập nhật scoreboard.
@@ -255,6 +260,57 @@ async function pollOnce(sessionId) {
 async function matchShortLabel(id) {
   const m = await Match.findById(id).select("code labelKey").lean();
   return m?.code || m?.labelKey || String(id).slice(-6);
+}
+
+/** Danh sách watchUrl (FB/YouTube) của phiên — RTMP thuần không có. */
+function sessionWatchUrls(session) {
+  return (session.destinations || []).map((d) => d?.watchUrl).filter(Boolean);
+}
+
+/** Gắn link xem live (FB + YouTube) của phiên vào ĐÚNG trận đang live → lịch thi
+ *  đấu / chi tiết trận hiện nút "Xem trực tiếp" (dùng match.video + liveTargets,
+ *  đúng convention app live). RTMP thuần (không watchUrl) → bỏ qua. */
+async function applyLiveLinksToMatch(session, matchId) {
+  try {
+    if (!matchId) return;
+    const targets = (session.destinations || [])
+      .filter((d) => (d.type === "fb" || d.type === "youtube") && d.watchUrl)
+      .map((d) => ({
+        platform: d.type === "fb" ? "facebook" : "youtube",
+        pageId: d.pageId || null,
+        liveId: d.broadcastId || null,
+        watchUrl: d.watchUrl,
+        createdAt: new Date(),
+      }));
+    if (!targets.length) return;
+    await Match.updateOne(
+      { _id: matchId },
+      { $set: { liveTargets: targets, video: targets[0].watchUrl } }
+    );
+  } catch (e) {
+    console.warn("[auto-live] gắn link live vào trận lỗi:", e?.message || e);
+  }
+}
+
+/** Gỡ link live khỏi trận (khi trận kết thúc/đổi/dừng phiên). Chỉ xoá match.video
+ *  khi nó ĐÚNG là link live của phiên (tránh đụng VOD/link khác); liveTargets do
+ *  luồng live tạo nên gỡ luôn. */
+async function clearLiveLinksFromMatch(matchId, knownUrls = []) {
+  try {
+    if (!matchId) return;
+    if (knownUrls.length) {
+      await Match.updateOne(
+        { _id: matchId, video: { $in: knownUrls } },
+        { $set: { video: "" } }
+      ).catch(() => {});
+    }
+    await Match.updateOne(
+      { _id: matchId },
+      { $unset: { liveTargets: "" } }
+    ).catch(() => {});
+  } catch (e) {
+    console.warn("[auto-live] gỡ link live khỏi trận lỗi:", e?.message || e);
+  }
 }
 
 function stopPoll(sessionId) {
@@ -967,6 +1023,8 @@ async function perMatchGoLive(session, matchId) {
     session.status = "live";
     session.lastMatchChangeAt = new Date();
     await session.save();
+    // Gắn link xem live vào chính trận này → chi tiết trận hiện "Xem trực tiếp".
+    await applyLiveLinksToMatch(session, matchId);
     // Server-runner: backend tự spawn ffmpeg. Client-runner: app desktop tự start
     // khi thấy status="live" + destinations (qua poll worker-config).
     if (session.runner === "server") await respawnWorkerForSession(session);
@@ -988,6 +1046,9 @@ async function perMatchStop(session) {
       if (isPidAlive(session.workerPid)) { try { process.kill(session.workerPid, "SIGTERM"); } catch {} }
       setTimeout(() => restartingSessions.delete(sid), 4000);
     }
+    // Gỡ link live khỏi trận vừa xong (nắm matchId + watchUrl TRƯỚC khi xoá destinations).
+    const endedMatchId = session.liveMatchId ? String(session.liveMatchId) : "";
+    const endedUrls = sessionWatchUrls(session);
     await endDestinationBroadcasts(session.destinations || []);
     session.destinations = [];
     session.liveMatchId = null;
@@ -995,6 +1056,7 @@ async function perMatchStop(session) {
     session.cpuPct = 0; session.memMB = 0;
     session.status = "paused";
     await session.save();
+    if (endedMatchId) await clearLiveLinksFromMatch(endedMatchId, endedUrls);
     clearProcSample(sid);
     console.log(`[auto-live] per-match STOP ${sid} — chờ trận kế.`);
   } finally {
@@ -1020,6 +1082,10 @@ export async function stopAutoLive(sessionId) {
   // Nếu là phiên đầu thu Dahua: chạy reconcile để nhả tunnel dùng chung khi
   // không còn court nào dùng serial này (nếu còn court khác thì giữ nguyên).
   if (session.dahuaP2p?.serial) { try { triggerDahuaReconcile(); } catch {} }
+  // Gỡ link live khỏi trận đang gắn (per-match: liveMatchId; xuyên suốt: currentMatch).
+  const urls = sessionWatchUrls(session);
+  const liveMids = [...new Set([session.liveMatchId, session.currentMatch].filter(Boolean).map(String))];
+  for (const mid of liveMids) await clearLiveLinksFromMatch(mid, urls);
   // Kết thúc live FB + YouTube để không treo "đang phát" với hình đứng.
   await endDestinationBroadcasts(session.destinations || []);
   return session.toObject();
