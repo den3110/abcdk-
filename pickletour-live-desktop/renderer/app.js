@@ -383,12 +383,11 @@ $("addDest").onclick = () => {
     state.destinations.push({ type: "fb", pageId: p.pageId, pageName: p.pageName, label: p.pageName });
   } else if (t === "youtube") {
     const key = $("ytKey").value.trim();
-    if (!key) return;
-    // YouTube ingest RTMP (dùng stream key bền từ YouTube Studio).
-    state.destinations.push({
-      type: "rtmp", streamUrl: "rtmp://a.rtmp.youtube.com/live2",
-      streamKey: key, label: "YouTube",
-    });
+    // Có key → dùng thủ công; để TRỐNG → backend tự tạo broadcast qua YouTube API
+    // (đã kết nối ở /admin/youtube-live).
+    state.destinations.push(key
+      ? { type: "rtmp", streamUrl: "rtmp://a.rtmp.youtube.com/live2", streamKey: key, label: "YouTube" }
+      : { type: "youtube", label: "YouTube (tự tạo qua API)" });
     $("ytKey").value = "";
   } else {
     const url = $("rtmpUrl").value.trim();
