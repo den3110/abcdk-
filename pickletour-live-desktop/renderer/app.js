@@ -445,6 +445,7 @@ $("goLive").onclick = async () => {
       runnerLabel: state.runnerLabel,
       perMatchLive: $("perMatchLive").checked,
       title: $("perMatchLive").checked ? "" : $("liveTitle").value.trim(),
+      browserOverlayUrl: $("browserOverlayUrl").value.trim(),
       layout: {
         scoreboard: $("lay_scoreboard").value,
         brand: $("lay_brand").value,

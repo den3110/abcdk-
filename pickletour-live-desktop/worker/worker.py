@@ -75,6 +75,9 @@ MAX_RSS_MB = int(os.environ.get("AUTOLIVE_MAX_RSS_MB") or 1800)
 # Nguồn video: rỗng = cam Imou (DHAV qua stdin); có = link tuỳ chỉnh
 # (m3u8/RTSP/RTMP/http) → ffmpeg đọc thẳng URL.
 SOURCE_URL = (os.environ.get("AUTOLIVE_SOURCE_URL") or "").strip()
+# Browser overlay (tuỳ chọn): tcp://127.0.0.1:PORT do main.js (Electron) render
+# trang web transparent → capturePage PNG → feed image2pipe. Lớp DƯỚI scoreboard.
+BROWSER_OVERLAY = (os.environ.get("AUTOLIVE_BROWSER_OVERLAY") or "").strip()
 # PREVIEW-ONLY: xem thử nguồn TRƯỚC khi live (RTSP/m3u8/RTMP/HTTP hoặc Imou). Chỉ
 # xuất HLS cục bộ (AUTOLIVE_PREVIEW_HLS_DIR), KHÔNG overlay/heartbeat/destinations
 # FB-YT. Tái dùng nguyên đường đọc nguồn (URL + Imou DHAV) của worker.
@@ -445,7 +448,7 @@ def probe_url(url):
     return has_audio, fps
 
 
-def build_ffmpeg_args(overlay_fifo, has_audio, tee):
+def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None):
     # Cam Imou có thể xuất 2K (2560x1440@20fps): scale về 1080p TRƯỚC khi
     # chồng overlay (PNG vẽ theo 1920x1080). -r 25 + GOP 50 = keyframe 2s.
     # PTS gốc của DHAV (không wallclock) — prebuffer ghi dồn sẽ không bị dồn
@@ -492,17 +495,28 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee):
                  "-thread_queue_size", "512", "-f", "dhav", "-i", "pipe:0"]
     # Ghép overlay ở canvas 1080 (PNG overlay 1920x1080), sau đó scale xuống độ
     # phân giải mục tiêu (RES_H) nếu khác 1080 → logo/chữ co đúng tỉ lệ.
+    # Chồng nhiều lớp overlay: DƯỚI = browser (tuỳ chọn), TRÊN CÙNG = scoreboard
+    # native (để điểm số luôn đọc được). thread_queue NHỎ = backpressure: nguồn
+    # video ĐỨNG mà overlay vẫn ghi → frame KHÔNG dồn vô hạn (tránh phình RAM).
     fc = base
+    ov_fps = max(1, round(OVERLAY_FPS))
+    overlay_inputs = []
+    if browser_fifo:
+        overlay_inputs.append(browser_fifo)   # lớp DƯỚI
     if overlay_fifo:
-        # thread_queue NHỎ = backpressure: khi nguồn video ĐỨNG (relay Imou cap /
-        # link 5XX) mà overlay vẫn ghi, frame KHÔNG dồn vô hạn (writer bị chặn) →
-        # tránh RAM bùng lên (trước đây 1 luồng lên 19.6GB do nguồn chập chờn).
-        # KHÔNG thêm filter fps ở đây: framesync theo nhịp input CHÍNH (video),
-        # overlay chỉ cần cấp frame đều; ép fps làm framesync chặn → luồng chậm.
-        ov_fps = max(1, round(OVERLAY_FPS))
-        args += ["-thread_queue_size", "8", "-f", "image2pipe",
-                 "-framerate", str(ov_fps), "-i", overlay_fifo]
-        fc += "[base];[base][1:v]overlay=0:0:eof_action=pass[comp]"
+        overlay_inputs.append(overlay_fifo)   # scoreboard native — TRÊN CÙNG
+    if overlay_inputs:
+        fc += "[base]"
+        prev = "base"
+        idx = 1
+        n = len(overlay_inputs)
+        for ov in overlay_inputs:
+            args += ["-thread_queue_size", "8", "-f", "image2pipe",
+                     "-framerate", str(ov_fps), "-i", ov]
+            lbl = "comp" if idx == n else f"ov{idx}"
+            fc += f";[{prev}][{idx}:v]overlay=0:0:eof_action=pass[{lbl}]"
+            prev = lbl
+            idx += 1
     else:
         fc += "[comp]"
     if RES_H and RES_H != 1080:
@@ -885,7 +899,7 @@ def main():
     ff_restarts = 0
     fast_fails = 0
     while not stop_event.is_set():
-        args = build_ffmpeg_args(overlay_fifo, has_audio, tee)
+        args = build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=(BROWSER_OVERLAY or None))
         log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} restart#{ff_restarts}")
         ff_spawn_t = time.monotonic()
         # URL mode: ffmpeg tự đọc URL (stdin không dùng). Imou mode: feed DHAV.

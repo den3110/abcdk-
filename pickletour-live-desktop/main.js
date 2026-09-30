@@ -323,6 +323,41 @@ function workerScriptPath() {
   return fs.existsSync(bundled) ? bundled : bundled;
 }
 
+// Browser overlay (client): render 1 trang web TRANSPARENT bằng offscreen
+// BrowserWindow → PNG có alpha → phục vụ qua TCP cho ffmpeg image2pipe (lớp
+// overlay DƯỚI scoreboard native). Trả { port, close() }.
+async function startBrowserOverlay(url) {
+  const net = require("net");
+  const fps = 2;
+  const win = new BrowserWindow({
+    width: 1920, height: 1080, show: false, frame: false, transparent: true,
+    webPreferences: { offscreen: true, backgroundThrottling: false },
+  });
+  try { win.webContents.setFrameRate(fps); } catch {}
+  let lastPng = null;
+  win.webContents.on("paint", (_e, _dirty, image) => {
+    try { lastPng = image.toPNG(); } catch {}
+  });
+  win.loadURL(url).catch((e) => console.error("[browser-overlay] loadURL fail:", e?.message || e));
+  const server = net.createServer((sock) => {
+    const iv = setInterval(() => {
+      if (lastPng) { try { sock.write(lastPng); } catch {} }
+    }, Math.round(1000 / fps));
+    const done = () => clearInterval(iv);
+    sock.on("close", done); sock.on("error", done);
+  });
+  await new Promise((res) => server.listen(0, "127.0.0.1", res));
+  const port = server.address().port;
+  console.log(`[browser-overlay] render ${url} → tcp://127.0.0.1:${port}`);
+  return {
+    port,
+    close() {
+      try { server.close(); } catch {}
+      try { if (win && !win.isDestroyed()) win.destroy(); } catch {}
+    },
+  };
+}
+
 async function startWorker({ baseUrl, token, form }) {
   const selfContained = isSelfContained();
   const python = selfContained ? null : detectPython();
@@ -424,10 +459,19 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
     try { fs.closeSync(tlogFd); } catch {}
   }
 
+  // 3c) Browser overlay (tuỳ chọn): render trang web transparent → TCP feed cho ffmpeg.
+  let browserOverlay = null;
+  const bovUrl = (form.browserOverlayUrl || "").trim();
+  if (bovUrl) {
+    try { browserOverlay = await startBrowserOverlay(bovUrl); }
+    catch (e) { console.error("[browser-overlay] start fail:", e?.message || e); }
+  }
+
   // 4) Spawn worker.py với GPU + preview
   const env = {
     ...process.env,
     PICKLETOUR_PYTHON: undefined,
+    AUTOLIVE_BROWSER_OVERLAY: browserOverlay ? `tcp://127.0.0.1:${browserOverlay.port}` : "",
     PYTHONIOENCODING: "utf-8",
     PYTHONUTF8: "1",
     AUTOLIVE_SESSION_ID: cfg.sessionId,
@@ -462,7 +506,7 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
   const proc = selfContained
     ? spawn(bundledWorkerBin(), [], { env, stdio: ["ignore", logFd, logFd] })
     : spawn(python, [workerScriptPath()], { env, stdio: ["ignore", logFd, logFd] });
-  running.set(sid, { proc, previewDir, previewServer, previewPort, cfg, logFile, dahuaSerial });
+  running.set(sid, { proc, previewDir, previewServer, previewPort, cfg, logFile, dahuaSerial, browserOverlay });
 
   proc.on("exit", (code) => {
     sendToRenderer("worker-exit", { sessionId: sid, code });
@@ -481,6 +525,7 @@ function cleanupWorker(sid) {
   const r = running.get(sid);
   if (!r) return;
   try { r.previewServer?.close(); } catch {}
+  try { r.browserOverlay?.close(); } catch {}
   // Nhả tunnel Dahua dùng chung: refcount-- + LINGER (giữ phiên P2P thêm 1 lúc để
   // start lại nhanh thì tái dùng, tránh mở phiên mới → tránh rate-limit).
   try { releaseDahuaTunnel(sid); } catch {}
