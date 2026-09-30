@@ -349,6 +349,7 @@ async function startWorker({ baseUrl, token, form }) {
       layout: form.layout,
       advanced: form.advanced,
       perMatchLive: !!form.perMatchLive,
+      title: form.title || "",
       runner: "client",
     },
   });

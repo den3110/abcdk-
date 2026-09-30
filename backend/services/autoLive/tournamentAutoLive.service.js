@@ -610,7 +610,7 @@ export async function startAutoLive(input) {
   const {
     tournamentId, courtStationId, imouDeviceId, destinations,
     startedBy, autoNext = true, venueId: explicitVenueId, layout, advanced,
-    sourceUrl, dahuaP2p, perMatchLive = false,
+    sourceUrl, dahuaP2p, perMatchLive = false, title: customTitle,
   } = input || {};
   const src = (sourceUrl || "").trim();
   const useDahua = !!(dahuaP2p && typeof dahuaP2p === "object"
@@ -671,9 +671,10 @@ export async function startAutoLive(input) {
   // Chuẩn hoá destinations: FB/YT chưa có streamUrl → gọi Graph API tạo
   // live_video / broadcast, lấy secure_stream_url. RTMP giữ nguyên.
   const tournament = await Tournament.findById(tournamentId).select("name").lean();
-  const title = tournament?.name || "PickleTour Live";
+  // Tiêu đề live: dùng tiêu đề tuỳ chỉnh (nếu nhập), fallback tên giải.
+  const baseTitle = String(customTitle || "").trim() || tournament?.name || "PickleTour Live";
   // perMatchLive: CHƯA tạo broadcast — chờ trận bắt đầu (pollOnce sẽ tạo). Chỉ lưu spec.
-  const preparedDest = perMatchLive ? [] : await prepareDestinations(destinations, title);
+  const preparedDest = perMatchLive ? [] : await prepareDestinations(destinations, baseTitle);
 
   const runner = input.runner === "client" ? "client" : "server";
 
@@ -701,6 +702,7 @@ export async function startAutoLive(input) {
       : undefined,
     startedBy, destinations: preparedDest, autoNext, perMatchLive: !!perMatchLive,
     destSpecs: perMatchLive ? (destinations || []) : [],
+    liveTitle: baseTitle,
     layout: layout && typeof layout === "object" ? layout : undefined,
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     runner,
@@ -948,8 +950,9 @@ async function perMatchGoLive(session, matchId) {
     session.currentMatch = matchId;
     session.currentMatchLabel = await matchShortLabel(matchId);
     const tour = await Tournament.findById(session.tournament).select("name").lean();
+    // perMatchLive: tiêu đề TỰ ĐỘNG = "Tên giải - Tên trận" (bỏ qua tiêu đề tuỳ chỉnh).
     const base = tour?.name || "PickleTour Live";
-    const title = `${base}${session.currentMatchLabel ? " — " + session.currentMatchLabel : ""}`.slice(0, 120);
+    const title = `${base}${session.currentMatchLabel ? " - " + session.currentMatchLabel : ""}`.slice(0, 120);
     const specs = Array.isArray(session.destSpecs) ? session.destSpecs : [];
     if (!specs.length) { console.warn(`[auto-live] per-match go-live ${sid}: thiếu destSpecs`); return; }
     let fresh;
@@ -1040,7 +1043,7 @@ export async function refreshDestinationsForWorker(sessionId) {
   const session = await TournamentAutoLiveSession.findById(sessionId);
   if (!session) return null;
   const tournament = await Tournament.findById(session.tournament).select("name").lean();
-  const title = tournament?.name || "PickleTour Live";
+  const title = session.liveTitle || tournament?.name || "PickleTour Live";
   const fresh = [];
   for (const d of session.destinations || []) {
     if (d.type === "fb") {

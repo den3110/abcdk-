@@ -368,6 +368,13 @@ function renderCornerMap() {
 }
 
 // ── Destinations ──
+$("perMatchLive").addEventListener("change", () => {
+  const on = $("perMatchLive").checked;
+  $("liveTitle").disabled = on;
+  $("liveTitle").placeholder = on
+    ? "Tự động: Tên giải - Tên trận (mỗi trận)"
+    : "Vd: Giải Pickleball The Riverside — Sân 1";
+});
 $("destType").onchange = () => {
   const t = $("destType").value;
   $("fbPage").classList.toggle("hidden", t !== "fb");
@@ -437,6 +444,7 @@ $("goLive").onclick = async () => {
       encoder: $("encoder").value,
       runnerLabel: state.runnerLabel,
       perMatchLive: $("perMatchLive").checked,
+      title: $("perMatchLive").checked ? "" : $("liveTitle").value.trim(),
       layout: {
         scoreboard: $("lay_scoreboard").value,
         brand: $("lay_brand").value,

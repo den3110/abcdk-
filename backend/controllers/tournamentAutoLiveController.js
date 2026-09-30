@@ -106,6 +106,7 @@ export const startSession = asyncHandler(async (req, res) => {
     destinations: body.destinations,
     autoNext: body.autoNext !== false,
     perMatchLive: body.perMatchLive === true, // true → mỗi trận 1 broadcast riêng
+    title: body.title, // tiêu đề live tuỳ chỉnh (per-match: tự đặt Tên giải - Tên trận)
 
     layout: body.layout,
     advanced: body.advanced,

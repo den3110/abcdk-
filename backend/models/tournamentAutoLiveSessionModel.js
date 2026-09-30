@@ -92,6 +92,8 @@ const tournamentAutoLiveSessionSchema = new Schema(
     // perMatchLive: spec điểm đến để TẠO broadcast khi trận bắt đầu (lazy).
     // [{type, pageId?, pageName?, label?, streamUrl?, streamKey?}]
     destSpecs: { type: [Schema.Types.Mixed], default: [] },
+    // Tiêu đề live (FB/YT). perMatchLive: tự đặt "Tên giải - Tên trận" mỗi trận.
+    liveTitle: { type: String, default: "" },
     // Vị trí overlay trên stream (corner: top-left/top-right/bottom-left/bottom-right)
     layout: {
       scoreboard: { type: String, default: "top-left" },
