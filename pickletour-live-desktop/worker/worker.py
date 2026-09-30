@@ -34,6 +34,7 @@ overlayVersion → PNG mới → worker tải về → image2 mở lại file m�
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -660,7 +661,8 @@ def _sleep_stop(stop_event, seconds):
 
 
 def start_overlay_writer(overlay_fifo, overlay_url, stop_event):
-    if not (overlay_fifo and overlay_url):
+    # TCP overlay (Windows) tự có thread server → không cần FIFO writer.
+    if not (overlay_fifo and overlay_url) or str(overlay_fifo).startswith("tcp://"):
         return None, None
     ow_done = threading.Event()
     th = threading.Thread(target=overlay_writer,
@@ -669,10 +671,57 @@ def start_overlay_writer(overlay_fifo, overlay_url, stop_event):
     return th, ow_done
 
 
+def start_overlay_tcp(overlay_url, stop_event, fps=None):
+    """Cross-platform (đặc biệt Windows KHÔNG có mkfifo): phục vụ PNG overlay qua
+    TCP cho ffmpeg image2pipe. ffmpeg `-i tcp://127.0.0.1:PORT` (client) kết nối,
+    worker (server) stream PNG liên tục ~OVERLAY_FPS → điểm số cập nhật thật.
+    Trả về (port, thread). Chấp nhận reconnect khi ffmpeg restart."""
+    fps = fps or OVERLAY_FPS
+    interval = 1.0 / max(0.5, fps)
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def serve():
+        srv.settimeout(1.0)
+        while not stop_event.is_set():
+            try:
+                conn, _ = srv.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            last = None
+            try:
+                while not stop_event.is_set():
+                    data = fetch_overlay_bytes(overlay_url)
+                    if data:
+                        last = data
+                    if last:
+                        try:
+                            conn.sendall(last)
+                        except OSError:
+                            break  # ffmpeg đóng kết nối → chờ accept lại
+                    slept = 0.0
+                    while slept < interval and not stop_event.is_set():
+                        time.sleep(0.1); slept += 0.1
+            finally:
+                try: conn.close()
+                except OSError: pass
+        try: srv.close()
+        except OSError: pass
+
+    th = threading.Thread(target=serve, daemon=True)
+    th.start()
+    return port, th
+
+
 def drain_fifo(overlay_fifo):
     # Mở FIFO đọc-nonblock để writer đang chặn open()/write() thoát ra.
-    if not overlay_fifo:
-        return
+    if not overlay_fifo or str(overlay_fifo).startswith("tcp://"):
+        return  # TCP overlay: server tự dừng theo stop_event, không cần drain
     try:
         fd = os.open(overlay_fifo, os.O_RDONLY | os.O_NONBLOCK)
         try: os.read(fd, 65536)
@@ -767,23 +816,30 @@ def main():
             have_overlay = True
             break
         time.sleep(1)
-    overlay_fifo = os.path.join(work_dir, "overlay.pipe") if have_overlay else None
-    if overlay_fifo:
-        if not hasattr(os, "mkfifo"):
-            log("os.mkfifo không có trên nền tảng này (Windows) → stream không overlay", err=True)
-            overlay_fifo = None
-        else:
+    stop_event = threading.Event()
+    # Overlay input cho ffmpeg: FIFO (Unix) hoặc TCP (Windows/không có mkfifo).
+    overlay_fifo = None
+    if have_overlay:
+        if hasattr(os, "mkfifo"):
+            overlay_fifo = os.path.join(work_dir, "overlay.pipe")
             try:
                 if os.path.exists(overlay_fifo):
                     os.unlink(overlay_fifo)
                 os.mkfifo(overlay_fifo)
             except OSError as e:
-                log(f"mkfifo fail: {e} → stream không overlay", err=True)
+                log(f"mkfifo fail: {e} → thử overlay qua TCP", err=True)
+                overlay_fifo = None
+        if not overlay_fifo and overlay_url:
+            # Windows (không có mkfifo) hoặc mkfifo lỗi → overlay qua TCP (image2pipe).
+            try:
+                _ov_port, _ = start_overlay_tcp(overlay_url, stop_event, OVERLAY_FPS)
+                overlay_fifo = f"tcp://127.0.0.1:{_ov_port}"
+                log(f"overlay qua TCP 127.0.0.1:{_ov_port} (image2pipe) — có overlay/logo trên Windows")
+            except Exception as e:
+                log(f"overlay TCP fail: {e} → stream không overlay", err=True)
                 overlay_fifo = None
     if not have_overlay:
         log("overlay unavailable → stream without overlay", err=True)
-
-    stop_event = threading.Event()
     ff_holder = [None]
 
     def cleanup(*_):
