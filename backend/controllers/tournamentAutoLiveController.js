@@ -105,6 +105,8 @@ export const startSession = asyncHandler(async (req, res) => {
     dahuaP2p: body.dahuaP2p, // { serial?, channel, subtype, password?, username? }
     destinations: body.destinations,
     autoNext: body.autoNext !== false,
+    perMatchLive: body.perMatchLive === true, // true → mỗi trận 1 broadcast riêng
+
     layout: body.layout,
     advanced: body.advanced,
     runner: body.runner,

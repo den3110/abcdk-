@@ -31,6 +31,8 @@ import { sampleProcessTree, clearProcSample, systemCapacity } from "./procStat.s
 import { ensureDahuaTunnel, dahuaChannelUrl, triggerDahuaReconcile } from "./dahuaTunnel.service.js";
 import { getValidPageToken } from "../fbTokenService.js";
 import { fbCreateLiveOnPage, fbGetLiveVideo, fbEndLiveVideo } from "../facebookLive.service.js";
+import { YouTubeProvider } from "../liveProviders/youtube.js";
+import { getCfgStr } from "../config.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,6 +53,12 @@ const MIN_FREE_MB_TO_START = Number(process.env.AUTOLIVE_MIN_FREE_MB) || 1200;
 // deploy backend KHÔNG làm rớt live. Sau khi backend khởi động lại, các
 // phiên còn sống được "nhận nuôi" lại theo PID (adoptRunningSessions).
 const registry = new Map();
+
+// sessionId đang được restart chủ động (per-match) → exit handler của worker cũ
+// KHÔNG được mark session error/stopped.
+const restartingSessions = new Set();
+// Chống chạy chồng logic chuyển-trận per-match cho cùng session.
+const perMatchInFlight = new Set();
 
 function isPidAlive(pid) {
   if (!pid) return false;
@@ -159,6 +167,11 @@ async function pollOnce(sessionId) {
     session.lastMatchChangeAt = new Date();
     await session.save();
     await bumpOverlayForSession(sessionId);
+    // perMatchLive: chuyển từ trận cũ sang trận MỚI (cả 2 non-empty) → broadcast riêng.
+    if (session.perMatchLive && session.runner === "server" && oldMatchId && newMatchId) {
+      try { await handlePerMatchTransition(session); }
+      catch (e) { console.warn("[auto-live] per-match transition lỗi:", e?.message || e); }
+    }
   } else {
     // Cùng match nhưng có thể tỉ số đổi — vẫn re-render để cập nhật scoreboard.
     await bumpOverlayForSession(sessionId);
@@ -287,6 +300,50 @@ export async function backfillWatchUrls(sessionIds) {
   }
 }
 
+/** YouTubeProvider dùng refresh token đã kết nối ở /admin/youtube-live. */
+async function getYouTubeProvider() {
+  const refreshToken = (await getCfgStr("YOUTUBE_REFRESH_TOKEN", "")).trim();
+  if (!refreshToken) {
+    const e = new Error("Chưa kết nối YouTube (thiếu YOUTUBE_REFRESH_TOKEN). Vào /admin/youtube-live để connect.");
+    e.status = 400; throw e;
+  }
+  return new YouTubeProvider({ refreshToken, accessToken: "", expiresAt: "" });
+}
+
+/** Kết thúc broadcast của các destination (best-effort): FB end, YouTube end+delete. */
+async function endDestinationBroadcasts(destinations) {
+  let ytProvider = null;
+  for (const d of destinations || []) {
+    try {
+      if (d.type === "fb" && d.broadcastId && d.pageId) {
+        const token = await getValidPageToken(d.pageId).catch(() => null);
+        if (token) await fbEndLiveVideo({ liveVideoId: d.broadcastId, pageAccessToken: token });
+      } else if (d.type === "youtube" && d.broadcastId) {
+        if (!ytProvider) ytProvider = await getYouTubeProvider().catch(() => null);
+        if (ytProvider) await ytProvider.endAndDelete({ broadcastId: d.broadcastId, streamId: d.ytStreamId || "" });
+      }
+    } catch (e) {
+      console.warn(`[auto-live] end broadcast ${d.type} ${d.broadcastId} fail:`, e?.message || e);
+    }
+  }
+}
+
+/** Từ destinations ĐÃ tạo (có key) → "spec" để tạo lại broadcast mới (per-match). */
+function destSpecsFromCreated(destinations) {
+  return (destinations || []).map((d) => {
+    if (d.type === "fb") return { type: "fb", pageId: d.pageId, pageName: d.pageName };
+    if (d.type === "youtube") {
+      // YT tạo qua API (không có streamKey do người dùng nhập) → tạo mới. Nếu là
+      // key thủ công (có sẵn streamKey) thì giữ nguyên (không tự xoay được).
+      return d.ytStreamId || !d.streamKey
+        ? { type: "youtube", label: d.label }
+        : { type: "youtube", label: d.label, streamUrl: d.streamUrl, streamKey: d.streamKey };
+    }
+    // rtmp thủ công: giữ nguyên (không xoay key được).
+    return { type: "rtmp", label: d.label, streamUrl: d.streamUrl, streamKey: d.streamKey };
+  });
+}
+
 async function prepareDestinations(destinations, title) {
   const out = [];
   for (const d of destinations || []) {
@@ -336,8 +393,36 @@ async function prepareDestinations(destinations, title) {
       continue;
     }
     if (d.type === "youtube") {
-      const e = new Error(`YouTube destination chưa hỗ trợ ở MVP — dùng RTMP tuỳ chỉnh với URL từ YouTube Studio`);
-      e.status = 501; throw e;
+      // Nếu người dùng vẫn dán stream key thủ công (server_url + key) → giữ như RTMP.
+      if (d.streamKey && d.streamUrl) {
+        out.push({
+          type: "youtube", label: d.label || "YouTube",
+          streamUrl: d.streamUrl, streamKey: d.streamKey,
+        });
+        continue;
+      }
+      // Tự tạo broadcast + liveStream qua YouTube API (đã kết nối ở /admin/youtube-live).
+      const yt = await getYouTubeProvider();
+      let r;
+      try {
+        r = await yt.createLive({
+          title, description: title, privacy: "public", dedicatedStream: true,
+        });
+      } catch (e) {
+        const err = new Error(`YouTube create live lỗi: ${e?.response?.data?.error?.message || e?.message || e}`);
+        err.status = 400; throw err;
+      }
+      if (!r?.serverUrl || !r?.streamKey) {
+        const e = new Error("YouTube không trả ingestion (serverUrl/streamKey)"); e.status = 502; throw e;
+      }
+      out.push({
+        type: "youtube", label: d.label || "YouTube",
+        streamUrl: r.serverUrl, streamKey: r.streamKey,
+        broadcastId: String(r.platformLiveId || ""),
+        ytStreamId: String(r.streamId || ""),
+        watchUrl: r.permalinkUrl || "",
+      });
+      continue;
     }
     const e = new Error(`Loại destination không hỗ trợ: ${d.type}`); e.status = 400; throw e;
   }
@@ -534,7 +619,7 @@ export async function startAutoLive(input) {
   const {
     tournamentId, courtStationId, imouDeviceId, destinations,
     startedBy, autoNext = true, venueId: explicitVenueId, layout, advanced,
-    sourceUrl, dahuaP2p,
+    sourceUrl, dahuaP2p, perMatchLive = false,
   } = input || {};
   const src = (sourceUrl || "").trim();
   const useDahua = !!(dahuaP2p && typeof dahuaP2p === "object"
@@ -622,7 +707,7 @@ export async function startAutoLive(input) {
     dahuaP2p: dahuaCfg
       ? { serial: dahuaCfg.serial, channel: dahuaCfg.channel, subtype: dahuaCfg.subtype }
       : undefined,
-    startedBy, destinations: preparedDest, autoNext,
+    startedBy, destinations: preparedDest, autoNext, perMatchLive: !!perMatchLive,
     layout: layout && typeof layout === "object" ? layout : undefined,
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     runner,
@@ -750,6 +835,8 @@ function spawnWorker(session, imouSession, imouCreds, dahuaCfg, dahuaSourceUrl) 
   fs.closeSync(logFd);
   proc.on("exit", async (code, signal) => {
     console.log(`[auto-live] worker exit sid=${session._id} code=${code} signal=${signal}`);
+    // Đang restart chủ động (per-match) → bỏ qua, respawn sẽ tiếp quản.
+    if (restartingSessions.has(String(session._id))) return;
     const doc = await TournamentAutoLiveSession.findById(session._id);
     if (!doc) return;
     if (doc.status === "stopped") return; // user chủ động stop
@@ -762,6 +849,91 @@ function spawnWorker(session, imouSession, imouCreds, dahuaCfg, dahuaSourceUrl) 
     registry.delete(String(session._id));
   });
   return proc;
+}
+
+/** Re-resolve nguồn (imou/dahua/url) từ session để respawn worker (per-match restart). */
+async function resolveSessionSource(session) {
+  let imouSession = null, imouCreds = null, dahuaCfg = null, dahuaSourceUrl = "";
+  if (session.dahuaP2p?.serial && session.venue) {
+    const stored = await decryptVenueDahuaCreds(session.venue);
+    dahuaCfg = {
+      serial: session.dahuaP2p.serial,
+      username: stored?.username || "admin",
+      password: stored?.password || "",
+      channel: Number(session.dahuaP2p.channel) || 1,
+      subtype: Number(session.dahuaP2p.subtype) || 0,
+      directHost: stored?.directHost || "",
+    };
+    const u = encodeURIComponent(dahuaCfg.username || "admin");
+    const p = encodeURIComponent(dahuaCfg.password || "");
+    if (dahuaCfg.directHost) {
+      dahuaSourceUrl = `rtsp://${u}:${p}@${dahuaCfg.directHost}/cam/realmonitor`
+        + `?channel=${dahuaCfg.channel}&subtype=${dahuaCfg.subtype}`;
+    } else {
+      const { port } = await ensureDahuaTunnel({
+        serial: dahuaCfg.serial, username: dahuaCfg.username, password: dahuaCfg.password,
+      });
+      dahuaSourceUrl = dahuaChannelUrl({
+        username: dahuaCfg.username, password: dahuaCfg.password, port,
+        channel: dahuaCfg.channel, subtype: dahuaCfg.subtype,
+      });
+    }
+  } else if (!session.sourceUrl && session.imouDeviceId && session.venue) {
+    imouSession = await decryptVenueImouSession(session.venue);
+    imouCreds = await decryptVenueImouCreds(session.venue);
+  }
+  return { imouSession, imouCreds, dahuaCfg, dahuaSourceUrl };
+}
+
+/** Respawn worker (server-runner) với destinations hiện tại của session. */
+async function respawnWorkerForSession(session) {
+  const { imouSession, imouCreds, dahuaCfg, dahuaSourceUrl } = await resolveSessionSource(session);
+  const proc = spawnWorker(session, imouSession, imouCreds, dahuaCfg, dahuaSourceUrl);
+  const entry = registry.get(String(session._id)) || {};
+  entry.proc = proc;
+  registry.set(String(session._id), entry);
+  session.workerPid = proc.pid || 0;
+  session.workerStartedAt = new Date();
+  await session.save();
+  return proc;
+}
+
+/** perMatchLive: khi CHUYỂN sang trận MỚI → tạo broadcast mới + restart worker,
+ *  rồi kết thúc broadcast cũ. Chỉ chạy server-runner. */
+async function handlePerMatchTransition(session) {
+  const sid = String(session._id);
+  if (perMatchInFlight.has(sid)) return;
+  perMatchInFlight.add(sid);
+  try {
+    const specs = destSpecsFromCreated(session.destinations);
+    const tour = await Tournament.findById(session.tournament).select("name").lean();
+    const base = tour?.name || "PickleTour Live";
+    const title = `${base}${session.currentMatchLabel ? " — " + session.currentMatchLabel : ""}`.slice(0, 120);
+    let freshDest;
+    try {
+      freshDest = await prepareDestinations(specs, title);
+    } catch (e) {
+      console.warn("[auto-live] per-match tạo broadcast mới lỗi:", e?.message || e);
+      return; // giữ nguyên broadcast cũ đang chạy, không gãy live
+    }
+    const oldDest = session.destinations;
+    session.destinations = freshDest;
+    await session.save();
+
+    restartingSessions.add(sid);
+    try {
+      if (isPidAlive(session.workerPid)) { try { process.kill(session.workerPid, "SIGTERM"); } catch {} }
+      await new Promise((r) => setTimeout(r, 800));
+      await respawnWorkerForSession(session);
+    } finally {
+      restartingSessions.delete(sid);
+    }
+    // Kết thúc broadcast CŨ sau khi cái mới đã lên (best-effort).
+    await endDestinationBroadcasts(oldDest);
+    console.log(`[auto-live] per-match: đã chuyển sang broadcast mới cho ${sid} (${session.currentMatchLabel || ""})`);
+  } finally {
+    perMatchInFlight.delete(sid);
+  }
 }
 
 export async function stopAutoLive(sessionId) {
@@ -782,16 +954,8 @@ export async function stopAutoLive(sessionId) {
   // Nếu là phiên đầu thu Dahua: chạy reconcile để nhả tunnel dùng chung khi
   // không còn court nào dùng serial này (nếu còn court khác thì giữ nguyên).
   if (session.dahuaP2p?.serial) { try { triggerDahuaReconcile(); } catch {} }
-  // Kết thúc live FB để page không treo "đang phát" với hình đứng.
-  for (const d of session.destinations || []) {
-    if (d.type !== "fb" || !d.broadcastId || !d.pageId) continue;
-    try {
-      const token = await getValidPageToken(d.pageId);
-      await fbEndLiveVideo({ liveVideoId: d.broadcastId, pageAccessToken: token });
-    } catch (e) {
-      console.warn(`[auto-live] end FB live ${d.broadcastId} fail:`, e?.message || e);
-    }
-  }
+  // Kết thúc live FB + YouTube để không treo "đang phát" với hình đứng.
+  await endDestinationBroadcasts(session.destinations || []);
   return session.toObject();
 }
 

@@ -17,6 +17,8 @@ const destinationSchema = new Schema(
     pageId: { type: String, default: "" },
     pageName: { type: String, default: "" },
     broadcastId: { type: String, default: "" },
+    // YouTube: id của liveStream (để endAndDelete khi dừng / chuyển trận).
+    ytStreamId: { type: String, default: "" },
     // Link người xem (FB permalink / YouTube watch) — public, hiện trên admin
     watchUrl: { type: String, default: "" },
     // Ẩn khi trả API để không lộ key
@@ -82,6 +84,9 @@ const tournamentAutoLiveSessionSchema = new Schema(
     lastErrorAt: { type: Date, default: null },
     // Auto behaviour
     autoNext: { type: Boolean, default: true },
+    // true → mỗi trận 1 broadcast riêng (kết thúc live cũ + tạo live mới khi
+    // chuyển trận, restart ffmpeg). false → 1 live xuyên suốt mọi trận (mặc định).
+    perMatchLive: { type: Boolean, default: false },
     // Vị trí overlay trên stream (corner: top-left/top-right/bottom-left/bottom-right)
     layout: {
       scoreboard: { type: String, default: "top-left" },
