@@ -44,6 +44,13 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+# Windows console mặc định cp1252/cp936 → log tiếng Việt (ả, ầ, …) sẽ
+# UnicodeEncodeError khi print. Env PYTHONIOENCODING KHÔNG có tác dụng với
+# binary PyInstaller (frozen). Ép UTF-8 ngay tại runtime cho stdout/stderr.
+for _s in (sys.stdout, sys.stderr):
+    try: _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception: pass
+
 PREBUFFER_BYTES = 1_500_000   # ~3s ở 4Mbps — đủ cho ffprobe thấy audio
 PREBUFFER_MAX_S = 6.0
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -190,17 +197,12 @@ def encoder_args(enc):
                    "-b:v", f"{VID_KBPS}k", "-maxrate", f"{MAX_KBPS}k", "-bufsize", f"{buf}k",
                    "-pix_fmt", "yuv420p"]
     if enc == "h264_nvenc":
-        # LIVE MƯỢT (Ampere/Ada NVENC):
-        # -tune hq: giữ chất lượng cao (không cần siêu low-latency, HLS/RTMP có
-        # sẵn 2-4s buffer). -rc-lookahead 8: nhìn trước 8 khung → phân bổ bit
-        # đều, tránh spike bitrate ở đổi cảnh (đỡ giật ở player). -spatial-aq
-        # + aq-strength 8: cải thiện chất lượng vùng ít chi tiết ở cùng bitrate.
-        # -b_ref_mode middle: dùng B-frame làm reference (nén tốt hơn cùng chất
-        # lượng, cùng bf=2). -temporal-aq 1: giảm noise tạm thời giữa các khung.
-        return ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "cbr",
-                "-profile:v", "high", "-bf", "2", "-b_ref_mode", "middle",
-                "-rc-lookahead", "8", "-spatial-aq", "1", "-aq-strength", "8",
-                "-temporal-aq", "1", *common_rate]
+        # Cấu hình y hệt backend (đang chạy trơn). KHÔNG thêm -tune/-rc-lookahead/
+        # -spatial-aq/-b_ref_mode ở đây — chúng thêm latency + backpressure ở
+        # pipeline (lookahead giữ 8 khung, AQ tăng thời gian encode/khung) →
+        # ffmpeg thiếu frame → -vsync cfr duplicate → GIẬT nhìn thấy trên player.
+        return ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "cbr",
+                "-profile:v", "high", "-bf", "2", *common_rate]
     if enc == "h264_videotoolbox":
         return ["-c:v", "h264_videotoolbox", "-realtime", "1",
                 "-profile:v", "high", *common_rate]
@@ -508,22 +510,18 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None):
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
     args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin"]
     if SOURCE_URL:
-        # Link tự có timestamp chuẩn → dùng genpts giữ đồng hồ liên tục.
-        # thread_queue_size lớn (4096) → nguồn RTSP/HLS qua VPN/Internet giật
-        # tạm thời không làm encoder starve → speed giữ ~1.0x, đỡ giật đầu ra.
-        # analyzeduration/probesize lớn → demuxer nắm được stream H.264 1080p25
-        # ngay từ đầu (mặc định quá nhỏ với nguồn bitrate cao, gây mất keyframe
-        # đầu tiên = 1-2s đen). max_delay 5s → cửa sổ reorder RTP đủ lớn cho
-        # nguồn qua VPN/Tailscale (bad cseq → mất frame → duplicate stutter).
-        args += ["-fflags", "+genpts", "-thread_queue_size", "4096",
-                 "-analyzeduration", "5000000", "-probesize", "5000000",
-                 "-max_delay", "5000000"]
+        # Cấu hình y hệt backend đang chạy trơn — thread_queue_size 1024 là đủ,
+        # KHÔNG đặt -max_delay/analyzeduration lớn: max_delay lớn khiến RTSP
+        # demuxer chờ gói reorder tới X giây (mất gói → treo cả X giây) → output
+        # stall → vsync cfr duplicate → GIẬT. Default (~0.5s) đi tiếp nhanh khi
+        # mất gói, chỉ một khung bị mất chứ không phải cả block.
+        args += ["-fflags", "+genpts", "-thread_queue_size", "1024"]
         # Cờ input theo scheme (nếu áp sai scheme ffmpeg báo "Option not found").
         u = SOURCE_URL.lower()
         if u.startswith("rtsp://"):
-            # -timeout (microsecond) là option đúng cho RTSP demuxer (rw_timeout
-            # là của protocol khác → ffmpeg báo "Option not found"). 10s treo →
-            # ffmpeg exit để restart thay vì đứng im.
+            # -timeout (microsecond) chỉ kick khi socket TCP treo thực sự (>10s
+            # không có byte) → ffmpeg exit sớm cho vòng ngoài restart. Không
+            # ảnh hưởng flow lúc mạng bình thường.
             args += ["-rtsp_transport", "tcp", "-timeout", "10000000"]
         elif u.startswith("http://") or u.startswith("https://"):
             # KHÔNG dùng -reconnect_at_eof với HLS: playlist HTTP trả EOF sau mỗi

@@ -4,6 +4,10 @@ dist/
 .DS_Store
 .python-path
 .venv/
+.buildvenv/
 __pycache__/
 *.pyc
 bin/
+# PyInstaller / setuptools artifacts do install vào vendor/imou-pkg khi build bundle
+vendor/imou-pkg/build/
+vendor/imou-pkg/*.egg-info/

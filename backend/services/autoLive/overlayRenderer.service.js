@@ -22,6 +22,9 @@ const SPONSOR_ROTATE_MS = 8000;
 // Cache ảnh đã tải (logo/sponsor) — tránh tải lại mỗi ~1s worker fetch.
 const imgCache = new Map(); // url → { img|null, at }
 const IMG_TTL = 10 * 60 * 1000;
+// TTL ngắn khi FETCH FAIL (img=null) — trước đây dùng chung 10 phút → 1 lần
+// hiccup mạng lúc backend khởi động là mất luôn logo/sponsor suốt 10 phút.
+const IMG_FAIL_TTL = 30 * 1000;
 async function toPngBuffer(buf) {
   // node-canvas KHÔNG decode webp → convert bằng sharp. Cũng chuẩn hoá mọi
   // định dạng lạ về PNG cho chắc.
@@ -34,7 +37,10 @@ async function toPngBuffer(buf) {
 async function loadImageCached(url) {
   if (!url) return null;
   const c = imgCache.get(url);
-  if (c && Date.now() - c.at < IMG_TTL) return c.img;
+  if (c) {
+    const ttl = c.img ? IMG_TTL : IMG_FAIL_TTL;
+    if (Date.now() - c.at < ttl) return c.img;
+  }
   let img = null;
   try {
     let buf;
@@ -55,7 +61,10 @@ async function loadImageCached(url) {
         catch { const png = await toPngBuffer(buf); if (png) img = await loadImage(png); }
       }
     }
-  } catch { img = null; }
+  } catch (e) {
+    img = null;
+    console.warn(`[overlayRenderer] loadImage fail: ${url} · ${e?.message || e}`);
+  }
   imgCache.set(url, { img, at: Date.now() });
   return img;
 }
