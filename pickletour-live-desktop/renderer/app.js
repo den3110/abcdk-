@@ -283,6 +283,27 @@ function renderDahuaChannels() {
 }
 $("dahuaVenue").addEventListener("change", renderDahuaChannels);
 
+// ── Ẩn ngày/giờ camera (delogo) — cấu hình dùng chung cho xem thử / live / hẹn giờ ──
+// Trả về { hideTimestamp, delogoBox? } để gộp vào `source` (preview) hoặc `form` (live).
+function delogoCfg() {
+  const on = !!$("hideTimestamp")?.checked;
+  if (!on) return { hideTimestamp: false };
+  const n = (id, d) => { const v = Number($(id)?.value); return Number.isFinite(v) ? v : d; };
+  return {
+    hideTimestamp: true,
+    delogoBox: { x: n("dl_x", 1392), y: n("dl_y", 14), w: n("dl_w", 512), h: n("dl_h", 54) },
+  };
+}
+if ($("hideTimestamp")) {
+  const syncDelogoUi = () => {
+    const on = $("hideTimestamp").checked;
+    $("delogoBox")?.classList.toggle("hidden", !on);
+    $("delogoHint")?.classList.toggle("hidden", !on);
+  };
+  $("hideTimestamp").onchange = syncDelogoUi;
+  syncDelogoUi();
+}
+
 // ── Xem thử nguồn (preview trước khi live) ──
 $("testPreview").onclick = async () => {
   $("previewHint").textContent = "";
@@ -294,11 +315,11 @@ $("testPreview").onclick = async () => {
     if ($("srcType").value === "url") {
       const u = $("srcUrl").value.trim();
       if (!u) throw new Error("Nhập link nguồn (m3u8 / RTSP / RTMP).");
-      source = { kind: "url", sourceUrl: u, encoder: $("encoder").value };
+      source = { kind: "url", sourceUrl: u, encoder: $("encoder").value, ...delogoCfg() };
     } else {
       const cam = state.cams[+$("cam").value];
       if (!cam) throw new Error("Chọn camera Imou.");
-      source = { kind: "imou", imouDeviceId: cam.deviceId, encoder: $("encoder").value };
+      source = { kind: "imou", imouDeviceId: cam.deviceId, encoder: $("encoder").value, ...delogoCfg() };
     }
     $("testPreview").disabled = true; $("testPreview").textContent = "Đang mở…";
     $("previewHint").textContent = "Đang kết nối nguồn… (RTSP/Imou có thể mất 5–10s).";
@@ -434,10 +455,8 @@ function renderDests() {
 }
 
 // ── Go live ──
-$("goLive").onclick = async () => {
-  $("setupErr").textContent = "";
-  stopSetupPreview(); // bắt đầu live → tắt preview xem thử
-  try {
+// Gom cấu hình sân từ form (dùng chung cho ● BẮT ĐẦU LIVE và ⏰ Hẹn giờ). Ném lỗi nếu thiếu.
+function buildLiveForm() {
     const srcT = $("srcType").value;
     let imouDeviceId = "", venueId = "", sourceUrl = "", dahuaP2p;
     if (srcT === "url") {
@@ -476,6 +495,8 @@ $("goLive").onclick = async () => {
       perMatchLive: perMatch,
       title: perMatch ? "" : (titleInput || defaultTitle),
       browserOverlayUrl: $("browserOverlayUrl").value.trim(),
+      // Ẩn ngày/giờ camera trên luồng live (delogo) + vùng tuỳ chỉnh.
+      ...delogoCfg(),
       // Ghi + cắt clip từng trận lên Drive: chỉ live xuyên suốt (không per-match).
       recordClips: $("recordClips").checked && !perMatch,
       // Tách live theo giải: chỉ live xuyên suốt (không per-match).
@@ -493,6 +514,14 @@ $("goLive").onclick = async () => {
         encoder: $("encoder").value || "auto",
       },
     };
+    return { form, tournamentName, courtName, perMatch };
+}
+
+$("goLive").onclick = async () => {
+  $("setupErr").textContent = "";
+  stopSetupPreview(); // bắt đầu live → tắt preview xem thử
+  try {
+    const { form, tournamentName, courtName, perMatch } = buildLiveForm();
     $("goLive").disabled = true; $("goLive").textContent = "Đang khởi động…";
     await startCourt(form, { tournamentName, courtName, perMatch });
     goDashboard();
@@ -503,9 +532,101 @@ $("goLive").onclick = async () => {
   }
 };
 
+// ── Hẹn giờ bắt đầu live ──
+// Lịch nằm ở main (sống qua đổi view; lưu settings.json → mở lại app vẫn còn). Tới giờ
+// main tự startWorker rồi báo về đây để đăng ký phiên vào dashboard.
+function fmtSchedTime(ms) {
+  return new Date(ms).toLocaleString("vi-VN", {
+    hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit",
+  });
+}
+function renderSchedList(list) {
+  const box = $("schedList");
+  if (!box) return;
+  box.innerHTML = "";
+  if (!list?.length) { box.innerHTML = '<span class="hint">Chưa có lịch hẹn.</span>'; return; }
+  for (const s of list) {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    const name = s.title || s.label
+      || [s.meta?.tournamentName, s.meta?.courtName].filter(Boolean).join(" - ") || "Sân";
+    chip.textContent = `⏰ ${fmtSchedTime(s.startAt)} · ${name} `;
+    const x = document.createElement("button");
+    x.className = "ghost"; x.textContent = "✕"; x.title = "Huỷ lịch";
+    x.onclick = async () => {
+      try { const r = await window.api.scheduleCancel(s.id); renderSchedList(r.schedules); } catch {}
+    };
+    chip.appendChild(x);
+    box.appendChild(chip);
+  }
+}
+async function loadSchedules() {
+  if (!window.api.scheduleList) return;
+  try { const r = await window.api.scheduleList(); renderSchedList(r.schedules); } catch {}
+}
+if ($("btnSchedule")) {
+  // Gợi ý mặc định: giờ tròn kế tiếp để bấm nhanh.
+  try {
+    const d = new Date(Date.now() + 3600e3); d.setMinutes(0, 0, 0);
+    const pad = (n) => String(n).padStart(2, "0");
+    $("schedAt").value = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {}
+  $("btnSchedule").onclick = async () => {
+    $("setupErr").textContent = "";
+    try {
+      const v = $("schedAt").value;
+      if (!v) throw new Error("Chọn ngày giờ hẹn.");
+      const startAt = new Date(v).getTime();
+      if (!Number.isFinite(startAt)) throw new Error("Ngày giờ không hợp lệ.");
+      if (startAt < Date.now() + 30e3) throw new Error("Thời điểm hẹn phải ở tương lai (≥ 30 giây).");
+      const { form, tournamentName, courtName, perMatch } = buildLiveForm();
+      const label = form.title || [tournamentName, courtName].filter(Boolean).join(" - ");
+      $("btnSchedule").disabled = true;
+      const r = await window.api.scheduleAdd({
+        baseUrl: state.baseUrl, token: state.token, form, startAt, label,
+        meta: { tournamentName, courtName, perMatch },
+      });
+      renderSchedList(r.schedules);
+      $("previewHint").textContent = `⏰ Đã hẹn ${fmtSchedTime(startAt)} — ${label}. Giữ app mở, tới giờ sẽ tự live.`;
+    } catch (e) {
+      $("setupErr").textContent = e.message;
+    } finally {
+      $("btnSchedule").disabled = false;
+    }
+  };
+  loadSchedules();
+}
+if (window.api.onScheduleStarted) {
+  window.api.onScheduleFired?.(({ label }) => {
+    $("setupErr").textContent = `⏰ Tới giờ — đang bắt đầu live: ${label || ""}`;
+  });
+  window.api.onScheduleStarted(({ result, form, meta }) => {
+    try {
+      if (result?.sessionId && form) {
+        registerSession(result, form, {
+          tournamentName: meta?.tournamentName || "", courtName: meta?.courtName || "",
+        });
+      }
+      $("setupErr").textContent = "";
+      loadSchedules();
+      if ($("dashboardView") && !$("dashboardView").classList.contains("hidden")) renderDashboard();
+      else goDashboard();
+    } catch {}
+  });
+  window.api.onScheduleError(({ label, message }) => {
+    $("setupErr").textContent = `⏰ Hẹn giờ "${label || ""}" lỗi: ${message}`;
+    loadSchedules();
+  });
+}
+
 // Bắt đầu 1 sân từ form (dùng chung cho goLive + điều khiển từ xa). Trả về phiên.
 async function startCourt(form, { tournamentName = "", courtName = "", perMatch = false } = {}) {
   const res = await window.api.start({ baseUrl: state.baseUrl, token: state.token, form });
+  registerSession(res, form, { tournamentName, courtName });
+  return res;
+}
+// Đăng ký phiên vào dashboard (dùng cho startCourt + phiên do hẹn giờ tự bắt đầu ở main).
+function registerSession(res, form, { tournamentName = "", courtName = "" } = {}) {
   state.sessions.set(res.sessionId, {
     sid: res.sessionId,
     tournamentName, courtName,
@@ -517,7 +638,6 @@ async function startCourt(form, { tournamentName = "", courtName = "", perMatch 
     lastStatus: null, recUpload: null, clips: [], exited: null,
   });
   ensurePoller();
-  return res;
 }
 
 // ── Live THẲNG tới RTMP (không qua server pickletour) ──
@@ -532,11 +652,11 @@ $("goDirect").onclick = async () => {
     if ($("srcType").value === "url") {
       const u = $("srcUrl").value.trim();
       if (!u) throw new Error("Nhập link nguồn (m3u8 / RTSP / RTMP).");
-      source = { kind: "url", sourceUrl: u, encoder: $("encoder").value };
+      source = { kind: "url", sourceUrl: u, encoder: $("encoder").value, ...delogoCfg() };
     } else {
       const cam = state.cams[+$("cam").value];
       if (!cam) throw new Error("Chọn camera Imou.");
-      source = { kind: "imou", imouDeviceId: cam.deviceId, encoder: $("encoder").value };
+      source = { kind: "imou", imouDeviceId: cam.deviceId, encoder: $("encoder").value, ...delogoCfg() };
     }
     // Chỉ nhận đích RTMP (YouTube được thêm dưới dạng rtmp). FB cần server → loại.
     const rtmpDests = state.destinations.filter((d) => d.type === "rtmp" && d.streamUrl);
@@ -585,11 +705,11 @@ $("goRandom").onclick = async () => {
     if ($("srcType").value === "url") {
       const u = $("srcUrl").value.trim();
       if (!u) throw new Error("Nhập link nguồn (mục 1).");
-      source = { kind: "url", sourceUrl: u, encoder: $("encoder").value };
+      source = { kind: "url", sourceUrl: u, encoder: $("encoder").value, ...delogoCfg() };
     } else {
       const cam = state.cams[+$("cam").value];
       if (!cam) throw new Error("Chọn camera Imou (mục 1).");
-      source = { kind: "imou", imouDeviceId: cam.deviceId, encoder: $("encoder").value };
+      source = { kind: "imou", imouDeviceId: cam.deviceId, encoder: $("encoder").value, ...delogoCfg() };
     }
     const rtmpDests = state.destinations.filter((d) => d.type === "rtmp" && d.streamUrl);
     if (!rtmpDests.length) throw new Error("Thêm ít nhất 1 đích RTMP/YouTube (mục 3).");
@@ -736,6 +856,7 @@ function goDashboard() {
   startSysStats(); pollSys(); // hiệu năng máy + ước tính số sân
   loadRecordsDir();
   loadControl();
+  loadSchedules();
 }
 
 // ── Hiệu năng máy (CPU/RAM + ước tính còn bao nhiêu sân) ──
@@ -1078,6 +1199,9 @@ async function remoteStart(p = {}) {
     perMatchLive: perMatch,
     title: perMatch ? "" : (p.title || [p.tournamentName, p.courtName].filter(Boolean).join(" - ")),
     browserOverlayUrl: p.browserOverlayUrl || "",
+    // Ẩn ngày/giờ camera (delogo) — điều khiển từ xa gửi kèm nếu có.
+    hideTimestamp: !!p.hideTimestamp,
+    delogoBox: p.delogoBox || undefined,
     recordClips: !!p.recordClips && !perMatch,
     splitPerTournament: !!p.splitPerTournament && !perMatch,
     layout: {

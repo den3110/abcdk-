@@ -121,6 +121,30 @@ RECORD_CLIPS = os.environ.get("AUTOLIVE_RECORD", "").strip().lower() in ("1", "t
 RECORD_SUBDIR = "rec"
 RECORD_SEGMENT_SEC = int(os.environ.get("AUTOLIVE_RECORD_SEGMENT_SEC") or 300)
 
+# Ẩn ngày/giờ (OSD) của camera TRÊN LUỒNG LIVE bằng filter `delogo` (nội suy pixel
+# quanh vùng → timestamp "biến mất"). KHÔNG đụng tới camera nên chủ cam xem trên
+# DMSS vẫn thấy đủ. Toạ độ tính theo khung ĐÍCH 1920x1080 (sau scale+pad). Mặc
+# định phủ góc TRÊN-PHẢI (vị trí OSD phổ biến của Dahua). Chỉnh bằng env nếu lệch.
+# Ràng buộc delogo: hộp phải nằm TRONG khung và cách mép ≥1px (nó nội suy từ viền).
+DELOGO = os.environ.get("AUTOLIVE_DELOGO", "").strip().lower() in ("1", "true", "yes", "on")
+DELOGO_X = int(os.environ.get("AUTOLIVE_DELOGO_X") or 1392)
+DELOGO_Y = int(os.environ.get("AUTOLIVE_DELOGO_Y") or 14)
+DELOGO_W = int(os.environ.get("AUTOLIVE_DELOGO_W") or 512)
+DELOGO_H = int(os.environ.get("AUTOLIVE_DELOGO_H") or 54)
+
+
+def _delogo_filter():
+    """Trả về đoạn filter delogo (đã kẹp toạ độ vào trong 1920x1080, cách mép ≥1px)
+    hoặc chuỗi rỗng nếu không bật. delogo lỗi nếu hộp chạm mép/tràn khung."""
+    if not DELOGO:
+        return ""
+    W, H = 1920, 1080
+    w = max(8, min(DELOGO_W, W - 4))
+    h = max(8, min(DELOGO_H, H - 4))
+    x = max(1, min(DELOGO_X, W - w - 1))
+    y = max(1, min(DELOGO_Y, H - h - 1))
+    return f",delogo=x={x}:y={y}:w={w}:h={h}"
+
 
 def _find_stream_url(data):
     """Dò URL stream (rtmp/rtsp/http/hls) trong dict/list trả về từ GetLiveStreamUrl
@@ -532,6 +556,9 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None):
     retime = "" if SOURCE_URL else "setpts=(RTCTIME-RTCSTART)/(TB*1000000),"
     base = (f"[0:v]{retime}scale=1920:1080:force_original_aspect_ratio=decrease,"
             "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p")
+    # Ẩn ngày/giờ camera trên luồng live (nội suy vùng OSD). Chèn TRƯỚC khi chồng
+    # overlay để scoreboard/logo native không bị delogo làm nhoè.
+    base += _delogo_filter()
     args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin"]
     if SOURCE_URL:
         # Cấu hình y hệt backend đang chạy trơn — thread_queue_size 1024 là đủ,

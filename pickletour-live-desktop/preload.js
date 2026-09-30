@@ -18,6 +18,13 @@ contextBridge.exposeInMainWorld("api", {
   req: (args) => ipcRenderer.invoke("api-req", args),
   start: (args) => ipcRenderer.invoke("start", args),
   stop: (args) => ipcRenderer.invoke("stop", args),
+  // Hẹn giờ bắt đầu live
+  scheduleAdd: (args) => ipcRenderer.invoke("schedule-add", args),
+  scheduleList: () => ipcRenderer.invoke("schedule-list"),
+  scheduleCancel: (id) => ipcRenderer.invoke("schedule-cancel", { id }),
+  onScheduleFired: (cb) => ipcRenderer.on("schedule-fired", (_e, p) => cb(p)),
+  onScheduleStarted: (cb) => ipcRenderer.on("schedule-started", (_e, p) => cb(p)),
+  onScheduleError: (cb) => ipcRenderer.on("schedule-error", (_e, p) => cb(p)),
   previewStart: (args) => ipcRenderer.invoke("preview-start", args),
   previewStop: () => ipcRenderer.invoke("preview-stop"),
   directStart: (args) => ipcRenderer.invoke("direct-start", args),

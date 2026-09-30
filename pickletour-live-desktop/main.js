@@ -1,7 +1,7 @@
 // PickleTour Live — Electron main process.
 // Đăng nhập admin → chọn giải/sân/cam → tạo phiên runner:"client" trên backend
 // → lấy worker-config → spawn worker.py (GPU) local → preview HLS.
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, powerSaveBlocker } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -85,6 +85,8 @@ app.whenReady().then(() => {
   try { if (readSettings().controlEnabled) startControlServer(); } catch (e) { console.error("[control] auto-start fail", e?.message || e); }
   // Tự dọn records đã xử lý (tránh đầy ổ cứng).
   try { startRecordsCleanup(); } catch (e) { console.error("[cleanup] start fail", e?.message || e); }
+  // Khôi phục các lịch hẹn giờ live còn hiệu lực (app từng tắt/mở lại).
+  try { restoreSchedules(); } catch (e) { console.error("[schedule] restore fail", e?.message || e); }
 });
 app.on("window-all-closed", () => { stopAll(); if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", stopAll);
@@ -587,6 +589,98 @@ function startRecordsCleanup() {
   setTimeout(() => { try { cleanupProcessedRecords(); } catch {} }, 20_000); // quét sớm sau khi mở app
 }
 
+// ───────────────────────── Ẩn ngày/giờ camera (delogo) ───────────────────
+// Chuyển cấu hình che OSD từ form (UI) → env cho worker. form.hideTimestamp bật
+// tính năng; form.delogoBox {x,y,w,h} (toạ độ theo khung ĐÍCH 1920x1080) tuỳ chỉnh.
+// Bỏ trống box → worker dùng mặc định (góc trên-phải, vị trí OSD Dahua phổ biến).
+function delogoEnv(form) {
+  if (!form || !form.hideTimestamp) return { AUTOLIVE_DELOGO: "" };
+  const env = { AUTOLIVE_DELOGO: "1" };
+  const b = form.delogoBox || {};
+  const num = (v) => (Number.isFinite(Number(v)) ? String(Math.round(Number(v))) : undefined);
+  if (num(b.x) != null) env.AUTOLIVE_DELOGO_X = num(b.x);
+  if (num(b.y) != null) env.AUTOLIVE_DELOGO_Y = num(b.y);
+  if (num(b.w) != null) env.AUTOLIVE_DELOGO_W = num(b.w);
+  if (num(b.h) != null) env.AUTOLIVE_DELOGO_H = num(b.h);
+  return env;
+}
+
+// ───────────────────────── Hẹn giờ bắt đầu live ──────────────────────────
+// Đặt lịch tự bắt đầu một sân vào thời điểm định trước (vd 07:00 ngày 03/10). Lưu
+// vào settings.json → app khởi động lại vẫn còn lịch. Máy vừa bật mà đã quá giờ
+// trong khoảng ân hạn (≤6h) thì bắt đầu ngay. Giữ máy không ngủ khi còn lịch chờ
+// (powerSaveBlocker). Lưu ý: token đăng nhập được lưu theo lịch — nếu để quá lâu
+// token có thể hết hạn, khi đó fire sẽ báo lỗi (đăng nhập lại rồi đặt lịch mới).
+const scheduledJobs = new Map(); // id -> { id, startAt, args, label, timer }
+let powerBlockerId = null;
+const SCHEDULE_GRACE_MS = 6 * 3600 * 1000;
+const TIMEOUT_MAX = 2 ** 31 - 1;
+
+function ensurePowerBlocker() {
+  if (powerBlockerId == null && scheduledJobs.size > 0) {
+    try { powerBlockerId = powerSaveBlocker.start("prevent-app-suspension"); }
+    catch (e) { console.error("[schedule] powerSaveBlocker fail", e?.message || e); }
+  }
+}
+function releasePowerBlockerIfIdle() {
+  if (powerBlockerId != null && scheduledJobs.size === 0) {
+    try { powerSaveBlocker.stop(powerBlockerId); } catch {}
+    powerBlockerId = null;
+  }
+}
+function persistSchedules() {
+  const list = [...scheduledJobs.values()].map((j) => ({
+    id: j.id, startAt: j.startAt, args: j.args, label: j.label, meta: j.meta || {},
+  }));
+  writeSettings({ schedules: list });
+}
+function scheduleSummary() {
+  return [...scheduledJobs.values()]
+    .map((j) => ({ id: j.id, startAt: j.startAt, label: j.label, meta: j.meta || {}, title: j.args?.form?.title || "" }))
+    .sort((a, b) => a.startAt - b.startAt);
+}
+async function fireSchedule(job) {
+  if (job.timer) { try { clearTimeout(job.timer); } catch {} }
+  scheduledJobs.delete(job.id);
+  persistSchedules();
+  releasePowerBlockerIfIdle();
+  sendToRenderer("schedule-fired", { id: job.id, label: job.label, meta: job.meta || {} });
+  try {
+    const r = await startWorker(job.args);
+    // Gửi kèm form + meta để renderer đăng ký phiên vào dashboard (tên giải/sân, title…).
+    sendToRenderer("schedule-started", {
+      id: job.id, label: job.label, meta: job.meta || {}, form: job.args?.form || null, result: r,
+    });
+  } catch (e) {
+    sendToRenderer("schedule-error", { id: job.id, label: job.label, meta: job.meta || {}, message: e?.message || String(e) });
+  }
+}
+function armSchedule(job, { persist = true } = {}) {
+  const delay = job.startAt - Date.now();
+  if (delay <= 0) {
+    if (delay > -SCHEDULE_GRACE_MS) { void fireSchedule(job); }
+    else { scheduledJobs.delete(job.id); if (persist) persistSchedules(); } // quá lâu → bỏ
+    return;
+  }
+  scheduledJobs.set(job.id, job);
+  // setTimeout tối đa ~24.8 ngày → chia nhỏ nếu xa hơn.
+  job.timer = setTimeout(
+    delay > TIMEOUT_MAX ? () => armSchedule(job, { persist: false }) : () => fireSchedule(job),
+    Math.min(delay, TIMEOUT_MAX)
+  );
+  ensurePowerBlocker();
+  if (persist) persistSchedules();
+}
+function restoreSchedules() {
+  const list = readSettings().schedules;
+  if (!Array.isArray(list)) return;
+  for (const j of list) {
+    if (!j || !j.id || !Number(j.startAt) || !j.args) continue;
+    armSchedule({ id: j.id, startAt: Number(j.startAt), args: j.args, label: j.label || "", meta: j.meta || {} }, { persist: false });
+  }
+  persistSchedules(); // ghi lại sau khi lọc lịch quá hạn
+}
+
 async function startWorker({ baseUrl, token, form }) {
   const selfContained = isSelfContained();
   const python = selfContained ? null : detectPython();
@@ -720,6 +814,8 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
     AUTOLIVE_SOURCE_URL: dahuaSourceUrl || cfg.sourceUrl || "",
     AUTOLIVE_DESTINATIONS: JSON.stringify(cfg.destinations || []),
     AUTOLIVE_ENCODER: form.encoder || "auto",
+    // Ẩn ngày/giờ camera (delogo) trên luồng live — chủ cam xem DMSS vẫn còn.
+    ...delogoEnv(form),
     AUTOLIVE_PREVIEW_HLS_DIR: previewDir,
     // Ghi recording để cắt clip từng trận (live xuyên suốt). worker.py ghi segment
     // TS vào previewDir/rec; main.js đẩy về server ban đêm (startSegmentUploader).
@@ -835,6 +931,8 @@ async function startPreview({ baseUrl, token, source, destinations, overlayUrl }
     AUTOLIVE_SESSION_ID: previewId,
     AUTOLIVE_PREVIEW_HLS_DIR: dir,
     AUTOLIVE_ENCODER: source.encoder || "auto",
+    // Ẩn ngày/giờ camera (delogo) — cho xem thử để căn chỉnh vùng trước khi live.
+    ...delogoEnv(source),
     // Rỗng = chỉ xem thử; có đích RTMP = live thẳng (không qua server pickletour).
     AUTOLIVE_DESTINATIONS: JSON.stringify(Array.isArray(destinations) ? destinations : []),
     // Trận ngẫu nhiên: overlay bảng điểm PNG từ backend (userMatch).
@@ -1083,6 +1181,24 @@ ipcMain.handle("api-req", async (_e, { baseUrl, token, method, path: p, body }) 
   apiFetch(baseUrl, p, { token, method: method || "GET", body }));
 
 ipcMain.handle("start", async (_e, args) => startWorker(args));
+
+// Hẹn giờ bắt đầu live: startAt = epoch ms. Trả về danh sách lịch hiện tại.
+ipcMain.handle("schedule-add", (_e, { baseUrl, token, form, startAt, label, meta }) => {
+  const at = Number(startAt);
+  if (!Number.isFinite(at)) throw new Error("Thời điểm hẹn giờ không hợp lệ.");
+  const id = `sch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  armSchedule({ id, startAt: at, args: { baseUrl, token, form }, label: label || form?.title || "", meta: meta || {} });
+  return { id, startAt: at, schedules: scheduleSummary() };
+});
+ipcMain.handle("schedule-list", () => ({ schedules: scheduleSummary() }));
+ipcMain.handle("schedule-cancel", (_e, { id }) => {
+  const j = scheduledJobs.get(id);
+  if (j?.timer) { try { clearTimeout(j.timer); } catch {} }
+  scheduledJobs.delete(id);
+  persistSchedules();
+  releasePowerBlockerIfIdle();
+  return { ok: true, schedules: scheduleSummary() };
+});
 ipcMain.handle("preview-start", async (_e, args) => startPreview({ ...args, destinations: [] }));
 ipcMain.handle("preview-stop", () => { stopPreview(); return { ok: true }; });
 // Live THẲNG tới RTMP (không qua server pickletour): như preview nhưng có đích RTMP.

@@ -152,6 +152,15 @@
         <label style="margin-top:12px">Browser overlay URL (tuỳ chọn)</label>
         <input id="browserOverlayUrl" placeholder="https://... (trang overlay web, nền trong suốt)" />
         <div class="hint">Trang web sẽ được render nền trong suốt và chồng LÊN video (dưới bảng điểm native). Để trống nếu không dùng. Dùng cho lower-third / đồ hoạ tuỳ biến từ web.</div>
+        <label class="chk" style="margin-top:12px"><input type="checkbox" id="hideTimestamp" /> Ẩn ngày/giờ camera trên luồng live (che góc trên‑phải)</label>
+        <div class="hint">Che vùng ngày/giờ (OSD) của camera <b>chỉ trên luồng live</b> (nội suy pixel). KHÔNG đụng tới camera → chủ cam xem trên DMSS vẫn thấy đủ. Mặc định che góc <b>trên‑phải</b> (vị trí OSD phổ biến của Dahua). Lệch thì tinh chỉnh vùng bên dưới rồi bấm "Xem thử nguồn" để canh.</div>
+        <div id="delogoBox" class="row3 hidden" style="margin-top:8px">
+          <div><span class="mini">X (0–1920)</span><input type="number" id="dl_x" value="1392" min="0" max="1920" /></div>
+          <div><span class="mini">Y (0–1080)</span><input type="number" id="dl_y" value="14" min="0" max="1080" /></div>
+          <div><span class="mini">Rộng</span><input type="number" id="dl_w" value="512" min="8" max="1920" /></div>
+          <div><span class="mini">Cao</span><input type="number" id="dl_h" value="54" min="8" max="1080" /></div>
+        </div>
+        <div id="delogoHint" class="hint hidden">Toạ độ theo khung 1920×1080. Góc trên‑trái = (0,0). Tăng X để dịch phải, tăng Y để dịch xuống. Vùng phải nằm gọn trong khung.</div>
       </div>
     </div>
 
@@ -255,6 +264,16 @@
           <button class="ghost sbtn" data-side="B" data-d="1">+</button></div>
         <div class="hint">Bảng điểm overlay tự cập nhật ~1–2s.</div>
       </div>
+    </div>
+
+    <div class="card">
+      <h3>⏰ Hẹn giờ bắt đầu live</h3>
+      <div class="hint" style="margin-bottom:8px">Chọn thời điểm → tới giờ app tự bắt đầu live sân này theo đúng cấu hình ở trên (nguồn, encoder, overlay, đích, ghi clip…). Máy phải bật (app giữ máy không ngủ khi còn lịch chờ). Nếu máy vừa bật mà đã quá giờ hẹn ≤6 tiếng thì bắt đầu ngay.</div>
+      <div class="destadd">
+        <input type="datetime-local" id="schedAt" style="flex:1" />
+        <button id="btnSchedule" class="primary">＋ Hẹn giờ</button>
+      </div>
+      <div id="schedList" class="chips" style="margin-top:8px"></div>
     </div>
 
     <div class="actions">
