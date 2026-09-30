@@ -7,6 +7,12 @@ contextBridge.exposeInMainWorld("api", {
   recordsDirPick: () => ipcRenderer.invoke("records-dir-pick"),
   recordsDirReset: () => ipcRenderer.invoke("records-dir-reset"),
   recordsDirOpen: () => ipcRenderer.invoke("records-dir-open"),
+  // Điều khiển từ xa
+  controlGet: () => ipcRenderer.invoke("control-get"),
+  controlEnable: (enabled) => ipcRenderer.invoke("control-enable", { enabled }),
+  controlRegenPin: () => ipcRenderer.invoke("control-regen-pin"),
+  onRemoteCmd: (cb) => ipcRenderer.on("remote-cmd", (_e, m) => cb(m)),
+  remoteReply: (m) => ipcRenderer.send("remote-reply", m),
   login: (args) => ipcRenderer.invoke("login", args),
   get: (args) => ipcRenderer.invoke("api-get", args),
   req: (args) => ipcRenderer.invoke("api-req", args),

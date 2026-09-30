@@ -7,6 +7,7 @@ const fs = require("fs");
 const os = require("os");
 const http = require("http");
 const https = require("https");
+const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
 
 let win;
@@ -80,6 +81,8 @@ app.whenReady().then(() => {
   createWindow();
   // Resume đẩy segment recording còn sót (nếu app từng tắt giữa chừng).
   setTimeout(() => { try { resumePendingUploaders(); } catch (e) { console.error("[rec-upload] resume fail", e?.message || e); } }, 6000);
+  // Tự bật điều khiển từ xa nếu lần trước đã bật.
+  try { if (readSettings().controlEnabled) startControlServer(); } catch (e) { console.error("[control] auto-start fail", e?.message || e); }
 });
 app.on("window-all-closed", () => { stopAll(); if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", stopAll);
@@ -852,15 +855,12 @@ function sampleCpuPct() {
   if (dTotal <= 0) return null;
   return Math.max(0, Math.min(100, Math.round((1 - dIdle / dTotal) * 100)));
 }
-ipcMain.handle("sys-stats", () => {
+function localStats() {
   const cpus = os.cpus();
   const totalMemMB = Math.round(os.totalmem() / 1048576);
   const freeMemMB = Math.round(os.freemem() / 1048576);
   const cpuPct = sampleCpuPct();
   const liveCount = running.size;
-  // Ước tính số sân còn chạy được: chủ yếu theo headroom CPU (encode dùng GPU nhưng
-  // decode+scale+overlay chạy CPU). Ngân sách 80% CPU. Có sân đang chạy → suy ra
-  // mức/1 sân; chưa có sân → ước lượng thô theo số lõi (~1.25 lõi/sân).
   const CPU_BUDGET = 80;
   let moreCourts = null;
   if (cpuPct != null) {
@@ -878,7 +878,8 @@ ipcMain.handle("sys-stats", () => {
     platform: process.platform, arch: process.arch,
     liveCount, moreCourts,
   };
-});
+}
+ipcMain.handle("sys-stats", () => localStats());
 
 // ── Thư mục lưu record/segment/clip ──
 ipcMain.handle("records-dir-get", () => ({
@@ -906,6 +907,109 @@ ipcMain.handle("records-dir-open", () => {
   try { shell.openPath(recordsBaseDir()); } catch {}
   return { ok: true };
 });
+
+// ══════════ Điều khiển từ xa (web mobile qua Tailscale/LAN) ══════════
+const control = { server: null, port: 0, pin: "" };
+const remotePending = new Map(); // id -> { resolve, timer }
+
+function genPin() { return String(Math.floor(1000 + Math.random() * 9000)); }
+function lanIps() {
+  const out = [];
+  const ifs = os.networkInterfaces();
+  for (const name in ifs) {
+    for (const a of ifs[name] || []) {
+      if (a.family === "IPv4" && !a.internal) {
+        out.push({ name, address: a.address, tailscale: a.address.startsWith("100.") });
+      }
+    }
+  }
+  out.sort((x, y) => (y.tailscale ? 1 : 0) - (x.tailscale ? 1 : 0));
+  return out;
+}
+// Gửi lệnh xuống renderer (nơi giữ token + state.sessions) và chờ trả lời.
+function remoteInvoke(action, payload = {}, timeoutMs = 20000) {
+  return new Promise((resolve) => {
+    if (!win || win.isDestroyed()) return resolve({ ok: false, error: "App chưa sẵn sàng" });
+    const id = crypto.randomUUID();
+    const timer = setTimeout(() => { remotePending.delete(id); resolve({ ok: false, error: "timeout" }); }, timeoutMs);
+    remotePending.set(id, { resolve, timer });
+    win.webContents.send("remote-cmd", { id, action, payload });
+  });
+}
+ipcMain.on("remote-reply", (_e, { id, ok, data, error }) => {
+  const p = remotePending.get(id);
+  if (!p) return;
+  clearTimeout(p.timer); remotePending.delete(id);
+  p.resolve({ ok, data, error });
+});
+function readReqBody(req) {
+  return new Promise((resolve, reject) => {
+    let b = "";
+    req.on("data", (c) => { b += c; if (b.length > 2e6) { reject(new Error("body too large")); req.destroy(); } });
+    req.on("end", () => resolve(b));
+    req.on("error", reject);
+  });
+}
+function startControlServer() {
+  if (control.server) return controlInfo();
+  if (!control.pin) control.pin = genPin();
+  const srv = http.createServer(async (req, res) => {
+    const send = (code, obj) => { res.writeHead(code, { "content-type": "application/json; charset=utf-8" }); res.end(JSON.stringify(obj)); };
+    try {
+      const u = new URL(req.url, "http://localhost");
+      if (req.method === "GET" && (u.pathname === "/" || u.pathname === "/index.html")) {
+        let html = "<h1>control.html missing</h1>";
+        try { html = fs.readFileSync(path.join(__dirname, "renderer", "control.html"), "utf8"); } catch {}
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); res.end(html); return;
+      }
+      if (!u.pathname.startsWith("/api/")) { res.writeHead(404); res.end("not found"); return; }
+      const pin = u.searchParams.get("k") || req.headers["x-ctl-pin"] || "";
+      if (pin !== control.pin) return send(401, { error: "Sai PIN" });
+      if (req.method === "GET" && u.pathname === "/api/state") {
+        const r = await remoteInvoke("state");
+        return send(200, { perf: localStats(), sessions: r.data?.sessions || [], ok: r.ok });
+      }
+      if (req.method === "GET" && u.pathname === "/api/options") {
+        const payload = Object.fromEntries(u.searchParams.entries());
+        const r = await remoteInvoke("options", payload);
+        return send(r.ok ? 200 : 500, r.ok ? r.data : { error: r.error || "lỗi" });
+      }
+      if (req.method === "POST") {
+        const body = await readReqBody(req);
+        const j = body ? JSON.parse(body) : {};
+        const map = { "/api/stop": "stop", "/api/stop-all": "stopAll", "/api/start": "start" };
+        const action = map[u.pathname];
+        if (!action) return send(404, { error: "not found" });
+        const r = await remoteInvoke(action, j);
+        return send(r.ok ? 200 : 500, r.ok ? (r.data || { ok: true }) : { error: r.error || "lỗi" });
+      }
+      send(404, { error: "not found" });
+    } catch (e) { send(500, { error: String(e?.message || e) }); }
+  });
+  srv.on("error", (e) => { console.error("[control] server error:", e?.message || e); });
+  const port = Number(readSettings().controlPort) || 8788;
+  control.port = port; // set ngay để UI hiện đúng (listen là async)
+  srv.listen(port, "0.0.0.0", () => {
+    control.port = srv.address().port;
+    console.log(`[control] listening 0.0.0.0:${control.port} pin=${control.pin}`);
+  });
+  control.server = srv;
+  return controlInfo();
+}
+function stopControlServer() {
+  try { control.server?.close(); } catch {}
+  control.server = null; control.port = 0;
+}
+function controlInfo() {
+  return { enabled: !!control.server, port: control.port, pin: control.pin, ips: lanIps() };
+}
+ipcMain.handle("control-get", () => controlInfo());
+ipcMain.handle("control-enable", (_e, { enabled }) => {
+  if (enabled) startControlServer(); else stopControlServer();
+  writeSettings({ controlEnabled: !!enabled });
+  return controlInfo();
+});
+ipcMain.handle("control-regen-pin", () => { control.pin = genPin(); return controlInfo(); });
 
 ipcMain.handle("env-check", () => {
   const selfContained = isSelfContained();

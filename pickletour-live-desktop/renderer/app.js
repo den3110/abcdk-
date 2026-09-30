@@ -493,19 +493,7 @@ $("goLive").onclick = async () => {
       },
     };
     $("goLive").disabled = true; $("goLive").textContent = "Đang khởi động…";
-    const res = await window.api.start({ baseUrl: state.baseUrl, token: state.token, form });
-    // Lưu phiên vào store nhiều sân.
-    state.sessions.set(res.sessionId, {
-      sid: res.sessionId,
-      tournamentName, courtName,
-      title: form.title, perMatch,
-      recordClips: !!form.recordClips,
-      previewUrl: res.previewUrl || "",
-      perMatchArmed: !!res.perMatchArmed,
-      watchUrls: res.watchUrls || [],
-      lastStatus: null, recUpload: null, clips: [], exited: null,
-    });
-    ensurePoller();
+    await startCourt(form, { tournamentName, courtName, perMatch });
     goDashboard();
   } catch (e) {
     $("setupErr").textContent = e.message;
@@ -513,6 +501,23 @@ $("goLive").onclick = async () => {
     $("goLive").disabled = false; $("goLive").textContent = "● BẮT ĐẦU LIVE";
   }
 };
+
+// Bắt đầu 1 sân từ form (dùng chung cho goLive + điều khiển từ xa). Trả về phiên.
+async function startCourt(form, { tournamentName = "", courtName = "", perMatch = false } = {}) {
+  const res = await window.api.start({ baseUrl: state.baseUrl, token: state.token, form });
+  state.sessions.set(res.sessionId, {
+    sid: res.sessionId,
+    tournamentName, courtName,
+    title: form.title, perMatch: !!form.perMatchLive,
+    recordClips: !!form.recordClips,
+    previewUrl: res.previewUrl || "",
+    perMatchArmed: !!res.perMatchArmed,
+    watchUrls: res.watchUrls || [],
+    lastStatus: null, recUpload: null, clips: [], exited: null,
+  });
+  ensurePoller();
+  return res;
+}
 
 // ── Live THẲNG tới RTMP (không qua server pickletour) ──
 $("goDirect").onclick = async () => {
@@ -729,6 +734,7 @@ function goDashboard() {
   show("dashboardView");
   startSysStats(); pollSys(); // hiệu năng máy + ước tính số sân
   loadRecordsDir();
+  loadControl();
 }
 
 // ── Hiệu năng máy (CPU/RAM + ước tính còn bao nhiêu sân) ──
@@ -994,4 +1000,115 @@ function resetSetupForNewCourt() {
   $("liveTitle").disabled = false;
   $("setupErr").textContent = "";
   stopSetupPreview();
+}
+
+// ══════════ Điều khiển từ xa (nhận lệnh từ web mobile qua main) ══════════
+function buildRemoteState() {
+  const sessions = [...state.sessions.values()].map((S) => {
+    const s = S.lastStatus || {};
+    const clips = S.clips || [];
+    return {
+      sid: S.sid,
+      court: S.courtName || "",
+      tournament: S.tournamentName || "",
+      status: s.status || (S.perMatchArmed ? "paused" : "…"),
+      match: s.currentMatchLabel || "",
+      speed: Number(s.speed || 0),
+      bitrateKbps: s.bitrateKbps || 0,
+      recordClips: !!S.recordClips,
+      clipsDone: clips.filter((c) => c.status === "done").length,
+      clipsTotal: clips.length,
+      exited: !!(S.exited && !S.perMatch),
+    };
+  });
+  return { sessions, loggedIn: !!state.token };
+}
+
+async function remoteOptions(payload = {}) {
+  if (!state.token) throw new Error("App chưa đăng nhập");
+  // Lấy sân theo giải.
+  if (payload.tournamentId) {
+    const courts = await apiGet(`/api/tournament-auto-live/tournaments/${payload.tournamentId}/courts`).catch(() => []);
+    return { courts: (courts || []).map((c) => ({ _id: c._id, name: c.name, hasMatch: !!c.hasMatch })) };
+  }
+  const q = (payload.q || "").trim();
+  const tours = await apiGet(`/api/tournament-auto-live/tournaments${q ? `?q=${encodeURIComponent(q)}` : ""}`).catch(() => []);
+  const tournaments = (tours || []).map((t) => ({ _id: t._id, name: `${t.isTest ? "[TEST] " : ""}${t.name}` }));
+  // Chế độ tìm kiếm: chỉ trả danh sách giải (giữ cam/fb/rtsp đã nạp ở client).
+  if (payload.q != null) return { tournaments };
+  const rtsp = await apiGet("/api/tournament-auto-live/rtsp-sources").catch(() => []);
+  return {
+    tournaments,
+    cams: (state.cams || []).map((c, i) => ({ i, label: `${c.venueName}/${c.courtName}·${c.camName}`, deviceId: c.deviceId, venueId: c.venueId })),
+    fbPages: (state.fbPages || []).map((p) => ({ pageId: p.pageId, pageName: p.pageName })),
+    rtspSources: (Array.isArray(rtsp) ? rtsp : []).map((s) => ({ label: s.label, url: s.url })),
+  };
+}
+
+async function remoteStart(p = {}) {
+  if (!state.token) throw new Error("App chưa đăng nhập");
+  if (!p.tournamentId || !p.courtStationId) throw new Error("Thiếu giải/sân");
+  const dests = Array.isArray(p.destinations) ? p.destinations : [];
+  if (!dests.length) throw new Error("Thiếu điểm đến");
+  const perMatch = !!p.perMatchLive;
+  const src = p.source || {};
+  const form = {
+    tournamentId: p.tournamentId,
+    courtStationId: p.courtStationId,
+    imouDeviceId: src.imouDeviceId || "",
+    venueId: src.venueId || "",
+    sourceUrl: src.sourceUrl || "",
+    dahuaP2p: src.dahua || undefined,
+    destinations: dests,
+    encoder: "auto",
+    runnerLabel: state.runnerLabel,
+    perMatchLive: perMatch,
+    title: perMatch ? "" : (p.title || [p.tournamentName, p.courtName].filter(Boolean).join(" - ")),
+    browserOverlayUrl: "",
+    recordClips: !!p.recordClips && !perMatch,
+    layout: { scoreboard: "top-left", brand: "top-right", sponsor: "bottom-right" },
+    advanced: { videoBitrateKbps: 4500, resolutionH: 1080, fps: 0, audioBitrateKbps: 128, encoder: "auto" },
+  };
+  const res = await startCourt(form, { tournamentName: p.tournamentName, courtName: p.courtName, perMatch });
+  if (!state.activeSid && $("dashboardView") && !$("dashboardView").classList.contains("hidden")) renderDashboard();
+  return { sessionId: res.sessionId };
+}
+
+if (window.api.onRemoteCmd) {
+  window.api.onRemoteCmd(async ({ id, action, payload }) => {
+    let ok = true, data = null, error = "";
+    try {
+      if (action === "state") data = buildRemoteState();
+      else if (action === "options") data = await remoteOptions(payload || {});
+      else if (action === "stop") { await stopSession(payload?.sid); data = { stopped: payload?.sid }; }
+      else if (action === "stopAll") { for (const sid of [...state.sessions.keys()]) await stopSession(sid); data = { stopped: "all" }; }
+      else if (action === "start") data = await remoteStart(payload || {});
+      else { ok = false; error = "unknown action"; }
+    } catch (e) { ok = false; error = e?.message || String(e); }
+    window.api.remoteReply({ id, ok, data, error });
+  });
+}
+
+// ── Card điều khiển từ xa (bật/tắt server + hiện URL + PIN) ──
+async function loadControl() {
+  if (!window.api.controlGet) return;
+  try { renderControl(await window.api.controlGet()); } catch {}
+}
+function renderControl(c) {
+  const on = !!c.enabled;
+  $("controlToggle").checked = on;
+  $("controlPinBtn").classList.toggle("hidden", !on);
+  if (!on) { $("controlInfo").textContent = "Tắt — bật để điều khiển từ điện thoại."; return; }
+  const ips = (c.ips || []);
+  const urls = ips.map((ip) => `http://${ip.address}:${c.port}/?k=${c.pin}${ip.tailscale ? " (Tailscale)" : ""}`);
+  $("controlInfo").innerHTML = `PIN: <b>${esc(c.pin)}</b> · mở trên điện thoại:<br>` +
+    (urls.length ? urls.map((u) => esc(u)).join("<br>") : `http://&lt;IP máy&gt;:${c.port}/?k=${esc(c.pin)}`);
+}
+if ($("controlToggle")) {
+  $("controlToggle").onchange = async () => {
+    try { renderControl(await window.api.controlEnable($("controlToggle").checked)); } catch {}
+  };
+  $("controlPinBtn").onclick = async () => {
+    try { await window.api.controlRegenPin(); await loadControl(); } catch {}
+  };
 }

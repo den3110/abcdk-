@@ -8,6 +8,7 @@ import CourtStation from "../models/courtStationModel.js";
 import CourtCluster from "../models/courtClusterModel.js";
 import FbToken from "../models/fbTokenModel.js";
 import RtspSource from "../models/rtspSourceModel.js";
+import Bracket from "../models/bracketModel.js";
 import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, getUserMatchOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
@@ -312,16 +313,26 @@ export const getUserMatchOverlayImage = asyncHandler(async (req, res) => {
 // GET /api/tournament-auto-live/tournaments?q=  — danh sách giải cho app desktop
 export const listTournamentsForApp = asyncHandler(async (req, res) => {
   const q = String(req.query.q || "").trim();
-  const filter = q ? { name: { $regex: q, $options: "i" } } : {};
+  // Chỉ giải ĐANG diễn ra + SẮP diễn ra (bỏ giải đã kết thúc) và ĐÃ CÓ SƠ ĐỒ (bracket).
+  const filter = { status: { $in: ["upcoming", "ongoing"] } };
+  if (q) filter.name = { $regex: q, $options: "i" };
   const docs = await Tournament.find(filter)
     .select("_id name image startDate status isTest")
-    .sort({ createdAt: -1 })
-    .limit(q ? 50 : 100)
+    .sort({ startDate: 1 }) // đang/sắp diễn ra → gần nhất trước
+    .limit(300)
     .lean();
-  res.json(docs.map((t) => ({
-    _id: String(t._id), name: t.name, image: t.image || "",
-    startDate: t.startDate, status: t.status, isTest: !!t.isTest,
-  })));
+  const ids = docs.map((t) => t._id);
+  const withBracket = new Set(
+    (await Bracket.distinct("tournament", { tournament: { $in: ids } })).map(String)
+  );
+  const out = docs
+    .filter((t) => withBracket.has(String(t._id)))
+    .slice(0, q ? 50 : 100)
+    .map((t) => ({
+      _id: String(t._id), name: t.name, image: t.image || "",
+      startDate: t.startDate, status: t.status, isTest: !!t.isTest,
+    }));
+  res.json(out);
 });
 
 // GET /api/tournament-auto-live/tournaments/:tid/courts — court stations của giải

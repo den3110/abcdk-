@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>PickleTour Live · Điều khiển</title>
+<style>
+  :root { --bg:#0b1120; --card:#131c2e; --line:#243244; --sub:#8aa0bd; --pri:#38bdf8; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; background:var(--bg); color:#e6eefc; font:15px/1.45 -apple-system,system-ui,Segoe UI,Roboto,sans-serif; padding:14px; }
+  h1 { font-size:18px; margin:0 0 12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  .row { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .sub { color:var(--sub); font-size:13px; }
+  button { font:inherit; border:0; border-radius:10px; padding:10px 14px; font-weight:600; cursor:pointer; }
+  .pri { background:var(--pri); color:#04263a; }
+  .danger { background:#f04444; color:#fff; }
+  .ghost { background:#1e2a40; color:#cfe0f5; border:1px solid var(--line); }
+  .full { width:100%; }
+  input, select { width:100%; padding:10px; border-radius:10px; border:1px solid var(--line); background:#0e1626; color:#e6eefc; font:inherit; margin-top:4px; }
+  label { display:block; font-size:12px; color:var(--sub); margin-top:10px; font-weight:600; }
+  .badge { padding:2px 9px; border-radius:99px; font-size:12px; font-weight:700; }
+  .live { background:#16a34a; color:#fff; } .warn { background:#b45309; color:#fff; } .err { background:#b91c1c; color:#fff; }
+  .hidden { display:none !important; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .chip { background:#0e1626; border:1px solid var(--line); border-radius:8px; padding:4px 8px; font-size:12px; display:flex; align-items:center; gap:6px; }
+  .chip b { color:#f88; cursor:pointer; }
+  .mut { color:var(--sub); font-size:12px; }
+  .err-msg { color:#fca5a5; font-size:13px; margin-top:6px; }
+</style>
+</head>
+<body>
+<h1>🎬 PickleTour Live — Điều khiển</h1>
+
+<div id="pinBox" class="card hidden">
+  <label>Nhập PIN (hiện trên app desktop)</label>
+  <input id="pin" inputmode="numeric" placeholder="4 số" />
+  <button class="pri full" style="margin-top:10px" onclick="savePin()">Kết nối</button>
+  <div id="pinErr" class="err-msg"></div>
+</div>
+
+<div id="main" class="hidden">
+  <div class="card">
+    <div class="row">
+      <div><b>Máy</b> <span id="perf" class="sub"></span></div>
+      <button class="ghost" onclick="load()">↻ Làm mới</button>
+    </div>
+  </div>
+
+  <div class="row" style="margin-bottom:10px">
+    <button class="pri" onclick="openAdd()">＋ Thêm sân live</button>
+    <button class="danger" onclick="stopAll()">■ Dừng tất cả</button>
+  </div>
+
+  <div id="courts"></div>
+
+  <!-- Form thêm sân -->
+  <div id="addBox" class="card hidden">
+    <div class="row"><b>Thêm sân live</b><button class="ghost" onclick="closeAdd()">✕</button></div>
+    <label>Tìm giải đấu</label><input id="a_tourSearch" placeholder="Nhập tên giải…" oninput="onTourSearch()" />
+    <label>Giải đấu (đang / sắp diễn ra, đã có sơ đồ)</label><select id="a_tour" onchange="loadCourts()"></select>
+    <label>Sân</label><select id="a_court"></select>
+    <label>Nguồn video</label>
+    <select id="a_srcType" onchange="onSrc()">
+      <option value="rtsp">Nguồn RTSP đã lưu</option>
+      <option value="url">Custom link (RTSP/m3u8/RTMP)</option>
+      <option value="imou">Camera Imou</option>
+    </select>
+    <div id="a_rtspWrap"><label>Nguồn RTSP</label><select id="a_rtsp"></select></div>
+    <div id="a_urlWrap" class="hidden"><label>Link nguồn</label><input id="a_url" placeholder="rtsp://..." /></div>
+    <div id="a_imouWrap" class="hidden"><label>Camera</label><select id="a_cam"></select></div>
+    <label>Điểm đến</label>
+    <select id="a_destType" onchange="onDest()">
+      <option value="fb">Facebook Page</option>
+      <option value="youtube">YouTube (tự tạo)</option>
+    </select>
+    <div id="a_fbWrap"><label>Facebook Page</label><select id="a_fb"></select></div>
+    <label>Tiêu đề (để trống = Tên giải - Tên sân)</label><input id="a_title" />
+    <label class="row" style="margin-top:12px"><span>Live riêng từng trận</span><input type="checkbox" id="a_perMatch" style="width:auto" /></label>
+    <label class="row"><span>Ghi + cắt clip lên Drive</span><input type="checkbox" id="a_rec" style="width:auto" /></label>
+    <button class="pri full" style="margin-top:12px" id="a_go" onclick="doStart()">● Bắt đầu live</button>
+    <div id="a_err" class="err-msg"></div>
+  </div>
+</div>
+
+<script>
+let PIN = new URLSearchParams(location.search).get("k") || localStorage.getItem("ptlive_ctl_pin") || "";
+let OPT = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s==null?"":s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function api(path, method="GET", body) {
+  const r = await fetch(path + (path.includes("?")?"&":"?") + "k=" + encodeURIComponent(PIN), {
+    method, headers: body?{"content-type":"application/json"}:{}, body: body?JSON.stringify(body):undefined,
+  });
+  const t = await r.text(); let j; try{ j=t?JSON.parse(t):{}; }catch{ j={error:t}; }
+  if (r.status===401) { throw new Error("PIN sai"); }
+  if (!r.ok) throw new Error(j.error||("HTTP "+r.status));
+  return j;
+}
+
+function savePin(){ PIN = $("pin").value.trim(); localStorage.setItem("ptlive_ctl_pin", PIN); boot(); }
+
+function fmtSpeed(s){ if(!s) return "—"; const c = s>=0.97?"#34d399":s>=0.9?"#f59e0b":"#f87171"; return `<span style="color:${c}">${s.toFixed(2)}×</span>`; }
+function badge(st){ const m={live:["LIVE","live"],reconnecting:["reconnecting","warn"],paused:["chờ trận","warn"],error:["LỖI","err"],starting:["starting","warn"]}; const [t,c]=m[st]||[st||"…","warn"]; return `<span class="badge ${c}">${esc(t)}</span>`; }
+
+async function load(){
+  try{
+    const d = await api("/api/state");
+    const p = d.perf||{};
+    $("perf").textContent = `${p.cpuModel||""} · ${p.cpuCount||"?"} lõi · CPU ${p.cpuPct==null?"…":p.cpuPct+"%"} · còn ~${p.moreCourts==null?"…":p.moreCourts} sân`;
+    const cs = d.sessions||[];
+    $("courts").innerHTML = cs.length ? cs.map(cardHtml).join("") : '<div class="card mut">Chưa có sân nào đang live.</div>';
+  }catch(e){ if(String(e.message).includes("PIN")){ showPin("PIN sai"); } }
+}
+function cardHtml(s){
+  const clip = s.recordClips ? `<div class="mut">🎬 Clip: ${s.clipsDone}/${s.clipsTotal} lên Drive</div>` : "";
+  const ex = s.exited ? `<div class="mut" style="color:#fca5a5">Worker đã dừng</div>` : "";
+  return `<div class="card">
+    <div class="row"><div><b>${esc(s.court||"Sân")}</b> ${badge(s.status)}</div>
+      <button class="danger" onclick="stopOne('${s.sid}')">■ Dừng</button></div>
+    <div class="mut">${esc(s.tournament||"")}</div>
+    <div class="mut">Trận: <b>${esc(s.match||"—")}</b> · ${s.bitrateKbps?(s.bitrateKbps/1000).toFixed(2)+"Mbps":"—"} · ${fmtSpeed(s.speed)}</div>
+    ${clip}${ex}
+  </div>`;
+}
+async function stopOne(sid){ if(!confirm("Dừng sân này?"))return; try{ await api("/api/stop","POST",{sid}); load(); }catch(e){ alert(e.message); } }
+async function stopAll(){ if(!confirm("Dừng TẤT CẢ sân?"))return; try{ await api("/api/stop-all","POST",{}); load(); }catch(e){ alert(e.message); } }
+
+async function openAdd(){
+  $("a_err").textContent="";
+  $("addBox").classList.remove("hidden");
+  try{
+    OPT = await api("/api/options");
+    $("a_tour").innerHTML = (OPT.tournaments||[]).map(t=>`<option value="${t._id}">${esc(t.name)}</option>`).join("");
+    $("a_rtsp").innerHTML = (OPT.rtspSources||[]).map((s,i)=>`<option value="${i}">${esc(s.label)}</option>`).join("") || '<option value="">(không có)</option>';
+    $("a_cam").innerHTML = (OPT.cams||[]).map(c=>`<option value="${c.i}">${esc(c.label)}</option>`).join("") || '<option value="">(không có)</option>';
+    $("a_fb").innerHTML = (OPT.fbPages||[]).map(p=>`<option value="${p.pageId}">${esc(p.pageName)}</option>`).join("") || '<option value="">(không có)</option>';
+    await loadCourts();
+  }catch(e){ $("a_err").textContent = e.message; }
+}
+function closeAdd(){ $("addBox").classList.add("hidden"); }
+let _tourT;
+function onTourSearch(){
+  clearTimeout(_tourT);
+  _tourT = setTimeout(async ()=>{
+    try{
+      const q = $("a_tourSearch").value.trim();
+      const d = await api("/api/options?q="+encodeURIComponent(q));
+      OPT.tournaments = d.tournaments||[];
+      $("a_tour").innerHTML = OPT.tournaments.map(t=>`<option value="${t._id}">${esc(t.name)}</option>`).join("") || '<option value="">(không có giải)</option>';
+      await loadCourts();
+    }catch(e){ $("a_err").textContent = e.message; }
+  }, 350);
+}
+async function loadCourts(){
+  try{ const d = await api("/api/options?tournamentId="+encodeURIComponent($("a_tour").value));
+    $("a_court").innerHTML = (d.courts||[]).map(c=>`<option value="${c._id}">${esc(c.name)}${c.hasMatch?" · (đang có trận)":""}</option>`).join("") || '<option value="">(không có sân)</option>';
+  }catch(e){ $("a_err").textContent = e.message; }
+}
+function onSrc(){ const t=$("a_srcType").value; $("a_rtspWrap").classList.toggle("hidden",t!=="rtsp"); $("a_urlWrap").classList.toggle("hidden",t!=="url"); $("a_imouWrap").classList.toggle("hidden",t!=="imou"); }
+function onDest(){ $("a_fbWrap").classList.toggle("hidden",$("a_destType").value!=="fb"); }
+
+async function doStart(){
+  $("a_err").textContent="";
+  $("a_go").disabled=true; $("a_go").textContent="Đang khởi động…";
+  try{
+    const t = OPT.tournaments.find(x=>x._id===$("a_tour").value);
+    const courtName = $("a_court").selectedOptions[0]?.textContent||"";
+    const srcType=$("a_srcType").value; let source={};
+    if(srcType==="rtsp"){ const s=OPT.rtspSources[+$("a_rtsp").value]; if(!s) throw new Error("Chọn nguồn RTSP"); source={sourceUrl:s.url}; }
+    else if(srcType==="url"){ const u=$("a_url").value.trim(); if(!u) throw new Error("Nhập link nguồn"); source={sourceUrl:u}; }
+    else { const c=OPT.cams[+$("a_cam").value]; if(!c) throw new Error("Chọn camera"); source={imouDeviceId:c.deviceId, venueId:c.venueId}; }
+    const destType=$("a_destType").value; let destinations=[];
+    if(destType==="fb"){ const p=OPT.fbPages.find(x=>x.pageId===$("a_fb").value); if(!p) throw new Error("Chọn Facebook Page"); destinations=[{type:"fb",pageId:p.pageId,pageName:p.pageName,label:p.pageName}]; }
+    else destinations=[{type:"youtube",label:"YouTube (tự tạo qua API)"}];
+    await api("/api/start","POST",{
+      tournamentId:$("a_tour").value, tournamentName: t?t.name:"",
+      courtStationId:$("a_court").value, courtName,
+      source, destinations,
+      perMatchLive:$("a_perMatch").checked, recordClips:$("a_rec").checked,
+      title:$("a_title").value.trim(),
+    });
+    closeAdd(); load();
+  }catch(e){ $("a_err").textContent = e.message; }
+  finally{ $("a_go").disabled=false; $("a_go").textContent="● Bắt đầu live"; }
+}
+
+function showPin(msg){ $("main").classList.add("hidden"); $("pinBox").classList.remove("hidden"); $("pinErr").textContent=msg||""; }
+async function boot(){
+  if(!PIN){ showPin(); return; }
+  try{
+    await api("/api/state");
+    $("pinBox").classList.add("hidden"); $("main").classList.remove("hidden");
+    load(); setInterval(load, 4000);
+  }catch(e){ showPin(String(e.message).includes("PIN")?"PIN sai":e.message); }
+}
+onSrc(); onDest(); boot();
+</script>
+</body>
+</html>
