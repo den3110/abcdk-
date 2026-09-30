@@ -41,7 +41,11 @@ function createWindow() {
   // win.webContents.openDevTools();
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  // Resume đẩy segment recording còn sót (nếu app từng tắt giữa chừng).
+  setTimeout(() => { try { resumePendingUploaders(); } catch (e) { console.error("[rec-upload] resume fail", e?.message || e); } }, 6000);
+});
 app.on("window-all-closed", () => { stopAll(); if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", stopAll);
 
@@ -405,6 +409,15 @@ function startSegmentUploader({ sid, cfg, previewDir }) {
   const uploaded = new Set();
   let busy = false;
 
+  // Sidecar để RESUME sau khi app khởi động lại (đẩy nốt segment còn sót).
+  try {
+    fs.mkdirSync(recDir, { recursive: true });
+    fs.writeFileSync(path.join(recDir, "upload.json"), JSON.stringify({
+      sessionId: sid, workerToken: token,
+      recordingPlanUrl: cfg.recordingPlanUrl, recordingSegmentUrl: cfg.recordingSegmentUrl,
+    }));
+  } catch {}
+
   const tick = async () => {
     if (busy) return; busy = true;
     try {
@@ -447,7 +460,36 @@ function startSegmentUploader({ sid, cfg, previewDir }) {
   const timer = setInterval(() => { tick().catch(() => {}); }, 60_000);
   uploaders.set(sid, { timer });
   setTimeout(() => { tick().catch(() => {}); }, 5_000); // thử sớm 1 lần
-  console.log(`[rec-upload] ${sid} uploader chạy (poll 60s, chỉ upload trong khung giờ đêm).`);
+  console.log(`[rec-upload] ${sid} uploader chạy (poll 60s, đẩy real-time).`);
+}
+
+/** Khi mở lại app: quét các phiên còn segment chưa đẩy → tự đẩy nốt (resume). Cứu
+ *  trường hợp máy lỡ tắt/khởi động lại giữa chừng — server vẫn cắt+upload Drive. */
+function resumePendingUploaders() {
+  let base;
+  try { base = os.tmpdir(); } catch { return; }
+  let entries = [];
+  try { entries = fs.readdirSync(base).filter((n) => n.startsWith("ptlive-preview-")); } catch { return; }
+  for (const dirName of entries) {
+    const previewDir = path.join(base, dirName);
+    const recDir = path.join(previewDir, "rec");
+    let meta;
+    try { meta = JSON.parse(fs.readFileSync(path.join(recDir, "upload.json"), "utf8")); } catch { continue; }
+    let hasTs = false;
+    try { hasTs = fs.readdirSync(recDir).some((n) => REC_NAME_RE.test(n)); } catch {}
+    if (!hasTs) continue; // đã đẩy hết + dọn → bỏ qua
+    const sid = meta.sessionId;
+    if (!sid || uploaders.has(sid) || running.has(sid)) continue;
+    if (!meta.recordingPlanUrl || !meta.recordingSegmentUrl) continue;
+    console.log(`[rec-upload] resume phiên ${sid} (còn segment chưa đẩy).`);
+    startSegmentUploader({
+      sid, previewDir,
+      cfg: {
+        recordClips: true, workerToken: meta.workerToken,
+        recordingPlanUrl: meta.recordingPlanUrl, recordingSegmentUrl: meta.recordingSegmentUrl,
+      },
+    });
+  }
 }
 
 async function startWorker({ baseUrl, token, form }) {

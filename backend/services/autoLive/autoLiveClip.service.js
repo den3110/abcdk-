@@ -27,7 +27,6 @@ import Tournament from "../../models/tournamentModel.js";
 import AutoLiveClip from "../../models/autoLiveClipModel.js";
 import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionModel.js";
 import { uploadRecordingToDrive } from "../driveRecordings.service.js";
-import { getLiveRecordingExportWindowDecision } from "../liveRecordingExportWindow.service.js";
 
 export const SEGMENT_SEC = 300; // độ dài mỗi segment ghi (đồng bộ với worker desktop)
 const SEG_ROOT = path.join(os.tmpdir(), "autolive-rec");
@@ -209,14 +208,10 @@ export async function createClipTaskForEndedMatch(session, matchId, { startAt, e
   }
 }
 
-// ── Kế hoạch cho desktop (poll): có nên upload segment lúc này không ─────────
-export function recordingUploadAllowedNow() {
-  // Tái dùng khung giờ đêm của recording (mặc định 02:00–06:00). Nếu tắt gate thì
-  // luôn cho upload (shouldQueueNow=true).
-  try { return !!getLiveRecordingExportWindowDecision(new Date()).shouldQueueNow; }
-  catch { return true; }
-}
-
+// ── Kế hoạch cho desktop (poll) ──────────────────────────────────────────────
+// Đẩy REAL-TIME (giống điện thoại đẩy R2 khi máy còn bật): server luôn cho upload
+// khi recordClips bật → desktop tắt ban đêm vẫn OK vì segment đã nằm trên server.
+// Việc cắt + upload Drive do SERVER làm độc lập (worker dưới).
 export async function recordingPlan(sessionId) {
   const s = await TournamentAutoLiveSession.findById(sessionId).select("recordClips status").lean();
   if (!s) return { ok: false };
@@ -224,7 +219,7 @@ export async function recordingPlan(sessionId) {
   return {
     ok: true,
     recordClips: !!s.recordClips,
-    uploadNow: !!s.recordClips && recordingUploadAllowedNow(),
+    uploadNow: !!s.recordClips,
     segmentSec: SEGMENT_SEC,
     have: files.map((f) => f.name), // segment server đã có → desktop khỏi gửi lại
   };
@@ -256,6 +251,8 @@ async function processPendingClips() {
         if (!cov) continue; // chưa đủ segment → chờ lần sau
         await processOneClip(clip, cov);
       }
+      // Dọn segment nguồn đã dùng xong (không phình đĩa server giữa sự kiện dài).
+      await cleanupOldSegments(sid, timeline).catch(() => {});
     }
     await cleanupFinishedSessions();
   } catch (e) {
@@ -321,6 +318,55 @@ async function cleanupFinishedSessions() {
       console.log(`[autolive-clip] đã dọn segment tạm phiên ${sid}`);
     } catch { /* để lần sau */ }
   }
+}
+
+/** Dọn segment nguồn đã dùng xong (tăng dần) — giữ đĩa server gọn giữa sự kiện dài.
+ *  Chỉ xoá segment kết thúc TRƯỚC mốc còn cần (min của: clip pending sớm nhất, clip
+ *  done muộn nhất) → không đụng segment của trận đang diễn ra / clip chờ xử lý. */
+async function cleanupOldSegments(sessionId, timeline) {
+  try {
+    const done = await AutoLiveClip.find({ session: sessionId, status: "done" }).select("endAt").lean();
+    if (!done.length) return; // chưa clip nào xong → giữ hết cho an toàn
+    const pend = await AutoLiveClip.find({
+      session: sessionId, status: { $in: ["pending", "cutting", "uploading"] },
+    }).select("startAt").lean();
+    const maxDoneEnd = Math.max(...done.map((c) => new Date(c.endAt).getTime()));
+    const minPendStart = pend.length ? Math.min(...pend.map((c) => new Date(c.startAt).getTime())) : Infinity;
+    const keepFrom = Math.min(maxDoneEnd, minPendStart);
+    for (const seg of timeline) {
+      if (seg.endMs <= keepFrom) {
+        try { await fsp.unlink(seg.path); } catch { /* đã xoá */ }
+      }
+    }
+  } catch { /* bỏ qua, thử lần sau */ }
+}
+
+/** Danh sách clip cho admin giám sát (lọc theo tournament/session/status). */
+export async function listClips({ tournamentId, sessionId, status, limit = 200 } = {}) {
+  const q = {};
+  if (tournamentId) q.tournament = tournamentId;
+  if (sessionId) q.session = sessionId;
+  if (status) q.status = status;
+  const rows = await AutoLiveClip.find(q)
+    .sort({ createdAt: -1 }).limit(Math.min(500, Number(limit) || 200))
+    .populate("match", "code labelKey")
+    .populate("tournament", "name")
+    .lean();
+  return rows.map((r) => ({
+    _id: r._id,
+    tournamentName: r.tournament?.name || "",
+    matchCode: r.match?.code || r.match?.labelKey || "",
+    title: r.title || "",
+    status: r.status,
+    driveUrl: r.driveUrl || "",
+    driveFileId: r.driveFileId || "",
+    clipDurationSec: r.clipDurationSec || 0,
+    fileSizeBytes: r.fileSizeBytes || 0,
+    startAt: r.startAt, endAt: r.endAt,
+    attempts: r.attempts || 0,
+    lastError: r.lastError || "",
+    createdAt: r.createdAt, finishedAt: r.finishedAt,
+  }));
 }
 
 export function startAutoLiveClipWorker() {

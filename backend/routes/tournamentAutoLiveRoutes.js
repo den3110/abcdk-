@@ -7,7 +7,7 @@ import {
   listTournamentsForApp, listCourtsForApp, listFbPagesForApp, courtImouSession,
   courtImouStreamUrl, getVenueDahua, setVenueDahua, listDahuaVenues, dahuaSnapshot,
   listRtspSources, createRtspSource, updateRtspSource, deleteRtspSource,
-  internalRecordingPlan, internalUploadSegment,
+  internalRecordingPlan, internalUploadSegment, listClipsForAdmin,
 } from "../controllers/tournamentAutoLiveController.js";
 
 const router = express.Router();
@@ -28,6 +28,7 @@ router.post("/internal/recording/segment", internalUploadSegment);
 router.post("/start", protect, admin, startSession);
 router.post("/:id/stop", protect, admin, stopSession);
 router.get("/sessions", protect, admin, listSessions);
+router.get("/clips", protect, admin, listClipsForAdmin);
 router.get("/stats", protect, admin, getStats);
 router.get("/available-cams", protect, admin, listAvailableCams);
 router.get("/tournaments", protect, admin, listTournamentsForApp);

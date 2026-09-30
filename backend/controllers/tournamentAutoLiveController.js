@@ -14,8 +14,20 @@ import {
   refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
   getCourtImouStreamUrlForApp, saveVenueDahuaNvr, resolveDahuaRtsp,
 } from "../services/autoLive/tournamentAutoLive.service.js";
-import { recordingPlan, saveSegmentStream } from "../services/autoLive/autoLiveClip.service.js";
+import { recordingPlan, saveSegmentStream, listClips } from "../services/autoLive/autoLiveClip.service.js";
 import { spawn } from "child_process";
+
+// GET /api/tournament-auto-live/clips?tournamentId=&sessionId=&status= (admin)
+// Danh sách clip từng trận (recording auto-live) để giám sát: trận/trạng thái/link Drive.
+export const listClipsForAdmin = asyncHandler(async (req, res) => {
+  const rows = await listClips({
+    tournamentId: req.query?.tournamentId || undefined,
+    sessionId: req.query?.sessionId || undefined,
+    status: req.query?.status || undefined,
+    limit: req.query?.limit,
+  });
+  res.json(rows);
+});
 
 // GET /api/tournament-auto-live/internal/recording/plan?sessionId= (worker token)
 // Desktop hỏi có nên upload segment lúc này không (khung giờ đêm) + segment đã có.
