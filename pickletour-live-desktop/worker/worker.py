@@ -225,10 +225,16 @@ def build_tee_output(destinations):
             os.makedirs(PREVIEW_DIR, exist_ok=True)
             seg = os.path.join(PREVIEW_DIR, "seg_%03d.ts")
             m3u8 = os.path.join(PREVIEW_DIR, "index.m3u8")
+            # WINDOWS: đường dẫn có `\` và `C:` phá parser của tee muxer (`:` là
+            # dấu tách option, `\` là ký tự escape) → slave preview lỗi ("No option
+            # found near ..."). Đổi `\`→`/` (ffmpeg nhận trên Windows); trong option
+            # hls_segment_filename (nằm trong [...]) escape `:` → `\:`.
+            seg_opt = seg.replace("\\", "/").replace(":", "\\:")
+            m3u8_out = m3u8.replace("\\", "/")
             # list_size lớn hơn + segment 2s → player có đệm, đỡ "loading" liên tục.
             parts.append(
                 f"[f=hls:onfail=ignore:hls_time=2:hls_list_size=8:"
-                f"hls_flags=delete_segments+omit_endlist:hls_segment_filename={seg}]{m3u8}")
+                f"hls_flags=delete_segments+omit_endlist:hls_segment_filename={seg_opt}]{m3u8_out}")
         except OSError:
             pass
     return "|".join(parts)
@@ -248,25 +254,52 @@ def fetch_overlay_bytes(url):
         return None
 
 
+def start_overlay_fetcher(url, stop_event, fps=None, extra_stop=None):
+    """Tải PNG overlay LIÊN TỤC trong thread RIÊNG → cập nhật holder['png'].
+    TÁCH khỏi vòng feed (FIFO/TCP): 1 lần fetch chậm/timeout (backend quá tải)
+    KHÔNG được chặn việc cấp frame cho ffmpeg — nếu overlay input ngừng tiến PTS
+    thì filter `overlay` (framesync) CHẶN cả luồng video → GIẬT/đơ. Feeder chỉ đẩy
+    holder['png'] hiện có ở nhịp đều; fetch chậm chỉ làm điểm số 'đứng' tạm thời,
+    video vẫn mượt. Trả (holder, thread)."""
+    fps = fps or OVERLAY_FPS
+    interval = 1.0 / max(0.5, fps)
+    holder = {"png": None}
+
+    def loop():
+        while not stop_event.is_set() and not (extra_stop and extra_stop.is_set()):
+            data = fetch_overlay_bytes(url)
+            if data:
+                holder["png"] = data
+            slept = 0.0
+            while slept < interval and not stop_event.is_set() \
+                    and not (extra_stop and extra_stop.is_set()):
+                time.sleep(0.1); slept += 0.1
+
+    th = threading.Thread(target=loop, daemon=True)
+    th.start()
+    return holder, th
+
+
 def overlay_writer(url, fifo_path, stop_event, done_event, fps=None):
     """Ghi LIÊN TỤC PNG overlay vào FIFO cho ffmpeg image2pipe → điểm số cập nhật
     thật. Ghi ĐỀU mỗi frame (kể cả trùng) để overlay-framesync luôn có nhịp,
     KHÔNG kéo chậm luồng (nếu overlay ngừng tiến PTS thì framesync CHẶN → speed
-    tụt → FB quay loading). Chống rò rỉ RAM đã do thread_queue nhỏ (backpressure):
-    nguồn video đứng → ffmpeg ngừng đọc → writer bị chặn ở f.write → frame không
-    dồn vô hạn. open() chặn tới khi ffmpeg mở đầu đọc; ffmpeg chết → BrokenPipe."""
+    tụt → FB quay loading). Fetch PNG chạy ở thread RIÊNG (start_overlay_fetcher)
+    nên fetch timeout KHÔNG chặn f.write → video luôn mượt. Chống rò rỉ RAM đã do
+    thread_queue nhỏ (backpressure): nguồn video đứng → ffmpeg ngừng đọc → writer
+    bị chặn ở f.write → frame không dồn vô hạn. open() chặn tới khi ffmpeg mở đầu
+    đọc; ffmpeg chết → BrokenPipe."""
     fps = fps or OVERLAY_FPS
     interval = 1.0 / max(0.5, fps)
-    last = None
+    local_stop = threading.Event()
+    holder, _ = start_overlay_fetcher(url, stop_event, fps, extra_stop=local_stop)
     try:
         with open(fifo_path, "wb") as f:
             while not stop_event.is_set():
-                data = fetch_overlay_bytes(url)
-                if data:
-                    last = data
-                if last:
+                png = holder["png"]
+                if png:
                     try:
-                        f.write(last); f.flush()
+                        f.write(png); f.flush()
                     except BrokenPipeError:
                         break
                 slept = 0.0
@@ -275,6 +308,7 @@ def overlay_writer(url, fifo_path, stop_event, done_event, fps=None):
     except OSError:
         pass
     finally:
+        local_stop.set()
         done_event.set()
 
 
@@ -692,6 +726,11 @@ def start_overlay_tcp(overlay_url, stop_event, fps=None):
     Trả về (port, thread). Chấp nhận reconnect khi ffmpeg restart."""
     fps = fps or OVERLAY_FPS
     interval = 1.0 / max(0.5, fps)
+    # Fetch PNG ở thread RIÊNG → holder['png']; vòng gửi TCP chỉ đẩy frame mới
+    # nhất ở nhịp đều, KHÔNG bao giờ chặn ở fetch. Trước đây fetch (timeout 8s)
+    # nằm TRONG vòng gửi: backend chậm/timeout → không gửi PNG suốt tới 8s →
+    # ffmpeg overlay input đứng → framesync CHẶN cả video → GIẬT. Giờ tách ra.
+    holder, _ = start_overlay_fetcher(overlay_url, stop_event, fps)
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", 0))
@@ -707,15 +746,12 @@ def start_overlay_tcp(overlay_url, stop_event, fps=None):
                 continue
             except OSError:
                 break
-            last = None
             try:
                 while not stop_event.is_set():
-                    data = fetch_overlay_bytes(overlay_url)
-                    if data:
-                        last = data
-                    if last:
+                    png = holder["png"]
+                    if png:
                         try:
-                            conn.sendall(last)
+                            conn.sendall(png)
                         except OSError:
                             break  # ffmpeg đóng kết nối → chờ accept lại
                     slept = 0.0
