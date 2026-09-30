@@ -1,10 +1,19 @@
-import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import fs from "fs";
+import path from "path";
 import HotUpdaterTelemetryEvent from "../models/hotUpdaterTelemetryModel.js";
+import HotUpdaterBundle from "../models/hotUpdaterBundleModel.js";
 
 const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 const DEFAULT_CHANNEL = "production";
-const DEFAULT_CHECK_BASE_URL =
-  "https://hot-updater.datistpham.workers.dev/api/check-update";
+// Self-host trên VPS (đã BỎ Cloudflare D1/R2 — account cũ bị xoá): metadata bundle ở
+// Mongo (hotUpdaterBundleModel), file .zip ở HU_DIR. Cùng cấu hình với hotUpdaterController
+// để dashboard admin (/api/ota/*) thấy đúng các bundle mà `hot-updater deploy` đẩy lên.
+const HU_DIR =
+  process.env.HOTUPDATER_STORAGE_DIR ||
+  path.join(process.cwd(), "storage", "hot-updater");
+const HU_PUBLIC_BASE = (
+  process.env.HOTUPDATER_PUBLIC_BASE || "https://pickletour.vn/api/hot-updater"
+).replace(/\/+$/, "");
 const HOT_UPDATER_TELEMETRY_STATUSES = new Set([
   "checking",
   "up_to_date",
@@ -52,18 +61,28 @@ function buildDailyKey(date) {
   return date.toISOString().slice(0, 10);
 }
 
-function parseStorageUri(storageUri) {
-  if (!storageUri) return null;
-  try {
-    const url = new URL(storageUri);
-    return {
-      protocol: String(url.protocol || "").replace(/:$/, ""),
-      bucket: String(url.host || "").trim(),
-      key: String(url.pathname || "").replace(/^\/+/, ""),
-    };
-  } catch {
+/** storageUri "vps://<key>" → đường dẫn file trên đĩa (chống path traversal). */
+function diskPathForStorageUri(storageUri) {
+  const cleaned = String(storageUri || "")
+    .replace(/^vps:\/\//, "")
+    .replace(/^\/+/, "");
+  const norm = path.posix.normalize(cleaned);
+  if (
+    !norm ||
+    norm === "." ||
+    norm.startsWith("..") ||
+    norm.includes("/../") ||
+    path.isAbsolute(norm)
+  ) {
     return null;
   }
+  return path.join(HU_DIR, norm);
+}
+
+/** URL công khai để tải bundle (app + nút Download ở admin). */
+function fileUrlForStorageUri(storageUri) {
+  const key = String(storageUri || "").replace(/^vps:\/\//, "");
+  return key ? `${HU_PUBLIC_BASE}/file/${key}` : "";
 }
 
 function parseUuidV7Date(bundleId) {
@@ -92,168 +111,67 @@ function buildEmptyBundleStats() {
 }
 
 class HotUpdaterDashboardService {
-  constructor() {
-    this.cachedConfig = null;
-    this.r2 = null;
-  }
-
-  loadConfig() {
-    if (this.cachedConfig) return this.cachedConfig;
-
-    this.cachedConfig = {
-      accountId: coalesce(process.env.HOT_UPDATER_CLOUDFLARE_ACCOUNT_ID),
-      databaseId: coalesce(process.env.HOT_UPDATER_CLOUDFLARE_D1_DATABASE_ID),
-      apiToken: coalesce(process.env.HOT_UPDATER_CLOUDFLARE_API_TOKEN),
-      bucketName: coalesce(
-        process.env.HOT_UPDATER_CLOUDFLARE_R2_BUCKET_NAME,
-        process.env.R2_BUCKET_NAME
-      ),
-      checkBaseUrl: coalesce(process.env.HOT_UPDATER_CHECK_BASE_URL, DEFAULT_CHECK_BASE_URL),
-      r2Endpoint: coalesce(process.env.R2_ENDPOINT),
-      r2AccessKeyId: coalesce(process.env.R2_ACCESS_KEY_ID),
-      r2SecretAccessKey: coalesce(process.env.R2_SECRET_ACCESS_KEY),
-    };
-
-    return this.cachedConfig;
-  }
-
-  ensureD1Config() {
-    const config = this.loadConfig();
-    if (!config.accountId || !config.databaseId || !config.apiToken) {
-      throw new Error(
-        "Hot-updater D1 config is missing in process.env."
-      );
-    }
-    return config;
-  }
-
-  getR2Client() {
-    if (this.r2) return this.r2;
-    const config = this.loadConfig();
-    if (
-      !config.r2Endpoint ||
-      !config.r2AccessKeyId ||
-      !config.r2SecretAccessKey
-    ) {
-      return null;
-    }
-
-    this.r2 = new S3Client({
-      region: "auto",
-      endpoint: config.r2Endpoint,
-      credentials: {
-        accessKeyId: config.r2AccessKeyId,
-        secretAccessKey: config.r2SecretAccessKey,
-      },
-    });
-
-    return this.r2;
-  }
-
-  async queryD1(sql, params = []) {
-    const config = this.ensureD1Config();
-    const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/d1/database/${config.databaseId}/query`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${config.apiToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          sql,
-          params: params.map((value) =>
-            value == null ? null : String(value)
-          ),
-        }),
-      }
-    );
-
-    const payload = await response.json().catch(() => null);
-    if (!response.ok || payload?.success === false) {
-      const message =
-        payload?.errors?.[0]?.message ||
-        payload?.result?.[0]?.errors?.[0]?.message ||
-        `Cloudflare D1 query failed with status ${response.status}`;
-      throw new Error(message);
-    }
-
-    const pages = Array.isArray(payload?.result) ? payload.result : [];
-    return pages.flatMap((page) =>
-      Array.isArray(page?.results) ? page.results : []
-    );
-  }
-
-  async getObjectHead(storageUri) {
-    const parsed = parseStorageUri(storageUri);
-    const r2 = this.getR2Client();
-    if (!parsed?.bucket || !parsed?.key || !r2) return null;
-
+  /** Kích thước file bundle trên đĩa VPS (0 nếu không có). */
+  getFileSize(storageUri) {
+    const filePath = diskPathForStorageUri(storageUri);
+    if (!filePath) return 0;
     try {
-      return await r2.send(
-        new HeadObjectCommand({
-          Bucket: parsed.bucket,
-          Key: parsed.key,
-        })
-      );
+      return fs.statSync(filePath).size || 0;
     } catch {
-      return null;
+      return 0;
     }
   }
 
+  /** Bundle mới nhất ĐANG BẬT của từng channel (để gắn nhãn "latest" ở admin). */
   async getLatestEnabledBundleIdsByChannel(platform) {
-    const rows = await this.queryD1(
-      `
-        SELECT id, channel
-        FROM bundles
-        WHERE platform = ? AND enabled = 1
-        ORDER BY id DESC
-      `,
-      [platform]
-    );
+    const docs = await HotUpdaterBundle.find({ platform, enabled: true })
+      .sort({ _id: -1 })
+      .select("_id channel")
+      .lean();
 
     const map = new Map();
-    rows.forEach((row) => {
-      const channel = coalesce(row?.channel, DEFAULT_CHANNEL) || DEFAULT_CHANNEL;
-      if (!map.has(channel) && row?.id) {
-        map.set(channel, String(row.id));
+    docs.forEach((doc) => {
+      const channel = coalesce(doc?.channel, DEFAULT_CHANNEL) || DEFAULT_CHANNEL;
+      if (!map.has(channel) && doc?._id) {
+        map.set(channel, String(doc._id));
       }
     });
     return map;
   }
 
-  async normalizeBundle(row, latestEnabledByChannel = new Map(), options = {}) {
+  /** Chuẩn hoá doc Mongo → shape mà admin (OTAAdminPage) đang dùng. */
+  async normalizeBundle(doc, latestEnabledByChannel = new Map(), options = {}) {
     const includeHead = options.includeHead !== false;
-    const metadata = parseJsonSafe(row?.metadata, {});
-    const createdAtFromId = parseUuidV7Date(row?.id);
-    const head = includeHead ? await this.getObjectHead(row?.storage_uri) : null;
-    const createdAt = head?.LastModified || createdAtFromId || null;
-    const channel = coalesce(row?.channel, DEFAULT_CHANNEL) || DEFAULT_CHANNEL;
+    const metadata = parseJsonSafe(doc?.metadata, {});
+    const id = String(doc?._id || "");
+    const createdAt = doc?.createdAt || parseUuidV7Date(id) || null;
+    const channel = coalesce(doc?.channel, DEFAULT_CHANNEL) || DEFAULT_CHANNEL;
+    const storageUri = coalesce(doc?.storageUri);
+    const size = includeHead
+      ? this.getFileSize(storageUri) ||
+        Number(metadata?.size ?? metadata?.fileSize ?? 0) ||
+        0
+      : Number(metadata?.size ?? metadata?.fileSize ?? 0) || 0;
 
     return {
-      _id: String(row?.id || ""),
-      bundleId: String(row?.id || ""),
-      version: coalesce(row?.target_app_version, metadata?.app_version, row?.id),
-      targetAppVersion: coalesce(
-        row?.target_app_version,
-        metadata?.app_version,
-        "-"
-      ),
-      platform: normalizePlatform(row?.platform),
+      _id: id,
+      bundleId: id,
+      version: coalesce(doc?.targetAppVersion, metadata?.app_version, id),
+      targetAppVersion: coalesce(doc?.targetAppVersion, metadata?.app_version, "-"),
+      platform: normalizePlatform(doc?.platform),
       channel,
-      enabled: Boolean(Number(row?.enabled ?? 0)),
-      isLatest:
-        latestEnabledByChannel.get(channel) === String(row?.id || ""),
-      mandatory: Boolean(Number(row?.should_force_update ?? 0)),
-      shouldForceUpdate: Boolean(Number(row?.should_force_update ?? 0)),
-      description: coalesce(row?.message),
-      message: coalesce(row?.message),
-      gitCommitHash: coalesce(row?.git_commit_hash),
-      fileHash: coalesce(row?.file_hash),
-      fingerprintHash: coalesce(row?.fingerprint_hash),
-      storageUri: coalesce(row?.storage_uri),
-      size:
-        Number(head?.ContentLength ?? metadata?.size ?? metadata?.fileSize ?? 0) || 0,
+      enabled: Boolean(doc?.enabled),
+      isLatest: latestEnabledByChannel.get(channel) === id,
+      mandatory: Boolean(doc?.shouldForceUpdate),
+      shouldForceUpdate: Boolean(doc?.shouldForceUpdate),
+      description: coalesce(doc?.message),
+      message: coalesce(doc?.message),
+      gitCommitHash: coalesce(doc?.gitCommitHash),
+      fileHash: coalesce(doc?.fileHash),
+      fingerprintHash: coalesce(doc?.fingerprintHash),
+      storageUri,
+      downloadUrl: fileUrlForStorageUri(storageUri),
+      size,
       createdAt: createdAt ? new Date(createdAt).toISOString() : null,
       metadata,
       stats: buildEmptyBundleStats(),
@@ -379,21 +297,13 @@ class HotUpdaterDashboardService {
   }
 
   async getBundleById(bundleId) {
-    const rows = await this.queryD1(
-      `
-        SELECT *
-        FROM bundles
-        WHERE id = ?
-        LIMIT 1
-      `,
-      [bundleId]
-    );
-    if (!rows[0]) return null;
+    const doc = await HotUpdaterBundle.findById(String(bundleId || "")).lean();
+    if (!doc) return null;
 
     const latestEnabledByChannel = await this.getLatestEnabledBundleIdsByChannel(
-      normalizePlatform(rows[0]?.platform)
+      normalizePlatform(doc?.platform)
     );
-    return this.normalizeBundle(rows[0], latestEnabledByChannel);
+    return this.normalizeBundle(doc, latestEnabledByChannel);
   }
 
   async listVersions(platform, limit = 50) {
@@ -401,19 +311,13 @@ class HotUpdaterDashboardService {
     const safeLimit = Math.min(200, Math.max(1, Number(limit) || 50));
     const latestEnabledByChannel =
       await this.getLatestEnabledBundleIdsByChannel(normalizedPlatform);
-    const rows = await this.queryD1(
-      `
-        SELECT *
-        FROM bundles
-        WHERE platform = ?
-        ORDER BY id DESC
-        LIMIT ${safeLimit}
-      `,
-      [normalizedPlatform]
-    );
+    const docs = await HotUpdaterBundle.find({ platform: normalizedPlatform })
+      .sort({ _id: -1 })
+      .limit(safeLimit)
+      .lean();
 
     const bundles = await Promise.all(
-      rows.map((row) => this.normalizeBundle(row, latestEnabledByChannel))
+      docs.map((doc) => this.normalizeBundle(doc, latestEnabledByChannel))
     );
 
     const statsMap = await this.getBundleStats(
@@ -437,19 +341,13 @@ class HotUpdaterDashboardService {
     const safeDays = Math.min(90, Math.max(1, Number(days) || 7));
     const latestEnabledByChannel =
       await this.getLatestEnabledBundleIdsByChannel(normalizedPlatform);
-    const rows = await this.queryD1(
-      `
-        SELECT *
-        FROM bundles
-        WHERE platform = ?
-        ORDER BY id DESC
-      `,
-      [normalizedPlatform]
-    );
+    const docs = await HotUpdaterBundle.find({ platform: normalizedPlatform })
+      .sort({ _id: -1 })
+      .lean();
 
     const bundles = await Promise.all(
-      rows.map((row) =>
-        this.normalizeBundle(row, latestEnabledByChannel, { includeHead: false })
+      docs.map((doc) =>
+        this.normalizeBundle(doc, latestEnabledByChannel, { includeHead: false })
       )
     );
 
@@ -669,50 +567,24 @@ class HotUpdaterDashboardService {
   }) {
     const normalizedPlatform = normalizePlatform(platform);
     const bundleId = coalesce(currentBundleVersion, NIL_UUID) || NIL_UUID;
-    const config = this.loadConfig();
+    const safeChannel = coalesce(channel, DEFAULT_CHANNEL) || DEFAULT_CHANNEL;
 
-    try {
-      const url = new URL(
-        `${config.checkBaseUrl}/app-version/${normalizedPlatform}/${appVersion}/${channel}/${NIL_UUID}/${bundleId}`
-      );
-      const response = await fetch(url.toString());
-      const payload = await response.json().catch(() => null);
+    // Cùng logic chọn bundle với /api/hot-updater/check-update (appVersion strategy):
+    // bundle ĐANG BẬT, đúng channel, targetAppVersion khớp app (hỗ trợ 1.1.x), và
+    // id (uuidv7, tăng theo thời gian) mới hơn bundle máy đang chạy.
+    const docs = await HotUpdaterBundle.find({
+      platform: normalizedPlatform,
+      enabled: true,
+      channel: safeChannel,
+    })
+      .sort({ _id: -1 })
+      .lean();
 
-      if (response.ok && payload?.id) {
-        const bundle = await this.getBundleById(payload.id);
-        return {
-          updateAvailable: true,
-          bundleId: payload.id,
-          version: bundle?.targetAppVersion || payload.id,
-          targetAppVersion: bundle?.targetAppVersion || null,
-          size: bundle?.size || 0,
-          mandatory: Boolean(payload.shouldForceUpdate),
-          description: coalesce(payload?.message, bundle?.description),
-          hash: coalesce(payload?.fileHash, bundle?.fileHash),
-          downloadUrl: coalesce(payload?.fileUrl, bundle?.storageUri),
-          status: coalesce(payload?.status),
-          channel: bundle?.channel || channel,
-        };
-      }
-    } catch {
-      // Fall through to local D1 selection logic.
-    }
-
-    const rows = await this.queryD1(
-      `
-        SELECT *
-        FROM bundles
-        WHERE platform = ? AND enabled = 1 AND channel = ?
-        ORDER BY id DESC
-      `,
-      [normalizedPlatform, channel]
-    );
-
-    const candidates = rows.filter((row) =>
-      this.isCompatibleTargetVersion(row?.target_app_version, appVersion)
+    const candidates = docs.filter((doc) =>
+      this.isCompatibleTargetVersion(doc?.targetAppVersion, appVersion)
     );
     const selected = candidates.find(
-      (row) => String(row?.id || "").localeCompare(bundleId) > 0
+      (doc) => String(doc?._id || "").localeCompare(bundleId) > 0
     );
 
     if (!selected) {
@@ -731,7 +603,7 @@ class HotUpdaterDashboardService {
       mandatory: bundle.shouldForceUpdate,
       description: bundle.description,
       hash: bundle.fileHash,
-      downloadUrl: bundle.storageUri,
+      downloadUrl: bundle.downloadUrl,
       status: "UPDATE",
       channel: bundle.channel,
     };
@@ -739,13 +611,9 @@ class HotUpdaterDashboardService {
 
   async deactivateBundle(platform, bundleId) {
     const normalizedPlatform = normalizePlatform(platform);
-    await this.queryD1(
-      `
-        UPDATE bundles
-        SET enabled = 0
-        WHERE id = ? AND platform = ?
-      `,
-      [bundleId, normalizedPlatform]
+    await HotUpdaterBundle.updateOne(
+      { _id: String(bundleId || ""), platform: normalizedPlatform },
+      { $set: { enabled: false } }
     );
 
     return this.getBundleById(bundleId);
