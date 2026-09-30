@@ -159,6 +159,15 @@ async function pollOnce(sessionId) {
     .lean();
   const newMatchId = station?.currentMatch ? String(station.currentMatch) : "";
   const oldMatchId = session.currentMatch ? String(session.currentMatch) : "";
+
+  // perMatchLive (server): điều khiển theo TRẠNG THÁI trận — chỉ live khi trận
+  // BẮT ĐẦU (status="live"), dừng khi kết thúc/đổi trận. Không live khi mới gán sân.
+  if (session.perMatchLive && session.runner === "server") {
+    try { await pollPerMatch(session, station); }
+    catch (e) { console.warn("[auto-live] per-match poll lỗi:", e?.message || e); }
+    return;
+  }
+
   if (newMatchId !== oldMatchId) {
     session.currentMatch = newMatchId || null;
     session.currentMatchLabel = newMatchId
@@ -167,11 +176,6 @@ async function pollOnce(sessionId) {
     session.lastMatchChangeAt = new Date();
     await session.save();
     await bumpOverlayForSession(sessionId);
-    // perMatchLive: chuyển từ trận cũ sang trận MỚI (cả 2 non-empty) → broadcast riêng.
-    if (session.perMatchLive && session.runner === "server" && oldMatchId && newMatchId) {
-      try { await handlePerMatchTransition(session); }
-      catch (e) { console.warn("[auto-live] per-match transition lỗi:", e?.message || e); }
-    }
   } else {
     // Cùng match nhưng có thể tỉ số đổi — vẫn re-render để cập nhật scoreboard.
     await bumpOverlayForSession(sessionId);
@@ -326,22 +330,6 @@ async function endDestinationBroadcasts(destinations) {
       console.warn(`[auto-live] end broadcast ${d.type} ${d.broadcastId} fail:`, e?.message || e);
     }
   }
-}
-
-/** Từ destinations ĐÃ tạo (có key) → "spec" để tạo lại broadcast mới (per-match). */
-function destSpecsFromCreated(destinations) {
-  return (destinations || []).map((d) => {
-    if (d.type === "fb") return { type: "fb", pageId: d.pageId, pageName: d.pageName };
-    if (d.type === "youtube") {
-      // YT tạo qua API (không có streamKey do người dùng nhập) → tạo mới. Nếu là
-      // key thủ công (có sẵn streamKey) thì giữ nguyên (không tự xoay được).
-      return d.ytStreamId || !d.streamKey
-        ? { type: "youtube", label: d.label }
-        : { type: "youtube", label: d.label, streamUrl: d.streamUrl, streamKey: d.streamKey };
-    }
-    // rtmp thủ công: giữ nguyên (không xoay key được).
-    return { type: "rtmp", label: d.label, streamUrl: d.streamUrl, streamKey: d.streamKey };
-  });
 }
 
 async function prepareDestinations(destinations, title) {
@@ -681,7 +669,8 @@ export async function startAutoLive(input) {
   // live_video / broadcast, lấy secure_stream_url. RTMP giữ nguyên.
   const tournament = await Tournament.findById(tournamentId).select("name").lean();
   const title = tournament?.name || "PickleTour Live";
-  const preparedDest = await prepareDestinations(destinations, title);
+  // perMatchLive: CHƯA tạo broadcast — chờ trận bắt đầu (pollOnce sẽ tạo). Chỉ lưu spec.
+  const preparedDest = perMatchLive ? [] : await prepareDestinations(destinations, title);
 
   const runner = input.runner === "client" ? "client" : "server";
 
@@ -708,16 +697,24 @@ export async function startAutoLive(input) {
       ? { serial: dahuaCfg.serial, channel: dahuaCfg.channel, subtype: dahuaCfg.subtype }
       : undefined,
     startedBy, destinations: preparedDest, autoNext, perMatchLive: !!perMatchLive,
+    destSpecs: perMatchLive ? (destinations || []) : [],
     layout: layout && typeof layout === "object" ? layout : undefined,
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     runner,
-    status: "starting", workerId: crypto.randomUUID(),
+    status: perMatchLive ? "paused" : "starting", workerId: crypto.randomUUID(),
     startedAt: new Date(),
   });
 
   // Client-runner: KHÔNG spawn trên server. App desktop lấy worker-config rồi
   // tự chạy (GPU). Backend vẫn poll để bump overlay + theo dõi heartbeat.
   if (runner === "client") {
+    startPoll(session._id);
+    return session.toObject();
+  }
+
+  // perMatchLive (server): CHƯA lên live — chỉ poll, chờ trận BẮT ĐẦU (status="live")
+  // thì pollOnce mới tạo broadcast + spawn worker. Chỉ gán sân sẽ KHÔNG live.
+  if (perMatchLive) {
     startPoll(session._id);
     return session.toObject();
   }
@@ -839,7 +836,8 @@ function spawnWorker(session, imouSession, imouCreds, dahuaCfg, dahuaSourceUrl) 
     if (restartingSessions.has(String(session._id))) return;
     const doc = await TournamentAutoLiveSession.findById(session._id);
     if (!doc) return;
-    if (doc.status === "stopped") return; // user chủ động stop
+    // "stopped" = user dừng; "paused" = per-match dừng worker chờ trận kế → không mark lỗi.
+    if (doc.status === "stopped" || doc.status === "paused") return;
     doc.status = code === 0 ? "stopped" : "error";
     doc.lastError = `worker exited code=${code} signal=${signal || ""} (xem ${workerLogPath(session._id)})`.trim();
     doc.lastErrorAt = new Date();
@@ -898,39 +896,96 @@ async function respawnWorkerForSession(session) {
   return proc;
 }
 
-/** perMatchLive: khi CHUYỂN sang trận MỚI → tạo broadcast mới + restart worker,
- *  rồi kết thúc broadcast cũ. Chỉ chạy server-runner. */
-async function handlePerMatchTransition(session) {
+/** perMatchLive: điều khiển live theo TRẠNG THÁI trận trên sân.
+ *  - Trận status="live" (đã bắt đầu) mà chưa live / đang live trận khác → GO LIVE.
+ *  - Đang live nhưng trận kết thúc / đổi / rời sân → STOP (chờ trận kế).
+ *  - Chỉ mới gán sân (status="assigned"/"queued") → KHÔNG live. */
+async function pollPerMatch(session, station) {
+  const sid = String(session._id);
+  const curMatchId = station?.currentMatch ? String(station.currentMatch) : "";
+  let curStatus = "";
+  if (curMatchId) {
+    const m = await Match.findById(curMatchId).select("status").lean();
+    curStatus = m?.status || "";
+  }
+  const liveMatchId = session.liveMatchId ? String(session.liveMatchId) : "";
+  const shouldLive = !!curMatchId && curStatus === "live";
+
+  // 1) Trận mới đã BẮT ĐẦU → live cho trận đó (dừng trận cũ nếu đang live trận khác).
+  if (shouldLive && liveMatchId !== curMatchId) {
+    if (liveMatchId) { await perMatchStop(session); }
+    await perMatchGoLive(session, curMatchId);
+    return;
+  }
+  // 2) Đang live nhưng trận đã kết thúc / đổi / rời sân → dừng, chờ trận kế.
+  if (liveMatchId && !(shouldLive && liveMatchId === curMatchId)) {
+    await perMatchStop(session);
+    return;
+  }
+  // 3) Đang live đúng trận → cập nhật overlay (điểm số). Worker chết → exit handler
+  //    tự mark error (poll dừng ở nhịp sau).
+  if (liveMatchId && curMatchId === liveMatchId) {
+    await bumpOverlayForSession(sid);
+    if (session.runner === "server") {
+      try {
+        const { cpuPct, memMB } = sampleProcessTree(session.workerPid, sid);
+        session.cpuPct = cpuPct; session.memMB = memMB; await session.save();
+      } catch { /* /proc không có */ }
+    }
+  }
+  // 4) else: paused, chờ trận bắt đầu — không làm gì.
+}
+
+/** perMatchLive: tạo broadcast + spawn worker cho 1 trận (khi trận bắt đầu). */
+async function perMatchGoLive(session, matchId) {
   const sid = String(session._id);
   if (perMatchInFlight.has(sid)) return;
   perMatchInFlight.add(sid);
   try {
-    const specs = destSpecsFromCreated(session.destinations);
+    session.currentMatch = matchId;
+    session.currentMatchLabel = await matchShortLabel(matchId);
     const tour = await Tournament.findById(session.tournament).select("name").lean();
     const base = tour?.name || "PickleTour Live";
     const title = `${base}${session.currentMatchLabel ? " — " + session.currentMatchLabel : ""}`.slice(0, 120);
-    let freshDest;
+    const specs = Array.isArray(session.destSpecs) ? session.destSpecs : [];
+    if (!specs.length) { console.warn(`[auto-live] per-match go-live ${sid}: thiếu destSpecs`); return; }
+    let fresh;
     try {
-      freshDest = await prepareDestinations(specs, title);
+      fresh = await prepareDestinations(specs, title);
     } catch (e) {
-      console.warn("[auto-live] per-match tạo broadcast mới lỗi:", e?.message || e);
-      return; // giữ nguyên broadcast cũ đang chạy, không gãy live
+      console.warn(`[auto-live] per-match tạo broadcast lỗi ${sid}:`, e?.message || e);
+      return; // giữ paused, thử lại nhịp sau
     }
-    const oldDest = session.destinations;
-    session.destinations = freshDest;
+    session.destinations = fresh;
+    session.liveMatchId = matchId;
+    session.status = "live";
+    session.lastMatchChangeAt = new Date();
     await session.save();
+    await respawnWorkerForSession(session);
+    console.log(`[auto-live] per-match GO LIVE ${sid} match=${matchId} (${session.currentMatchLabel || ""})`);
+  } finally {
+    perMatchInFlight.delete(sid);
+  }
+}
 
-    restartingSessions.add(sid);
-    try {
-      if (isPidAlive(session.workerPid)) { try { process.kill(session.workerPid, "SIGTERM"); } catch {} }
-      await new Promise((r) => setTimeout(r, 800));
-      await respawnWorkerForSession(session);
-    } finally {
-      restartingSessions.delete(sid);
-    }
-    // Kết thúc broadcast CŨ sau khi cái mới đã lên (best-effort).
-    await endDestinationBroadcasts(oldDest);
-    console.log(`[auto-live] per-match: đã chuyển sang broadcast mới cho ${sid} (${session.currentMatchLabel || ""})`);
+/** perMatchLive: kết thúc broadcast + dừng worker khi trận xong; session về "paused". */
+async function perMatchStop(session) {
+  const sid = String(session._id);
+  if (perMatchInFlight.has(sid)) return;
+  perMatchInFlight.add(sid);
+  try {
+    restartingSessions.add(sid); // exit handler worker cũ KHÔNG mark error
+    if (isPidAlive(session.workerPid)) { try { process.kill(session.workerPid, "SIGTERM"); } catch {} }
+    setTimeout(() => restartingSessions.delete(sid), 4000);
+    await endDestinationBroadcasts(session.destinations || []);
+    session.destinations = [];
+    session.liveMatchId = null;
+    session.workerPid = 0;
+    session.cpuPct = 0; session.memMB = 0;
+    session.status = "paused";
+    await session.save();
+    clearProcSample(sid);
+    console.log(`[auto-live] per-match STOP ${sid} — chờ trận kế.`);
   } finally {
     perMatchInFlight.delete(sid);
   }

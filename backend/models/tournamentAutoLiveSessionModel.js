@@ -84,9 +84,14 @@ const tournamentAutoLiveSessionSchema = new Schema(
     lastErrorAt: { type: Date, default: null },
     // Auto behaviour
     autoNext: { type: Boolean, default: true },
-    // true → mỗi trận 1 broadcast riêng (kết thúc live cũ + tạo live mới khi
-    // chuyển trận, restart ffmpeg). false → 1 live xuyên suốt mọi trận (mặc định).
+    // true → mỗi trận 1 broadcast riêng, và CHỈ live khi trận BẮT ĐẦU (status="live"),
+    // không live khi mới gán sân. false → 1 live xuyên suốt mọi trận (mặc định).
     perMatchLive: { type: Boolean, default: false },
+    // perMatchLive: trận đang được stream (null = đang chờ trận bắt đầu).
+    liveMatchId: { type: Schema.Types.ObjectId, ref: "Match", default: null },
+    // perMatchLive: spec điểm đến để TẠO broadcast khi trận bắt đầu (lazy).
+    // [{type, pageId?, pageName?, label?, streamUrl?, streamKey?}]
+    destSpecs: { type: [Schema.Types.Mixed], default: [] },
     // Vị trí overlay trên stream (corner: top-left/top-right/bottom-left/bottom-right)
     layout: {
       scoreboard: { type: String, default: "top-left" },
