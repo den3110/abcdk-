@@ -16,6 +16,9 @@ const H = 1080;
 // Logo PickleTour luôn hiển thị góc phải-trên mọi stream.
 const PT_LOGO_URL = process.env.AUTOLIVE_PT_LOGO_URL
   || `${process.env.PUBLIC_BACKEND_URL || "https://pickletour.vn"}/pickletour-v3-logo.png`;
+// Fallback logo hợp lệ: nếu AUTOLIVE_PT_LOGO_URL trỏ file KHÔNG tồn tại (server trả
+// HTML index.html → nạp ảnh thất bại → mất logo) thì dùng logo v3 luôn có sẵn.
+const PT_LOGO_FALLBACK = `${process.env.PUBLIC_BACKEND_URL || "https://pickletour.vn"}/pickletour-v3-logo.png`;
 // Logo tài trợ luân phiên (1 logo/lần) ở góc phải-dưới, đổi mỗi ROTATE_MS.
 const SPONSOR_ROTATE_MS = 8000;
 
@@ -297,7 +300,9 @@ function drawContain(ctx, img, bx, by, bw, bh, alignX) {
 }
 
 async function drawBrandLogo(ctx, corner = "top-right") {
-  const img = await loadImageCached(PT_LOGO_URL);
+  let img = await loadImageCached(PT_LOGO_URL);
+  // URL tuỳ chỉnh hỏng (file không có → trả HTML) → dùng logo v3 mặc định.
+  if (!img && PT_LOGO_URL !== PT_LOGO_FALLBACK) img = await loadImageCached(PT_LOGO_FALLBACK);
   if (!img) return;
   const box = 132;
   const { x, y } = cornerXY(corner, box, box, 48, 40);
