@@ -427,6 +427,8 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
   const env = {
     ...process.env,
     PICKLETOUR_PYTHON: undefined,
+    PYTHONIOENCODING: "utf-8",
+    PYTHONUTF8: "1",
     AUTOLIVE_SESSION_ID: cfg.sessionId,
     AUTOLIVE_WORKER_TOKEN: cfg.workerToken,
     AUTOLIVE_OVERLAY_URL: cfg.overlayUrl,
@@ -542,6 +544,8 @@ async function startPreview({ baseUrl, token, source, destinations, overlayUrl }
   const env = {
     ...process.env,
     PICKLETOUR_PYTHON: undefined,
+    PYTHONIOENCODING: "utf-8",
+    PYTHONUTF8: "1",
     AUTOLIVE_PREVIEW_ONLY: "1",
     AUTOLIVE_SESSION_ID: previewId,
     AUTOLIVE_PREVIEW_HLS_DIR: dir,
