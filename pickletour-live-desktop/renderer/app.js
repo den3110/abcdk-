@@ -374,6 +374,12 @@ $("perMatchLive").addEventListener("change", () => {
   $("liveTitle").placeholder = on
     ? "Tự động: Tên giải - Tên trận (mỗi trận)"
     : "Vd: Giải Pickleball The Riverside — Sân 1";
+  // Ghi + cắt clip từng trận chỉ dùng cho live xuyên suốt → per-match thì tắt.
+  const rec = $("recordClips");
+  if (rec) {
+    rec.disabled = on;
+    if (on) rec.checked = false;
+  }
 });
 $("destType").onchange = () => {
   const t = $("destType").value;
@@ -446,6 +452,8 @@ $("goLive").onclick = async () => {
       perMatchLive: $("perMatchLive").checked,
       title: $("perMatchLive").checked ? "" : $("liveTitle").value.trim(),
       browserOverlayUrl: $("browserOverlayUrl").value.trim(),
+      // Ghi + cắt clip từng trận lên Drive: chỉ live xuyên suốt (không per-match).
+      recordClips: $("recordClips").checked && !$("perMatchLive").checked,
       layout: {
         scoreboard: $("lay_scoreboard").value,
         brand: $("lay_brand").value,

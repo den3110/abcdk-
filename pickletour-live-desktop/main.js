@@ -6,6 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const http = require("http");
+const https = require("https");
 const { spawn, spawnSync } = require("child_process");
 
 let win;
@@ -358,6 +359,97 @@ async function startBrowserOverlay(url) {
   };
 }
 
+// ───────────────────── Recording clip: đẩy segment về server ──────────────
+// worker.py ghi segment TS vào previewDir/rec (rec-<epoch>-<idx>.ts). Uploader này
+// poll server (khung giờ đêm) rồi PUT từng segment CHƯA có lên server. Sống lâu hơn
+// worker: sau khi phiên dừng vẫn upload nốt rồi tự dọn + tắt.
+const uploaders = new Map(); // sid -> { timer }
+const REC_NAME_RE = /^rec-\d+-\d+\.ts$/;
+
+function putFileStream(urlStr, token, filePath) {
+  return new Promise((resolve, reject) => {
+    let stat;
+    try { stat = fs.statSync(filePath); } catch (e) { return reject(e); }
+    let u; try { u = new URL(urlStr); } catch (e) { return reject(e); }
+    const mod = u.protocol === "https:" ? https : http;
+    const req = mod.request(
+      {
+        hostname: u.hostname, port: u.port || (u.protocol === "https:" ? 443 : 80),
+        path: u.pathname + u.search, method: "POST",
+        headers: { "x-worker-token": token || "", "content-type": "application/octet-stream", "content-length": stat.size },
+      },
+      (res) => {
+        let body = ""; res.on("data", (c) => (body += c));
+        res.on("end", () => (res.statusCode >= 200 && res.statusCode < 300)
+          ? resolve(body) : reject(new Error(`HTTP ${res.statusCode}: ${body.slice(0, 200)}`)));
+      }
+    );
+    req.on("error", reject);
+    fs.createReadStream(filePath).on("error", reject).pipe(req);
+  });
+}
+
+async function fetchRecordingPlan(cfg, sid) {
+  const res = await fetch(`${cfg.recordingPlanUrl}?sessionId=${sid}`, {
+    headers: { "x-worker-token": cfg.workerToken || "" },
+  });
+  if (!res.ok) throw new Error(`plan HTTP ${res.status}`);
+  return res.json();
+}
+
+function startSegmentUploader({ sid, cfg, previewDir }) {
+  if (!cfg.recordClips || !cfg.recordingPlanUrl || !cfg.recordingSegmentUrl) return;
+  if (uploaders.has(sid)) return;
+  const recDir = path.join(previewDir, "rec");
+  const token = cfg.workerToken || "";
+  const uploaded = new Set();
+  let busy = false;
+
+  const tick = async () => {
+    if (busy) return; busy = true;
+    try {
+      let files = [];
+      try { files = fs.readdirSync(recDir).filter((n) => REC_NAME_RE.test(n)); } catch { files = []; }
+      files.sort((a, b) => {
+        try { return fs.statSync(path.join(recDir, a)).mtimeMs - fs.statSync(path.join(recDir, b)).mtimeMs; }
+        catch { return 0; }
+      });
+      const workerRunning = running.has(sid);
+      let plan = null;
+      try { plan = await fetchRecordingPlan(cfg, sid); } catch { plan = null; }
+      const have = new Set([...(plan?.have || []), ...uploaded]);
+      let candidates = files.filter((n) => !have.has(n));
+      // Giữ lại file MỚI NHẤT khi worker còn chạy (đang ghi dở → chưa hoàn tất).
+      if (workerRunning && candidates.length) candidates = candidates.slice(0, -1);
+      if (plan?.uploadNow) {
+        for (const n of candidates) {
+          try {
+            await putFileStream(`${cfg.recordingSegmentUrl}?sessionId=${sid}&file=${encodeURIComponent(n)}`, token, path.join(recDir, n));
+            uploaded.add(n);
+            console.log(`[rec-upload] ${sid} đã gửi ${n}`);
+          } catch (e) { console.error(`[rec-upload] ${sid} lỗi ${n}:`, e?.message || e); break; }
+        }
+      }
+      // Dừng + dọn khi worker đã tắt và mọi segment đã lên server.
+      if (!workerRunning) {
+        const serverHas = new Set([...(plan?.have || []), ...uploaded]);
+        const remaining = files.filter((n) => !serverHas.has(n));
+        if (remaining.length === 0) {
+          const h = uploaders.get(sid); if (h?.timer) clearInterval(h.timer);
+          uploaders.delete(sid);
+          try { fs.rmSync(recDir, { recursive: true, force: true }); } catch {}
+          console.log(`[rec-upload] ${sid} hoàn tất, đã dọn segment tạm.`);
+        }
+      }
+    } finally { busy = false; }
+  };
+
+  const timer = setInterval(() => { tick().catch(() => {}); }, 60_000);
+  uploaders.set(sid, { timer });
+  setTimeout(() => { tick().catch(() => {}); }, 5_000); // thử sớm 1 lần
+  console.log(`[rec-upload] ${sid} uploader chạy (poll 60s, chỉ upload trong khung giờ đêm).`);
+}
+
 async function startWorker({ baseUrl, token, form }) {
   const selfContained = isSelfContained();
   const python = selfContained ? null : detectPython();
@@ -385,6 +477,7 @@ async function startWorker({ baseUrl, token, form }) {
       advanced: form.advanced,
       perMatchLive: !!form.perMatchLive,
       title: form.title || "",
+      recordClips: !!form.recordClips, // ghi + cắt clip từng trận lên Drive (live xuyên suốt)
       runner: "client",
     },
   });
@@ -489,6 +582,9 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
     AUTOLIVE_DESTINATIONS: JSON.stringify(cfg.destinations || []),
     AUTOLIVE_ENCODER: form.encoder || "auto",
     AUTOLIVE_PREVIEW_HLS_DIR: previewDir,
+    // Ghi recording để cắt clip từng trận (live xuyên suốt). worker.py ghi segment
+    // TS vào previewDir/rec; main.js đẩy về server ban đêm (startSegmentUploader).
+    AUTOLIVE_RECORD: cfg.recordClips ? "1" : "",
     AUTOLIVE_RUNNER_LABEL: form.runnerLabel || os.hostname(),
     FFMPEG_PATH: ffmpeg,
     // Bản tự chứa: prepend bin/ vào PATH để worker gọi bare "ffmpeg"/"ffprobe"
@@ -507,6 +603,10 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
     ? spawn(bundledWorkerBin(), [], { env, stdio: ["ignore", logFd, logFd] })
     : spawn(python, [workerScriptPath()], { env, stdio: ["ignore", logFd, logFd] });
   running.set(sid, { proc, previewDir, previewServer, previewPort, cfg, logFile, dahuaSerial, browserOverlay });
+
+  // Recording clip từng trận: chạy uploader đẩy segment về server ban đêm. Uploader
+  // SỐNG LÂU HƠN worker (phải upload nốt sau khi phiên dừng) nên KHÔNG gắn cleanupWorker.
+  if (cfg.recordClips) { try { startSegmentUploader({ sid, cfg, previewDir }); } catch (e) { console.error("[rec-upload] start fail", e?.message || e); } }
 
   proc.on("exit", (code) => {
     sendToRenderer("worker-exit", { sessionId: sid, code });

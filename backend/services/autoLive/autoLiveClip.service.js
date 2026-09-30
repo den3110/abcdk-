@@ -40,7 +40,9 @@ export function segmentDir(sessionId) {
   return path.join(SEG_ROOT, String(sessionId));
 }
 
-const SEG_NAME_RE = /^rec-(\d+)-(\d+)\.mp4$/;
+// Segment ghi ở dạng MPEG-TS (chống hỏng khi crash, concat -c copy dễ). Tên:
+// rec-<runEpochSec>-<index>.ts (runEpochSec = time.time() lúc ffmpeg run bắt đầu).
+const SEG_NAME_RE = /^rec-(\d+)-(\d+)\.ts$/;
 function parseSegName(name) {
   const m = SEG_NAME_RE.exec(String(name || ""));
   if (!m) return null;
@@ -51,7 +53,7 @@ function parseSegName(name) {
 export async function saveSegmentStream(sessionId, fileName, reqStream) {
   const name = path.basename(String(fileName || ""));
   if (!parseSegName(name)) {
-    const e = new Error("Tên segment không hợp lệ (rec-<epoch>-<index>.mp4)");
+    const e = new Error("Tên segment không hợp lệ (rec-<epoch>-<index>.ts)");
     e.status = 400; throw e;
   }
   const dir = segmentDir(sessionId);
@@ -95,6 +97,18 @@ function probeDurationMs(inputPath) {
   });
 }
 
+// Cache thời lượng segment (segment bất biến sau khi upload) → khỏi probe lại mỗi tick.
+const _durCache = new Map(); // `${path}:${size}` -> durMs
+async function probeDurationCached(p) {
+  let size = 0;
+  try { size = (await fsp.stat(p)).size; } catch { return 0; }
+  const key = `${p}:${size}`;
+  if (_durCache.has(key)) return _durCache.get(key);
+  const durMs = await probeDurationMs(p);
+  if (durMs > 0) _durCache.set(key, durMs);
+  return durMs;
+}
+
 /** Xây timeline tuyệt đối cho từng segment: startMs = runEpoch*1000 + Σ dur trước. */
 async function buildTimeline(sessionId) {
   const dir = segmentDir(sessionId);
@@ -111,7 +125,7 @@ async function buildTimeline(sessionId) {
     let cursor = runEpoch * 1000;
     for (const f of arr) {
       const p = path.join(dir, f.name);
-      const durMs = await probeDurationMs(p);
+      const durMs = await probeDurationCached(p);
       if (durMs <= 0) continue;
       timeline.push({ path: p, startMs: cursor, endMs: cursor + durMs, durMs });
       cursor += durMs;
@@ -157,7 +171,9 @@ async function cutClip(cov, startMs, endMs, outPath) {
       "-f", "concat", "-safe", "0",
       "-ss", relStartSec.toFixed(3), "-i", listPath,
       "-t", durSec.toFixed(3),
-      "-c", "copy", "-movflags", "+faststart", "-y", outPath,
+      // TS(ADTS AAC) → MP4 cần aac_adtstoasc; copy video (không encode lại).
+      "-c", "copy", "-bsf:a", "aac_adtstoasc",
+      "-movflags", "+faststart", "-y", outPath,
     ]);
   } finally {
     fsp.unlink(listPath).catch(() => {});
@@ -170,8 +186,9 @@ export async function createClipTaskForEndedMatch(session, matchId, { startAt, e
   try {
     if (!session?.recordClips || !matchId) return;
     const m = await Match.findById(matchId).select("startedAt finishedAt code labelKey").lean();
-    const s = startAt || m?.startedAt || session.lastMatchChangeAt;
-    const e = endAt || m?.finishedAt || new Date();
+    // Ưu tiên mốc CHÍNH XÁC của trận (startedAt/finishedAt), fallback mốc poll.
+    const s = m?.startedAt || startAt || session.lastMatchChangeAt;
+    const e = m?.finishedAt || endAt || new Date();
     if (!s || !e || new Date(e) <= new Date(s)) return; // mốc không hợp lệ → bỏ
     const tour = await Tournament.findById(session.tournament).select("name").lean();
     const label = m?.code || m?.labelKey || "";

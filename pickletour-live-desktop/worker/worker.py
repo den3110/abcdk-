@@ -113,6 +113,14 @@ RESYNC_S = int(os.environ.get("AUTOLIVE_RESYNC_SEC") or 600)
 PREVIEW_DIR = os.environ.get("AUTOLIVE_PREVIEW_HLS_DIR", "").strip()
 HEALTHY_AFTER_S = 60
 
+# Ghi recording để cắt clip TỪNG TRẬN (live xuyên suốt). Segment MPEG-TS ghi vào
+# thư mục con "rec" của PREVIEW_DIR — dùng TÊN TƯƠNG ĐỐI + cwd=PREVIEW_DIR để né
+# `C:` trong tee spec (Windows). Bật bằng env AUTOLIVE_RECORD=1 (main.js đặt khi
+# session.recordClips). main.js chịu trách nhiệm đẩy segment về server + dọn dẹp.
+RECORD_CLIPS = os.environ.get("AUTOLIVE_RECORD", "").strip().lower() in ("1", "true", "yes", "on")
+RECORD_SUBDIR = "rec"
+RECORD_SEGMENT_SEC = int(os.environ.get("AUTOLIVE_RECORD_SEGMENT_SEC") or 300)
+
 
 def _find_stream_url(data):
     """Dò URL stream (rtmp/rtsp/http/hls) trong dict/list trả về từ GetLiveStreamUrl
@@ -247,6 +255,22 @@ def build_tee_output(destinations):
         except OSError:
             pass
     return "|".join(parts)
+
+
+def record_slave(run_epoch):
+    """Tee slave ghi segment MPEG-TS (tên TƯƠNG ĐỐI theo cwd=PREVIEW_DIR) để server
+    cắt clip từng trận. run_epoch (epoch giây, lúc ffmpeg spawn) làm prefix → mỗi lần
+    spawn 1 prefix mới, KHÔNG ghi đè segment lần chạy trước. TS: chống hỏng khi crash,
+    concat -c copy dễ. onfail=ignore để lỗi ghi đĩa KHÔNG phá luồng live."""
+    if not (RECORD_CLIPS and PREVIEW_DIR):
+        return ""
+    try:
+        os.makedirs(os.path.join(PREVIEW_DIR, RECORD_SUBDIR), exist_ok=True)
+    except OSError:
+        return ""
+    name = f"{RECORD_SUBDIR}/rec-{run_epoch}-%03d.ts"
+    return (f"[f=segment:onfail=ignore:segment_time={RECORD_SEGMENT_SEC}:"
+            f"segment_format=mpegts:reset_timestamps=1]{name}")
 
 
 # ── overlay / heartbeat ─────────────────────────────────────────────────
@@ -951,8 +975,15 @@ def main():
     ff_restarts = 0
     fast_fails = 0
     while not stop_event.is_set():
-        args = build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=(BROWSER_OVERLAY or None))
-        log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} restart#{ff_restarts}")
+        # Recording: thêm nhánh tee ghi segment TS với prefix epoch MỚI mỗi lần spawn
+        # (né ghi đè khi ffmpeg restart giữa phiên).
+        tee_now = tee
+        if RECORD_CLIPS:
+            rs = record_slave(int(time.time()))
+            if rs:
+                tee_now = f"{tee}|{rs}" if tee else rs
+        args = build_ffmpeg_args(overlay_fifo, has_audio, tee_now, browser_fifo=(BROWSER_OVERLAY or None))
+        log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} record={RECORD_CLIPS} restart#{ff_restarts}")
         ff_spawn_t = time.monotonic()
         # URL mode: ffmpeg tự đọc URL (stdin không dùng). Imou mode: feed DHAV.
         # cwd=PREVIEW_DIR để tee HLS ghi bằng TÊN TƯƠNG ĐỐI (né `:` trong tee spec
