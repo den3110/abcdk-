@@ -21,6 +21,8 @@ const destinationSchema = new Schema(
     ytStreamId: { type: String, default: "" },
     // Link người xem (FB permalink / YouTube watch) — public, hiện trên admin
     watchUrl: { type: String, default: "" },
+    // FB crosspost (live chéo page): [{ pageId, ok }] — page đã bật crosspost cho live này.
+    crosspostPages: { type: [Schema.Types.Mixed], default: undefined },
     // Ẩn khi trả API để không lộ key
     _isSecret: { type: Boolean, default: true },
   },

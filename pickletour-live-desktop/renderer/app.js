@@ -147,6 +147,7 @@ async function loadSetup() {
   $("cam").innerHTML = state.cams.map((c, i) =>
     `<option value="${i}">${c.venueName} / ${c.courtName} · ${c.camName}</option>`).join("");
   $("fbPage").innerHTML = state.fbPages.map((p) => `<option value="${p.pageId}">${p.pageName}</option>`).join("");
+  $("fbCrosspost").innerHTML = state.fbPages.map((p) => `<option value="${p.pageId}">${p.pageName}</option>`).join("");
   await loadTournaments("");
 }
 
@@ -388,6 +389,7 @@ $("perMatchLive").addEventListener("change", () => {
 $("destType").onchange = () => {
   const t = $("destType").value;
   $("fbPage").classList.toggle("hidden", t !== "fb");
+  $("fbCrosspostWrap").classList.toggle("hidden", t !== "fb");
   $("ytKey").classList.toggle("hidden", t !== "youtube");
   $("rtmpUrl").classList.toggle("hidden", t !== "rtmp");
   $("rtmpKey").classList.toggle("hidden", t !== "rtmp");
@@ -397,7 +399,15 @@ $("addDest").onclick = () => {
   if (t === "fb") {
     const p = state.fbPages.find((x) => x.pageId === $("fbPage").value);
     if (!p) return;
-    state.destinations.push({ type: "fb", pageId: p.pageId, pageName: p.pageName, label: p.pageName });
+    // Crosspost: các page được chọn (trừ page chính).
+    const cpIds = Array.from($("fbCrosspost").selectedOptions || [])
+      .map((o) => o.value).filter((id) => id && id !== p.pageId);
+    const cpNames = cpIds.map((id) => state.fbPages.find((x) => x.pageId === id)?.pageName || id);
+    const dest = { type: "fb", pageId: p.pageId, pageName: p.pageName, label: p.pageName };
+    if (cpIds.length) { dest.crosspostPageIds = cpIds; dest.crosspostNames = cpNames; }
+    state.destinations.push(dest);
+    // reset chọn crosspost cho lần thêm sau
+    Array.from($("fbCrosspost").options).forEach((o) => (o.selected = false));
   } else if (t === "youtube") {
     const key = $("ytKey").value.trim();
     // Có key → dùng thủ công; để TRỐNG → backend tự tạo broadcast qua YouTube API
@@ -415,8 +425,10 @@ $("addDest").onclick = () => {
   renderDests();
 };
 function renderDests() {
-  $("destList").innerHTML = state.destinations.map((d, i) =>
-    `<span class="chip">${d.type.toUpperCase()} · ${d.label || ""} <span class="x" data-i="${i}">✕</span></span>`).join("");
+  $("destList").innerHTML = state.destinations.map((d, i) => {
+    const cp = d.crosspostNames?.length ? ` <span class="hint">↳ chéo: ${d.crosspostNames.join(", ")}</span>` : "";
+    return `<span class="chip">${d.type.toUpperCase()} · ${d.label || ""}${cp} <span class="x" data-i="${i}">✕</span></span>`;
+  }).join("");
   $("destList").querySelectorAll(".x").forEach((el) =>
     el.onclick = () => { state.destinations.splice(+el.dataset.i, 1); renderDests(); });
 }

@@ -55,6 +55,40 @@ export async function fbCreateLiveOnPage({
   return res; // { id, secure_stream_url, permalink_url, ... }
 }
 
+/**
+ * Bật CROSSPOST 1 live video sang các page khác (live chéo page): 1 luồng đẩy,
+ * FB hiện video live trên nhiều page. ĐIỀU KIỆN: các page phải có QUAN HỆ
+ * crossposting với page chính (thiết lập thủ công 1 lần trong Meta Business Suite).
+ *
+ * targets: [{ pageId, action? }]. action mặc định "enable_crossposting_and_create_post"
+ * (tự đăng video lên page đích). Các giá trị: enable_crossposting (cho phép, không tự
+ * đăng), enable_crossposting_and_create_post (tự đăng), disable_crossposting.
+ * LƯU Ý: FB KHÔNG báo lỗi nếu quan hệ crosspost không hợp lệ → phải kiểm qua
+ * fbGetCrosspostStatus (crossposted_broadcasts) để xác nhận thực tế.
+ */
+export async function fbSetCrosspost({ liveVideoId, pageAccessToken, targets }) {
+  const actions = (targets || [])
+    .filter((t) => t && t.pageId)
+    .map((t) => ({
+      page_id: String(t.pageId),
+      action: t.action || "enable_crossposting_and_create_post",
+    }));
+  if (!actions.length) return null;
+  const params = new URLSearchParams({ access_token: pageAccessToken });
+  params.set("crossposting_actions", JSON.stringify(actions));
+  const url = await base(`/${liveVideoId}`);
+  return fbFetch(url, { method: "POST", body: params });
+}
+
+/** Đọc trạng thái crosspost của 1 live: page đủ điều kiện + page đã crosspost. */
+export async function fbGetCrosspostStatus({ liveVideoId, pageAccessToken }) {
+  const fields = "crosspost_shared_pages,crossposted_broadcasts{status,from}";
+  const url = await base(
+    `/${liveVideoId}?fields=${encodeURIComponent(fields)}&access_token=${pageAccessToken}`
+  );
+  return fbFetch(url, { method: "GET" });
+}
+
 
 /**
  * Đọc thông tin 1 live video

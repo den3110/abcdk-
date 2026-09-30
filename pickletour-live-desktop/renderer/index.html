@@ -177,6 +177,11 @@
         <input id="rtmpKey" class="hidden" placeholder="stream key" />
         <button id="addDest">+ Thêm</button>
       </div>
+      <div id="fbCrosspostWrap" style="margin-top:8px">
+        <label style="margin:0 0 4px">Crosspost sang page khác (live chéo page — 1 luồng, hiện trên nhiều page)</label>
+        <select id="fbCrosspost" multiple size="4" style="width:100%"></select>
+        <div class="hint">Giữ Ctrl/Cmd để chọn nhiều page. <b>Bắt buộc</b>: các page phải đã thiết lập quan hệ crossposting với page chính trong Meta Business Suite. Page nào chưa có quan hệ sẽ bị bỏ qua (không báo lỗi).</div>
+      </div>
       <div id="destList" class="chips"></div>
       <label class="chk" style="margin-top:10px"><input type="checkbox" id="perMatchLive" /> Live riêng từng trận (chỉ live khi trận bắt đầu, mỗi trận 1 broadcast)</label>
       <div id="perMatchHint" class="hint">Không tích = live xuyên suốt mọi trận trong 1 live. Tích = chờ tới khi trận bắt đầu mới lên live; hết trận tự dừng, chờ trận kế.</div>

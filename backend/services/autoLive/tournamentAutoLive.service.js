@@ -30,7 +30,7 @@ import { loadOverlayData, loadOverlayDataFromUserMatch, renderOverlayPng } from 
 import { sampleProcessTree, clearProcSample, systemCapacity } from "./procStat.service.js";
 import { ensureDahuaTunnel, dahuaChannelUrl, triggerDahuaReconcile } from "./dahuaTunnel.service.js";
 import { getValidPageToken } from "../fbTokenService.js";
-import { fbCreateLiveOnPage, fbGetLiveVideo, fbEndLiveVideo } from "../facebookLive.service.js";
+import { fbCreateLiveOnPage, fbGetLiveVideo, fbEndLiveVideo, fbSetCrosspost, fbGetCrosspostStatus } from "../facebookLive.service.js";
 import { YouTubeProvider } from "../liveProviders/youtube.js";
 import { getCfgStr } from "../config.service.js";
 import { createClipTaskForEndedMatch, startAutoLiveClipWorker } from "./autoLiveClip.service.js";
@@ -444,10 +444,37 @@ async function prepareDestinations(destinations, title) {
         const e = new Error(`FB không trả stream URL cho page ${d.pageName || pageId}`);
         e.status = 502; throw e;
       }
+      // Crosspost (live chéo page): 1 luồng, hiện trên nhiều page. Cần quan hệ crosspost
+      // đã thiết lập trong Business Suite. FB không báo lỗi nếu quan hệ sai → verify sau.
+      let crosspostPages = [];
+      const cpTargets = Array.isArray(d.crosspostPageIds) ? d.crosspostPageIds.filter(Boolean) : [];
+      if (cpTargets.length) {
+        try {
+          await fbSetCrosspost({
+            liveVideoId: liveId, pageAccessToken: pageToken,
+            targets: cpTargets.map((pid) => ({ pageId: pid })),
+          });
+          // Xác nhận thực tế page nào đã nhận crosspost.
+          const st = await fbGetCrosspostStatus({ liveVideoId: liveId, pageAccessToken: pageToken }).catch(() => null);
+          const okIds = new Set(
+            (st?.crossposted_broadcasts?.data || [])
+              .map((b) => String(b?.from?.id || "")).filter(Boolean)
+          );
+          crosspostPages = cpTargets.map((pid) => ({ pageId: String(pid), ok: okIds.has(String(pid)) }));
+          const okN = crosspostPages.filter((p) => p.ok).length;
+          console.log(`[auto-live] crosspost live ${liveId}: ${okN}/${cpTargets.length} page nhận (page chính ${pageId})`);
+          if (okN < cpTargets.length) {
+            console.warn(`[auto-live] crosspost CHƯA đủ — kiểm tra quan hệ crossposting trong Business Suite cho các page: ${crosspostPages.filter(p=>!p.ok).map(p=>p.pageId).join(", ")}`);
+          }
+        } catch (e) {
+          console.warn(`[auto-live] crosspost lỗi live ${liveId}:`, e?.message || e);
+        }
+      }
       out.push({
         type: "fb", label: d.pageName || pageId, pageId, pageName: d.pageName || "",
         broadcastId: String(liveId || ""), streamUrl: secure, streamKey: "",
         watchUrl: fbWatchUrl(permalink, pageId, liveId),
+        crosspostPages,
       });
       continue;
     }
