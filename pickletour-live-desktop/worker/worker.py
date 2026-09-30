@@ -190,8 +190,17 @@ def encoder_args(enc):
                    "-b:v", f"{VID_KBPS}k", "-maxrate", f"{MAX_KBPS}k", "-bufsize", f"{buf}k",
                    "-pix_fmt", "yuv420p"]
     if enc == "h264_nvenc":
-        return ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "cbr",
-                "-profile:v", "high", "-bf", "2", *common_rate]
+        # LIVE MƯỢT (Ampere/Ada NVENC):
+        # -tune hq: giữ chất lượng cao (không cần siêu low-latency, HLS/RTMP có
+        # sẵn 2-4s buffer). -rc-lookahead 8: nhìn trước 8 khung → phân bổ bit
+        # đều, tránh spike bitrate ở đổi cảnh (đỡ giật ở player). -spatial-aq
+        # + aq-strength 8: cải thiện chất lượng vùng ít chi tiết ở cùng bitrate.
+        # -b_ref_mode middle: dùng B-frame làm reference (nén tốt hơn cùng chất
+        # lượng, cùng bf=2). -temporal-aq 1: giảm noise tạm thời giữa các khung.
+        return ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "cbr",
+                "-profile:v", "high", "-bf", "2", "-b_ref_mode", "middle",
+                "-rc-lookahead", "8", "-spatial-aq", "1", "-aq-strength", "8",
+                "-temporal-aq", "1", *common_rate]
     if enc == "h264_videotoolbox":
         return ["-c:v", "h264_videotoolbox", "-realtime", "1",
                 "-profile:v", "high", *common_rate]
@@ -223,14 +232,12 @@ def build_tee_output(destinations):
     if PREVIEW_DIR:
         try:
             os.makedirs(PREVIEW_DIR, exist_ok=True)
-            seg = os.path.join(PREVIEW_DIR, "seg_%03d.ts")
-            m3u8 = os.path.join(PREVIEW_DIR, "index.m3u8")
-            # WINDOWS: đường dẫn có `\` và `C:` phá parser của tee muxer (`:` là
-            # dấu tách option, `\` là ký tự escape) → slave preview lỗi ("No option
-            # found near ..."). Đổi `\`→`/` (ffmpeg nhận trên Windows); trong option
-            # hls_segment_filename (nằm trong [...]) escape `:` → `\:`.
-            seg_opt = seg.replace("\\", "/").replace(":", "\\:")
-            m3u8_out = m3u8.replace("\\", "/")
+            # WINDOWS: đường dẫn tuyệt đối có `C:` phá parser của tee muxer (`:` là
+            # dấu tách option; escape `\:` không hoạt động ổn định) → slave preview
+            # báo "No option found near ...". Dùng TÊN FILE TƯƠNG ĐỐI + spawn ffmpeg
+            # với cwd=PREVIEW_DIR (đặt ở vòng spawn) → không có `:` trong tee spec.
+            seg_opt = "seg_%03d.ts"
+            m3u8_out = "index.m3u8"
             # list_size lớn hơn + segment 2s → player có đệm, đỡ "loading" liên tục.
             parts.append(
                 f"[f=hls:onfail=ignore:hls_time=2:hls_list_size=8:"
@@ -502,11 +509,22 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None):
     args = ["ffmpeg", "-hide_banner", "-loglevel", "warning", "-nostdin"]
     if SOURCE_URL:
         # Link tự có timestamp chuẩn → dùng genpts giữ đồng hồ liên tục.
-        args += ["-fflags", "+genpts", "-thread_queue_size", "1024"]
+        # thread_queue_size lớn (4096) → nguồn RTSP/HLS qua VPN/Internet giật
+        # tạm thời không làm encoder starve → speed giữ ~1.0x, đỡ giật đầu ra.
+        # analyzeduration/probesize lớn → demuxer nắm được stream H.264 1080p25
+        # ngay từ đầu (mặc định quá nhỏ với nguồn bitrate cao, gây mất keyframe
+        # đầu tiên = 1-2s đen). max_delay 5s → cửa sổ reorder RTP đủ lớn cho
+        # nguồn qua VPN/Tailscale (bad cseq → mất frame → duplicate stutter).
+        args += ["-fflags", "+genpts", "-thread_queue_size", "4096",
+                 "-analyzeduration", "5000000", "-probesize", "5000000",
+                 "-max_delay", "5000000"]
         # Cờ input theo scheme (nếu áp sai scheme ffmpeg báo "Option not found").
         u = SOURCE_URL.lower()
         if u.startswith("rtsp://"):
-            args += ["-rtsp_transport", "tcp"]
+            # -timeout (microsecond) là option đúng cho RTSP demuxer (rw_timeout
+            # là của protocol khác → ffmpeg báo "Option not found"). 10s treo →
+            # ffmpeg exit để restart thay vì đứng im.
+            args += ["-rtsp_transport", "tcp", "-timeout", "10000000"]
         elif u.startswith("http://") or u.startswith("https://"):
             # KHÔNG dùng -reconnect_at_eof với HLS: playlist HTTP trả EOF sau mỗi
             # lần đọc là bình thường (hls demuxer tự refresh), reconnect_at_eof
@@ -939,10 +957,13 @@ def main():
         log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} restart#{ff_restarts}")
         ff_spawn_t = time.monotonic()
         # URL mode: ffmpeg tự đọc URL (stdin không dùng). Imou mode: feed DHAV.
+        # cwd=PREVIEW_DIR để tee HLS ghi bằng TÊN TƯƠNG ĐỐI (né `:` trong tee spec
+        # khi đường dẫn tuyệt đối chứa drive letter Windows).
         ff = subprocess.Popen(
             args,
             stdin=(subprocess.DEVNULL if SOURCE_URL else subprocess.PIPE),
-            stdout=subprocess.PIPE)
+            stdout=subprocess.PIPE,
+            cwd=(PREVIEW_DIR or None))
         ff_holder[0] = ff
         threading.Thread(target=progress_reader, args=(ff, stop_event), daemon=True).start()
         threading.Thread(target=rss_watchdog, args=(ff, stop_event), daemon=True).start()
