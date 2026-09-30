@@ -160,9 +160,12 @@ async function pollOnce(sessionId) {
   const newMatchId = station?.currentMatch ? String(station.currentMatch) : "";
   const oldMatchId = session.currentMatch ? String(session.currentMatch) : "";
 
-  // perMatchLive (server): điều khiển theo TRẠNG THÁI trận — chỉ live khi trận
-  // BẮT ĐẦU (status="live"), dừng khi kết thúc/đổi trận. Không live khi mới gán sân.
-  if (session.perMatchLive && session.runner === "server") {
+  // perMatchLive: điều khiển theo TRẠNG THÁI trận — chỉ live khi trận BẮT ĐẦU
+  // (status="live"), dừng khi kết thúc/đổi trận. Không live khi mới gán sân.
+  // Server-runner: backend tự tạo broadcast + spawn/kill worker. Client-runner
+  // (app desktop): backend tạo/kết thúc broadcast + đặt status; app desktop tự
+  // start/stop ffmpeg theo status khi poll.
+  if (session.perMatchLive) {
     try { await pollPerMatch(session, station); }
     catch (e) { console.warn("[auto-live] per-match poll lỗi:", e?.message || e); }
     return;
@@ -961,8 +964,10 @@ async function perMatchGoLive(session, matchId) {
     session.status = "live";
     session.lastMatchChangeAt = new Date();
     await session.save();
-    await respawnWorkerForSession(session);
-    console.log(`[auto-live] per-match GO LIVE ${sid} match=${matchId} (${session.currentMatchLabel || ""})`);
+    // Server-runner: backend tự spawn ffmpeg. Client-runner: app desktop tự start
+    // khi thấy status="live" + destinations (qua poll worker-config).
+    if (session.runner === "server") await respawnWorkerForSession(session);
+    console.log(`[auto-live] per-match GO LIVE ${sid} match=${matchId} runner=${session.runner} (${session.currentMatchLabel || ""})`);
   } finally {
     perMatchInFlight.delete(sid);
   }
@@ -974,9 +979,12 @@ async function perMatchStop(session) {
   if (perMatchInFlight.has(sid)) return;
   perMatchInFlight.add(sid);
   try {
-    restartingSessions.add(sid); // exit handler worker cũ KHÔNG mark error
-    if (isPidAlive(session.workerPid)) { try { process.kill(session.workerPid, "SIGTERM"); } catch {} }
-    setTimeout(() => restartingSessions.delete(sid), 4000);
+    // Server-runner: dừng worker ffmpeg trên máy chủ (client-runner: app desktop tự dừng).
+    if (session.runner === "server") {
+      restartingSessions.add(sid); // exit handler worker cũ KHÔNG mark error
+      if (isPidAlive(session.workerPid)) { try { process.kill(session.workerPid, "SIGTERM"); } catch {} }
+      setTimeout(() => restartingSessions.delete(sid), 4000);
+    }
     await endDestinationBroadcasts(session.destinations || []);
     session.destinations = [];
     session.liveMatchId = null;
@@ -1148,7 +1156,7 @@ export async function getWorkerConfig(sessionId) {
       phone: imouCreds.phone, password: imouCreds.password, areaCode: imouCreds.areaCode || "84",
     } : null,
     destinations: (s.destinations || []).map((d) => ({
-      type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
+      type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "", watchUrl: d.watchUrl || "",
     })),
     workerToken: process.env.AUTOLIVE_WORKER_TOKEN || "",
     advancedEnv: advancedEnv(s.advanced), // {AUTOLIVE_VIDEO_BITRATE,...} app set vào env worker

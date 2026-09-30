@@ -16,6 +16,7 @@ function show(view) {
   $(view).classList.remove("hidden");
 }
 function apiGet(p) { return window.api.get({ baseUrl: state.baseUrl, token: state.token, path: p }); }
+function apiReq(method, p, body) { return window.api.req({ baseUrl: state.baseUrl, token: state.token, method, path: p, body }); }
 
 const LS = "ptlive_auth";
 function saveAuth() {
@@ -180,7 +181,75 @@ $("srcType").onchange = () => {
   $("dahuaWrap").classList.toggle("hidden", t !== "dahua");
   $("urlWrap").classList.toggle("hidden", t !== "url");
   if (t === "dahua") loadDahuaVenues();
+  if (t === "url") loadRtspSources();
   stopSetupPreview(); // đổi nguồn → tắt preview cũ
+};
+
+// ── Thư viện nguồn RTSP có tên (label + url + vị trí overlay) — dùng chung với admin ──
+const CORNER_LABELS = { "top-left": "Trên·Trái", "top-right": "Trên·Phải", "bottom-left": "Dưới·Trái", "bottom-right": "Dưới·Phải" };
+async function loadRtspSources() {
+  try {
+    const items = await apiGet("/api/tournament-auto-live/rtsp-sources").catch(() => []);
+    state.rtspSources = Array.isArray(items) ? items : [];
+  } catch { state.rtspSources = []; }
+  const sel = $("rtspSaved");
+  sel.innerHTML = `<option value="">— Nhập thủ công —</option>` +
+    state.rtspSources.map((s, i) => `<option value="${i}">${(s.label || "").replace(/</g, "&lt;")}</option>`).join("");
+  $("rtspSavedWrap").classList.toggle("hidden", state.rtspSources.length === 0);
+  $("rtspDeleteBtn").classList.add("hidden");
+}
+function applyRtspSource() {
+  const idx = $("rtspSaved").value;
+  const s = state.rtspSources?.[+idx];
+  if (!s) { $("rtspDeleteBtn").classList.add("hidden"); return; }
+  $("srcUrl").value = s.url || "";
+  if (s.layout) {
+    if (s.layout.scoreboard) $("lay_scoreboard").value = s.layout.scoreboard;
+    if (s.layout.brand) $("lay_brand").value = s.layout.brand;
+    if (s.layout.sponsor) $("lay_sponsor").value = s.layout.sponsor;
+  }
+  $("rtspDeleteBtn").classList.remove("hidden");
+  $("rtspHint").textContent = `Đã chọn "${s.label}" → link + vị trí overlay đã điền.`;
+}
+$("rtspSaved").addEventListener("change", applyRtspSource);
+$("rtspSaveBtn").onclick = () => {
+  if (!$("srcUrl").value.trim()) { $("rtspHint").textContent = "Chưa có link RTSP để lưu."; return; }
+  const cur = state.rtspSources?.[+$("rtspSaved").value];
+  $("rtspLabel").value = cur?.label || "";
+  $("rtspLabel").classList.remove("hidden");
+  $("rtspSaveBtn").classList.add("hidden");
+  $("rtspSaveConfirm").classList.remove("hidden");
+  $("rtspSaveCancel").classList.remove("hidden");
+  $("rtspLabel").focus();
+};
+$("rtspSaveCancel").onclick = () => {
+  $("rtspLabel").classList.add("hidden"); $("rtspSaveConfirm").classList.add("hidden");
+  $("rtspSaveCancel").classList.add("hidden"); $("rtspSaveBtn").classList.remove("hidden");
+};
+$("rtspSaveConfirm").onclick = async () => {
+  const label = $("rtspLabel").value.trim();
+  const url = $("srcUrl").value.trim();
+  if (!label) { $("rtspHint").textContent = "Nhập tên gợi nhớ."; return; }
+  if (!url) { $("rtspHint").textContent = "Chưa có link RTSP."; return; }
+  const layout = { scoreboard: $("lay_scoreboard").value, brand: $("lay_brand").value, sponsor: $("lay_sponsor").value };
+  try {
+    const curId = state.rtspSources?.[+$("rtspSaved").value]?._id;
+    if (curId) await apiReq("PUT", `/api/tournament-auto-live/rtsp-sources/${curId}`, { label, url, layout });
+    else await apiReq("POST", "/api/tournament-auto-live/rtsp-sources", { label, url, layout });
+    $("rtspSaveCancel").onclick();
+    await loadRtspSources();
+    $("rtspHint").textContent = "Đã lưu nguồn RTSP.";
+  } catch (e) { $("rtspHint").textContent = "Lưu thất bại: " + (e?.message || e); }
+};
+$("rtspDeleteBtn").onclick = async () => {
+  const id = state.rtspSources?.[+$("rtspSaved").value]?._id;
+  if (!id) return;
+  try {
+    await apiReq("DELETE", `/api/tournament-auto-live/rtsp-sources/${id}`);
+    $("srcUrl").value = "";
+    await loadRtspSources();
+    $("rtspHint").textContent = "Đã xoá nguồn.";
+  } catch (e) { $("rtspHint").textContent = "Xoá thất bại: " + (e?.message || e); }
 };
 
 // Danh sách venue đã cấu hình đầu thu Dahua (mật khẩu lưu ở backend, mã hoá).
@@ -368,6 +437,7 @@ $("goLive").onclick = async () => {
       destinations: state.destinations,
       encoder: $("encoder").value,
       runnerLabel: state.runnerLabel,
+      perMatchLive: $("perMatchLive").checked,
       layout: {
         scoreboard: $("lay_scoreboard").value,
         brand: $("lay_brand").value,
@@ -384,9 +454,16 @@ $("goLive").onclick = async () => {
     $("goLive").disabled = true; $("goLive").textContent = "Đang khởi động…";
     const res = await window.api.start({ baseUrl: state.baseUrl, token: state.token, form });
     state.session = res;
-    startPreview(res.previewUrl);
-    renderWatch(res.watchUrls);
+    state.perMatchArmed = !!res.perMatchArmed;
     show("liveView");
+    if (res.perMatchArmed) {
+      // Chờ trận bắt đầu — chưa live. pollStatus sẽ hiện "paused / chờ trận";
+      // onPerMatch sẽ gắn preview khi trận start.
+      renderWatch([]);
+    } else {
+      startPreview(res.previewUrl);
+      renderWatch(res.watchUrls);
+    }
     pollStatus();
   } catch (e) {
     $("setupErr").textContent = e.message;
@@ -611,6 +688,23 @@ function cleanupLive() {
 
 window.api.onWorkerExit(({ sessionId, code }) => {
   if (state.session && state.session.sessionId === sessionId) {
+    // per-match: worker dừng giữa các trận là BÌNH THƯỜNG → không báo lỗi.
+    if (state.perMatchArmed) return;
     $("statRows").innerHTML += `<div class="err">Worker đã dừng (code ${code}).</div>`;
+  }
+});
+
+// perMatchLive: trận bắt đầu → gắn preview local; trận kết thúc → tháo preview.
+window.api.onPerMatch((p) => {
+  if (!state.session || p.sessionId !== state.session.sessionId) return;
+  if (p.kind === "live") {
+    if (p.previewUrl) startPreview(p.previewUrl);
+    renderWatch(p.watchUrls || []);
+  } else if (p.kind === "paused") {
+    if (state.hls) { try { state.hls.destroy(); } catch {} state.hls = null; }
+    try { const v = $("preview"); v.removeAttribute("src"); v.load && v.load(); } catch {}
+    renderWatch([]);
+  } else if (p.kind === "error") {
+    $("statRows").innerHTML += `<div class="err">Lỗi khi lên live trận: ${p.message || ""}</div>`;
   }
 });

@@ -11,6 +11,8 @@ const { spawn, spawnSync } = require("child_process");
 let win;
 // sessionId → { proc, previewDir, previewServer, previewPort, cfg }
 const running = new Map();
+// perMatchLive (client): sid → poll timer chờ trận bắt đầu để start/stop ffmpeg.
+const armedPolls = new Map();
 // Xem thử nguồn TRƯỚC khi live (1 preview tại 1 thời điểm): { proc, dir, server }
 let previewState = null;
 let lastPreviewLog = null; // đường log preview gần nhất (đọc tail khi lỗi)
@@ -332,7 +334,8 @@ async function startWorker({ baseUrl, token, form }) {
 
   stopPreview(); // bắt đầu live → giải phóng preview đang xem thử (nếu có)
 
-  // 1) Tạo phiên trên backend (runner=client) — backend tạo FB live + overlay.
+  // 1) Tạo phiên trên backend (runner=client) — backend tạo FB live + overlay
+  //    (perMatchLive: backend TẠO SAU khi trận bắt đầu; giờ trả session "paused").
   const session = await apiFetch(baseUrl, "/api/tournament-auto-live/start", {
     method: "POST", token,
     body: {
@@ -345,11 +348,53 @@ async function startWorker({ baseUrl, token, form }) {
       destinations: form.destinations,
       layout: form.layout,
       advanced: form.advanced,
+      perMatchLive: !!form.perMatchLive,
       runner: "client",
     },
   });
   const sid = session._id;
 
+  // perMatchLive: CHƯA live — chờ trận BẮT ĐẦU (backend đặt status="live") thì mới
+  // start ffmpeg; hết trận (status="paused") thì dừng, chờ trận kế.
+  if (form.perMatchLive) {
+    armPerMatch({ baseUrl, token, form, sid });
+    return { sessionId: sid, perMatchArmed: true, watchUrls: [] };
+  }
+
+  return await startFfmpegForSession({ baseUrl, token, form, sid });
+}
+
+/** Chờ trận bắt đầu (perMatchLive client): poll status → start/stop ffmpeg theo trận. */
+function armPerMatch({ baseUrl, token, form, sid }) {
+  if (armedPolls.has(sid)) return;
+  const timer = setInterval(async () => {
+    let s;
+    try { s = await apiFetch(baseUrl, `/api/tournament-auto-live/${sid}`, { token }); }
+    catch { return; }
+    const st = s?.status;
+    const streaming = running.has(sid);
+    if (st === "live" && !streaming) {
+      try {
+        const r = await startFfmpegForSession({ baseUrl, token, form, sid });
+        sendToRenderer("per-match", { kind: "live", sessionId: sid, ...r });
+      } catch (e) { sendToRenderer("per-match", { kind: "error", sessionId: sid, message: e?.message || String(e) }); }
+    } else if (st === "paused" && streaming) {
+      cleanupWorker(sid); // dừng ffmpeg trận vừa xong, giữ armed chờ trận kế
+      sendToRenderer("per-match", { kind: "paused", sessionId: sid });
+    } else if (st === "stopped" || st === "error") {
+      clearInterval(timer); armedPolls.delete(sid);
+      if (running.has(sid)) cleanupWorker(sid);
+      sendToRenderer("per-match", { kind: "ended", sessionId: sid, status: st, error: s?.lastError || "" });
+    }
+  }, 4000);
+  armedPolls.set(sid, timer);
+}
+
+/** Lấy worker-config → tunnel (nếu Dahua) → spawn worker.py (GPU) + preview cho 1 phiên. */
+async function startFfmpegForSession({ baseUrl, token, form, sid }) {
+  const selfContained = isSelfContained();
+  const python = selfContained ? null : detectPython();
+  const ffmpeg = detectFfmpeg();
   // 2) Lấy worker-config (session Imou đã giải mã, dests, URLs, token, dahuaP2p creds)
   const cfg = await apiFetch(baseUrl, `/api/tournament-auto-live/${sid}/worker-config`, { token });
 
@@ -424,7 +469,7 @@ async function startWorker({ baseUrl, token, form }) {
   return {
     sessionId: sid,
     previewUrl: `http://127.0.0.1:${previewPort}/index.m3u8`,
-    watchUrls: (session.destinations || []).map((d) => d.watchUrl).filter(Boolean),
+    watchUrls: (cfg.destinations || []).map((d) => d.watchUrl).filter(Boolean),
     logFile,
   };
 }
@@ -569,6 +614,10 @@ ipcMain.handle("login", async (_e, { baseUrl, email, password }) => {
 ipcMain.handle("api-get", async (_e, { baseUrl, token, path: p }) =>
   apiFetch(baseUrl, p, { token }));
 
+// Generic request (POST/PUT/DELETE) — dùng cho thư viện nguồn RTSP.
+ipcMain.handle("api-req", async (_e, { baseUrl, token, method, path: p, body }) =>
+  apiFetch(baseUrl, p, { token, method: method || "GET", body }));
+
 ipcMain.handle("start", async (_e, args) => startWorker(args));
 ipcMain.handle("preview-start", async (_e, args) => startPreview({ ...args, destinations: [] }));
 ipcMain.handle("preview-stop", () => { stopPreview(); return { ok: true }; });
@@ -615,6 +664,9 @@ ipcMain.handle("match-score", async (_e, { baseUrl, token, matchId, side, delta 
 ipcMain.handle("preview-log", () => ({ log: lastPreviewLog ? tailFile(lastPreviewLog) : "" }));
 ipcMain.handle("preview-openlog", () => { if (lastPreviewLog) shell.openPath(lastPreviewLog); });
 ipcMain.handle("stop", async (_e, { baseUrl, token, sessionId }) => {
+  // Dừng cả armed-poll (perMatchLive) nếu có.
+  const t = armedPolls.get(sessionId);
+  if (t) { clearInterval(t); armedPolls.delete(sessionId); }
   stopWorker(sessionId);
   try { await apiFetch(baseUrl, `/api/tournament-auto-live/${sessionId}/stop`, { method: "POST", token }); } catch {}
   return { ok: true };

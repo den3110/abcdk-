@@ -72,8 +72,20 @@
           <div id="dahuaHint" class="hint"></div>
         </div>
         <div id="urlWrap" class="hidden">
+          <div id="rtspSavedWrap" class="hidden">
+            <label>Nguồn RTSP đã lưu</label>
+            <select id="rtspSaved"></select>
+          </div>
           <label>Link nguồn</label>
-          <input id="srcUrl" placeholder="https://cam.lavong.club/hls/cam_1/stream.m3u8" />
+          <input id="srcUrl" placeholder="rtsp://admin:pass@192.168.1.10:554/cam/realmonitor?channel=1&subtype=0" />
+          <div class="row" style="margin-top:6px; gap:8px; display:flex; align-items:center;">
+            <input id="rtspLabel" class="hidden" placeholder="Tên gợi nhớ (vd: Lã Vọng · Sân 1)" style="flex:1" />
+            <button id="rtspSaveBtn" class="ghost">＋ Lưu nguồn</button>
+            <button id="rtspSaveConfirm" class="ghost hidden">Lưu</button>
+            <button id="rtspSaveCancel" class="ghost hidden">Huỷ</button>
+            <button id="rtspDeleteBtn" class="ghost hidden">Xoá nguồn</button>
+          </div>
+          <div id="rtspHint" class="hint">Chọn nguồn đã lưu sẽ tự điền link + vị trí overlay.</div>
         </div>
         <div class="previewBox" style="margin-top:12px">
           <button id="testPreview" class="ghost">👁 Xem thử nguồn</button>
@@ -149,6 +161,8 @@
         <button id="addDest">+ Thêm</button>
       </div>
       <div id="destList" class="chips"></div>
+      <label class="chk" style="margin-top:10px"><input type="checkbox" id="perMatchLive" /> Live riêng từng trận (chỉ live khi trận bắt đầu, mỗi trận 1 broadcast)</label>
+      <div id="perMatchHint" class="hint">Không tích = live xuyên suốt mọi trận trong 1 live. Tích = chờ tới khi trận bắt đầu mới lên live; hết trận tự dừng, chờ trận kế.</div>
     </div>
 
     <div class="card">
