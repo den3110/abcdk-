@@ -486,6 +486,7 @@ $("goLive").onclick = async () => {
       renderWatch(res.watchUrls);
     }
     pollStatus();
+    startClipPoll(); // clip từng trận (nếu bật recordClips) → hiện số clip + link Drive
   } catch (e) {
     $("setupErr").textContent = e.message;
   } finally {
@@ -726,6 +727,48 @@ async function pollStatus() {
   state.statusTimer = setInterval(render, 5000);
 }
 
+const CLIP_STATUS = {
+  pending: ["Chờ đủ segment", "#94a3b8"],
+  cutting: ["Đang cắt", "#60a5fa"],
+  uploading: ["Đang lên Drive", "#f59e0b"],
+  done: ["Xong", "#34d399"],
+  failed: ["Lỗi", "#f87171"],
+  skipped: ["Bỏ qua", "#f59e0b"],
+};
+
+function renderClips(clips) {
+  const box = $("clipBox");
+  if (!clips || !clips.length) { box.classList.add("hidden"); return; }
+  box.classList.remove("hidden");
+  const done = clips.filter((c) => c.status === "done").length;
+  $("clipSummary").textContent = `(${done}/${clips.length} đã lên Drive)`;
+  $("clipList").innerHTML = clips.map((c) => {
+    const [label, color] = CLIP_STATUS[c.status] || [c.status, "#94a3b8"];
+    const name = esc(c.matchCode || c.title || "Trận");
+    const link = c.driveUrl
+      ? ` · <a href="#" class="cliplink" data-u="${esc(c.driveUrl)}">↗ Mở Drive</a>`
+      : "";
+    const errTip = c.status === "failed" && c.lastError ? ` title="${esc(c.lastError)}"` : "";
+    return `<div${errTip}><b>${name}</b> — <span style="color:${color}">${esc(label)}</span>${link}</div>`;
+  }).join("");
+  $("clipList").querySelectorAll("a.cliplink").forEach((a) =>
+    a.onclick = (ev) => { ev.preventDefault(); window.api.openExternal(a.dataset.u); });
+}
+
+function startClipPoll() {
+  clearInterval(state.clipTimer);
+  if (!state.recordClips) return;
+  const run = async () => {
+    if (!state.session) return;
+    try {
+      const clips = await apiGet(`/api/tournament-auto-live/clips?sessionId=${state.session.sessionId}`);
+      renderClips(clips);
+    } catch (e) { /* ignore transient */ }
+  };
+  run();
+  state.clipTimer = setInterval(run, 20000);
+}
+
 $("stopLive").onclick = async () => {
   if (state.session) {
     await window.api.stop({ baseUrl: state.baseUrl, token: state.token, sessionId: state.session.sessionId });
@@ -737,8 +780,10 @@ $("openLog").onclick = () => { if (state.session) window.api.openLog(state.sessi
 
 function cleanupLive() {
   clearInterval(state.statusTimer);
+  clearInterval(state.clipTimer);
   if (state.hls) { state.hls.destroy(); state.hls = null; }
   state.session = null;
+  $("clipBox").classList.add("hidden");
 }
 
 window.api.onWorkerExit(({ sessionId, code }) => {
