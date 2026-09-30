@@ -46,6 +46,11 @@ backend-go
 .npm-cache
 **/.gocache
 
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
 # Local Android/Gradle cache shortcuts
 /a/
 /g/
