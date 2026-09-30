@@ -12,6 +12,40 @@ const { spawn, spawnSync } = require("child_process");
 let win;
 // sessionId → { proc, previewDir, previewServer, previewPort, cfg }
 const running = new Map();
+
+// ── Cấu hình app (lưu ở userData/settings.json) ──
+function settingsPath() {
+  try { return path.join(app.getPath("userData"), "settings.json"); } catch { return null; }
+}
+function readSettings() {
+  try { return JSON.parse(fs.readFileSync(settingsPath(), "utf8")) || {}; } catch { return {}; }
+}
+function writeSettings(patch) {
+  try {
+    const cur = readSettings();
+    const next = { ...cur, ...patch };
+    fs.writeFileSync(settingsPath(), JSON.stringify(next, null, 2));
+    return next;
+  } catch (e) { console.error("[settings] write fail", e?.message || e); return readSettings(); }
+}
+
+// Thư mục mặc định lưu record/segment/clip: CÙNG chỗ file .exe (bản đóng gói) →
+// <thư mục app>/records; bản dev → <cwd>/records. Người dùng đổi được (settings).
+function defaultRecordsDir() {
+  let base;
+  if (app.isPackaged) {
+    try { base = path.dirname(app.getPath("exe")); } catch { base = process.cwd(); }
+  } else {
+    base = process.cwd();
+  }
+  return path.join(base, "records");
+}
+function recordsBaseDir() {
+  const custom = (readSettings().recordsDir || "").trim();
+  const dir = custom || defaultRecordsDir();
+  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  return dir;
+}
 // perMatchLive (client): sid → poll timer chờ trận bắt đầu để start/stop ffmpeg.
 const armedPolls = new Map();
 // Xem thử nguồn TRƯỚC khi live (1 preview tại 1 thời điểm): { proc, dir, server }
@@ -35,6 +69,7 @@ function createWindow() {
     width: 1180, height: 820, minWidth: 940, minHeight: 640,
     title: "PickleTour Live",
     backgroundColor: "#0b1120",
+    icon: path.join(__dirname, "renderer", "assets", "logo.png"),
     webPreferences: { preload: path.join(__dirname, "preload.js"), contextIsolation: true },
   });
   win.loadFile(path.join(__dirname, "renderer", "index.html"));
@@ -488,7 +523,7 @@ function startSegmentUploader({ sid, cfg, previewDir }) {
  *  trường hợp máy lỡ tắt/khởi động lại giữa chừng — server vẫn cắt+upload Drive. */
 function resumePendingUploaders() {
   let base;
-  try { base = os.tmpdir(); } catch { return; }
+  try { base = recordsBaseDir(); } catch { return; }
   let entries = [];
   try { entries = fs.readdirSync(base).filter((n) => n.startsWith("ptlive-preview-")); } catch { return; }
   for (const dirName of entries) {
@@ -590,8 +625,9 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
   // 2) Lấy worker-config (session Imou đã giải mã, dests, URLs, token, dahuaP2p creds)
   const cfg = await apiFetch(baseUrl, `/api/tournament-auto-live/${sid}/worker-config`, { token });
 
-  // 3) Thư mục preview HLS + static server
-  const previewDir = path.join(os.tmpdir(), `ptlive-preview-${sid}`);
+  // 3) Thư mục phiên (preview HLS + rec segment) — đặt trong thư mục records (cạnh
+  //    .exe hoặc do người dùng chọn) để file record/segment/clip lớn lưu cố định.
+  const previewDir = path.join(recordsBaseDir(), `ptlive-preview-${sid}`);
   fs.mkdirSync(previewDir, { recursive: true });
   const previewServer = await startPreviewServer(previewDir);
   const previewPort = previewServer.address().port;
@@ -842,6 +878,33 @@ ipcMain.handle("sys-stats", () => {
     platform: process.platform, arch: process.arch,
     liveCount, moreCourts,
   };
+});
+
+// ── Thư mục lưu record/segment/clip ──
+ipcMain.handle("records-dir-get", () => ({
+  dir: recordsBaseDir(),
+  default: defaultRecordsDir(),
+  custom: (readSettings().recordsDir || "").trim(),
+}));
+ipcMain.handle("records-dir-pick", async () => {
+  const r = await dialog.showOpenDialog(win, {
+    title: "Chọn thư mục lưu record / segment / clip",
+    defaultPath: recordsBaseDir(),
+    properties: ["openDirectory", "createDirectory"],
+  });
+  if (r.canceled || !r.filePaths?.[0]) return { dir: recordsBaseDir(), changed: false };
+  const chosen = path.join(r.filePaths[0], "records");
+  try { fs.mkdirSync(chosen, { recursive: true }); } catch {}
+  writeSettings({ recordsDir: chosen });
+  return { dir: recordsBaseDir(), changed: true };
+});
+ipcMain.handle("records-dir-reset", () => {
+  writeSettings({ recordsDir: "" });
+  return { dir: recordsBaseDir(), default: defaultRecordsDir() };
+});
+ipcMain.handle("records-dir-open", () => {
+  try { shell.openPath(recordsBaseDir()); } catch {}
+  return { ok: true };
 });
 
 ipcMain.handle("env-check", () => {

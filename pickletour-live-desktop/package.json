@@ -33,20 +33,33 @@
       "!**/*.pyc"
     ],
     "extraResources": [],
+    "icon": "build/icon.png",
     "mac": {
       "category": "public.app-category.video",
+      "icon": "build/icon.png",
       "target": [
         "dmg",
         "zip"
       ]
     },
     "win": {
+      "icon": "build/icon.png",
       "target": [
         "nsis",
         "portable"
       ]
     },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PickleTour Live"
+    },
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         "AppImage"
       ]

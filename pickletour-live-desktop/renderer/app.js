@@ -728,6 +728,7 @@ function goDashboard() {
   renderDashboard();
   show("dashboardView");
   startSysStats(); pollSys(); // hiệu năng máy + ước tính số sân
+  loadRecordsDir();
 }
 
 // ── Hiệu năng máy (CPU/RAM + ước tính còn bao nhiêu sân) ──
@@ -765,6 +766,25 @@ function renderPerf(s) {
 
 async function pollSys() {
   try { renderPerf(await window.api.sysStats()); } catch { /* ignore */ }
+}
+
+// ── Thư mục lưu record / segment / clip ──
+async function loadRecordsDir() {
+  if (!window.api.recordsDirGet) return;
+  try {
+    const r = await window.api.recordsDirGet();
+    const isDefault = !r.custom;
+    $("recDirPath").textContent = `${r.dir}${isDefault ? "  (mặc định — cạnh file chạy)" : ""}`;
+  } catch { /* ignore */ }
+}
+if ($("recDirPick")) {
+  $("recDirPick").onclick = async () => {
+    try { await window.api.recordsDirPick(); await loadRecordsDir(); } catch {}
+  };
+  $("recDirReset").onclick = async () => {
+    try { await window.api.recordsDirReset(); await loadRecordsDir(); } catch {}
+  };
+  $("recDirOpen").onclick = () => { try { window.api.recordsDirOpen(); } catch {} };
 }
 function startSysStats() {
   if (state.sysTimer) return;
