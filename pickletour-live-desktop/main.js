@@ -83,6 +83,8 @@ app.whenReady().then(() => {
   setTimeout(() => { try { resumePendingUploaders(); } catch (e) { console.error("[rec-upload] resume fail", e?.message || e); } }, 6000);
   // Tự bật điều khiển từ xa nếu lần trước đã bật.
   try { if (readSettings().controlEnabled) startControlServer(); } catch (e) { console.error("[control] auto-start fail", e?.message || e); }
+  // Tự dọn records đã xử lý (tránh đầy ổ cứng).
+  try { startRecordsCleanup(); } catch (e) { console.error("[cleanup] start fail", e?.message || e); }
 });
 app.on("window-all-closed", () => { stopAll(); if (process.platform !== "darwin") app.quit(); });
 app.on("before-quit", stopAll);
@@ -507,8 +509,10 @@ function startSegmentUploader({ sid, cfg, previewDir }) {
           const h = uploaders.get(sid); if (h?.timer) clearInterval(h.timer);
           uploaders.delete(sid);
           emit({ uploading: false, done: true });
-          try { fs.rmSync(recDir, { recursive: true, force: true }); } catch {}
-          console.log(`[rec-upload] ${sid} hoàn tất, đã dọn segment tạm.`);
+          // Đã đẩy hết segment về server (server → Drive) + worker đã tắt → dọn TOÀN BỘ
+          // thư mục phiên (segment + preview HLS + log) để không đầy ổ cứng.
+          try { fs.rmSync(previewDir, { recursive: true, force: true }); } catch { try { fs.rmSync(recDir, { recursive: true, force: true }); } catch {} }
+          console.log(`[rec-upload] ${sid} hoàn tất — đã dọn toàn bộ dữ liệu records của phiên.`);
           return;
         }
       }
@@ -549,6 +553,38 @@ function resumePendingUploaders() {
       },
     });
   }
+}
+
+// Tự dọn dữ liệu records ĐÃ XỬ LÝ để tránh đầy ổ cứng. Xoá thư mục phiên
+// (ptlive-preview-<sid>) khi: (1) KHÔNG còn worker chạy + KHÔNG còn uploader,
+// (2) không còn segment .ts chưa đẩy (đã lên server → Drive; hoặc live không ghi),
+// (3) đủ cũ (an toàn, tránh xoá phiên vừa xong). Quét định kỳ + lúc mở app.
+let _cleanupTimer = null;
+function cleanupProcessedRecords() {
+  let base; try { base = recordsBaseDir(); } catch { return; }
+  let entries = []; try { entries = fs.readdirSync(base); } catch { return; }
+  const MAX_AGE_MS = 2 * 60 * 60 * 1000; // 2 giờ
+  for (const name of entries) {
+    if (!name.startsWith("ptlive-preview-")) continue;
+    const sid = name.slice("ptlive-preview-".length);
+    if (running.has(sid) || uploaders.has(sid)) continue; // đang chạy / đang đẩy → giữ
+    const dir = path.join(base, name);
+    const recDir = path.join(dir, "rec");
+    // Còn segment .ts chưa đẩy → giữ (resume/uploader sẽ xử lý sau).
+    let pendingTs = false;
+    try { pendingTs = fs.readdirSync(recDir).some((n) => REC_NAME_RE.test(n)); } catch {}
+    if (pendingTs) continue;
+    // Đủ cũ chưa (theo mtime) để chắc chắn không phải phiên vừa kết thúc.
+    let mtime = 0; try { mtime = fs.statSync(dir).mtimeMs; } catch {}
+    if (Date.now() - mtime < MAX_AGE_MS) continue;
+    try { fs.rmSync(dir, { recursive: true, force: true }); console.log(`[cleanup] đã xoá records đã xử lý: ${name}`); } catch {}
+  }
+}
+function startRecordsCleanup() {
+  if (_cleanupTimer) return;
+  _cleanupTimer = setInterval(() => { try { cleanupProcessedRecords(); } catch (e) { console.error("[cleanup] lỗi", e?.message || e); } }, 30 * 60 * 1000);
+  if (_cleanupTimer.unref) _cleanupTimer.unref();
+  setTimeout(() => { try { cleanupProcessedRecords(); } catch {} }, 20_000); // quét sớm sau khi mở app
 }
 
 async function startWorker({ baseUrl, token, form }) {
