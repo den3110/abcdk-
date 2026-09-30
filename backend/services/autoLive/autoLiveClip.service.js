@@ -25,8 +25,10 @@ import ffmpegStatic from "ffmpeg-static";
 import Match from "../../models/matchModel.js";
 import Tournament from "../../models/tournamentModel.js";
 import AutoLiveClip from "../../models/autoLiveClipModel.js";
+import LiveRecordingV2 from "../../models/liveRecordingV2Model.js";
 import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionModel.js";
 import { uploadRecordingToDrive } from "../driveRecordings.service.js";
+import { buildRecordingPlaybackUrl } from "../liveRecordingV2Export.service.js";
 
 export const SEGMENT_SEC = 300; // độ dài mỗi segment ghi (đồng bộ với worker desktop)
 const SEG_ROOT = path.join(os.tmpdir(), "autolive-rec");
@@ -278,14 +280,41 @@ async function processOneClip(clip, cov) {
     await AutoLiveClip.updateOne({ _id: clip._id }, { $set: { status: "uploading", fileSizeBytes: st.size } });
     const fileName = `${(clip.title || "clip").replace(/[^\p{L}\p{N} _.-]/gu, "").trim() || "clip"}.mp4`;
     const drive = await uploadRecordingToDrive({ filePath: outPath, fileName, mimeType: "video/mp4" });
-    const viewUrl = drive?.previewUrl || drive?.rawUrl || "";
+    const durSec = Math.round((endMs - startMs) / 1000);
+    // GIỐNG BẢN MOBILE NATIVE: tạo bản ghi LiveRecordingV2 "ready" trỏ tới file Drive,
+    // rồi gán match.video = playbackUrl (endpoint /play proxy stream Drive, hỗ trợ
+    // range/seek) thay vì link Drive thô. Upsert theo recordingSessionId → idempotent.
+    let viewUrl = drive?.previewUrl || drive?.rawUrl || "";
+    try {
+      const rec = await LiveRecordingV2.findOneAndUpdate(
+        { recordingSessionId: `autolive-clip-${clip._id}` },
+        { $set: {
+            match: clip.match, mode: "RECORD_ONLY", status: "ready",
+            driveFileId: drive?.fileId || "", driveRawUrl: drive?.rawUrl || "",
+            drivePreviewUrl: drive?.previewUrl || "",
+            sizeBytes: st.size, durationSeconds: durSec,
+            finalizedAt: new Date(), readyAt: new Date(),
+            meta: { source: { type: "autolive_clip" }, autoLiveClipId: String(clip._id) },
+          } },
+        { new: true, upsert: true, setDefaultsOnInsert: true }
+      );
+      const playbackUrl = buildRecordingPlaybackUrl(rec._id);
+      if (rec.playbackUrl !== playbackUrl) {
+        rec.playbackUrl = playbackUrl;
+        await rec.save();
+      }
+      viewUrl = playbackUrl || viewUrl;
+    } catch (e) {
+      // Không tạo được LiveRecordingV2 → vẫn dùng link Drive trực tiếp làm fallback.
+      console.warn("[autolive-clip] tạo LiveRecordingV2 lỗi:", e?.message || e);
+    }
     await AutoLiveClip.updateOne({ _id: clip._id }, {
       $set: {
         status: "done", driveFileId: drive?.fileId || "", driveUrl: viewUrl,
-        clipDurationSec: Math.round((endMs - startMs) / 1000), finishedAt: new Date(), lastError: "",
+        clipDurationSec: durSec, finishedAt: new Date(), lastError: "",
       },
     });
-    // Gán link xem lại (Drive VOD) vào trận — thay link live đã kết thúc.
+    // Gán link xem lại vào trận — thay link live đã kết thúc (giống mobile native).
     if (viewUrl) await Match.updateOne({ _id: clip.match }, { $set: { video: viewUrl } }).catch(() => {});
     console.log(`[autolive-clip] DONE match=${clip.match} → ${viewUrl}`);
   } catch (e) {
