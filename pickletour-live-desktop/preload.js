@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld("api", {
   openLog: (sid) => ipcRenderer.invoke("open-log", sid),
   onWorkerExit: (cb) => ipcRenderer.on("worker-exit", (_e, p) => cb(p)),
   onPerMatch: (cb) => ipcRenderer.on("per-match", (_e, p) => cb(p)),
+  onRecUpload: (cb) => ipcRenderer.on("rec-upload", (_e, p) => cb(p)),
   // Tự setup Python lần đầu (tạo venv + cài Imou) ngay trong app.
   setupPython: () => ipcRenderer.invoke("setup-python"),
   onSetupProgress: (cb) => ipcRenderer.on("setup-progress", (_e, m) => cb(m)),

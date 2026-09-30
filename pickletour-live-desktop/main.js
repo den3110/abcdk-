@@ -418,6 +418,21 @@ function startSegmentUploader({ sid, cfg, previewDir }) {
     }));
   } catch {}
 
+  let lastHave = [];
+  const emit = (extra = {}) => {
+    let files = [];
+    try { files = fs.readdirSync(recDir).filter((n) => REC_NAME_RE.test(n)); } catch {}
+    const serverHas = new Set([...lastHave, ...uploaded]);
+    sendToRenderer("rec-upload", {
+      sessionId: sid,
+      total: files.length,
+      uploaded: files.filter((n) => serverHas.has(n)).length,
+      recording: running.has(sid),
+      ...extra,
+    });
+  };
+  emit({ uploading: false }); // báo ngay: đã bật ghi clip
+
   const tick = async () => {
     if (busy) return; busy = true;
     try {
@@ -430,16 +445,19 @@ function startSegmentUploader({ sid, cfg, previewDir }) {
       const workerRunning = running.has(sid);
       let plan = null;
       try { plan = await fetchRecordingPlan(cfg, sid); } catch { plan = null; }
+      lastHave = plan?.have || lastHave;
       const have = new Set([...(plan?.have || []), ...uploaded]);
       let candidates = files.filter((n) => !have.has(n));
       // Giữ lại file MỚI NHẤT khi worker còn chạy (đang ghi dở → chưa hoàn tất).
       if (workerRunning && candidates.length) candidates = candidates.slice(0, -1);
-      if (plan?.uploadNow) {
+      if (plan?.uploadNow && candidates.length) {
+        emit({ uploading: true });
         for (const n of candidates) {
           try {
             await putFileStream(`${cfg.recordingSegmentUrl}?sessionId=${sid}&file=${encodeURIComponent(n)}`, token, path.join(recDir, n));
             uploaded.add(n);
             console.log(`[rec-upload] ${sid} đã gửi ${n}`);
+            emit({ uploading: true }); // cập nhật tiến độ sau mỗi segment
           } catch (e) { console.error(`[rec-upload] ${sid} lỗi ${n}:`, e?.message || e); break; }
         }
       }
@@ -450,10 +468,13 @@ function startSegmentUploader({ sid, cfg, previewDir }) {
         if (remaining.length === 0) {
           const h = uploaders.get(sid); if (h?.timer) clearInterval(h.timer);
           uploaders.delete(sid);
+          emit({ uploading: false, done: true });
           try { fs.rmSync(recDir, { recursive: true, force: true }); } catch {}
           console.log(`[rec-upload] ${sid} hoàn tất, đã dọn segment tạm.`);
+          return;
         }
       }
+      emit({ uploading: false });
     } finally { busy = false; }
   };
 

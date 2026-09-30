@@ -467,6 +467,11 @@ $("goLive").onclick = async () => {
         encoder: $("encoder").value || "auto",
       },
     };
+    // Lưu tên giải + tên sân (từ text option đang chọn) để hiện ở màn live.
+    state.liveTournamentName = $("tournament").selectedOptions?.[0]?.textContent?.trim() || "";
+    state.liveCourtName = $("court").selectedOptions?.[0]?.textContent?.trim() || "";
+    state.recordClips = !!form.recordClips;
+    state.recUpload = null;
     $("goLive").disabled = true; $("goLive").textContent = "Đang khởi động…";
     const res = await window.api.start({ baseUrl: state.baseUrl, token: state.token, form });
     state.session = res;
@@ -656,31 +661,65 @@ function renderWatch(urls) {
     a.onclick = (ev) => { ev.preventDefault(); window.api.openExternal(a.dataset.u); });
 }
 
+function esc(v) {
+  return String(v == null ? "" : v).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// Khối tiến độ đẩy segment recording (chỉ khi bật "Ghi + cắt clip từng trận").
+function recUploadHtml() {
+  if (!state.recordClips) return "";
+  const u = state.recUpload;
+  if (!u) {
+    return `<div>🎬 Ghi clip từng trận: <b style="color:#34d399">bật</b> <span class="hint">— đang ghi, sẽ đẩy về server để cắt + lên Drive.</span></div>`;
+  }
+  const total = u.total || 0;
+  const uploaded = u.uploaded || 0;
+  const pct = total ? Math.round((uploaded / total) * 100) : (u.done ? 100 : 0);
+  let statusTxt;
+  if (u.done) statusTxt = '<b style="color:#34d399">đã đẩy xong toàn bộ</b>';
+  else if (u.uploading) statusTxt = '<b style="color:#f59e0b">đang đẩy…</b>';
+  else if (u.recording) statusTxt = '<b>đang ghi + đẩy dần</b>';
+  else statusTxt = "<b>chờ…</b>";
+  const bar = `<div style="height:6px;background:#243244;border-radius:4px;overflow:hidden;margin-top:4px">
+      <div style="height:100%;width:${pct}%;background:#34d399;transition:width .4s"></div></div>`;
+  return `<div>🎬 Đẩy clip: ${uploaded}/${total} segment (${pct}%) · ${statusTxt}${bar}</div>`;
+}
+
+function renderLiveStatus() {
+  if (!state.session) return;
+  const s = state.lastStatus || {};
+  const badge = s.status === "live" ? '<span class="badge live">LIVE</span>'
+    : s.status === "error" ? '<span class="badge err">LỖI</span>'
+    : `<span class="badge warn">${esc(s.status || "…")}</span>`;
+  const up = s.startedAt ? Math.round((Date.now() - new Date(s.startedAt)) / 60000) : 0;
+  const spd = Number(s.speed || 0);
+  const spdColor = spd >= 0.97 ? "#34d399" : spd >= 0.9 ? "#f59e0b" : "#f87171";
+  const net = s.bitrateKbps
+    ? `<b>${(s.bitrateKbps / 1000).toFixed(2)} Mbps</b> · ${s.fps || 0}fps · <span style="color:${spdColor}">tốc độ ${spd.toFixed(2)}×</span>`
+    : "<b>—</b>";
+  $("statRows").innerHTML = `
+    <div>Giải: <b>${esc(state.liveTournamentName) || "—"}</b></div>
+    <div>Sân: <b>${esc(state.liveCourtName) || "—"}</b></div>
+    <div>Trạng thái: ${badge}</div>
+    <div>Trận: <b>${esc(s.currentMatchLabel) || "—"}</b></div>
+    <div>🌐 Tốc độ live: ${net}</div>
+    <div>Encoder: <b>${esc(s.encoder) || "?"}</b> · CPU <b>${s.cpuPct || 0}%</b> · RAM <b>${s.memMB || 0}MB</b></div>
+    <div>Máy: <b>${esc(s.runnerLabel || state.runnerLabel)}</b></div>
+    <div>Uptime: <b>${up}m</b></div>
+    ${recUploadHtml()}
+    ${spd && spd < 0.95 ? '<div class="err">⚠ Tốc độ < realtime → mạng/CPU không đủ, sẽ giật. Giảm bitrate hoặc dùng GPU.</div>' : ""}
+    ${s.lastError ? `<div class="err">${esc(s.lastError)}</div>` : ""}`;
+  if (s.destinations?.some((d) => d.watchUrl)) renderWatch(s.destinations.map((d) => d.watchUrl).filter(Boolean));
+}
+
 async function pollStatus() {
   clearInterval(state.statusTimer);
   const render = async () => {
     if (!state.session) return;
     try {
-      const s = await apiGet(`/api/tournament-auto-live/${state.session.sessionId}`);
-      const badge = s.status === "live" ? '<span class="badge live">LIVE</span>'
-        : s.status === "error" ? '<span class="badge err">LỖI</span>'
-        : `<span class="badge warn">${s.status}</span>`;
-      const up = s.startedAt ? Math.round((Date.now() - new Date(s.startedAt)) / 60000) : 0;
-      const spd = Number(s.speed || 0);
-      const spdColor = spd >= 0.97 ? "#34d399" : spd >= 0.9 ? "#f59e0b" : "#f87171";
-      const net = s.bitrateKbps
-        ? `<b>${(s.bitrateKbps / 1000).toFixed(2)} Mbps</b> · ${s.fps || 0}fps · <span style="color:${spdColor}">tốc độ ${spd.toFixed(2)}×</span>`
-        : "<b>—</b>";
-      $("statRows").innerHTML = `
-        <div>Trạng thái: ${badge}</div>
-        <div>Trận: <b>${s.currentMatchLabel || "—"}</b></div>
-        <div>🌐 Tốc độ live: ${net}</div>
-        <div>Encoder: <b>${s.encoder || "?"}</b> · CPU <b>${s.cpuPct || 0}%</b> · RAM <b>${s.memMB || 0}MB</b></div>
-        <div>Máy: <b>${s.runnerLabel || state.runnerLabel}</b></div>
-        <div>Uptime: <b>${up}m</b></div>
-        ${spd && spd < 0.95 ? '<div class="err">⚠ Tốc độ < realtime → mạng/CPU không đủ, sẽ giật. Giảm bitrate hoặc dùng GPU.</div>' : ""}
-        ${s.lastError ? `<div class="err">${s.lastError}</div>` : ""}`;
-      if (s.destinations?.some((d) => d.watchUrl)) renderWatch(s.destinations.map((d) => d.watchUrl).filter(Boolean));
+      state.lastStatus = await apiGet(`/api/tournament-auto-live/${state.session.sessionId}`);
+      renderLiveStatus();
     } catch (e) { /* ignore transient */ }
   };
   render();
@@ -709,6 +748,15 @@ window.api.onWorkerExit(({ sessionId, code }) => {
     $("statRows").innerHTML += `<div class="err">Worker đã dừng (code ${code}).</div>`;
   }
 });
+
+// Tiến độ đẩy segment recording (clip từng trận) → cập nhật màn live.
+if (window.api.onRecUpload) {
+  window.api.onRecUpload((p) => {
+    if (!state.session || p.sessionId !== state.session.sessionId) return;
+    state.recUpload = p;
+    renderLiveStatus();
+  });
+}
 
 // perMatchLive: trận bắt đầu → gắn preview local; trận kết thúc → tháo preview.
 window.api.onPerMatch((p) => {
