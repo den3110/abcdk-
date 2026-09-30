@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("api", {
   envCheck: () => ipcRenderer.invoke("env-check"),
+  sysStats: () => ipcRenderer.invoke("sys-stats"),
   login: (args) => ipcRenderer.invoke("login", args),
   get: (args) => ipcRenderer.invoke("api-get", args),
   req: (args) => ipcRenderer.invoke("api-req", args),

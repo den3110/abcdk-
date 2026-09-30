@@ -123,6 +123,7 @@ $("loginBtn").onclick = async () => {
 $("logoutBtn").onclick = () => {
   clearAuth(); state.token = ""; $("password").value = "";
   stopPoller();
+  clearInterval(state.sysTimer); state.sysTimer = null;
   $("logoutBtn").classList.add("hidden"); show("loginView");
 };
 
@@ -726,6 +727,49 @@ function goDashboard() {
   try { const v = $("preview"); v.pause(); v.removeAttribute("src"); v.load && v.load(); } catch {}
   renderDashboard();
   show("dashboardView");
+  startSysStats(); pollSys(); // hiệu năng máy + ước tính số sân
+}
+
+// ── Hiệu năng máy (CPU/RAM + ước tính còn bao nhiêu sân) ──
+function renderPerf(s) {
+  const card = $("perfCard");
+  if (!card || !s) return;
+  const cpu = s.cpuPct == null ? null : s.cpuPct;
+  const cpuColor = cpu == null ? "#94a3b8" : cpu < 60 ? "#34d399" : cpu < 80 ? "#f59e0b" : "#f87171";
+  const memPct = s.totalMemMB ? Math.round((s.usedMemMB / s.totalMemMB) * 100) : 0;
+  const bar = (pct, color) => `<div style="height:6px;background:#243244;border-radius:4px;overflow:hidden;margin-top:3px">
+      <div style="height:100%;width:${Math.max(0, Math.min(100, pct))}%;background:${color};transition:width .4s"></div></div>`;
+  const more = s.moreCourts == null ? "…" : s.moreCourts;
+  const moreColor = s.moreCourts == null ? "#94a3b8" : s.moreCourts > 0 ? "#34d399" : "#f87171";
+  card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div style="font-weight:700">🖥 Hiệu năng máy</div>
+      <div class="hint">${esc(s.cpuModel)} · ${s.cpuCount} lõi · ${esc(s.platform)}/${esc(s.arch)}</div>
+    </div>
+    <div class="row3" style="margin-top:8px;gap:16px">
+      <div>
+        <div class="hint">CPU ${cpu == null ? "…" : cpu + "%"}${s.loadavg && s.loadavg[0] ? ` · load ${s.loadavg[0]}` : ""}</div>
+        ${bar(cpu || 0, cpuColor)}
+      </div>
+      <div>
+        <div class="hint">RAM ${Math.round(s.usedMemMB/1024*10)/10}/${Math.round(s.totalMemMB/1024*10)/10} GB (${memPct}%)</div>
+        ${bar(memPct, memPct < 80 ? "#34d399" : "#f59e0b")}
+      </div>
+      <div>
+        <div class="hint">Đang live: <b>${s.liveCount}</b> sân</div>
+        <div style="font-size:15px;margin-top:2px">Còn ~<b style="color:${moreColor}">${more}</b> sân nữa</div>
+      </div>
+    </div>
+    <div class="hint" style="margin-top:6px">Ước tính theo headroom CPU (encode dùng GPU, decode/scale/overlay dùng CPU). Thực tế còn phụ thuộc <b>băng thông upload</b> và số phiên encode GPU cho phép.</div>`;
+}
+
+async function pollSys() {
+  try { renderPerf(await window.api.sysStats()); } catch { /* ignore */ }
+}
+function startSysStats() {
+  if (state.sysTimer) return;
+  pollSys();
+  state.sysTimer = setInterval(() => { if (!$("dashboardView").classList.contains("hidden")) pollSys(); }, 5000);
 }
 
 function cardHtml(S) {

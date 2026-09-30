@@ -797,6 +797,53 @@ function sendToRenderer(channel, payload) {
 }
 
 // ───────────────────────── IPC ───────────────────────────────────────────
+// ── Hiệu năng máy (cho dashboard: CPU/RAM + ước tính còn bao nhiêu sân) ──
+let _cpuSnap = null;
+function cpuSnapshot() {
+  let idle = 0, total = 0;
+  for (const c of os.cpus()) {
+    for (const k in c.times) total += c.times[k];
+    idle += c.times.idle;
+  }
+  return { idle, total };
+}
+function sampleCpuPct() {
+  const now = cpuSnapshot();
+  if (!_cpuSnap) { _cpuSnap = now; return null; } // lần đầu chưa có delta
+  const dIdle = now.idle - _cpuSnap.idle;
+  const dTotal = now.total - _cpuSnap.total;
+  _cpuSnap = now;
+  if (dTotal <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((1 - dIdle / dTotal) * 100)));
+}
+ipcMain.handle("sys-stats", () => {
+  const cpus = os.cpus();
+  const totalMemMB = Math.round(os.totalmem() / 1048576);
+  const freeMemMB = Math.round(os.freemem() / 1048576);
+  const cpuPct = sampleCpuPct();
+  const liveCount = running.size;
+  // Ước tính số sân còn chạy được: chủ yếu theo headroom CPU (encode dùng GPU nhưng
+  // decode+scale+overlay chạy CPU). Ngân sách 80% CPU. Có sân đang chạy → suy ra
+  // mức/1 sân; chưa có sân → ước lượng thô theo số lõi (~1.25 lõi/sân).
+  const CPU_BUDGET = 80;
+  let moreCourts = null;
+  if (cpuPct != null) {
+    if (liveCount >= 1) {
+      const perCourt = Math.max(cpuPct / liveCount, 1);
+      moreCourts = Math.max(0, Math.floor((CPU_BUDGET - cpuPct) / perCourt));
+    } else {
+      moreCourts = Math.max(0, Math.floor((cpus.length * (CPU_BUDGET / 100)) / 1.25));
+    }
+  }
+  return {
+    cpuModel: cpus[0]?.model || "", cpuCount: cpus.length, cpuPct,
+    totalMemMB, freeMemMB, usedMemMB: totalMemMB - freeMemMB,
+    loadavg: os.loadavg().map((x) => Math.round(x * 100) / 100),
+    platform: process.platform, arch: process.arch,
+    liveCount, moreCourts,
+  };
+});
+
 ipcMain.handle("env-check", () => {
   const selfContained = isSelfContained();
   const ffmpeg = detectFfmpeg();
