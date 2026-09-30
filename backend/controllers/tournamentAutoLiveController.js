@@ -7,6 +7,7 @@ import Tournament from "../models/tournamentModel.js";
 import CourtStation from "../models/courtStationModel.js";
 import CourtCluster from "../models/courtClusterModel.js";
 import FbToken from "../models/fbTokenModel.js";
+import RtspSource from "../models/rtspSourceModel.js";
 import {
   startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, getUserMatchOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
@@ -366,4 +367,73 @@ export const internalHeartbeat = asyncHandler(async (req, res) => {
   });
   // Trả stop=true để client (app desktop) tự dừng khi admin đã Dừng phiên.
   res.json({ ok: !!doc, stop: !!doc?._stopped });
+});
+
+/* ==================== THƯ VIỆN NGUỒN RTSP CÓ TÊN (admin) ==================== */
+// Lưu sẵn { tên gợi nhớ + link RTSP + vị trí overlay } để chọn nhanh khi Start live.
+
+const OVERLAY_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"];
+function normRtspLayout(l = {}) {
+  const pick = (v, d) => (OVERLAY_CORNERS.includes(v) ? v : d);
+  return {
+    scoreboard: pick(l?.scoreboard, "top-left"),
+    brand: pick(l?.brand, "top-right"),
+    sponsor: pick(l?.sponsor, "bottom-right"),
+  };
+}
+function rtspSourceDTO(x) {
+  return {
+    _id: String(x._id),
+    label: x.label || "",
+    url: x.url || "",
+    layout: normRtspLayout(x.layout),
+    note: x.note || "",
+  };
+}
+
+// GET /api/tournament-auto-live/rtsp-sources
+export const listRtspSources = asyncHandler(async (req, res) => {
+  const items = await RtspSource.find({}).sort({ label: 1, updatedAt: -1 }).lean();
+  res.json((items || []).map(rtspSourceDTO));
+});
+
+// POST /api/tournament-auto-live/rtsp-sources  { label, url, layout?, note? }
+export const createRtspSource = asyncHandler(async (req, res) => {
+  const { label, url, layout, note } = req.body || {};
+  if (!label || !String(label).trim()) { res.status(400); throw new Error("Thiếu tên gợi nhớ"); }
+  if (!url || !String(url).trim()) { res.status(400); throw new Error("Thiếu link RTSP"); }
+  const doc = await RtspSource.create({
+    label: String(label).trim(),
+    url: String(url).trim(),
+    layout: normRtspLayout(layout),
+    note: String(note || "").trim(),
+    createdBy: req.user?._id || null,
+  });
+  res.status(201).json(rtspSourceDTO(doc.toObject()));
+});
+
+// PUT /api/tournament-auto-live/rtsp-sources/:id
+export const updateRtspSource = asyncHandler(async (req, res) => {
+  const { label, url, layout, note } = req.body || {};
+  const set = {};
+  if (label != null) {
+    if (!String(label).trim()) { res.status(400); throw new Error("Tên gợi nhớ không được rỗng"); }
+    set.label = String(label).trim();
+  }
+  if (url != null) {
+    if (!String(url).trim()) { res.status(400); throw new Error("Link RTSP không được rỗng"); }
+    set.url = String(url).trim();
+  }
+  if (layout != null) set.layout = normRtspLayout(layout);
+  if (note != null) set.note = String(note).trim();
+  const doc = await RtspSource.findByIdAndUpdate(req.params.id, { $set: set }, { new: true }).lean();
+  if (!doc) { res.status(404); throw new Error("Không tìm thấy nguồn RTSP"); }
+  res.json(rtspSourceDTO(doc));
+});
+
+// DELETE /api/tournament-auto-live/rtsp-sources/:id
+export const deleteRtspSource = asyncHandler(async (req, res) => {
+  const doc = await RtspSource.findByIdAndDelete(req.params.id).lean();
+  if (!doc) { res.status(404); throw new Error("Không tìm thấy nguồn RTSP"); }
+  res.json({ ok: true });
 });

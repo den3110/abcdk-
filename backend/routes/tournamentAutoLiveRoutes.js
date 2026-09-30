@@ -6,6 +6,7 @@ import {
   internalGetImouSession, getStats, internalRefreshDestinations, workerConfig,
   listTournamentsForApp, listCourtsForApp, listFbPagesForApp, courtImouSession,
   courtImouStreamUrl, getVenueDahua, setVenueDahua, listDahuaVenues, dahuaSnapshot,
+  listRtspSources, createRtspSource, updateRtspSource, deleteRtspSource,
 } from "../controllers/tournamentAutoLiveController.js";
 
 const router = express.Router();
@@ -34,6 +35,11 @@ router.get("/venue-dahua", protect, admin, getVenueDahua);
 router.post("/venue-dahua", protect, admin, express.json(), setVenueDahua);
 router.get("/dahua-venues", protect, admin, listDahuaVenues);
 router.get("/dahua-snapshot", protect, admin, dahuaSnapshot);
+// Thư viện nguồn RTSP có tên (đặt TRƯỚC "/:id" để không bị route động nuốt).
+router.get("/rtsp-sources", protect, admin, listRtspSources);
+router.post("/rtsp-sources", protect, admin, express.json(), createRtspSource);
+router.put("/rtsp-sources/:id", protect, admin, express.json(), updateRtspSource);
+router.delete("/rtsp-sources/:id", protect, admin, deleteRtspSource);
 router.get("/:id/worker-config", protect, admin, workerConfig);
 router.get("/:id", protect, admin, getSession);
 
