@@ -14,7 +14,27 @@ import {
   refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
   getCourtImouStreamUrlForApp, saveVenueDahuaNvr, resolveDahuaRtsp,
 } from "../services/autoLive/tournamentAutoLive.service.js";
+import { recordingPlan, saveSegmentStream } from "../services/autoLive/autoLiveClip.service.js";
 import { spawn } from "child_process";
+
+// GET /api/tournament-auto-live/internal/recording/plan?sessionId= (worker token)
+// Desktop hỏi có nên upload segment lúc này không (khung giờ đêm) + segment đã có.
+export const internalRecordingPlan = asyncHandler(async (req, res) => {
+  assertWorkerToken(req, res);
+  const plan = await recordingPlan(String(req.query?.sessionId || ""));
+  res.json(plan);
+});
+
+// POST /api/tournament-auto-live/internal/recording/segment?sessionId=&file= (worker token)
+// Body = nội dung file segment MP4 (raw stream). Server lưu vào thư mục tạm của phiên.
+export const internalUploadSegment = asyncHandler(async (req, res) => {
+  assertWorkerToken(req, res);
+  const sessionId = String(req.query?.sessionId || "");
+  const file = String(req.query?.file || "");
+  if (!/^[a-f0-9]{24}$/i.test(sessionId)) { res.status(400); throw new Error("sessionId không hợp lệ"); }
+  const r = await saveSegmentStream(sessionId, file, req);
+  res.json(r);
+});
 
 // GET /api/tournament-auto-live/court-imou-session?imouDeviceId=xxx (admin)
 // App live iOS lấy session Imou đã giải mã của cam để tự kéo cam làm nguồn.
@@ -107,6 +127,7 @@ export const startSession = asyncHandler(async (req, res) => {
     autoNext: body.autoNext !== false,
     perMatchLive: body.perMatchLive === true, // true → mỗi trận 1 broadcast riêng
     title: body.title, // tiêu đề live tuỳ chỉnh (per-match: tự đặt Tên giải - Tên trận)
+    recordClips: body.recordClips === true, // ghi + cắt clip từng trận lên Drive (live xuyên suốt)
 
     layout: body.layout,
     advanced: body.advanced,

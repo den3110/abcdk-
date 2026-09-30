@@ -33,6 +33,7 @@ import { getValidPageToken } from "../fbTokenService.js";
 import { fbCreateLiveOnPage, fbGetLiveVideo, fbEndLiveVideo } from "../facebookLive.service.js";
 import { YouTubeProvider } from "../liveProviders/youtube.js";
 import { getCfgStr } from "../config.service.js";
+import { createClipTaskForEndedMatch, startAutoLiveClipWorker } from "./autoLiveClip.service.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,6 +95,9 @@ async function adoptRunningSessions() {
 // Đợi mongoose kết nối xong (server.js connect ngay khi boot).
 setTimeout(() => adoptRunningSessions().catch((e) =>
   console.error("[auto-live] adopt fail", e?.message || e)), 8000);
+// Worker cắt clip từng trận + upload Drive (claim nguyên tử nên an toàn với PM2 cluster).
+setTimeout(() => { try { startAutoLiveClipWorker(); } catch (e) {
+  console.error("[autolive-clip] start worker fail", e?.message || e); } }, 9000);
 
 /**
  * Trả về overlay PNG cho session (worker Python fetch qua ffmpeg).
@@ -175,7 +179,15 @@ async function pollOnce(sessionId) {
     // Live xuyên suốt: gỡ link khỏi trận cũ, gắn vào trận mới đang trên sân → mỗi
     // trận hiện link "Xem trực tiếp" đúng khoảng thời gian nó được live.
     const urls = sessionWatchUrls(session);
-    if (oldMatchId) await clearLiveLinksFromMatch(oldMatchId, urls);
+    if (oldMatchId) {
+      await clearLiveLinksFromMatch(oldMatchId, urls);
+      // Trận cũ vừa kết thúc → tạo task cắt clip từ recording (nếu bật recordClips).
+      if (session.recordClips) {
+        await createClipTaskForEndedMatch(session, oldMatchId, {
+          startAt: session.lastMatchChangeAt, endAt: new Date(),
+        });
+      }
+    }
     session.currentMatch = newMatchId || null;
     session.currentMatchLabel = newMatchId
       ? await matchShortLabel(newMatchId)
@@ -667,6 +679,7 @@ export async function startAutoLive(input) {
     tournamentId, courtStationId, imouDeviceId, destinations,
     startedBy, autoNext = true, venueId: explicitVenueId, layout, advanced,
     sourceUrl, dahuaP2p, perMatchLive = false, title: customTitle,
+    recordClips = false,
   } = input || {};
   const src = (sourceUrl || "").trim();
   const useDahua = !!(dahuaP2p && typeof dahuaP2p === "object"
@@ -759,6 +772,8 @@ export async function startAutoLive(input) {
     startedBy, destinations: preparedDest, autoNext, perMatchLive: !!perMatchLive,
     destSpecs: perMatchLive ? (destinations || []) : [],
     liveTitle: baseTitle,
+    // Ghi + cắt clip từng trận lên Drive: chỉ live xuyên suốt (không per-match).
+    recordClips: !perMatchLive && !!recordClips,
     layout: layout && typeof layout === "object" ? layout : undefined,
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     runner,
@@ -1086,6 +1101,12 @@ export async function stopAutoLive(sessionId) {
   const urls = sessionWatchUrls(session);
   const liveMids = [...new Set([session.liveMatchId, session.currentMatch].filter(Boolean).map(String))];
   for (const mid of liveMids) await clearLiveLinksFromMatch(mid, urls);
+  // Trận đang phát dở khi dừng phiên → vẫn tạo task cắt clip (live xuyên suốt).
+  if (session.recordClips && session.currentMatch) {
+    await createClipTaskForEndedMatch(session, session.currentMatch, {
+      startAt: session.lastMatchChangeAt, endAt: new Date(),
+    });
+  }
   // Kết thúc live FB + YouTube để không treo "đang phát" với hình đứng.
   await endDestinationBroadcasts(session.destinations || []);
   return session.toObject();
@@ -1233,6 +1254,10 @@ export async function getWorkerConfig(sessionId) {
     heartbeatUrl: `${base}/api/tournament-auto-live/internal/heartbeat`,
     sessionPostUrl: `${base}/api/tournament-auto-live/internal/imou-session`,
     destinationsUrl: `${base}/api/tournament-auto-live/internal/destinations`,
+    // Ghi + cắt clip từng trận: bật ghi segment local + đẩy về server ban đêm.
+    recordClips: !!s.recordClips,
+    recordingPlanUrl: `${base}/api/tournament-auto-live/internal/recording/plan`,
+    recordingSegmentUrl: `${base}/api/tournament-auto-live/internal/recording/segment`,
   };
 }
 

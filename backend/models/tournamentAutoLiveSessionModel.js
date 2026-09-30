@@ -94,6 +94,12 @@ const tournamentAutoLiveSessionSchema = new Schema(
     destSpecs: { type: [Schema.Types.Mixed], default: [] },
     // Tiêu đề live (FB/YT). perMatchLive: tự đặt "Tên giải - Tên trận" mỗi trận.
     liveTitle: { type: String, default: "" },
+    // Ghi bản ghi local + cắt clip TỪNG TRẬN rồi upload Google Drive ban đêm.
+    // Chỉ áp dụng live XUYÊN SUỐT (perMatchLive=false). Worker desktop ghi segment,
+    // ban đêm đẩy segment về server → server cắt [startedAt,finishedAt] → Drive.
+    recordClips: { type: Boolean, default: false },
+    // Đã dọn thư mục segment tạm trên server sau khi mọi clip xong (tránh dọn lại).
+    recordCleanedAt: { type: Date, default: null },
     // Vị trí overlay trên stream (corner: top-left/top-right/bottom-left/bottom-right)
     layout: {
       scoreboard: { type: String, default: "top-left" },
