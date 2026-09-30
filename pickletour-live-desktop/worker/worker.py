@@ -36,6 +36,7 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.error
@@ -704,7 +705,7 @@ def main():
     if not tee:
         log("no valid destinations", err=True); sys.exit(3)
 
-    work_dir = f"/tmp/autolive-{session_id}"
+    work_dir = os.path.join(tempfile.gettempdir(), f"autolive-{session_id}")
     os.makedirs(work_dir, exist_ok=True)
 
     def post_session(sess):
@@ -768,13 +769,17 @@ def main():
         time.sleep(1)
     overlay_fifo = os.path.join(work_dir, "overlay.pipe") if have_overlay else None
     if overlay_fifo:
-        try:
-            if os.path.exists(overlay_fifo):
-                os.unlink(overlay_fifo)
-            os.mkfifo(overlay_fifo)
-        except OSError as e:
-            log(f"mkfifo fail: {e} → stream không overlay", err=True)
+        if not hasattr(os, "mkfifo"):
+            log("os.mkfifo không có trên nền tảng này (Windows) → stream không overlay", err=True)
             overlay_fifo = None
+        else:
+            try:
+                if os.path.exists(overlay_fifo):
+                    os.unlink(overlay_fifo)
+                os.mkfifo(overlay_fifo)
+            except OSError as e:
+                log(f"mkfifo fail: {e} → stream không overlay", err=True)
+                overlay_fifo = None
     if not have_overlay:
         log("overlay unavailable → stream without overlay", err=True)
 
