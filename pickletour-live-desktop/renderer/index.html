@@ -38,8 +38,19 @@
     </div>
   </section>
 
+  <!-- DASHBOARD (nhiều sân) -->
+  <section id="dashboardView" class="view hidden">
+    <div class="dashhead">
+      <h2>Sân đang live</h2>
+      <button id="addCourtBtn" class="primary big">＋ Thêm sân để live</button>
+    </div>
+    <div id="dashEmpty" class="hint" style="margin:8px 0">Chưa có sân nào đang live. Bấm “＋ Thêm sân để live” để bắt đầu (mỗi sân cấu hình overlay/tài trợ/logo/tiêu đề riêng).</div>
+    <div id="courtCards" class="courtcards"></div>
+  </section>
+
   <!-- SETUP -->
   <section id="setupView" class="view hidden">
+    <div style="margin-bottom:10px"><button id="cancelSetup" class="ghost">← Quay lại danh sách sân</button></div>
     <div class="grid2">
       <div class="card">
         <h3>1 · Chọn giải & sân</h3>
@@ -153,7 +164,7 @@
       <h3>3 · Điểm đến livestream</h3>
       <label>Tiêu đề live (FB/YouTube)</label>
       <input id="liveTitle" placeholder="Vd: Giải Pickleball The Riverside — Sân 1" />
-      <div id="liveTitleHint" class="hint">Để trống = dùng tên giải. Nếu bật "Live riêng từng trận" → tự đặt <b>Tên giải - Tên trận</b> cho mỗi trận.</div>
+      <div id="liveTitleHint" class="hint">Để trống = tự đặt <b>Tên giải - Tên sân</b>. Nếu bật "Live riêng từng trận" → tự đặt <b>Tên giải - Tên trận</b> cho mỗi trận.</div>
       <div class="destadd">
         <select id="destType">
           <option value="fb">Facebook Page</option>
@@ -217,8 +228,9 @@
     <div class="hint">⚡ <b>Live thẳng RTMP</b>: đẩy camera trực tiếp tới đích RTMP/YouTube (mục 3) — KHÔNG qua server PickleTour, không overlay/điểm số. Chỉ nhận đích loại <b>RTMP tuỳ chỉnh</b> hoặc <b>YouTube</b>.</div>
   </section>
 
-  <!-- LIVE -->
+  <!-- LIVE (chi tiết 1 sân) -->
   <section id="liveView" class="view hidden">
+    <div style="margin-bottom:10px"><button id="backToDash" class="ghost">← Danh sách sân</button></div>
     <div class="grid2">
       <div class="card">
         <h3>Preview trực tiếp</h3>

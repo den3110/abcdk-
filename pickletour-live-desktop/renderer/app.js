@@ -3,8 +3,11 @@ const $ = (id) => document.getElementById(id);
 const state = {
   baseUrl: "", token: "", runnerLabel: "",
   cams: [], fbPages: [], destinations: [], encoders: [],
-  session: null, hls: null, statusTimer: null,
+  // Nhiều sân trên 1 app: mỗi sid → 1 phiên. activeSid = sân đang mở màn chi tiết.
+  sessions: new Map(), activeSid: null, hls: null, pollTimer: null, pollTick: 0,
 };
+// Phiên đang xem chi tiết (hoặc null nếu đang ở dashboard).
+function activeS() { return state.activeSid ? state.sessions.get(state.activeSid) : null; }
 
 const CORNERS = [
   ["top-left", "Trên·Trái"], ["top-right", "Trên·Phải"],
@@ -12,7 +15,7 @@ const CORNERS = [
 ];
 
 function show(view) {
-  for (const v of ["loginView", "setupView", "liveView"]) $(v).classList.add("hidden");
+  for (const v of ["loginView", "dashboardView", "setupView", "liveView"]) $(v).classList.add("hidden");
   $(view).classList.remove("hidden");
 }
 function apiGet(p) { return window.api.get({ baseUrl: state.baseUrl, token: state.token, path: p }); }
@@ -96,7 +99,7 @@ function renderSetupHelper(env) {
         await apiGet("/api/tournament-auto-live/fb-pages"); // ping có auth
         await loadSetup();
         $("logoutBtn").classList.remove("hidden");
-        show("setupView");
+        goDashboard();
       } catch { clearAuth(); }
     }
   }
@@ -113,12 +116,13 @@ $("loginBtn").onclick = async () => {
     if ($("remember").checked) saveAuth(); else clearAuth();
     await loadSetup();
     $("logoutBtn").classList.remove("hidden");
-    show("setupView");
+    goDashboard();
   } catch (e) { $("loginErr").textContent = e.message; }
 };
 
 $("logoutBtn").onclick = () => {
   clearAuth(); state.token = ""; $("password").value = "";
+  stopPoller();
   $("logoutBtn").classList.add("hidden"); show("loginView");
 };
 
@@ -373,7 +377,7 @@ $("perMatchLive").addEventListener("change", () => {
   $("liveTitle").disabled = on;
   $("liveTitle").placeholder = on
     ? "Tự động: Tên giải - Tên trận (mỗi trận)"
-    : "Vd: Giải Pickleball The Riverside — Sân 1";
+    : "Để trống = Tên giải - Tên sân";
   // Ghi + cắt clip từng trận chỉ dùng cho live xuyên suốt → per-match thì tắt.
   const rec = $("recordClips");
   if (rec) {
@@ -442,6 +446,14 @@ $("goLive").onclick = async () => {
       imouDeviceId = cam.deviceId; venueId = cam.venueId;
     }
     if (!state.destinations.length) throw new Error("Thêm ít nhất 1 điểm đến");
+    // Tên giải + tên sân (text option đang chọn) — để hiện + đặt title mặc định.
+    const tournamentName = $("tournament").selectedOptions?.[0]?.textContent?.trim() || "";
+    const courtName = $("court").selectedOptions?.[0]?.textContent?.trim() || "";
+    const perMatch = $("perMatchLive").checked;
+    // Title mặc định (live xuyên suốt) = "Tên giải - Tên sân". Per-match → backend tự
+    // đặt "Tên giải - Tên trận". Người dùng nhập title riêng thì ưu tiên.
+    const titleInput = $("liveTitle").value.trim();
+    const defaultTitle = [tournamentName, courtName].filter(Boolean).join(" - ");
     const form = {
       tournamentId: $("tournament").value,
       courtStationId: $("court").value,
@@ -449,11 +461,11 @@ $("goLive").onclick = async () => {
       destinations: state.destinations,
       encoder: $("encoder").value,
       runnerLabel: state.runnerLabel,
-      perMatchLive: $("perMatchLive").checked,
-      title: $("perMatchLive").checked ? "" : $("liveTitle").value.trim(),
+      perMatchLive: perMatch,
+      title: perMatch ? "" : (titleInput || defaultTitle),
       browserOverlayUrl: $("browserOverlayUrl").value.trim(),
       // Ghi + cắt clip từng trận lên Drive: chỉ live xuyên suốt (không per-match).
-      recordClips: $("recordClips").checked && !$("perMatchLive").checked,
+      recordClips: $("recordClips").checked && !perMatch,
       layout: {
         scoreboard: $("lay_scoreboard").value,
         brand: $("lay_brand").value,
@@ -467,26 +479,21 @@ $("goLive").onclick = async () => {
         encoder: $("encoder").value || "auto",
       },
     };
-    // Lưu tên giải + tên sân (từ text option đang chọn) để hiện ở màn live.
-    state.liveTournamentName = $("tournament").selectedOptions?.[0]?.textContent?.trim() || "";
-    state.liveCourtName = $("court").selectedOptions?.[0]?.textContent?.trim() || "";
-    state.recordClips = !!form.recordClips;
-    state.recUpload = null;
     $("goLive").disabled = true; $("goLive").textContent = "Đang khởi động…";
     const res = await window.api.start({ baseUrl: state.baseUrl, token: state.token, form });
-    state.session = res;
-    state.perMatchArmed = !!res.perMatchArmed;
-    show("liveView");
-    if (res.perMatchArmed) {
-      // Chờ trận bắt đầu — chưa live. pollStatus sẽ hiện "paused / chờ trận";
-      // onPerMatch sẽ gắn preview khi trận start.
-      renderWatch([]);
-    } else {
-      startPreview(res.previewUrl);
-      renderWatch(res.watchUrls);
-    }
-    pollStatus();
-    startClipPoll(); // clip từng trận (nếu bật recordClips) → hiện số clip + link Drive
+    // Lưu phiên vào store nhiều sân.
+    state.sessions.set(res.sessionId, {
+      sid: res.sessionId,
+      tournamentName, courtName,
+      title: form.title, perMatch,
+      recordClips: !!form.recordClips,
+      previewUrl: res.previewUrl || "",
+      perMatchArmed: !!res.perMatchArmed,
+      watchUrls: res.watchUrls || [],
+      lastStatus: null, recUpload: null, clips: [], exited: null,
+    });
+    ensurePoller();
+    goDashboard();
   } catch (e) {
     $("setupErr").textContent = e.message;
   } finally {
@@ -656,8 +663,8 @@ function startPreview(url) {
 
 function renderWatch(urls) {
   $("watchLinks").innerHTML = (urls || []).length
-    ? urls.map((u) => `<span class="chip"><a href="#" data-u="${u}">↗ Mở link xem</a></span>`).join("")
-    : '<span class="hint">FB link sẽ có sau ~10s (bấm làm mới trạng thái)</span>';
+    ? urls.map((u) => `<span class="chip"><a href="#" data-u="${esc(u)}">↗ Mở link xem</a></span>`).join("")
+    : '<span class="hint">FB link sẽ có sau ~10s</span>';
   $("watchLinks").querySelectorAll("a").forEach((a) =>
     a.onclick = (ev) => { ev.preventDefault(); window.api.openExternal(a.dataset.u); });
 }
@@ -667,13 +674,26 @@ function esc(v) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
 
+const CLIP_STATUS = {
+  pending: ["Chờ đủ segment", "#94a3b8"],
+  cutting: ["Đang cắt", "#60a5fa"],
+  uploading: ["Đang lên Drive", "#f59e0b"],
+  done: ["Xong", "#34d399"],
+  failed: ["Lỗi", "#f87171"],
+  skipped: ["Bỏ qua", "#f59e0b"],
+};
+
+function statusBadge(st) {
+  return st === "live" ? '<span class="badge live">LIVE</span>'
+    : st === "error" ? '<span class="badge err">LỖI</span>'
+    : `<span class="badge warn">${esc(st || "…")}</span>`;
+}
+
 // Khối tiến độ đẩy segment recording (chỉ khi bật "Ghi + cắt clip từng trận").
-function recUploadHtml() {
-  if (!state.recordClips) return "";
-  const u = state.recUpload;
-  if (!u) {
-    return `<div>🎬 Ghi clip từng trận: <b style="color:#34d399">bật</b> <span class="hint">— đang ghi, sẽ đẩy về server để cắt + lên Drive.</span></div>`;
-  }
+function recUploadHtml(S) {
+  if (!S.recordClips) return "";
+  const u = S.recUpload;
+  if (!u) return `<div>🎬 Ghi clip từng trận: <b style="color:#34d399">bật</b> <span class="hint">— đang ghi, sẽ đẩy về server để cắt + lên Drive.</span></div>`;
   const total = u.total || 0;
   const uploaded = u.uploaded || 0;
   const pct = total ? Math.round((uploaded / total) * 100) : (u.done ? 100 : 0);
@@ -687,12 +707,77 @@ function recUploadHtml() {
   return `<div>🎬 Đẩy clip: ${uploaded}/${total} segment (${pct}%) · ${statusTxt}${bar}</div>`;
 }
 
-function renderLiveStatus() {
-  if (!state.session) return;
-  const s = state.lastStatus || {};
-  const badge = s.status === "live" ? '<span class="badge live">LIVE</span>'
-    : s.status === "error" ? '<span class="badge err">LỖI</span>'
-    : `<span class="badge warn">${esc(s.status || "…")}</span>`;
+// ── Dashboard nhiều sân ──
+function goDashboard() {
+  state.activeSid = null;
+  if (state.hls) { try { state.hls.destroy(); } catch {} state.hls = null; }
+  try { const v = $("preview"); v.pause(); v.removeAttribute("src"); v.load && v.load(); } catch {}
+  renderDashboard();
+  show("dashboardView");
+}
+
+function cardHtml(S) {
+  const s = S.lastStatus || {};
+  const spd = Number(s.speed || 0);
+  const spdColor = spd >= 0.97 ? "#34d399" : spd >= 0.9 ? "#f59e0b" : "#f87171";
+  const net = s.bitrateKbps
+    ? `${(s.bitrateKbps / 1000).toFixed(2)}Mbps · ${s.fps || 0}fps · <span style="color:${spdColor}">${spd.toFixed(2)}×</span>`
+    : "—";
+  const clips = S.clips || [];
+  const doneN = clips.filter((c) => c.status === "done").length;
+  const clipLine = S.recordClips
+    ? `<div class="hint">🎬 Clip: ${doneN}/${clips.length} lên Drive${S.recUpload && S.recUpload.total ? ` · đẩy ${S.recUpload.uploaded || 0}/${S.recUpload.total}` : ""}</div>`
+    : "";
+  const exitedLine = (S.exited && !S.perMatch)
+    ? `<div class="err">Worker đã dừng (mã ${esc(S.exited.code)})</div>` : "";
+  const errLine = s.lastError ? `<div class="err">${esc(s.lastError)}</div>` : "";
+  return `<div class="card courtcard">
+    <div class="courtcard-head">
+      <div><b>${esc(S.courtName) || "Sân"}</b> ${statusBadge(s.status)}
+        <div class="hint">${esc(S.tournamentName)}</div></div>
+    </div>
+    <div>Trận: <b>${esc(s.currentMatchLabel) || "—"}</b></div>
+    <div class="hint">🌐 ${net} · CPU ${s.cpuPct || 0}% · RAM ${s.memMB || 0}MB</div>
+    ${clipLine}${exitedLine}${errLine}
+    <div class="actions" style="margin-top:8px">
+      <button class="ghost" data-act="view" data-sid="${S.sid}">👁 Xem</button>
+      <button class="ghost" data-act="log" data-sid="${S.sid}">Log</button>
+      <button class="danger" data-act="stop" data-sid="${S.sid}">■ Dừng</button>
+    </div>
+  </div>`;
+}
+
+function renderDashboard() {
+  const arr = [...state.sessions.values()];
+  $("dashEmpty").classList.toggle("hidden", arr.length > 0);
+  const wrap = $("courtCards");
+  wrap.innerHTML = arr.map(cardHtml).join("");
+  wrap.querySelectorAll("button[data-act]").forEach((btn) => {
+    btn.onclick = () => {
+      const sid = btn.dataset.sid, act = btn.dataset.act;
+      if (act === "view") openDetail(sid);
+      else if (act === "log") window.api.openLog(sid);
+      else if (act === "stop") stopSession(sid);
+    };
+  });
+}
+
+// ── Chi tiết 1 sân (màn liveView, bám activeSid) ──
+function openDetail(sid) {
+  const S = state.sessions.get(sid);
+  if (!S) return;
+  state.activeSid = sid;
+  if (state.hls) { try { state.hls.destroy(); } catch {} state.hls = null; }
+  try { const v = $("preview"); v.pause(); v.removeAttribute("src"); v.load && v.load(); } catch {}
+  if (S.previewUrl) startPreview(S.previewUrl);
+  renderDetail();
+  show("liveView");
+}
+
+function renderDetail() {
+  const S = activeS();
+  if (!S) return;
+  const s = S.lastStatus || {};
   const up = s.startedAt ? Math.round((Date.now() - new Date(s.startedAt)) / 60000) : 0;
   const spd = Number(s.speed || 0);
   const spdColor = spd >= 0.97 ? "#34d399" : spd >= 0.9 ? "#f59e0b" : "#f87171";
@@ -700,54 +785,37 @@ function renderLiveStatus() {
     ? `<b>${(s.bitrateKbps / 1000).toFixed(2)} Mbps</b> · ${s.fps || 0}fps · <span style="color:${spdColor}">tốc độ ${spd.toFixed(2)}×</span>`
     : "<b>—</b>";
   $("statRows").innerHTML = `
-    <div>Giải: <b>${esc(state.liveTournamentName) || "—"}</b></div>
-    <div>Sân: <b>${esc(state.liveCourtName) || "—"}</b></div>
-    <div>Trạng thái: ${badge}</div>
+    <div>Giải: <b>${esc(S.tournamentName) || "—"}</b></div>
+    <div>Sân: <b>${esc(S.courtName) || "—"}</b></div>
+    <div>Tiêu đề: <b>${esc(S.perMatch ? "Tự động: Tên giải - Tên trận" : (S.title || "—"))}</b></div>
+    <div>Trạng thái: ${statusBadge(s.status)}</div>
     <div>Trận: <b>${esc(s.currentMatchLabel) || "—"}</b></div>
     <div>🌐 Tốc độ live: ${net}</div>
     <div>Encoder: <b>${esc(s.encoder) || "?"}</b> · CPU <b>${s.cpuPct || 0}%</b> · RAM <b>${s.memMB || 0}MB</b></div>
     <div>Máy: <b>${esc(s.runnerLabel || state.runnerLabel)}</b></div>
     <div>Uptime: <b>${up}m</b></div>
-    ${recUploadHtml()}
+    ${recUploadHtml(S)}
+    ${S.exited && !S.perMatch ? `<div class="err">Worker đã dừng (mã ${esc(S.exited.code)}).</div>` : ""}
     ${spd && spd < 0.95 ? '<div class="err">⚠ Tốc độ < realtime → mạng/CPU không đủ, sẽ giật. Giảm bitrate hoặc dùng GPU.</div>' : ""}
     ${s.lastError ? `<div class="err">${esc(s.lastError)}</div>` : ""}`;
-  if (s.destinations?.some((d) => d.watchUrl)) renderWatch(s.destinations.map((d) => d.watchUrl).filter(Boolean));
+  const urls = s.destinations?.some((d) => d.watchUrl)
+    ? s.destinations.map((d) => d.watchUrl).filter(Boolean)
+    : (S.watchUrls || []);
+  renderWatch(urls);
+  renderClips(S);
 }
 
-async function pollStatus() {
-  clearInterval(state.statusTimer);
-  const render = async () => {
-    if (!state.session) return;
-    try {
-      state.lastStatus = await apiGet(`/api/tournament-auto-live/${state.session.sessionId}`);
-      renderLiveStatus();
-    } catch (e) { /* ignore transient */ }
-  };
-  render();
-  state.statusTimer = setInterval(render, 5000);
-}
-
-const CLIP_STATUS = {
-  pending: ["Chờ đủ segment", "#94a3b8"],
-  cutting: ["Đang cắt", "#60a5fa"],
-  uploading: ["Đang lên Drive", "#f59e0b"],
-  done: ["Xong", "#34d399"],
-  failed: ["Lỗi", "#f87171"],
-  skipped: ["Bỏ qua", "#f59e0b"],
-};
-
-function renderClips(clips) {
+function renderClips(S) {
   const box = $("clipBox");
-  if (!clips || !clips.length) { box.classList.add("hidden"); return; }
+  const clips = S.clips || [];
+  if (!S.recordClips || !clips.length) { box.classList.add("hidden"); return; }
   box.classList.remove("hidden");
   const done = clips.filter((c) => c.status === "done").length;
   $("clipSummary").textContent = `(${done}/${clips.length} đã lên Drive)`;
   $("clipList").innerHTML = clips.map((c) => {
     const [label, color] = CLIP_STATUS[c.status] || [c.status, "#94a3b8"];
     const name = esc(c.matchCode || c.title || "Trận");
-    const link = c.driveUrl
-      ? ` · <a href="#" class="cliplink" data-u="${esc(c.driveUrl)}">↗ Mở Drive</a>`
-      : "";
+    const link = c.driveUrl ? ` · <a href="#" class="cliplink" data-u="${esc(c.driveUrl)}">↗ Mở Drive</a>` : "";
     const errTip = c.status === "failed" && c.lastError ? ` title="${esc(c.lastError)}"` : "";
     return `<div${errTip}><b>${name}</b> — <span style="color:${color}">${esc(label)}</span>${link}</div>`;
   }).join("");
@@ -755,65 +823,99 @@ function renderClips(clips) {
     a.onclick = (ev) => { ev.preventDefault(); window.api.openExternal(a.dataset.u); });
 }
 
-function startClipPoll() {
-  clearInterval(state.clipTimer);
-  if (!state.recordClips) return;
-  const run = async () => {
-    if (!state.session) return;
-    try {
-      const clips = await apiGet(`/api/tournament-auto-live/clips?sessionId=${state.session.sessionId}`);
-      renderClips(clips);
-    } catch (e) { /* ignore transient */ }
-  };
-  run();
-  state.clipTimer = setInterval(run, 20000);
+// ── Master poller: cập nhật mọi sân ──
+function ensurePoller() {
+  if (state.pollTimer) return;
+  state.pollTimer = setInterval(pollAll, 5000);
+  pollAll();
 }
+function stopPoller() { clearInterval(state.pollTimer); state.pollTimer = null; }
 
-$("stopLive").onclick = async () => {
-  if (state.session) {
-    await window.api.stop({ baseUrl: state.baseUrl, token: state.token, sessionId: state.session.sessionId });
+async function pollAll() {
+  if (!state.sessions.size) { stopPoller(); return; }
+  state.pollTick++;
+  const doClips = state.pollTick % 4 === 0; // ~20s
+  for (const S of state.sessions.values()) {
+    try { S.lastStatus = await apiGet(`/api/tournament-auto-live/${S.sid}`); } catch { /* transient */ }
+    if (S.recordClips && doClips) {
+      try { S.clips = (await apiGet(`/api/tournament-auto-live/clips?sessionId=${S.sid}`)) || []; } catch { /* transient */ }
+    }
   }
-  cleanupLive();
-  show("setupView");
-};
-$("openLog").onclick = () => { if (state.session) window.api.openLog(state.session.sessionId); };
-
-function cleanupLive() {
-  clearInterval(state.statusTimer);
-  clearInterval(state.clipTimer);
-  if (state.hls) { state.hls.destroy(); state.hls = null; }
-  state.session = null;
-  $("clipBox").classList.add("hidden");
+  renderDashboard();
+  if (state.activeSid) renderDetail();
 }
+
+async function stopSession(sid) {
+  const S = state.sessions.get(sid);
+  if (!S) return;
+  try { await window.api.stop({ baseUrl: state.baseUrl, token: state.token, sessionId: sid }); } catch {}
+  state.sessions.delete(sid);
+  if (state.activeSid === sid) {
+    state.activeSid = null;
+    if (state.hls) { try { state.hls.destroy(); } catch {} state.hls = null; }
+  }
+  if (!state.sessions.size) stopPoller();
+  goDashboard();
+}
+
+$("stopLive").onclick = () => { if (state.activeSid) stopSession(state.activeSid); };
+$("openLog").onclick = () => { if (state.activeSid) window.api.openLog(state.activeSid); };
+$("backToDash").onclick = () => goDashboard();
 
 window.api.onWorkerExit(({ sessionId, code }) => {
-  if (state.session && state.session.sessionId === sessionId) {
-    // per-match: worker dừng giữa các trận là BÌNH THƯỜNG → không báo lỗi.
-    if (state.perMatchArmed) return;
-    $("statRows").innerHTML += `<div class="err">Worker đã dừng (code ${code}).</div>`;
-  }
+  const S = state.sessions.get(sessionId);
+  if (!S) return;
+  S.exited = { code };
+  renderDashboard();
+  if (state.activeSid === sessionId) renderDetail();
 });
 
-// Tiến độ đẩy segment recording (clip từng trận) → cập nhật màn live.
+// Tiến độ đẩy segment recording (clip từng trận).
 if (window.api.onRecUpload) {
   window.api.onRecUpload((p) => {
-    if (!state.session || p.sessionId !== state.session.sessionId) return;
-    state.recUpload = p;
-    renderLiveStatus();
+    const S = state.sessions.get(p.sessionId);
+    if (!S) return;
+    S.recUpload = p;
+    renderDashboard();
+    if (state.activeSid === p.sessionId) renderDetail();
   });
 }
 
-// perMatchLive: trận bắt đầu → gắn preview local; trận kết thúc → tháo preview.
+// perMatchLive: trận bắt đầu → gắn preview; trận kết thúc → tháo preview.
 window.api.onPerMatch((p) => {
-  if (!state.session || p.sessionId !== state.session.sessionId) return;
+  const S = state.sessions.get(p.sessionId);
+  if (!S) return;
   if (p.kind === "live") {
-    if (p.previewUrl) startPreview(p.previewUrl);
-    renderWatch(p.watchUrls || []);
+    S.previewUrl = p.previewUrl || S.previewUrl;
+    S.watchUrls = p.watchUrls || S.watchUrls;
+    if (state.activeSid === p.sessionId && S.previewUrl) startPreview(S.previewUrl);
   } else if (p.kind === "paused") {
-    if (state.hls) { try { state.hls.destroy(); } catch {} state.hls = null; }
-    try { const v = $("preview"); v.removeAttribute("src"); v.load && v.load(); } catch {}
-    renderWatch([]);
+    S.previewUrl = "";
+    if (state.activeSid === p.sessionId) {
+      if (state.hls) { try { state.hls.destroy(); } catch {} state.hls = null; }
+      try { const v = $("preview"); v.removeAttribute("src"); v.load && v.load(); } catch {}
+    }
   } else if (p.kind === "error") {
-    $("statRows").innerHTML += `<div class="err">Lỗi khi lên live trận: ${p.message || ""}</div>`;
+    S.perMatchError = p.message || "";
   }
+  renderDashboard();
+  if (state.activeSid === p.sessionId) renderDetail();
 });
+
+// ── Thêm sân / quay lại ──
+$("addCourtBtn").onclick = () => { resetSetupForNewCourt(); show("setupView"); };
+$("cancelSetup").onclick = () => goDashboard();
+
+function resetSetupForNewCourt() {
+  // Mỗi sân cấu hình riêng: xoá điểm đến + tiêu đề của sân trước (giữ overlay corners
+  // làm mặc định tiện dụng). Overlay/sponsor/logo + title vẫn chỉnh được cho từng sân.
+  state.destinations = [];
+  try { renderDests(); } catch { const dl = $("destList"); if (dl) dl.innerHTML = ""; }
+  $("liveTitle").value = "";
+  $("perMatchLive").checked = false;
+  $("recordClips").checked = false;
+  $("recordClips").disabled = false;
+  $("liveTitle").disabled = false;
+  $("setupErr").textContent = "";
+  stopSetupPreview();
+}
