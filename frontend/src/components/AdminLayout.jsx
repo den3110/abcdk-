@@ -28,6 +28,7 @@ import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import SmartToyIcon from "@mui/icons-material/SmartToy";
 import SecurityIcon from "@mui/icons-material/Security";
 import HistoryIcon from "@mui/icons-material/History";
+import LiveTvIcon from "@mui/icons-material/LiveTv";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import SEOHead from "../components/SEOHead";
@@ -121,6 +122,16 @@ export default function AdminLayout({ children }) {
           label: tx("admin.layout.broadcast", "Gửi thông báo"),
           icon: <CampaignIcon />,
           path: "/admin/broadcast",
+        },
+      ],
+    },
+    {
+      title: tx("admin.layout.groupLive", "Phát trực tiếp"),
+      items: [
+        {
+          label: tx("admin.layout.liveControl", "Điều khiển Live"),
+          icon: <LiveTvIcon />,
+          path: "/admin/live-control",
         },
       ],
     },
