@@ -129,8 +129,17 @@ async def offer(request):
             loop = asyncio.get_event_loop()
             player = await asyncio.wait_for(loop.run_in_executor(None, _open_player), timeout=8)
             if player and player.video:
-                pc.addTrack(player.video)
+                # Gắn thẳng vào transceiver video mà trình duyệt đã chào (recvonly) để
+                # chắc chắn video đi đúng m-line; addTrack tự chọn có thể lệch khi có
+                # cả audio + video m-line.
+                vtrans = next((t for t in pc.getTransceivers() if t.kind == "video"), None)
+                if vtrans is not None:
+                    vtrans.sender.replaceTrack(player.video)
+                    vtrans.direction = "sendonly"
+                else:
+                    pc.addTrack(player.video)
                 pc._preview_player = player  # giữ ref tránh bị GC đóng
+                print("[relay] preview360 OK → gắn video track", flush=True)
         except Exception as e:  # noqa: BLE001
             print(f"[relay] preview360 lỗi (bỏ video, vẫn có audio): {e!r}", flush=True)
 

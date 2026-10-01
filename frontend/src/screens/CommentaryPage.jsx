@@ -33,7 +33,9 @@ function waitIceComplete(pc) {
 }
 
 export default function CommentaryPage() {
-  const { token } = useParams();
+  const params = useParams();
+  const codeParam = params.code;
+  const [token, setToken] = useState(params.token || "");
   const [info, setInfo] = useState(null);
   const [loadingInfo, setLoadingInfo] = useState(true);
   const [status, setStatus] = useState("idle"); // idle|connecting|connected|error
@@ -53,10 +55,21 @@ export default function CommentaryPage() {
     let alive = true;
     (async () => {
       try {
-        const r = await fetch(`${BASE_URL}/api/commentary/info/${token}`);
-        const d = await r.json();
-        if (!r.ok) throw new Error(d?.message || "Liên kết không hợp lệ");
-        if (alive) setInfo(d);
+        if (codeParam) {
+          // Mã ngắn /c/<code> → đổi lấy token + thông tin.
+          const r = await fetch(`${BASE_URL}/api/commentary/by-code/${codeParam}`);
+          const d = await r.json();
+          if (!r.ok) throw new Error(d?.message || "Mã không hợp lệ");
+          if (alive) {
+            setToken(d.token);
+            setInfo(d);
+          }
+        } else {
+          const r = await fetch(`${BASE_URL}/api/commentary/info/${params.token}`);
+          const d = await r.json();
+          if (!r.ok) throw new Error(d?.message || "Liên kết không hợp lệ");
+          if (alive) setInfo(d);
+        }
       } catch (e) {
         if (alive) setErr(e?.message || "Liên kết hết hạn hoặc không hợp lệ");
       } finally {
@@ -66,7 +79,7 @@ export default function CommentaryPage() {
     return () => {
       alive = false;
     };
-  }, [token]);
+  }, [codeParam, params.token]);
 
   const stopMeter = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);

@@ -5,9 +5,21 @@
 import asyncHandler from "express-async-handler";
 import jwt from "jsonwebtoken";
 import LiveControlMachine from "../models/liveControlMachineModel.js";
+import CommentaryCode from "../models/commentaryCodeModel.js";
 
 const ONLINE_MS = 60 * 1000;
 const TOKEN_TTL = "2h";
+const TTL_MS = 2 * 60 * 60 * 1000;
+
+async function genUniqueCode() {
+  for (let i = 0; i < 6; i += 1) {
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    // eslint-disable-next-line no-await-in-loop
+    const existed = await CommentaryCode.findOne({ code }).lean();
+    if (!existed) return code;
+  }
+  return String(Date.now()).slice(-6);
+}
 // Sidecar aiortc chạy cục bộ trên VPS (pm2). Đổi bằng env nếu cần.
 const AIORTC_URL = process.env.COMMENTARY_AIORTC_URL || "http://127.0.0.1:8790";
 
@@ -29,14 +41,26 @@ export const createCommentaryToken = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Không tìm thấy máy");
   }
+  const courtName = String(req.body?.courtName || "");
   const token = jwt.sign(
-    { typ: "commentary", machineId, sid, courtName: String(req.body?.courtName || "") },
+    { typ: "commentary", machineId, sid, courtName },
     process.env.JWT_SECRET,
     { expiresIn: TOKEN_TTL },
   );
-  // Trang bình luận là route SPA của frontend (pickletour.vn/commentary/:token).
+  // Mã ngắn 6 số → link gọn /c/<code>.
+  const code = await genUniqueCode();
+  await CommentaryCode.create({
+    code, machineId, sid, courtName, expiresAt: new Date(Date.now() + TTL_MS),
+  });
+  // Trang bình luận là route SPA của frontend.
   const base = (process.env.PUBLIC_WEB_BASE || "https://pickletour.vn").replace(/\/+$/, "");
-  res.json({ token, url: `${base}/commentary/${token}`, expiresIn: TOKEN_TTL });
+  res.json({
+    code,
+    url: `${base}/c/${code}`,        // link gọn (ưu tiên)
+    token,
+    fullUrl: `${base}/commentary/${token}`,
+    expiresIn: TOKEN_TTL,
+  });
 });
 
 function verifyCommentaryToken(token) {
@@ -62,6 +86,29 @@ export const commentaryInfo = asyncHandler(async (req, res) => {
     sid: d.sid,
     courtName: d.courtName || "",
     machineLabel: m?.label || d.machineId,
+    online: isOnline(m),
+  });
+});
+
+// GET /api/commentary/by-code/:code  (công khai) → đổi mã ngắn thành token + info
+export const resolveCommentaryCode = asyncHandler(async (req, res) => {
+  const code = String(req.params.code || "").trim();
+  const doc = await CommentaryCode.findOne({ code }).lean();
+  if (!doc || (doc.expiresAt && new Date(doc.expiresAt).getTime() < Date.now())) {
+    res.status(404);
+    throw new Error("Mã bình luận không tồn tại hoặc đã hết hạn");
+  }
+  const m = await LiveControlMachine.findOne({ machineId: doc.machineId }).lean();
+  const token = jwt.sign(
+    { typ: "commentary", machineId: doc.machineId, sid: doc.sid, courtName: doc.courtName || "" },
+    process.env.JWT_SECRET,
+    { expiresIn: TOKEN_TTL },
+  );
+  res.json({
+    token,
+    sid: doc.sid,
+    courtName: doc.courtName || "",
+    machineLabel: m?.label || doc.machineId,
     online: isOnline(m),
   });
 });
