@@ -443,6 +443,70 @@ async function fetchRecordingPlan(cfg, sid) {
   return res.json();
 }
 
+// PUT 1 file lên URL bất kỳ (presigned R2) — KHÔNG gắn worker token (R2 ký sẵn trong URL).
+function putToUrl(urlStr, filePath, contentType) {
+  return new Promise((resolve, reject) => {
+    let stat; try { stat = fs.statSync(filePath); } catch (e) { return reject(e); }
+    let u; try { u = new URL(urlStr); } catch (e) { return reject(e); }
+    const mod = u.protocol === "https:" ? https : http;
+    const req = mod.request({
+      hostname: u.hostname, port: u.port || (u.protocol === "https:" ? 443 : 80),
+      path: u.pathname + u.search, method: "PUT",
+      headers: { "content-type": contentType || "application/octet-stream", "content-length": stat.size },
+    }, (res) => {
+      let body = ""; res.on("data", (c) => (body += c));
+      res.on("end", () => (res.statusCode >= 200 && res.statusCode < 300)
+        ? resolve(body) : reject(new Error(`R2 PUT HTTP ${res.statusCode}: ${body.slice(0, 160)}`)));
+    });
+    req.on("error", reject);
+    fs.createReadStream(filePath).on("error", reject).pipe(req);
+  });
+}
+
+// POST JSON có worker token (xin presign / báo hoàn tất).
+async function postJsonWorker(urlStr, token, obj) {
+  const res = await fetch(urlStr, {
+    method: "POST",
+    headers: { "x-worker-token": token || "", "content-type": "application/json" },
+    body: JSON.stringify(obj || {}),
+  });
+  const txt = await res.text();
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${txt.slice(0, 160)}`);
+  try { return JSON.parse(txt); } catch { return {}; }
+}
+
+// Probe thời lượng (ms) segment bằng ffmpeg (parse "Duration:") — desktop có sẵn file local.
+function probeSegmentDurationMs(filePath) {
+  return new Promise((resolve) => {
+    const ff = detectFfmpeg();
+    if (!ff) return resolve(0);
+    const child = spawn(ff, ["-hide_banner", "-i", filePath], { stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    child.stderr.on("data", (c) => { err += c.toString(); });
+    child.on("error", () => resolve(0));
+    child.on("close", () => {
+      const m = err.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/i);
+      if (!m) return resolve(0);
+      resolve(Math.round(((+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3])) * 1000));
+    });
+  });
+}
+
+// Đẩy 1 segment THẲNG lên Cloudflare R2 (presign → PUT R2 → báo hoàn tất). Không qua đĩa VPS.
+async function uploadSegmentToR2(cfg, sid, name, filePath) {
+  const base = cfg.recordingSegmentUrl; // .../internal/recording/segment
+  const token = cfg.workerToken || "";
+  const pre = await postJsonWorker(`${base}-presign?sessionId=${sid}&file=${encodeURIComponent(name)}`, token, {});
+  if (!pre?.uploadUrl) throw new Error("presign thiếu uploadUrl");
+  await putToUrl(pre.uploadUrl, filePath, pre.contentType || "video/mp2t");
+  let bytes = 0; try { bytes = fs.statSync(filePath).size; } catch {}
+  const durMs = await probeSegmentDurationMs(filePath);
+  await postJsonWorker(`${base}-complete?sessionId=${sid}`, token, {
+    file: name, objectKey: pre.objectKey, storageTargetId: pre.storageTargetId,
+    bucketName: pre.bucketName, durMs, bytes,
+  });
+}
+
 function startSegmentUploader({ sid, cfg, previewDir }) {
   if (!cfg.recordClips || !cfg.recordingPlanUrl || !cfg.recordingSegmentUrl) return;
   if (uploaders.has(sid)) return;
@@ -461,14 +525,16 @@ function startSegmentUploader({ sid, cfg, previewDir }) {
   } catch {}
 
   let lastHave = [];
+  // Đếm độc lập với đĩa (vì segment đã đẩy sẽ bị xoá local ngay để tiết kiệm ổ máy live).
+  const seen = new Set();
   const emit = (extra = {}) => {
-    let files = [];
-    try { files = fs.readdirSync(recDir).filter((n) => REC_NAME_RE.test(n)); } catch {}
+    try { fs.readdirSync(recDir).filter((n) => REC_NAME_RE.test(n)).forEach((n) => seen.add(n)); } catch {}
+    for (const n of lastHave) seen.add(n);
     const serverHas = new Set([...lastHave, ...uploaded]);
     sendToRenderer("rec-upload", {
       sessionId: sid,
-      total: files.length,
-      uploaded: files.filter((n) => serverHas.has(n)).length,
+      total: seen.size,
+      uploaded: [...seen].filter((n) => serverHas.has(n)).length,
       recording: running.has(sid),
       ...extra,
     });
@@ -496,9 +562,17 @@ function startSegmentUploader({ sid, cfg, previewDir }) {
         emit({ uploading: true });
         for (const n of candidates) {
           try {
-            await putFileStream(`${cfg.recordingSegmentUrl}?sessionId=${sid}&file=${encodeURIComponent(n)}`, token, path.join(recDir, n));
+            if (plan?.r2Direct) {
+              // Bản mới: đẩy THẲNG lên R2 (không tốn đĩa/băng thông VPS).
+              await uploadSegmentToR2(cfg, sid, n, path.join(recDir, n));
+            } else {
+              // Fallback: POST về VPS (server tự relay lên R2 hoặc lưu đĩa nếu R2 chưa cấu hình).
+              await putFileStream(`${cfg.recordingSegmentUrl}?sessionId=${sid}&file=${encodeURIComponent(n)}`, token, path.join(recDir, n));
+            }
             uploaded.add(n);
-            console.log(`[rec-upload] ${sid} đã gửi ${n}`);
+            // Đã lên R2/server → xoá file segment local ngay để không đầy ổ máy live.
+            try { fs.unlinkSync(path.join(recDir, n)); } catch {}
+            console.log(`[rec-upload] ${sid} đã gửi ${n}${plan?.r2Direct ? " (R2)" : ""}`);
             emit({ uploading: true }); // cập nhật tiến độ sau mỗi segment
           } catch (e) { console.error(`[rec-upload] ${sid} lỗi ${n}:`, e?.message || e); break; }
         }

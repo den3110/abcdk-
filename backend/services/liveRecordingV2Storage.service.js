@@ -986,6 +986,37 @@ export async function listRecordingObjects({
   };
 }
 
+// Upload 1 file local lên R2 (dùng cho auto-live desktop: server relay segment nhận
+// được qua VPS lên R2 thay vì giữ ở đĩa). Additive — không ảnh hưởng luồng mobile.
+export async function putRecordingObjectFromFile({
+  objectKey,
+  filePath,
+  contentType = "application/octet-stream",
+  storageTargetId = null,
+}) {
+  if (!objectKey) throw new Error("objectKey is required");
+  if (!filePath) throw new Error("filePath is required");
+  const target = requireRecordingStorageTarget(storageTargetId);
+  const client = getRecordingS3Client(target.id);
+  const stat = fs.statSync(filePath);
+  await client.send(
+    new PutObjectCommand({
+      Bucket: target.bucketName,
+      Key: objectKey,
+      Body: fs.createReadStream(filePath),
+      ContentType: contentType,
+      ContentLength: stat.size,
+      CacheControl: "public, max-age=31536000, immutable",
+    })
+  );
+  return {
+    objectKey,
+    storageTargetId: target.id,
+    bucketName: target.bucketName,
+    sizeBytes: stat.size,
+  };
+}
+
 export async function downloadRecordingObjectToFile({
   objectKey,
   targetPath,

@@ -7,7 +7,7 @@ import {
   listTournamentsForApp, listCourtsForApp, listFbPagesForApp, courtImouSession,
   courtImouStreamUrl, getVenueDahua, setVenueDahua, listDahuaVenues, dahuaSnapshot,
   listRtspSources, createRtspSource, updateRtspSource, deleteRtspSource,
-  internalRecordingPlan, internalUploadSegment, listClipsForAdmin,
+  internalRecordingPlan, internalUploadSegment, internalSegmentPresign, internalSegmentComplete, listClipsForAdmin,
 } from "../controllers/tournamentAutoLiveController.js";
 
 const router = express.Router();
@@ -23,6 +23,9 @@ router.get("/internal/destinations", internalRefreshDestinations);
 // Recording clip: desktop hỏi kế hoạch + đẩy segment (body raw MP4 → KHÔNG body parser).
 router.get("/internal/recording/plan", internalRecordingPlan);
 router.post("/internal/recording/segment", internalUploadSegment);
+// Bản desktop MỚI: đẩy segment thẳng lên R2 (presign PUT → báo hoàn tất).
+router.post("/internal/recording/segment-presign", internalSegmentPresign);
+router.post("/internal/recording/segment-complete", express.json(), internalSegmentComplete);
 
 // Admin API
 router.post("/start", protect, admin, startSession);

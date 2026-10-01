@@ -25,13 +25,44 @@ import ffmpegStatic from "ffmpeg-static";
 import Match from "../../models/matchModel.js";
 import Tournament from "../../models/tournamentModel.js";
 import AutoLiveClip from "../../models/autoLiveClipModel.js";
+import AutoLiveSegment from "../../models/autoLiveSegmentModel.js";
 import LiveRecordingV2 from "../../models/liveRecordingV2Model.js";
 import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionModel.js";
 import { uploadRecordingToDrive } from "../driveRecordings.service.js";
 import { buildRecordingPlaybackUrl } from "../liveRecordingV2Export.service.js";
+import {
+  isRecordingR2Configured,
+  getRecordingStorageTargets,
+  createRecordingSegmentUploadUrl,
+  putRecordingObjectFromFile,
+  downloadRecordingObjectToFile,
+  deleteRecordingObjects,
+} from "../liveRecordingV2Storage.service.js";
+import {
+  loadLiveRecordingStorageTargetsConfig,
+} from "../liveRecordingStorageTargetsConfig.service.js";
 
 export const SEGMENT_SEC = 300; // độ dài mỗi segment ghi (đồng bộ với worker desktop)
+// Segment auto-live giờ nằm trên Cloudflare R2 (giống bản mobile) — tiết kiệm đĩa VPS.
+// SEG_ROOT chỉ còn dùng cho: (a) temp tải segment R2 về khi cắt, (b) phiên LEGACY còn
+// segment nằm ở đĩa (tương thích ngược, dọn nốt).
 const SEG_ROOT = path.join(os.tmpdir(), "autolive-rec");
+// Prefix object trên R2 cho segment auto-live.
+const r2PrefixForSession = (sid) => `autolive/segments/${String(sid)}`;
+const r2KeyForSegment = (sid, name) => `${r2PrefixForSession(sid)}/${name}`;
+
+// Chọn R2 target cho 1 phiên (ổn định theo sessionId → mọi segment cùng phiên vào cùng
+// target, dễ dọn; trải tải giữa các phiên). Trả null nếu R2 chưa cấu hình.
+async function pickTargetForSession(sessionId) {
+  try { await loadLiveRecordingStorageTargetsConfig(); } catch { /* dùng cache/env */ }
+  if (!isRecordingR2Configured()) return null;
+  const targets = (getRecordingStorageTargets() || []).filter((t) => t?.enabled !== false && t?.id);
+  if (!targets.length) return null;
+  let h = 0;
+  const s = String(sessionId);
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return targets[h % targets.length];
+}
 const GAP_TOLERANCE_MS = 4000; // khe hở giữa 2 segment liền kề vẫn coi là liên tục
 const MAX_ATTEMPTS = 5;
 const WORKER_TICK_MS = 60_000;
@@ -50,34 +81,135 @@ function parseSegName(name) {
   return { runEpoch: Number(m[1]), index: Number(m[2]) };
 }
 
-/** Nhận 1 segment từ desktop (stream) → ghi ra đĩa. Trả {saved, name, bytes}. */
+/** Thư mục temp (xoá ngay sau khi dùng) để relay/cắt — KHÔNG lưu lâu dài trên VPS. */
+function tmpDir() {
+  return path.join(SEG_ROOT, "_tmp");
+}
+
+/**
+ * Nhận 1 segment từ desktop (stream) → RELAY thẳng lên R2 (không giữ ở đĩa VPS).
+ * Dùng cho bản desktop CŨ (đang POST raw). Buffer tạm 1 file, probe thời lượng, PUT lên
+ * R2, ghi registry, rồi xoá temp ngay. Trả {saved, name, bytes}.
+ */
 export async function saveSegmentStream(sessionId, fileName, reqStream) {
+  const name = path.basename(String(fileName || ""));
+  const parsed = parseSegName(name);
+  if (!parsed) {
+    const e = new Error("Tên segment không hợp lệ (rec-<epoch>-<index>.ts)");
+    e.status = 400; throw e;
+  }
+
+  const target = await pickTargetForSession(sessionId);
+  // R2 chưa cấu hình → fallback LƯU ĐĨA (giữ hành vi cũ, không mất clip).
+  if (!target) {
+    const dir = segmentDir(sessionId);
+    await fsp.mkdir(dir, { recursive: true });
+    const dest = path.join(dir, name);
+    const tmp = dest + ".part";
+    await new Promise((resolve, reject) => {
+      const out = fs.createWriteStream(tmp);
+      reqStream.on("error", reject); out.on("error", reject); out.on("finish", resolve);
+      reqStream.pipe(out);
+    });
+    await fsp.rename(tmp, dest);
+    const st = await fsp.stat(dest);
+    return { saved: true, name, bytes: st.size, storage: "disk" };
+  }
+
+  await fsp.mkdir(tmpDir(), { recursive: true });
+  const tmp = path.join(tmpDir(), `${sessionId}-${name}-${Date.now()}.part`);
+  try {
+    await new Promise((resolve, reject) => {
+      const out = fs.createWriteStream(tmp);
+      reqStream.on("error", reject); out.on("error", reject); out.on("finish", resolve);
+      reqStream.pipe(out);
+    });
+    const st = await fsp.stat(tmp);
+    const durMs = await probeDurationMs(tmp);
+    const objectKey = r2KeyForSegment(sessionId, name);
+    await putRecordingObjectFromFile({
+      objectKey, filePath: tmp, contentType: "video/mp2t", storageTargetId: target.id,
+    });
+    await AutoLiveSegment.updateOne(
+      { session: sessionId, name },
+      { $set: {
+          session: sessionId, name, runEpoch: parsed.runEpoch, index: parsed.index,
+          objectKey, storageTargetId: target.id, bucketName: target.bucketName || "",
+          durMs, sizeBytes: st.size,
+        } },
+      { upsert: true }
+    );
+    return { saved: true, name, bytes: st.size, storage: "r2" };
+  } finally {
+    fsp.unlink(tmp).catch(() => {});
+  }
+}
+
+/** Cấp presigned PUT để desktop (bản mới) đẩy segment THẲNG lên R2 (không qua VPS). */
+export async function presignSegment(sessionId, fileName) {
   const name = path.basename(String(fileName || ""));
   if (!parseSegName(name)) {
     const e = new Error("Tên segment không hợp lệ (rec-<epoch>-<index>.ts)");
     e.status = 400; throw e;
   }
-  const dir = segmentDir(sessionId);
-  await fsp.mkdir(dir, { recursive: true });
-  const dest = path.join(dir, name);
-  const tmp = dest + ".part";
-  await new Promise((resolve, reject) => {
-    const out = fs.createWriteStream(tmp);
-    reqStream.on("error", reject);
-    out.on("error", reject);
-    out.on("finish", resolve);
-    reqStream.pipe(out);
+  const target = await pickTargetForSession(sessionId);
+  if (!target) { const e = new Error("R2 chưa cấu hình (admin live-playback)"); e.status = 503; throw e; }
+  const objectKey = r2KeyForSegment(sessionId, name);
+  const presigned = await createRecordingSegmentUploadUrl({
+    objectKey, contentType: "video/mp2t", storageTargetId: target.id, expiresInSeconds: 1800,
   });
-  await fsp.rename(tmp, dest);
-  const st = await fsp.stat(dest);
-  return { saved: true, name, bytes: st.size };
+  return {
+    uploadUrl: presigned.uploadUrl, objectKey,
+    storageTargetId: target.id, bucketName: target.bucketName || "",
+    contentType: "video/mp2t",
+  };
 }
 
+/** Desktop (bản mới) báo đã PUT xong 1 segment lên R2 → ghi registry. */
+export async function registerUploadedSegment(sessionId, body = {}) {
+  const name = path.basename(String(body.file || body.name || ""));
+  const parsed = parseSegName(name);
+  if (!parsed) { const e = new Error("Tên segment không hợp lệ"); e.status = 400; throw e; }
+  const objectKey = String(body.objectKey || r2KeyForSegment(sessionId, name));
+  await AutoLiveSegment.updateOne(
+    { session: sessionId, name },
+    { $set: {
+        session: sessionId, name, runEpoch: parsed.runEpoch, index: parsed.index,
+        objectKey, storageTargetId: String(body.storageTargetId || ""),
+        bucketName: String(body.bucketName || ""),
+        durMs: Math.max(0, Number(body.durMs) || 0),
+        sizeBytes: Math.max(0, Number(body.bytes || body.sizeBytes) || 0),
+      } },
+    { upsert: true }
+  );
+  return { ok: true, name };
+}
+
+/** Segment đã có của phiên: hợp nhất R2 (registry) + đĩa legacy. */
 async function listSegmentFiles(sessionId) {
-  const dir = segmentDir(sessionId);
-  let names = [];
-  try { names = await fsp.readdir(dir); } catch { return []; }
-  return names.filter((n) => parseSegName(n)).map((n) => ({ name: n, ...parseSegName(n) }));
+  const out = [];
+  const seen = new Set();
+  // R2 (registry)
+  try {
+    const docs = await AutoLiveSegment.find({ session: sessionId })
+      .select("name runEpoch index objectKey storageTargetId durMs").lean();
+    for (const d of docs) {
+      if (seen.has(d.name)) continue; seen.add(d.name);
+      out.push({ name: d.name, runEpoch: d.runEpoch, index: d.index,
+        objectKey: d.objectKey, storageTargetId: d.storageTargetId, durMs: d.durMs || 0, r2: true });
+    }
+  } catch { /* ignore */ }
+  // Đĩa legacy (phiên cũ còn file trên VPS)
+  try {
+    const dir = segmentDir(sessionId);
+    const names = await fsp.readdir(dir);
+    for (const n of names) {
+      const p = parseSegName(n);
+      if (!p || seen.has(n)) continue; seen.add(n);
+      out.push({ name: n, ...p, path: path.join(dir, n), r2: false });
+    }
+  } catch { /* không có thư mục legacy */ }
+  return out;
 }
 
 // ── Probe thời lượng (dùng chính ffmpeg-static, parse stderr) ────────────────
@@ -110,11 +242,10 @@ async function probeDurationCached(p) {
   return durMs;
 }
 
-/** Xây timeline tuyệt đối cho từng segment: startMs = runEpoch*1000 + Σ dur trước. */
+/** Xây timeline tuyệt đối cho từng segment: startMs = runEpoch*1000 + Σ dur trước.
+ *  Segment R2 lấy durMs từ registry (không tải/probe); segment đĩa legacy thì probe. */
 async function buildTimeline(sessionId) {
-  const dir = segmentDir(sessionId);
   const files = await listSegmentFiles(sessionId);
-  // Nhóm theo runEpoch, sắp theo index; cộng dồn thời lượng trong từng run.
   const byRun = new Map();
   for (const f of files) {
     if (!byRun.has(f.runEpoch)) byRun.set(f.runEpoch, []);
@@ -125,10 +256,16 @@ async function buildTimeline(sessionId) {
     arr.sort((a, b) => a.index - b.index);
     let cursor = runEpoch * 1000;
     for (const f of arr) {
-      const p = path.join(dir, f.name);
-      const durMs = await probeDurationCached(p);
-      if (durMs <= 0) continue;
-      timeline.push({ path: p, startMs: cursor, endMs: cursor + durMs, durMs });
+      let durMs = Number(f.durMs) || 0;
+      if (durMs <= 0 && f.path) durMs = await probeDurationCached(f.path); // legacy đĩa
+      if (durMs <= 0) continue; // R2 chưa có dur hợp lệ → bỏ qua tới khi có
+      timeline.push({
+        name: f.name,
+        path: f.path || null,                 // có = đĩa legacy; null = trên R2
+        objectKey: f.objectKey || null,
+        storageTargetId: f.storageTargetId || null,
+        startMs: cursor, endMs: cursor + durMs, durMs,
+      });
       cursor += durMs;
     }
   }
@@ -164,9 +301,23 @@ async function cutClip(cov, startMs, endMs, outPath) {
   const relStartSec = Math.max(0, (startMs - cov[0].startMs) / 1000);
   const durSec = Math.max(1, (endMs - startMs) / 1000);
   const listPath = outPath + ".concat.txt";
-  const body = cov.map((s) => `file '${s.path.replace(/'/g, "'\\''")}'`).join("\n") + "\n";
-  await fsp.writeFile(listPath, body, "utf8");
+  // Segment R2 → tải về temp trước khi concat; segment đĩa legacy dùng path sẵn.
+  const dlDir = path.join(tmpDir(), `cut-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`);
+  const toCleanup = [];
   try {
+    await fsp.mkdir(dlDir, { recursive: true });
+    const localPaths = [];
+    for (const s of cov) {
+      if (s.path) { localPaths.push(s.path); continue; }
+      if (!s.objectKey) throw new Error(`segment thiếu objectKey: ${s.name}`);
+      const dest = path.join(dlDir, s.name);
+      await downloadRecordingObjectToFile({
+        objectKey: s.objectKey, targetPath: dest, storageTargetId: s.storageTargetId || null,
+      });
+      localPaths.push(dest); toCleanup.push(dest);
+    }
+    const body = localPaths.map((p) => `file '${p.replace(/'/g, "'\\''")}'`).join("\n") + "\n";
+    await fsp.writeFile(listPath, body, "utf8");
     await runFfmpeg([
       "-hide_banner", "-loglevel", "error",
       "-f", "concat", "-safe", "0",
@@ -178,6 +329,8 @@ async function cutClip(cov, startMs, endMs, outPath) {
     ]);
   } finally {
     fsp.unlink(listPath).catch(() => {});
+    for (const p of toCleanup) fsp.unlink(p).catch(() => {});
+    fsp.rm(dlDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
@@ -218,11 +371,16 @@ export async function recordingPlan(sessionId) {
   const s = await TournamentAutoLiveSession.findById(sessionId).select("recordClips status").lean();
   if (!s) return { ok: false };
   const files = await listSegmentFiles(sessionId);
+  // r2Direct=true → desktop (bản mới) xin presign rồi PUT THẲNG lên R2 (không qua VPS).
+  // Nếu R2 chưa cấu hình, desktop cứ POST raw như cũ (server tự lưu đĩa fallback).
+  let r2Direct = false;
+  try { r2Direct = !!(await pickTargetForSession(sessionId)); } catch { r2Direct = false; }
   return {
     ok: true,
     recordClips: !!s.recordClips,
     uploadNow: !!s.recordClips,
     segmentSec: SEGMENT_SEC,
+    r2Direct,
     have: files.map((f) => f.name), // segment server đã có → desktop khỏi gửi lại
   };
 }
@@ -273,7 +431,8 @@ async function processOneClip(clip, cov) {
   if (!claimed) return; // đã bị tick khác chiếm
   const startMs = new Date(clip.startAt).getTime();
   const endMs = new Date(clip.endAt).getTime();
-  const outPath = path.join(segmentDir(clip.session), `clip-${clip.match}-${Date.now()}.mp4`);
+  await fsp.mkdir(tmpDir(), { recursive: true });
+  const outPath = path.join(tmpDir(), `clip-${clip.match}-${Date.now()}.mp4`);
   try {
     await cutClip(cov, startMs, endMs, outPath);
     const st = await fsp.stat(outPath);
@@ -328,28 +487,60 @@ async function processOneClip(clip, cov) {
   }
 }
 
-/** Dọn thư mục segment tạm khi phiên đã stopped và không còn clip pending/cutting. */
+/** Xoá hẳn 1 segment (R2 object + registry; hoặc file đĩa legacy). */
+async function deleteSegment(seg) {
+  if (seg.objectKey) {
+    try {
+      await deleteRecordingObjects([seg.objectKey], { storageTargetId: seg.storageTargetId || null });
+    } catch { /* thử lần sau */ }
+  }
+  if (seg.path) { try { await fsp.unlink(seg.path); } catch { /* đã xoá */ } }
+  if (seg.name) { try { await AutoLiveSegment.deleteOne({ session: seg.session, name: seg.name }); } catch { /* ignore */ } }
+}
+
+/** Dọn segment khi phiên đã stopped và không còn clip pending/cutting (R2 + đĩa legacy). */
 async function cleanupFinishedSessions() {
-  let dirs = [];
-  try { dirs = await fsp.readdir(SEG_ROOT); } catch { return; }
-  for (const sid of dirs) {
-    if (!/^[a-f0-9]{24}$/i.test(sid)) continue;
+  // Gộp các phiên có segment: trên R2 (registry) + đĩa legacy.
+  const sids = new Set();
+  try {
+    const rows = await AutoLiveSegment.distinct("session");
+    rows.forEach((s) => sids.add(String(s)));
+  } catch { /* ignore */ }
+  try {
+    const dirs = await fsp.readdir(SEG_ROOT);
+    dirs.filter((d) => /^[a-f0-9]{24}$/i.test(d)).forEach((d) => sids.add(d));
+  } catch { /* ignore */ }
+
+  for (const sid of sids) {
     const remaining = await AutoLiveClip.countDocuments({
       session: sid, status: { $in: ["pending", "cutting", "uploading"] },
     });
     if (remaining > 0) continue;
-    const sess = await TournamentAutoLiveSession.findById(sid).select("status recordCleanedAt").lean();
+    const sess = await TournamentAutoLiveSession.findById(sid).select("status").lean();
     if (!sess) continue;
     if (!["stopped", "error"].includes(sess.status)) continue; // còn đang live → giữ segment
     try {
-      await fsp.rm(segmentDir(sid), { recursive: true, force: true });
+      // Xoá R2 objects của phiên
+      const segs = await AutoLiveSegment.find({ session: sid }).select("name objectKey storageTargetId").lean();
+      const byTarget = new Map();
+      for (const s of segs) {
+        if (!s.objectKey) continue;
+        const t = s.storageTargetId || "";
+        if (!byTarget.has(t)) byTarget.set(t, []);
+        byTarget.get(t).push(s.objectKey);
+      }
+      for (const [t, keys] of byTarget) {
+        await deleteRecordingObjects(keys, { storageTargetId: t || null }).catch(() => {});
+      }
+      await AutoLiveSegment.deleteMany({ session: sid });
+      await fsp.rm(segmentDir(sid), { recursive: true, force: true }).catch(() => {});
       await TournamentAutoLiveSession.updateOne({ _id: sid }, { $set: { recordCleanedAt: new Date() } });
-      console.log(`[autolive-clip] đã dọn segment tạm phiên ${sid}`);
+      console.log(`[autolive-clip] đã dọn segment phiên ${sid} (R2:${segs.length})`);
     } catch { /* để lần sau */ }
   }
 }
 
-/** Dọn segment nguồn đã dùng xong (tăng dần) — giữ đĩa server gọn giữa sự kiện dài.
+/** Dọn segment nguồn đã dùng xong (tăng dần) — giữ R2/đĩa gọn giữa sự kiện dài.
  *  Chỉ xoá segment kết thúc TRƯỚC mốc còn cần (min của: clip pending sớm nhất, clip
  *  done muộn nhất) → không đụng segment của trận đang diễn ra / clip chờ xử lý. */
 async function cleanupOldSegments(sessionId, timeline) {
@@ -364,7 +555,7 @@ async function cleanupOldSegments(sessionId, timeline) {
     const keepFrom = Math.min(maxDoneEnd, minPendStart);
     for (const seg of timeline) {
       if (seg.endMs <= keepFrom) {
-        try { await fsp.unlink(seg.path); } catch { /* đã xoá */ }
+        await deleteSegment({ ...seg, session: sessionId });
       }
     }
   } catch { /* bỏ qua, thử lần sau */ }

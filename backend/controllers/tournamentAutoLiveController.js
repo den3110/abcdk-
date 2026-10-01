@@ -15,7 +15,7 @@ import {
   refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
   getCourtImouStreamUrlForApp, saveVenueDahuaNvr, resolveDahuaRtsp,
 } from "../services/autoLive/tournamentAutoLive.service.js";
-import { recordingPlan, saveSegmentStream, listClips } from "../services/autoLive/autoLiveClip.service.js";
+import { recordingPlan, saveSegmentStream, presignSegment, registerUploadedSegment, listClips } from "../services/autoLive/autoLiveClip.service.js";
 import { spawn } from "child_process";
 
 // GET /api/tournament-auto-live/clips?tournamentId=&sessionId=&status= (admin)
@@ -46,6 +46,27 @@ export const internalUploadSegment = asyncHandler(async (req, res) => {
   const file = String(req.query?.file || "");
   if (!/^[a-f0-9]{24}$/i.test(sessionId)) { res.status(400); throw new Error("sessionId không hợp lệ"); }
   const r = await saveSegmentStream(sessionId, file, req);
+  res.json(r);
+});
+
+// POST /internal/recording/segment-presign?sessionId=&file= (worker token)
+// Desktop (bản mới) xin presigned PUT để đẩy segment THẲNG lên Cloudflare R2 (không qua VPS).
+export const internalSegmentPresign = asyncHandler(async (req, res) => {
+  assertWorkerToken(req, res);
+  const sessionId = String(req.query?.sessionId || "");
+  const file = String(req.query?.file || "");
+  if (!/^[a-f0-9]{24}$/i.test(sessionId)) { res.status(400); throw new Error("sessionId không hợp lệ"); }
+  const r = await presignSegment(sessionId, file);
+  res.json(r);
+});
+
+// POST /internal/recording/segment-complete?sessionId= (worker token)
+// Desktop báo đã PUT xong segment lên R2 → server ghi registry (dựng timeline cắt clip).
+export const internalSegmentComplete = asyncHandler(async (req, res) => {
+  assertWorkerToken(req, res);
+  const sessionId = String(req.query?.sessionId || "");
+  if (!/^[a-f0-9]{24}$/i.test(sessionId)) { res.status(400); throw new Error("sessionId không hợp lệ"); }
+  const r = await registerUploadedSegment(sessionId, req.body || {});
   res.json(r);
 });
 
