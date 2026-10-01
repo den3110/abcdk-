@@ -46,6 +46,15 @@
       <button id="addCourtBtn" class="primary big">＋ Thêm sân để live</button>
     </div>
     <div id="perfCard" class="card" style="margin-top:12px"></div>
+    <div id="opacityCard" class="card" style="margin-top:12px">
+      <div style="font-weight:700">🎚️ Độ hiển thị overlay (chung mọi sân)</div>
+      <div class="hint" style="margin:3px 0 8px">Áp dụng cho TẤT CẢ stream, đổi được ngay khi đang live (~vài giây cập nhật). 100% = đục, thấp hơn = mờ/trong suốt.</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <input type="range" id="opacityRange" min="20" max="100" step="5" value="100" style="flex:1" />
+        <b id="opacityVal" style="min-width:48px;text-align:right">100%</b>
+      </div>
+      <div id="opacityHint" class="hint"></div>
+    </div>
     <div id="recDirCard" class="card" style="margin-top:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
         <div style="min-width:0">
@@ -155,10 +164,10 @@
         <label class="chk" style="margin-top:12px"><input type="checkbox" id="hideTimestamp" /> Ẩn ngày/giờ camera trên luồng live (che góc trên‑phải)</label>
         <div class="hint">Che vùng ngày/giờ (OSD) của camera <b>chỉ trên luồng live</b> (nội suy pixel). KHÔNG đụng tới camera → chủ cam xem trên DMSS vẫn thấy đủ. Mặc định che góc <b>trên‑phải</b> (vị trí OSD phổ biến của Dahua). Lệch thì tinh chỉnh vùng bên dưới rồi bấm "Xem thử nguồn" để canh.</div>
         <div id="delogoBox" class="row3 hidden" style="margin-top:8px">
-          <div><span class="mini">X (0–1920)</span><input type="number" id="dl_x" value="1392" min="0" max="1920" /></div>
-          <div><span class="mini">Y (0–1080)</span><input type="number" id="dl_y" value="14" min="0" max="1080" /></div>
-          <div><span class="mini">Rộng</span><input type="number" id="dl_w" value="512" min="8" max="1920" /></div>
-          <div><span class="mini">Cao</span><input type="number" id="dl_h" value="54" min="8" max="1080" /></div>
+          <div><span class="mini">X (0–1920)</span><input type="number" id="dl_x" value="1360" min="0" max="1920" /></div>
+          <div><span class="mini">Y (0–1080)</span><input type="number" id="dl_y" value="46" min="0" max="1080" /></div>
+          <div><span class="mini">Rộng</span><input type="number" id="dl_w" value="544" min="8" max="1920" /></div>
+          <div><span class="mini">Cao</span><input type="number" id="dl_h" value="72" min="8" max="1080" /></div>
         </div>
         <div id="delogoHint" class="hint hidden">Toạ độ theo khung 1920×1080. Góc trên‑trái = (0,0). Tăng X để dịch phải, tăng Y để dịch xuống. Vùng phải nằm gọn trong khung.</div>
       </div>

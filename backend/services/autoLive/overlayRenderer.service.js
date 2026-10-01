@@ -246,6 +246,19 @@ function shadowOff(ctx) {
   ctx.shadowOffsetY = 0;
 }
 
+// Áp ĐỘ MỜ chung cho toàn overlay: vẽ lại canvas lên canvas trong suốt với globalAlpha.
+function finalizeBuffer(canvas, opacity) {
+  const a = Number(opacity);
+  if (!Number.isFinite(a) || a >= 1) return canvas.toBuffer("image/png");
+  const out = createCanvas(W, H);
+  const octx = out.getContext("2d");
+  octx.clearRect(0, 0, W, H);
+  octx.globalAlpha = Math.max(0, Math.min(1, a));
+  octx.drawImage(canvas, 0, 0);
+  octx.globalAlpha = 1;
+  return out.toBuffer("image/png");
+}
+
 export async function renderOverlayPng(data) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
@@ -280,7 +293,7 @@ export async function renderOverlayPng(data) {
       bottomRight: "",
       single: true,
     });
-    return canvas.toBuffer("image/png");
+    return finalizeBuffer(canvas, data?.opacity);
   }
 
   const rules = match.rules || {};
@@ -304,7 +317,7 @@ export async function renderOverlayPng(data) {
     bottomLeft: contentLabel || [stationName, clusterLabel].filter(Boolean).join(" · "),
     bottomRight: `VÁN ${cur + 1}/${bestOf}`,
   });
-  return canvas.toBuffer("image/png");
+  return finalizeBuffer(canvas, data?.opacity);
 }
 
 // Vẽ ảnh vừa khung (contain) trong hộp, giữ tỉ lệ, căn theo align.

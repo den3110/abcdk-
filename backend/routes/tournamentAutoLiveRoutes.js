@@ -8,6 +8,7 @@ import {
   courtImouStreamUrl, getVenueDahua, setVenueDahua, listDahuaVenues, dahuaSnapshot,
   listRtspSources, createRtspSource, updateRtspSource, deleteRtspSource,
   internalRecordingPlan, internalUploadSegment, internalSegmentPresign, internalSegmentComplete, listClipsForAdmin,
+  getOverlayOpacityCtl, setOverlayOpacityCtl,
 } from "../controllers/tournamentAutoLiveController.js";
 
 const router = express.Router();
@@ -43,6 +44,9 @@ router.get("/venue-dahua", protect, admin, getVenueDahua);
 router.post("/venue-dahua", protect, admin, express.json(), setVenueDahua);
 router.get("/dahua-venues", protect, admin, listDahuaVenues);
 router.get("/dahua-snapshot", protect, admin, dahuaSnapshot);
+// Độ mờ overlay CHUNG mọi stream (chỉnh khi đang live).
+router.get("/overlay-opacity", protect, admin, getOverlayOpacityCtl);
+router.patch("/overlay-opacity", protect, admin, express.json(), setOverlayOpacityCtl);
 // Thư viện nguồn RTSP có tên (đặt TRƯỚC "/:id" để không bị route động nuốt).
 router.get("/rtsp-sources", protect, admin, listRtspSources);
 router.post("/rtsp-sources", protect, admin, express.json(), createRtspSource);

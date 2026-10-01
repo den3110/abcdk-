@@ -52,6 +52,15 @@
     <button class="danger" onclick="stopAll()">■ Dừng tất cả</button>
   </div>
 
+  <div class="card">
+    <div><b>🎚️ Độ hiển thị overlay</b> <span class="mut">(chung mọi sân, đổi khi đang live)</span></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:6px">
+      <input type="range" id="opacityRange" min="20" max="100" step="5" value="100" style="flex:1" oninput="onOpacity()" />
+      <b id="opacityVal" style="min-width:46px;text-align:right">100%</b>
+    </div>
+    <div class="mut" id="opacityHint" style="font-size:12px"></div>
+  </div>
+
   <div id="courts"></div>
 
   <!-- Form thêm sân -->
@@ -127,6 +136,20 @@ async function load(){
     const cs = d.sessions||[];
     $("courts").innerHTML = cs.length ? cs.map(cardHtml).join("") : '<div class="card mut">Chưa có sân nào đang live.</div>';
   }catch(e){ if(String(e.message).includes("PIN")){ showPin("PIN sai"); } }
+  if(!window._opacityLoaded){ window._opacityLoaded=true; loadOpacity(); }
+}
+async function loadOpacity(){
+  try{ const r=await api("/api/get-opacity"); const pct=Math.round((Number(r.opacity)||1)*100); $("opacityRange").value=pct; $("opacityVal").textContent=pct+"%"; }catch{}
+}
+let _opTimer=null;
+function onOpacity(){
+  const pct=Number($("opacityRange").value); $("opacityVal").textContent=pct+"%";
+  if(_opTimer) clearTimeout(_opTimer);
+  _opTimer=setTimeout(async()=>{
+    $("opacityHint").textContent="Đang áp dụng…";
+    try{ await api("/api/set-opacity","POST",{opacity:pct/100}); $("opacityHint").textContent="✓ Đã áp dụng cho mọi sân (~vài giây)."; }
+    catch(e){ $("opacityHint").textContent="Lỗi: "+(e.message||e); }
+  },400);
 }
 const LAY_CORNERS = [["top-left","Trên·Trái"],["top-right","Trên·Phải"],["bottom-left","Dưới·Trái"],["bottom-right","Dưới·Phải"]];
 function laySel(sid, field, cur){

@@ -1178,6 +1178,10 @@ function startControlServer() {
         const r = await remoteInvoke("state");
         return send(200, { perf: localStats(), sessions: r.data?.sessions || [], ok: r.ok });
       }
+      if (req.method === "GET" && u.pathname === "/api/get-opacity") {
+        const r = await remoteInvoke("getOpacity");
+        return send(r.ok ? 200 : 500, r.ok ? (r.data || {}) : { error: r.error || "lỗi" });
+      }
       if (req.method === "GET" && u.pathname === "/api/options") {
         const payload = Object.fromEntries(u.searchParams.entries());
         const r = await remoteInvoke("options", payload);
@@ -1186,7 +1190,7 @@ function startControlServer() {
       if (req.method === "POST") {
         const body = await readReqBody(req);
         const j = body ? JSON.parse(body) : {};
-        const map = { "/api/stop": "stop", "/api/stop-all": "stopAll", "/api/start": "start", "/api/set-layout": "setLayout" };
+        const map = { "/api/stop": "stop", "/api/stop-all": "stopAll", "/api/start": "start", "/api/set-layout": "setLayout", "/api/set-opacity": "setOpacity" };
         const action = map[u.pathname];
         if (!action) return send(404, { error: "not found" });
         const r = await remoteInvoke(action, j);

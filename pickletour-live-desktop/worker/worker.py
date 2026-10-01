@@ -127,10 +127,10 @@ RECORD_SEGMENT_SEC = int(os.environ.get("AUTOLIVE_RECORD_SEGMENT_SEC") or 300)
 # định phủ góc TRÊN-PHẢI (vị trí OSD phổ biến của Dahua). Chỉnh bằng env nếu lệch.
 # Ràng buộc delogo: hộp phải nằm TRONG khung và cách mép ≥1px (nó nội suy từ viền).
 DELOGO = os.environ.get("AUTOLIVE_DELOGO", "").strip().lower() in ("1", "true", "yes", "on")
-DELOGO_X = int(os.environ.get("AUTOLIVE_DELOGO_X") or 1392)
-DELOGO_Y = int(os.environ.get("AUTOLIVE_DELOGO_Y") or 14)
-DELOGO_W = int(os.environ.get("AUTOLIVE_DELOGO_W") or 512)
-DELOGO_H = int(os.environ.get("AUTOLIVE_DELOGO_H") or 54)
+DELOGO_X = int(os.environ.get("AUTOLIVE_DELOGO_X") or 1360)
+DELOGO_Y = int(os.environ.get("AUTOLIVE_DELOGO_Y") or 46)
+DELOGO_W = int(os.environ.get("AUTOLIVE_DELOGO_W") or 544)
+DELOGO_H = int(os.environ.get("AUTOLIVE_DELOGO_H") or 72)
 
 
 def _delogo_filter():

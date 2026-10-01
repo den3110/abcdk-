@@ -858,6 +858,33 @@ function goDashboard() {
   loadRecordsDir();
   loadControl();
   loadSchedules();
+  loadOverlayOpacity();
+}
+
+// ── Độ hiển thị (opacity) overlay — chung mọi sân, đổi ngay khi live ──
+let _opacityTimer = null;
+async function loadOverlayOpacity() {
+  const range = $("opacityRange"); if (!range) return;
+  try {
+    const r = await apiGet("/api/tournament-auto-live/overlay-opacity");
+    const pct = Math.round((Number(r?.opacity) || 1) * 100);
+    range.value = String(pct);
+    if ($("opacityVal")) $("opacityVal").textContent = pct + "%";
+  } catch {}
+  range.oninput = () => {
+    const pct = Number(range.value);
+    if ($("opacityVal")) $("opacityVal").textContent = pct + "%";
+    if (_opacityTimer) clearTimeout(_opacityTimer);
+    _opacityTimer = setTimeout(async () => {
+      if ($("opacityHint")) $("opacityHint").textContent = "Đang áp dụng…";
+      try {
+        await apiReq("PATCH", "/api/tournament-auto-live/overlay-opacity", { opacity: pct / 100 });
+        if ($("opacityHint")) $("opacityHint").textContent = "✓ Đã áp dụng cho mọi sân (cập nhật ~vài giây).";
+      } catch (e) {
+        if ($("opacityHint")) $("opacityHint").textContent = "Lỗi: " + (e?.message || e);
+      }
+    }, 400);
+  };
 }
 
 // ── Hiệu năng máy (CPU/RAM + ước tính còn bao nhiêu sân) ──
@@ -1284,6 +1311,8 @@ if (window.api.onRemoteCmd) {
       else if (action === "stopAll") { for (const sid of [...state.sessions.keys()]) await stopSession(sid); data = { stopped: "all" }; }
       else if (action === "start") data = await remoteStart(payload || {});
       else if (action === "setLayout") data = await remoteSetLayout(payload || {});
+      else if (action === "getOpacity") data = await apiGet("/api/tournament-auto-live/overlay-opacity");
+      else if (action === "setOpacity") data = await apiReq("PATCH", "/api/tournament-auto-live/overlay-opacity", { opacity: Number(payload?.opacity) });
       else { ok = false; error = "unknown action"; }
     } catch (e) { ok = false; error = e?.message || String(e); }
     window.api.remoteReply({ id, ok, data, error });

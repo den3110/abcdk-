@@ -34,6 +34,7 @@ import { fbCreateLiveOnPage, fbGetLiveVideo, fbEndLiveVideo, fbSetCrosspost, fbG
 import { YouTubeProvider } from "../liveProviders/youtube.js";
 import { getCfgStr } from "../config.service.js";
 import { createClipTaskForEndedMatch, startAutoLiveClipWorker } from "./autoLiveClip.service.js";
+import AppSetting from "../../models/appSettingModel.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -109,17 +110,52 @@ setTimeout(() => { try { startAutoLiveClipWorker(); } catch (e) {
 const overlayCache = new Map(); // sessionId → { buf, token }
 // Sponsor xoay vòng mỗi 8s → re-render tối thiểu mỗi bucket kể cả điểm không đổi.
 const SPONSOR_BUCKET_MS = 8000;
+
+// Độ MỜ overlay (0..1) CHUNG cho mọi stream — chỉnh được khi đang live. Lưu AppSetting
+// "autoLiveOverlayOpacity"; cache module (không hỏi DB mỗi lần render). 1 = đục hoàn toàn.
+const OVERLAY_OPACITY_KEY = "autoLiveOverlayOpacity";
+let _overlayOpacity = null; // null = chưa nạp
+async function ensureOverlayOpacity() {
+  if (_overlayOpacity != null) return _overlayOpacity;
+  try {
+    const doc = await AppSetting.findOne({ key: OVERLAY_OPACITY_KEY }).lean();
+    const v = Number(doc?.value?.opacity);
+    _overlayOpacity = Number.isFinite(v) && v >= 0 && v <= 1 ? v : 1;
+  } catch { _overlayOpacity = 1; }
+  return _overlayOpacity;
+}
+export function getOverlayOpacitySync() {
+  return _overlayOpacity == null ? 1 : _overlayOpacity;
+}
+export async function getOverlayOpacity() {
+  return ensureOverlayOpacity();
+}
+export async function setOverlayOpacity(value) {
+  let v = Number(value);
+  if (!Number.isFinite(v)) throw new Error("Giá trị độ mờ không hợp lệ");
+  v = Math.max(0.1, Math.min(1, v)); // tối thiểu 0.1 để overlay không biến mất hẳn
+  await AppSetting.findOneAndUpdate(
+    { key: OVERLAY_OPACITY_KEY },
+    { $set: { key: OVERLAY_OPACITY_KEY, value: { opacity: v } } },
+    { upsert: true }
+  );
+  _overlayOpacity = v;
+  overlayCache.clear();        // bust cache → mọi stream render lại với độ mờ mới
+  userOverlayCache.clear();
+  return { ok: true, opacity: v };
+}
 export async function getCachedOverlayPng(sessionId) {
   const doc = await TournamentAutoLiveSession.findById(sessionId)
     .select("_id court status overlayVersion layout")
     .lean();
   if (!doc) return null;
   if (doc.status === "stopped") return null;
-  const token = `${doc.overlayVersion || 0}:${Math.floor(Date.now() / SPONSOR_BUCKET_MS)}`;
+  const opacity = await ensureOverlayOpacity();
+  const token = `${doc.overlayVersion || 0}:${Math.floor(Date.now() / SPONSOR_BUCKET_MS)}:${opacity}`;
   const cached = overlayCache.get(String(sessionId));
   if (cached && cached.token === token) return cached.buf;
   const data = await loadOverlayData(doc.court);
-  if (data) data.layout = doc.layout || {};
+  if (data) { data.layout = doc.layout || {}; data.opacity = opacity; }
   const buf = await renderOverlayPng(data);
   overlayCache.set(String(sessionId), { buf, token });
   return buf;
@@ -132,9 +168,11 @@ export async function getUserMatchOverlayPng(userMatchId) {
   const id = String(userMatchId || "");
   const data = await loadOverlayDataFromUserMatch(id);
   if (!data) return null;
+  const opacity = await ensureOverlayOpacity();
+  data.opacity = opacity;
   // Token đổi ~mỗi 800ms để overlay bắt kịp điểm số mới (referee patch) mà vẫn
   // tránh render mọi request (~2fps worker fetch).
-  const token = Math.floor(Date.now() / 800);
+  const token = `${Math.floor(Date.now() / 800)}:${opacity}`;
   const cached = userOverlayCache.get(id);
   if (cached && cached.token === token) return cached.buf;
   const buf = await renderOverlayPng(data);
