@@ -9,7 +9,7 @@ import UserMatch from "../../models/userMatchModel.js";
 import CourtStation from "../../models/courtStationModel.js";
 import Tournament from "../../models/tournamentModel.js";
 import { Sponsor } from "../../models/sponsorModel.js";
-import { buildRuntimePhaseText } from "../liveAppRuntime.service.js";
+import { buildStageName } from "../liveAppRuntime.service.js";
 
 const W = 1920;
 const H = 1080;
@@ -146,12 +146,10 @@ export async function loadOverlayData(courtStationId) {
   let roundLabel = "";
   let contentLabel = "";
   if (match) {
-    // Round THUẦN (không kèm tên bracket) cho thanh xanh: "Tứ kết"/"Vòng bảng"/"Vòng N"…
-    try { roundLabel = buildRuntimePhaseText(match) || ""; } catch { roundLabel = ""; }
-    // Nội dung = tên bracket (vd "Đôi hỗn hợp 4.6"); fallback tên giải nếu trống.
-    contentLabel =
-      (match?.bracket?.name || "").toString().trim() ||
-      (tournament?.name || tournament?.shortName || "").toString().trim();
+    // Thanh xanh trên = VÒNG + TÊN BRACKET: "Vòng 2 - PRE-QUALIFYING" (buildStageName).
+    try { roundLabel = buildStageName(match) || ""; } catch { roundLabel = ""; }
+    // Thanh dưới = TÊN GIẢI ĐẤU (đã chứa nội dung, vd "THE RIVERSIDE CHAMPIONSHIP • Đôi nữ 3.7").
+    contentLabel = (tournament?.name || tournament?.shortName || "").toString().trim();
   }
 
   return { station, match, tournament, sponsorLogos, roundLabel, contentLabel };
