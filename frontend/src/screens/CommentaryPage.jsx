@@ -48,8 +48,8 @@ export default function CommentaryPage() {
   const trackRef = useRef(null);
   const rafRef = useRef(null);
   const audioCtxRef = useRef(null);
-  const videoRef = useRef(null);
   const [hasVideo, setHasVideo] = useState(false);
+  const [remoteStream, setRemoteStream] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -135,8 +135,10 @@ export default function CommentaryPage() {
       // Nhận video 360p của luồng live để BLV xem.
       pc.addTransceiver("video", { direction: "recvonly" });
       pc.addEventListener("track", (e) => {
-        if (e.track.kind === "video" && videoRef.current) {
-          videoRef.current.srcObject = e.streams[0] || new MediaStream([e.track]);
+        if (e.track.kind === "video") {
+          // Lưu stream vào state; gắn vào <video> bằng ref-callback khi phần tử mount
+          // (ontrack có thể chạy TRƯỚC khi UI "đã kết nối" render → ref chưa có).
+          setRemoteStream(e.streams[0] || new MediaStream([e.track]));
           setHasVideo(true);
         }
       });
@@ -197,7 +199,7 @@ export default function CommentaryPage() {
     pcRef.current = null;
     streamRef.current = null;
     trackRef.current = null;
-    if (videoRef.current) videoRef.current.srcObject = null;
+    setRemoteStream(null);
     setHasVideo(false);
     setTalking(false);
     setStatus("idle");
@@ -289,7 +291,13 @@ export default function CommentaryPage() {
                     >
                       <Box
                         component="video"
-                        ref={videoRef}
+                        ref={(el) => {
+                          if (el && remoteStream && el.srcObject !== remoteStream) {
+                            el.srcObject = remoteStream;
+                            const p = el.play();
+                            if (p && p.catch) p.catch(() => {});
+                          }
+                        }}
                         autoPlay
                         playsInline
                         muted

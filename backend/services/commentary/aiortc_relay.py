@@ -112,6 +112,7 @@ async def offer(request):
         if pc.connectionState in ("failed", "closed", "disconnected"):
             await _close_pc(pc)
 
+    print("[relay] offer m-lines:", [l for l in sdp.splitlines() if l.startswith("m=")], flush=True)
     await pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=typ))
 
     # Gửi video 360p của luồng về trình duyệt BLV (độ trễ thấp) nếu có. PHẢI gắn SAU
@@ -133,6 +134,7 @@ async def offer(request):
                 # chắc chắn video đi đúng m-line; addTrack tự chọn có thể lệch khi có
                 # cả audio + video m-line.
                 vtrans = next((t for t in pc.getTransceivers() if t.kind == "video"), None)
+                print("[relay] video transceiver từ offer:", vtrans is not None, flush=True)
                 if vtrans is not None:
                     vtrans.sender.replaceTrack(player.video)
                     vtrans.direction = "sendonly"
