@@ -1057,11 +1057,12 @@ function setupLiveOverlay(S) {
           w: Number($("live_dl_w").value) || 544, h: Number($("live_dl_h").value) || 72,
         },
       };
-      if ($("live_tsHint")) $("live_tsHint").textContent = "Đang áp dụng…";
+      if ($("live_tsHint")) $("live_tsHint").textContent = "Đang áp dụng (khởi động lại luồng ~vài giây)…";
       try {
-        await apiReq("PATCH", `/api/tournament-auto-live/${S.sid}/timestamp-cover`, payload);
+        const r = await window.api.toggleDelogo({ sid: S.sid, hideTimestamp: payload.hideTimestamp, box: payload.box });
         S.hideTimestamp = payload.hideTimestamp; S.timestampBox = payload.box;
-        if ($("live_tsHint")) $("live_tsHint").textContent = "✓ Đã áp dụng (overlay cập nhật ~2s).";
+        if (r?.previewUrl) { S.previewUrl = r.previewUrl; if (state.activeSid === S.sid) startPreview(r.previewUrl); }
+        if ($("live_tsHint")) $("live_tsHint").textContent = "✓ Đã áp dụng (làm mờ bằng delogo).";
       } catch (e) {
         if ($("live_tsHint")) $("live_tsHint").textContent = "Lỗi: " + (e?.message || e);
       }
@@ -1383,11 +1384,11 @@ async function remoteSetTimestampCover(p = {}) {
   if (!state.token) throw new Error("App chưa đăng nhập");
   const S = p.sid && state.sessions.get(p.sid);
   if (!S) throw new Error("Không tìm thấy sân");
-  const payload = { hideTimestamp: !!p.hideTimestamp };
-  if (p.box) payload.box = p.box;
-  const r = await apiReq("PATCH", `/api/tournament-auto-live/${p.sid}/timestamp-cover`, payload);
+  // Làm mờ ngày giờ = ffmpeg delogo → khởi động lại worker sân (gián đoạn ~vài giây).
+  const r = await window.api.toggleDelogo({ sid: p.sid, hideTimestamp: !!p.hideTimestamp, box: p.box });
   S.hideTimestamp = !!p.hideTimestamp;
   if (p.box) S.timestampBox = p.box;
+  if (r?.previewUrl) { S.previewUrl = r.previewUrl; if (state.activeSid === p.sid) startPreview(r.previewUrl); }
   if (state.activeSid === p.sid) setupLiveOverlay(S);
   return r || { ok: true };
 }

@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld("api", {
   start: (args) => ipcRenderer.invoke("start", args),
   stop: (args) => ipcRenderer.invoke("stop", args),
   // Hẹn giờ bắt đầu live
+  toggleDelogo: (args) => ipcRenderer.invoke("toggle-delogo", args),
   scheduleAdd: (args) => ipcRenderer.invoke("schedule-add", args),
   scheduleList: () => ipcRenderer.invoke("schedule-list"),
   scheduleCancel: (id) => ipcRenderer.invoke("schedule-cancel", { id }),

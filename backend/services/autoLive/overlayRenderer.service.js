@@ -279,9 +279,8 @@ export async function renderOverlayPng(data) {
   ctx.clearRect(0, 0, W, H);
   ctx.textBaseline = "alphabetic";
 
-  // Che ngày/giờ camera (bật/tắt + đổi vùng NGAY khi đang live). Vẽ TRƯỚC (dưới cùng
-  // overlay) để scoreboard/logo nằm trên. Hộp đè mờ tối, bo góc — hợp tông overlay.
-  if (data?.hideTimestamp) drawTimestampCover(ctx, data?.timestampBox);
+  // (Che ngày/giờ KHÔNG còn vẽ bằng overlay-box vì không blur được + dễ lệch — đã
+  //  chuyển lại dùng ffmpeg delogo (blur thật) ở worker, canh theo khung 1920x1080.)
 
   // Vị trí các overlay có thể cấu hình (data.layout). Mặc định:
   //   scoreboard góc trái-trên, logo PickleTour góc phải-trên, sponsor phải-dưới

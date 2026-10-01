@@ -891,8 +891,9 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
     AUTOLIVE_SOURCE_URL: dahuaSourceUrl || cfg.sourceUrl || "",
     AUTOLIVE_DESTINATIONS: JSON.stringify(cfg.destinations || []),
     AUTOLIVE_ENCODER: form.encoder || "auto",
-    // Che ngày/giờ camera giờ dùng OVERLAY-BOX phía server (bật/tắt live, mỗi sân) —
-    // KHÔNG dùng ffmpeg delogo ở worker nữa (tránh che 2 lần + cho toggle khi đang live).
+    // Che ngày/giờ camera = ffmpeg delogo (LÀM MỜ thật, canh theo khung 1920x1080).
+    // Toggle khi đang live = khởi động lại worker sân này với env mới (restartWorkerDelogo).
+    ...delogoEnv(form),
     AUTOLIVE_PREVIEW_HLS_DIR: previewDir,
     // Ghi recording để cắt clip từng trận (live xuyên suốt). worker.py ghi segment
     // TS vào previewDir/rec; main.js đẩy về server ban đêm (startSegmentUploader).
@@ -914,7 +915,7 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
   const proc = selfContained
     ? spawn(bundledWorkerBin(), [], { env, stdio: ["ignore", logFd, logFd] })
     : spawn(python, [workerScriptPath()], { env, stdio: ["ignore", logFd, logFd] });
-  running.set(sid, { proc, previewDir, previewServer, previewPort, cfg, logFile, dahuaSerial, browserOverlay });
+  running.set(sid, { proc, previewDir, previewServer, previewPort, cfg, logFile, dahuaSerial, browserOverlay, baseUrl, token, form });
 
   // Recording clip từng trận: chạy uploader đẩy segment về server ban đêm. Uploader
   // SỐNG LÂU HƠN worker (phải upload nốt sau khi phiên dừng) nên KHÔNG gắn cleanupWorker.
@@ -951,6 +952,26 @@ function stopWorker(sid) {
   setTimeout(() => { try { r.proc.kill("SIGKILL"); } catch {} }, 5000);
   cleanupWorker(sid);
 }
+
+// Bật/tắt (hoặc đổi vùng) LÀM MỜ ngày giờ (ffmpeg delogo) NGAY khi đang live: cập nhật
+// env delogo rồi KHỞI ĐỘNG LẠI worker của sân đó (ffmpeg không đổi filter runtime được).
+// Gây gián đoạn ~vài giây (RTMP tái kết nối), FB/YT live thường vẫn giữ.
+async function restartWorkerDelogo({ sid, hideTimestamp, box }) {
+  const r = running.get(sid);
+  if (!r || !r.form) throw new Error("Sân chưa chạy worker — không thể đổi lúc này.");
+  const { baseUrl, token, form } = r;
+  form.hideTimestamp = !!hideTimestamp;
+  if (box && typeof box === "object") form.delogoBox = box;
+  // Gỡ listener exit để KHÔNG báo 'worker-exit' (đây là restart chủ động), rồi kill + dọn.
+  try { r.proc.removeAllListeners("exit"); } catch {}
+  try { r.proc.kill("SIGTERM"); } catch {}
+  try { setTimeout(() => { try { r.proc.kill("SIGKILL"); } catch {} }, 4000); } catch {}
+  cleanupWorker(sid);
+  await new Promise((res) => setTimeout(res, 900));
+  const res = await startFfmpegForSession({ baseUrl, token, form, sid });
+  return { ok: true, hideTimestamp: form.hideTimestamp, delogoBox: form.delogoBox, previewUrl: res.previewUrl };
+}
+ipcMain.handle("toggle-delogo", async (_e, args) => restartWorkerDelogo(args || {}));
 
 // ───────────────────────── Xem thử nguồn (preview trước khi live) ─────────
 // Chạy worker.py ở chế độ AUTOLIVE_PREVIEW_ONLY: chỉ đọc nguồn (RTSP/m3u8/RTMP/
