@@ -49,7 +49,9 @@ async function findResetUserByIdentifier(identifier = "") {
   }
   const phoneStore = normalizeResetPhone(id);
   if (isValidResetPhone(phoneStore)) {
-    return User.findOne({ phone: phoneStore, phoneVerified: true });
+    // Tra theo SĐT KỂ CẢ khi chưa kích hoạt: OTP Zalo gửi tới chính SĐT đó →
+    // nhập đúng OTP là đã chứng minh sở hữu, sẽ tự verify lúc reset thành công.
+    return User.findOne({ phone: phoneStore });
   }
   return null;
 }
@@ -58,8 +60,9 @@ async function findResetUserByIdentifier(identifier = "") {
 function resetChannelsOf(user) {
   return {
     email: !!user?.email,
-    // Zalo chỉ khi SĐT đã kích hoạt
-    zalo: !!(user?.phone && user?.phoneVerified),
+    // Zalo khả dụng khi tài khoản CÓ SĐT (dù chưa kích hoạt) — OTP gửi tới SĐT đó
+    // vừa reset vừa xác thực SĐT.
+    zalo: !!user?.phone,
   };
 }
 
@@ -111,11 +114,11 @@ export async function forgotPassword(req, res) {
     }
 
     if (channel === "zalo") {
-      if (!(user.phone && user.phoneVerified)) {
+      if (!user.phone) {
         return res.status(400).json({
           ok: false,
           channel: "zalo",
-          message: "Tài khoản chưa có số điện thoại đã kích hoạt.",
+          message: "Tài khoản chưa có số điện thoại.",
         });
       }
       let sent;
@@ -135,6 +138,8 @@ export async function forgotPassword(req, res) {
       }
       user.resetPasswordToken = sha256(sent.otp);
       user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000);
+      // OTP gửi tới chính SĐT này → nhập đúng lúc reset sẽ tự kích hoạt SĐT.
+      if (!user.phoneVerified) user.resetPhoneToVerify = user.phone;
       await user.save();
       return res.json({
         ok: true,
@@ -188,10 +193,7 @@ export async function forgotPassword(req, res) {
         .status(400)
         .json({ message: "Số điện thoại không hợp lệ." });
     }
-    const user = await User.findOne({
-      phone: phoneStore,
-      phoneVerified: true,
-    });
+    const user = await User.findOne({ phone: phoneStore });
     if (!user) {
       return res.json({
         ok: true,
@@ -199,7 +201,7 @@ export async function forgotPassword(req, res) {
         channel: "zalo",
         masked: maskResetPhone(phoneStore),
         message:
-          "Số điện thoại chưa được kích hoạt hoặc không gắn với tài khoản nào.",
+          "Số điện thoại không gắn với tài khoản nào.",
       });
     }
     let sent;
@@ -219,6 +221,7 @@ export async function forgotPassword(req, res) {
     }
     user.resetPasswordToken = sha256(sent.otp);
     user.resetPasswordExpires = new Date(Date.now() + 10 * 60 * 1000);
+    if (!user.phoneVerified) user.resetPhoneToVerify = phoneStore;
     await user.save();
     return res.json({
       ok: true,
@@ -333,6 +336,12 @@ export async function resetPassword(req, res) {
     user.password = password;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
+    // Nhập đúng OTP gửi qua Zalo tới chính SĐT → tự KÍCH HOẠT SĐT luôn.
+    if (user.resetPhoneToVerify && user.resetPhoneToVerify === user.phone && !user.phoneVerified) {
+      user.phoneVerified = true;
+      user.phoneVerifiedAt = new Date();
+    }
+    user.resetPhoneToVerify = "";
     await user.save();
     if (user.email) {
       try {
@@ -355,7 +364,6 @@ export async function resetPassword(req, res) {
     }
     const user = await User.findOne({
       phone: phoneStore,
-      phoneVerified: true,
       resetPasswordToken: sha256(otp),
       resetPasswordExpires: { $gt: new Date() },
     });
@@ -367,6 +375,12 @@ export async function resetPassword(req, res) {
     user.password = password;
     user.resetPasswordToken = undefined;
     user.resetPasswordExpires = undefined;
+    // OTP Zalo tới chính SĐT → nhập đúng = tự KÍCH HOẠT SĐT.
+    if (!user.phoneVerified) {
+      user.phoneVerified = true;
+      user.phoneVerifiedAt = new Date();
+    }
+    user.resetPhoneToVerify = "";
     await user.save();
     if (user.email) {
       try {
@@ -491,7 +505,6 @@ export async function verifyResetOtp(req, res) {
     }
     const user = await User.findOne({
       phone: phoneStore,
-      phoneVerified: true,
       resetPasswordToken: sha256(otp),
       resetPasswordExpires: { $gt: new Date() },
     }).select("phone resetPasswordExpires");

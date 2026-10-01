@@ -386,6 +386,9 @@ const userSchema = new mongoose.Schema(
     // reset password
     resetPasswordToken: { type: String, index: true },
     resetPasswordExpires: { type: Date },
+    // SĐT cần tự xác thực khi reset thành công (OTP Zalo gửi tới chính SĐT này →
+    // nhập đúng = chứng minh sở hữu SĐT → set phoneVerified). Xoá sau khi reset.
+    resetPhoneToVerify: { type: String, default: "" },
     rankingSearchLimit: {
       type: Number,
       default: null, // null = dùng default 5
