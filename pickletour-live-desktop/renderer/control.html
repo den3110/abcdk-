@@ -102,7 +102,17 @@
     <label class="row" style="margin-top:12px"><span>Live riêng từng trận</span><input type="checkbox" id="a_perMatch" style="width:auto" /></label>
     <label class="row"><span>Tách live theo giải (đổi giải → live mới)</span><input type="checkbox" id="a_split" style="width:auto" /></label>
     <label class="row"><span>Ghi + cắt clip lên Drive</span><input type="checkbox" id="a_rec" style="width:auto" /></label>
+    <label class="row"><span>Ẩn ngày giờ camera (che góc trên‑phải)</span><input type="checkbox" id="a_hideTs" style="width:auto" onchange="onHideTs()" /></label>
+    <div id="a_dlBox" class="hidden" style="display:flex;gap:6px;margin-top:4px">
+      <input id="a_dl_x" inputmode="numeric" placeholder="X" value="1360" style="flex:1;min-width:0" />
+      <input id="a_dl_y" inputmode="numeric" placeholder="Y" value="46" style="flex:1;min-width:0" />
+      <input id="a_dl_w" inputmode="numeric" placeholder="Rộng" value="544" style="flex:1;min-width:0" />
+      <input id="a_dl_h" inputmode="numeric" placeholder="Cao" value="72" style="flex:1;min-width:0" />
+    </div>
+    <label style="margin-top:12px">Hẹn giờ bắt đầu (để trống = live ngay)</label>
+    <input type="datetime-local" id="a_schedAt" />
     <button class="pri full" style="margin-top:12px" id="a_go" onclick="doStart()">● Bắt đầu live</button>
+    <button class="ghost full" style="margin-top:8px" id="a_sched" onclick="doSchedule()">⏰ Hẹn giờ live</button>
     <div id="a_err" class="err-msg"></div>
   </div>
 </div>
@@ -248,36 +258,62 @@ async function doStart(){
   $("a_err").textContent="";
   $("a_go").disabled=true; $("a_go").textContent="Đang khởi động…";
   try{
-    const t = OPT.tournaments.find(x=>x._id===$("a_tour").value);
-    const courtName = $("a_court").selectedOptions[0]?.textContent||"";
-    const srcType=$("a_srcType").value; let source={};
-    if(srcType==="rtsp"){ const s=OPT.rtspSources[+$("a_rtsp").value]; if(!s) throw new Error("Chọn nguồn RTSP"); source={sourceUrl:s.url}; }
-    else if(srcType==="url"){ const u=$("a_url").value.trim(); if(!u) throw new Error("Nhập link nguồn"); source={sourceUrl:u}; }
-    else { const c=OPT.cams[+$("a_cam").value]; if(!c) throw new Error("Chọn camera"); source={imouDeviceId:c.deviceId, venueId:c.venueId}; }
-    const destType=$("a_destType").value; let destinations=[];
-    if(destType==="fb"){
-      const p=OPT.fbPages.find(x=>x.pageId===$("a_fb").value); if(!p) throw new Error("Chọn Facebook Page");
-      const cpIds=Array.from($("a_crosspost").selectedOptions||[]).map(o=>o.value).filter(id=>id&&id!==p.pageId);
-      const dest={type:"fb",pageId:p.pageId,pageName:p.pageName,label:p.pageName};
-      if(cpIds.length){ dest.crosspostPageIds=cpIds; dest.crosspostNames=cpIds.map(id=>OPT.fbPages.find(x=>x.pageId===id)?.pageName||id); }
-      destinations=[dest];
-    }
-    else destinations=[{type:"youtube",label:"YouTube (tự tạo qua API)"}];
-    await api("/api/start","POST",{
-      tournamentId:$("a_tour").value, tournamentName: t?t.name:"",
-      courtStationId:$("a_court").value, courtName,
-      source, destinations,
-      perMatchLive:$("a_perMatch").checked, recordClips:$("a_rec").checked,
-      splitPerTournament:$("a_split").checked,
-      title:$("a_title").value.trim(),
-      encoder:$("a_encoder").value,
-      browserOverlayUrl:$("a_bov").value.trim(),
-      layout:{ scoreboard:$("a_lay_sb").value, brand:$("a_lay_brand").value, sponsor:$("a_lay_sponsor").value },
-      advanced:{ resolutionH:Number($("a_res").value)||1080, fps:Number($("a_fps").value)||0, videoBitrateKbps:Number($("a_vbr").value)||4500 },
-    });
+    const payload = buildStartPayload();
+    await api("/api/start","POST",payload);
     closeAdd(); load();
   }catch(e){ $("a_err").textContent = e.message; }
   finally{ $("a_go").disabled=false; $("a_go").textContent="● Bắt đầu live"; }
+}
+function onHideTs(){ $("a_dlBox").classList.toggle("hidden", !$("a_hideTs").checked); }
+function buildStartPayload(){
+  const t = OPT.tournaments.find(x=>x._id===$("a_tour").value);
+  const courtName = $("a_court").selectedOptions[0]?.textContent||"";
+  const srcType=$("a_srcType").value; let source={};
+  if(srcType==="rtsp"){ const s=OPT.rtspSources[+$("a_rtsp").value]; if(!s) throw new Error("Chọn nguồn RTSP"); source={sourceUrl:s.url}; }
+  else if(srcType==="url"){ const u=$("a_url").value.trim(); if(!u) throw new Error("Nhập link nguồn"); source={sourceUrl:u}; }
+  else { const c=OPT.cams[+$("a_cam").value]; if(!c) throw new Error("Chọn camera"); source={imouDeviceId:c.deviceId, venueId:c.venueId}; }
+  const destType=$("a_destType").value; let destinations=[];
+  if(destType==="fb"){
+    const p=OPT.fbPages.find(x=>x.pageId===$("a_fb").value); if(!p) throw new Error("Chọn Facebook Page");
+    const cpIds=Array.from($("a_crosspost").selectedOptions||[]).map(o=>o.value).filter(id=>id&&id!==p.pageId);
+    const dest={type:"fb",pageId:p.pageId,pageName:p.pageName,label:p.pageName};
+    if(cpIds.length){ dest.crosspostPageIds=cpIds; dest.crosspostNames=cpIds.map(id=>OPT.fbPages.find(x=>x.pageId===id)?.pageName||id); }
+    destinations=[dest];
+  }
+  else destinations=[{type:"youtube",label:"YouTube (tự tạo qua API)"}];
+  const payload = {
+    tournamentId:$("a_tour").value, tournamentName: t?t.name:"",
+    courtStationId:$("a_court").value, courtName,
+    source, destinations,
+    perMatchLive:$("a_perMatch").checked, recordClips:$("a_rec").checked,
+    splitPerTournament:$("a_split").checked,
+    title:$("a_title").value.trim(),
+    encoder:$("a_encoder").value,
+    browserOverlayUrl:$("a_bov").value.trim(),
+    layout:{ scoreboard:$("a_lay_sb").value, brand:$("a_lay_brand").value, sponsor:$("a_lay_sponsor").value },
+    advanced:{ resolutionH:Number($("a_res").value)||1080, fps:Number($("a_fps").value)||0, videoBitrateKbps:Number($("a_vbr").value)||4500 },
+  };
+  if($("a_hideTs").checked){
+    payload.hideTimestamp=true;
+    payload.delogoBox={ x:Number($("a_dl_x").value)||1360, y:Number($("a_dl_y").value)||46, w:Number($("a_dl_w").value)||544, h:Number($("a_dl_h").value)||72 };
+  }
+  return payload;
+}
+async function doSchedule(){
+  $("a_err").textContent="";
+  try{
+    const v=$("a_schedAt").value;
+    if(!v) throw new Error("Chọn ngày giờ hẹn (hoặc bấm 'Bắt đầu live' để live ngay).");
+    const startAt=new Date(v).getTime();
+    if(!Number.isFinite(startAt)) throw new Error("Ngày giờ không hợp lệ.");
+    if(startAt < Date.now()+30000) throw new Error("Thời điểm hẹn phải ở tương lai (≥30 giây).");
+    const payload=buildStartPayload();
+    $("a_sched").disabled=true; $("a_sched").textContent="Đang hẹn…";
+    await api("/api/schedule","POST",{ ...payload, startAt });
+    closeAdd(); load();
+    alert("Đã hẹn giờ live lúc "+new Date(startAt).toLocaleString("vi-VN"));
+  }catch(e){ $("a_err").textContent=e.message; }
+  finally{ $("a_sched").disabled=false; $("a_sched").textContent="⏰ Hẹn giờ live"; }
 }
 
 function showPin(msg){ $("main").classList.add("hidden"); $("pinBox").classList.remove("hidden"); $("pinErr").textContent=msg||""; }

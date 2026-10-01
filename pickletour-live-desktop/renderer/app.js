@@ -1258,6 +1258,47 @@ async function remoteOptions(payload = {}) {
   };
 }
 
+// Dựng form từ payload điều khiển từ xa (dùng chung cho live ngay + hẹn giờ).
+function buildRemoteForm(p = {}) {
+  if (!state.token) throw new Error("App chưa đăng nhập");
+  if (!p.tournamentId || !p.courtStationId) throw new Error("Thiếu giải/sân");
+  const dests = Array.isArray(p.destinations) ? p.destinations : [];
+  if (!dests.length) throw new Error("Thiếu điểm đến");
+  const perMatch = !!p.perMatchLive;
+  const src = p.source || {};
+  const form = {
+    tournamentId: p.tournamentId,
+    courtStationId: p.courtStationId,
+    imouDeviceId: src.imouDeviceId || "",
+    venueId: src.venueId || "",
+    sourceUrl: src.sourceUrl || "",
+    dahuaP2p: src.dahua || undefined,
+    destinations: dests,
+    encoder: p.encoder || "auto",
+    runnerLabel: state.runnerLabel,
+    perMatchLive: perMatch,
+    title: perMatch ? "" : (p.title || [p.tournamentName, p.courtName].filter(Boolean).join(" - ")),
+    browserOverlayUrl: p.browserOverlayUrl || "",
+    hideTimestamp: !!p.hideTimestamp,
+    delogoBox: p.delogoBox || undefined,
+    recordClips: !!p.recordClips && !perMatch,
+    splitPerTournament: !!p.splitPerTournament && !perMatch,
+    layout: {
+      scoreboard: p.layout?.scoreboard || "top-left",
+      brand: p.layout?.brand || "top-right",
+      sponsor: p.layout?.sponsor || "bottom-right",
+    },
+    advanced: {
+      videoBitrateKbps: Number(p.advanced?.videoBitrateKbps) || 4500,
+      resolutionH: Number(p.advanced?.resolutionH) || 1080,
+      fps: Number(p.advanced?.fps) || 0,
+      audioBitrateKbps: Number(p.advanced?.audioBitrateKbps) || 128,
+      encoder: p.encoder || "auto",
+    },
+  };
+  return { form, tournamentName: p.tournamentName || "", courtName: p.courtName || "", perMatch };
+}
+
 async function remoteStart(p = {}) {
   if (!state.token) throw new Error("App chưa đăng nhập");
   if (!p.tournamentId || !p.courtStationId) throw new Error("Thiếu giải/sân");
@@ -1301,6 +1342,19 @@ async function remoteStart(p = {}) {
   return { sessionId: res.sessionId };
 }
 
+// Hẹn giờ bắt đầu live 1 sân từ xa (điều khiển điện thoại) → đặt lịch ở main.
+async function remoteSchedule(p = {}) {
+  const startAt = Number(p.startAt);
+  if (!Number.isFinite(startAt)) throw new Error("Thời điểm hẹn không hợp lệ");
+  const { form, tournamentName, courtName, perMatch } = buildRemoteForm(p);
+  const label = form.title || [tournamentName, courtName].filter(Boolean).join(" - ");
+  const r = await window.api.scheduleAdd({
+    baseUrl: state.baseUrl, token: state.token, form, startAt, label,
+    meta: { tournamentName, courtName, perMatch },
+  });
+  return { ok: true, schedules: r?.schedules || [] };
+}
+
 if (window.api.onRemoteCmd) {
   window.api.onRemoteCmd(async ({ id, action, payload }) => {
     let ok = true, data = null, error = "";
@@ -1311,6 +1365,7 @@ if (window.api.onRemoteCmd) {
       else if (action === "stopAll") { for (const sid of [...state.sessions.keys()]) await stopSession(sid); data = { stopped: "all" }; }
       else if (action === "start") data = await remoteStart(payload || {});
       else if (action === "setLayout") data = await remoteSetLayout(payload || {});
+      else if (action === "schedule") data = await remoteSchedule(payload || {});
       else if (action === "getOpacity") data = await apiGet("/api/tournament-auto-live/overlay-opacity");
       else if (action === "setOpacity") data = await apiReq("PATCH", "/api/tournament-auto-live/overlay-opacity", { opacity: Number(payload?.opacity) });
       else { ok = false; error = "unknown action"; }
