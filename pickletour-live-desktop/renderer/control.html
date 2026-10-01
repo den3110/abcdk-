@@ -128,9 +128,24 @@ async function load(){
     $("courts").innerHTML = cs.length ? cs.map(cardHtml).join("") : '<div class="card mut">Chưa có sân nào đang live.</div>';
   }catch(e){ if(String(e.message).includes("PIN")){ showPin("PIN sai"); } }
 }
+const LAY_CORNERS = [["top-left","Trên·Trái"],["top-right","Trên·Phải"],["bottom-left","Dưới·Trái"],["bottom-right","Dưới·Phải"]];
+function laySel(sid, field, cur){
+  const opts = LAY_CORNERS.map(([v,l])=>`<option value="${v}" ${v===cur?"selected":""}>${l}</option>`).join("");
+  return `<select onchange="setLayout('${sid}')" id="lay_${field}_${sid}" style="flex:1;min-width:0">${opts}</select>`;
+}
 function cardHtml(s){
   const clip = s.recordClips ? `<div class="mut">🎬 Clip: ${s.clipsDone}/${s.clipsTotal} lên Drive</div>` : "";
   const ex = s.exited ? `<div class="mut" style="color:#fca5a5">Worker đã dừng</div>` : "";
+  const lay = s.layout||{};
+  const layoutRow = `<div style="margin-top:8px">
+      <div class="mut" style="margin-bottom:4px">🎯 Vị trí overlay (đổi khi đang live)</div>
+      <div style="display:flex;gap:6px">
+        <div style="flex:1"><div class="mut" style="font-size:11px">Bảng điểm</div>${laySel(s.sid,"scoreboard",lay.scoreboard||"top-left")}</div>
+        <div style="flex:1"><div class="mut" style="font-size:11px">Logo</div>${laySel(s.sid,"brand",lay.brand||"top-right")}</div>
+        <div style="flex:1"><div class="mut" style="font-size:11px">Tài trợ</div>${laySel(s.sid,"sponsor",lay.sponsor||"bottom-right")}</div>
+      </div>
+      <div class="mut" id="layhint_${s.sid}" style="font-size:11px"></div>
+    </div>`;
   const links = (s.watchUrls||[]).length
     ? `<div style="margin-top:6px">` + s.watchUrls.map((u)=>
         `<div class="chip" style="justify-content:space-between;width:100%;margin-top:4px">
@@ -143,8 +158,18 @@ function cardHtml(s){
       <button class="danger" onclick="stopOne('${s.sid}')">■ Dừng</button></div>
     <div class="mut">${esc(s.tournament||"")}</div>
     <div class="mut">Trận: <b>${esc(s.match||"—")}</b> · ${s.bitrateKbps?(s.bitrateKbps/1000).toFixed(2)+"Mbps":"—"} · ${fmtSpeed(s.speed)}</div>
-    ${clip}${ex}${links}
+    ${clip}${ex}${links}${layoutRow}
   </div>`;
+}
+async function setLayout(sid){
+  const layout = {
+    scoreboard: $("lay_scoreboard_"+sid)?.value,
+    brand: $("lay_brand_"+sid)?.value,
+    sponsor: $("lay_sponsor_"+sid)?.value,
+  };
+  const h = $("layhint_"+sid); if(h) h.textContent = "Đang cập nhật…";
+  try{ await api("/api/set-layout","POST",{sid, layout}); if(h) h.textContent="✓ Đã đổi — overlay cập nhật ~2s."; }
+  catch(e){ if(h) h.textContent="Lỗi: "+(e.message||e); }
 }
 async function copyLink(u){
   try{ await navigator.clipboard.writeText(u); }

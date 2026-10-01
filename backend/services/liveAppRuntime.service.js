@@ -488,7 +488,7 @@ function buildRuntimePhaseText(match) {
   return roundLabel || "";
 }
 
-function buildStageName(match, roundCode = inferRoundCode(match)) {
+export function buildStageName(match, roundCode = inferRoundCode(match)) {
   const roundLabel = buildRuntimeRoundLabel(match, roundCode);
   const phaseText = buildRuntimePhaseText(match);
   return firstText(roundLabel, phaseText);

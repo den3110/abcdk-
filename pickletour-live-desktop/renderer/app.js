@@ -635,6 +635,7 @@ function registerSession(res, form, { tournamentName = "", courtName = "" } = {}
     previewUrl: res.previewUrl || "",
     perMatchArmed: !!res.perMatchArmed,
     watchUrls: res.watchUrls || [],
+    layout: form.layout || { scoreboard: "top-left", brand: "top-right", sponsor: "bottom-right" },
     lastStatus: null, recUpload: null, clips: [], exited: null,
   });
   ensurePoller();
@@ -975,7 +976,40 @@ function openDetail(sid) {
   try { const v = $("preview"); v.pause(); v.removeAttribute("src"); v.load && v.load(); } catch {}
   if (S.previewUrl) startPreview(S.previewUrl);
   renderDetail();
+  setupLiveOverlay(S);
   show("liveView");
+}
+
+// Điều khiển VỊ TRÍ overlay NGAY khi đang live (gọi PATCH .../:id/layout → overlay cập nhật ~2s).
+function setupLiveOverlay(S) {
+  if (!S) return;
+  const defs = [
+    ["live_lay_scoreboard", "scoreboard", "top-left"],
+    ["live_lay_brand", "brand", "top-right"],
+    ["live_lay_sponsor", "sponsor", "bottom-right"],
+  ];
+  const lay = S.layout || {};
+  for (const [selId, key, def] of defs) {
+    const el = $(selId);
+    if (!el) continue;
+    el.innerHTML = CORNERS.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
+    el.value = lay[key] || def;
+    el.onchange = async () => {
+      const layout = {
+        scoreboard: $("live_lay_scoreboard").value,
+        brand: $("live_lay_brand").value,
+        sponsor: $("live_lay_sponsor").value,
+      };
+      if ($("liveLayoutHint")) $("liveLayoutHint").textContent = "Đang cập nhật…";
+      try {
+        await apiReq("PATCH", `/api/tournament-auto-live/${S.sid}/layout`, { layout });
+        S.layout = layout;
+        if ($("liveLayoutHint")) $("liveLayoutHint").textContent = "✓ Đã đổi vị trí — overlay cập nhật sau ~2 giây.";
+      } catch (e) {
+        if ($("liveLayoutHint")) $("liveLayoutHint").textContent = "Lỗi: " + (e?.message || e);
+      }
+    };
+  }
 }
 
 function renderDetail() {
@@ -1147,10 +1181,28 @@ function buildRemoteState() {
       clipsDone: clips.filter((c) => c.status === "done").length,
       clipsTotal: clips.length,
       watchUrls,
+      layout: S.layout || { scoreboard: "top-left", brand: "top-right", sponsor: "bottom-right" },
       exited: !!(S.exited && !S.perMatch),
     };
   });
   return { sessions, loggedIn: !!state.token };
+}
+
+// Đổi vị trí overlay 1 sân từ xa (điều khiển điện thoại).
+async function remoteSetLayout(p = {}) {
+  if (!state.token) throw new Error("App chưa đăng nhập");
+  const sid = p.sid;
+  const S = sid && state.sessions.get(sid);
+  if (!S) throw new Error("Không tìm thấy sân");
+  const layout = {
+    scoreboard: p.layout?.scoreboard || S.layout?.scoreboard || "top-left",
+    brand: p.layout?.brand || S.layout?.brand || "top-right",
+    sponsor: p.layout?.sponsor || S.layout?.sponsor || "bottom-right",
+  };
+  await apiReq("PATCH", `/api/tournament-auto-live/${sid}/layout`, { layout });
+  S.layout = layout;
+  if (state.activeSid === sid) setupLiveOverlay(S);
+  return { ok: true, layout };
 }
 
 async function remoteOptions(payload = {}) {
@@ -1231,6 +1283,7 @@ if (window.api.onRemoteCmd) {
       else if (action === "stop") { await stopSession(payload?.sid); data = { stopped: payload?.sid }; }
       else if (action === "stopAll") { for (const sid of [...state.sessions.keys()]) await stopSession(sid); data = { stopped: "all" }; }
       else if (action === "start") data = await remoteStart(payload || {});
+      else if (action === "setLayout") data = await remoteSetLayout(payload || {});
       else { ok = false; error = "unknown action"; }
     } catch (e) { ok = false; error = e?.message || String(e); }
     window.api.remoteReply({ id, ok, data, error });

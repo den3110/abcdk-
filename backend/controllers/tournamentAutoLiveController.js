@@ -14,6 +14,7 @@ import {
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
   refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
   getCourtImouStreamUrlForApp, saveVenueDahuaNvr, resolveDahuaRtsp,
+  updateSessionLayout,
 } from "../services/autoLive/tournamentAutoLive.service.js";
 import { recordingPlan, saveSegmentStream, presignSegment, registerUploadedSegment, listClips } from "../services/autoLive/autoLiveClip.service.js";
 import { spawn } from "child_process";
@@ -83,6 +84,13 @@ export const courtImouSession = asyncHandler(async (req, res) => {
 export const courtImouStreamUrl = asyncHandler(async (req, res) => {
   const r = await getCourtImouStreamUrlForApp(req.query.imouDeviceId, req.query.streamId || "1");
   if (r?.error) { res.status(r.code || 400); throw new Error(r.error); }
+  res.json(r);
+});
+
+// PATCH /api/tournament-auto-live/:id/layout (admin) — đổi VỊ TRÍ overlay khi ĐANG LIVE.
+// Body: { layout: { scoreboard?, brand?, sponsor? } } (giá trị góc: top-left/top-right/bottom-left/bottom-right)
+export const setSessionLayout = asyncHandler(async (req, res) => {
+  const r = await updateSessionLayout(String(req.params.id), req.body?.layout || req.body || {});
   res.json(r);
 });
 

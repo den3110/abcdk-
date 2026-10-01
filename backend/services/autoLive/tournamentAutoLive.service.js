@@ -152,6 +152,26 @@ async function bumpOverlayForSession(sessionId) {
   return doc;
 }
 
+// Cập nhật VỊ TRÍ overlay NGAY CẢ KHI ĐANG LIVE: ghi layout + bump overlayVersion
+// → worker fetch overlay PNG (~2fps) sẽ nhận vị trí mới ngay (không cần restart live).
+const OVERLAY_CORNERS = new Set(["top-left", "top-right", "bottom-left", "bottom-right"]);
+export async function updateSessionLayout(sessionId, layout = {}) {
+  const doc = await TournamentAutoLiveSession.findById(sessionId).select("_id layout status");
+  if (!doc) { const e = new Error("Không tìm thấy phiên"); e.status = 404; throw e; }
+  const cur = doc.layout || {};
+  const next = { ...cur };
+  for (const key of ["scoreboard", "brand", "sponsor"]) {
+    const v = String(layout?.[key] || "").trim();
+    if (v && OVERLAY_CORNERS.has(v)) next[key] = v;
+  }
+  doc.layout = next;
+  doc.overlayVersion = (Number(doc.overlayVersion) || 0) + 1;
+  await doc.save();
+  // Xoá cache overlay để lần fetch kế render lại ngay.
+  try { overlayCache.delete(String(sessionId)); } catch {}
+  return { ok: true, layout: next };
+}
+
 async function pollOnce(sessionId) {
   const session = await TournamentAutoLiveSession.findById(sessionId);
   if (!session || ["stopped", "error"].includes(session.status)) {

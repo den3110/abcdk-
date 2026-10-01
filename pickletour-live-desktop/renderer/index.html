@@ -302,6 +302,15 @@
           <div style="font-weight:600; margin-bottom:6px">🎬 Clip từng trận → Google Drive <span id="clipSummary" class="hint"></span></div>
           <div id="clipList" class="stat"></div>
         </div>
+        <div style="margin-top:12px; border-top:1px solid #243244; padding-top:10px">
+          <div style="font-weight:600; margin-bottom:6px">🎯 Vị trí overlay <span class="hint">(đổi ngay khi đang live, ~2s cập nhật)</span></div>
+          <div class="row3">
+            <div><span class="mini">Bảng điểm</span><select id="live_lay_scoreboard" class="corner"></select></div>
+            <div><span class="mini">Logo PickleTour</span><select id="live_lay_brand" class="corner"></select></div>
+            <div><span class="mini">Tài trợ</span><select id="live_lay_sponsor" class="corner"></select></div>
+          </div>
+          <div id="liveLayoutHint" class="hint"></div>
+        </div>
         <div class="actions">
           <button id="openLog" class="ghost">Xem log</button>
           <button id="stopLive" class="danger big">■ DỪNG</button>

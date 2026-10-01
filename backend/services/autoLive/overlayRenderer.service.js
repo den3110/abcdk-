@@ -9,6 +9,7 @@ import UserMatch from "../../models/userMatchModel.js";
 import CourtStation from "../../models/courtStationModel.js";
 import Tournament from "../../models/tournamentModel.js";
 import { Sponsor } from "../../models/sponsorModel.js";
+import { buildStageName } from "../liveAppRuntime.service.js";
 
 const W = 1920;
 const H = 1080;
@@ -111,10 +112,13 @@ export async function loadOverlayData(courtStationId) {
     // — KHÔNG phải ref User, populate lồng sẽ ghi đè thành null.
     match = await Match.findById(currentMatchId)
       .select(
-        "_id status pairA pairB gameScores currentGame serve rules tournament code labelKey stageIndex startedAt"
+        "_id status pairA pairB gameScores currentGame serve rules tournament code labelKey stageIndex startedAt " +
+        "round roundName roundCode format phase pool rrRound bracket"
       )
       .populate({ path: "pairA", select: "_id label teamName seed player1 player2" })
       .populate({ path: "pairB", select: "_id label teamName seed player1 player2" })
+      // Bracket để suy ra VÒNG ĐẤU (buildStageName) + NỘI DUNG THI ĐẤU (bracket.name)
+      .populate({ path: "bracket", select: "_id name type stage order drawRounds meta config" })
       .lean();
     if (match?.tournament) {
       tournament = await Tournament.findById(match.tournament)
@@ -138,7 +142,18 @@ export async function loadOverlayData(courtStationId) {
     .map((s) => (s.logoUrl || "").trim())
     .filter(Boolean);
 
-  return { station, match, tournament, sponsorLogos };
+  // VÒNG ĐẤU (hiển thị thanh xanh trên cùng) + NỘI DUNG THI ĐẤU (thanh dưới).
+  let roundLabel = "";
+  let contentLabel = "";
+  if (match) {
+    try { roundLabel = buildStageName(match) || ""; } catch { roundLabel = ""; }
+    // Nội dung = tên bracket (vd "Đôi hỗn hợp 4.6"); fallback tên giải nếu trống.
+    contentLabel =
+      (match?.bracket?.name || "").toString().trim() ||
+      (tournament?.name || tournament?.shortName || "").toString().trim();
+  }
+
+  return { station, match, tournament, sponsorLogos, roundLabel, contentLabel };
 }
 
 // Overlay cho TRẬN NGẪU NHIÊN (UserMatch standalone, không thuộc giải). UserMatch
@@ -253,13 +268,16 @@ export async function renderOverlayPng(data) {
   const cluster = data?.station?.clusterId;
   const clusterLabel = cluster?.venueName || cluster?.name || "";
   const tournamentName = (data?.tournament?.name || data?.tournament?.shortName || "GIẢI PICKLETOUR").toString();
+  // Thanh XANH trên cùng = VÒNG ĐẤU; thanh dưới = NỘI DUNG THI ĐẤU (vd "Đôi hỗn hợp 4.6").
+  const roundLabel = (data?.roundLabel || "").toString().trim();
+  const contentLabel = (data?.contentLabel || "").toString().trim();
 
   if (!match) {
     drawBug(ctx, {
       corner: scoreCorner,
       tournament: tournamentName,
       rows: [{ name: "Đang chờ trận tiếp theo…", pts: "", sets: "", serve: 0, muted: true }],
-      bottomLeft: [stationName, clusterLabel].filter(Boolean).join(" · "),
+      bottomLeft: contentLabel || [stationName, clusterLabel].filter(Boolean).join(" · "),
       bottomRight: "",
       single: true,
     });
@@ -277,12 +295,14 @@ export async function renderOverlayPng(data) {
 
   drawBug(ctx, {
     corner: scoreCorner,
-    tournament: tournamentName,
+    // Thanh xanh trên = VÒNG ĐẤU (fallback tên giải nếu không suy ra được vòng).
+    tournament: roundLabel || tournamentName,
     rows: [
       { name: pairShortName(match.pairA), pts: String(g.a || 0), sets: String(setsA), serve: serveSide === "A" ? serveCount : 0 },
       { name: pairShortName(match.pairB), pts: String(g.b || 0), sets: String(setsB), serve: serveSide === "B" ? serveCount : 0 },
     ],
-    bottomLeft: [stationName, clusterLabel].filter(Boolean).join(" · "),
+    // Thanh dưới = NỘI DUNG THI ĐẤU (fallback sân · cụm nếu trống).
+    bottomLeft: contentLabel || [stationName, clusterLabel].filter(Boolean).join(" · "),
     bottomRight: `VÁN ${cur + 1}/${bestOf}`,
   });
   return canvas.toBuffer("image/png");

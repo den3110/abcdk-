@@ -3,7 +3,7 @@ import { protect, authorize } from "../middleware/authMiddleware.js";
 import {
   startSession, stopSession, listSessions, getSession,
   getOverlayImage, getUserMatchOverlayImage, internalHeartbeat, listAvailableCams, internalImouSession,
-  internalGetImouSession, getStats, internalRefreshDestinations, workerConfig,
+  internalGetImouSession, getStats, internalRefreshDestinations, workerConfig, setSessionLayout,
   listTournamentsForApp, listCourtsForApp, listFbPagesForApp, courtImouSession,
   courtImouStreamUrl, getVenueDahua, setVenueDahua, listDahuaVenues, dahuaSnapshot,
   listRtspSources, createRtspSource, updateRtspSource, deleteRtspSource,
@@ -49,6 +49,7 @@ router.post("/rtsp-sources", protect, admin, express.json(), createRtspSource);
 router.put("/rtsp-sources/:id", protect, admin, express.json(), updateRtspSource);
 router.delete("/rtsp-sources/:id", protect, admin, deleteRtspSource);
 router.get("/:id/worker-config", protect, admin, workerConfig);
+router.patch("/:id/layout", protect, admin, express.json(), setSessionLayout);
 router.get("/:id", protect, admin, getSession);
 
 export default router;
