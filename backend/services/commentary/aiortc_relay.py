@@ -96,6 +96,7 @@ async def offer(request):
     typ = params.get("type")
     relay_url = params.get("relayUrl")
     preview_url = params.get("previewUrl")
+    rtsp_url = params.get("rtspUrl")
     if not sdp or not typ or not relay_url:
         return web.json_response({"error": "Thiếu sdp/type/relayUrl"}, status=400)
 
@@ -119,31 +120,55 @@ async def offer(request):
     # setRemoteDescription để aiortc gắn track vào m-line video (recvonly) của offer.
     # av.open (MediaPlayer.__init__) là ĐỒNG BỘ → chạy trong executor + timeout để
     # KHÔNG bao giờ treo event loop (nếu nguồn chậm/treo thì bỏ video, vẫn có audio).
-    if preview_url:
-        def _open_player():
-            return MediaPlayer(
-                preview_url, format="mpegts",
-                options={"fflags": "nobuffer", "flags": "low_delay",
-                         "analyzeduration": "1000000", "probesize": "500000",
-                         "timeout": "5000000", "rw_timeout": "5000000"})
+    loop = asyncio.get_event_loop()
+
+    def _open_rtsp(url):
+        # VPS kéo RTSP full-res (cùng Tailscale). TCP + đệm nhỏ cho độ trễ thấp.
+        return MediaPlayer(url, options={
+            "rtsp_transport": "tcp", "fflags": "nobuffer", "flags": "low_delay",
+            "max_delay": "500000", "timeout": "5000000", "stimeout": "5000000"})
+
+    def _open_preview(url):
+        return MediaPlayer(url, format="mpegts", options={
+            "fflags": "nobuffer", "flags": "low_delay",
+            "analyzeduration": "1000000", "probesize": "500000",
+            "timeout": "5000000", "rw_timeout": "5000000"})
+
+    async def _open(url, opener):
+        return await asyncio.wait_for(loop.run_in_executor(None, lambda: opener(url)), timeout=8)
+
+    # Nguồn video: ƯU TIÊN RTSP full-res (VPS kéo), lỗi/không có → preview360 (PC).
+    player = None
+    src = ""
+    if rtsp_url:
         try:
-            loop = asyncio.get_event_loop()
-            player = await asyncio.wait_for(loop.run_in_executor(None, _open_player), timeout=8)
+            player = await _open(rtsp_url, _open_rtsp)
+            if not (player and player.video):
+                player = None
+            else:
+                src = "rtsp-fullres"
+        except Exception as e:  # noqa: BLE001
+            print(f"[relay] RTSP full-res lỗi → fallback 360p: {e!r}", flush=True)
+            player = None
+    if player is None and preview_url:
+        try:
+            player = await _open(preview_url, _open_preview)
             if player and player.video:
-                # Gắn thẳng vào transceiver video mà trình duyệt đã chào (recvonly) để
-                # chắc chắn video đi đúng m-line; addTrack tự chọn có thể lệch khi có
-                # cả audio + video m-line.
-                vtrans = next((t for t in pc.getTransceivers() if t.kind == "video"), None)
-                print("[relay] video transceiver từ offer:", vtrans is not None, flush=True)
-                if vtrans is not None:
-                    vtrans.sender.replaceTrack(player.video)
-                    vtrans.direction = "sendonly"
-                else:
-                    pc.addTrack(player.video)
-                pc._preview_player = player  # giữ ref tránh bị GC đóng
-                print("[relay] preview360 OK → gắn video track", flush=True)
+                src = "preview360"
         except Exception as e:  # noqa: BLE001
             print(f"[relay] preview360 lỗi (bỏ video, vẫn có audio): {e!r}", flush=True)
+            player = None
+
+    if player and player.video:
+        # Gắn thẳng vào transceiver video (recvonly) của offer để đi đúng m-line.
+        vtrans = next((t for t in pc.getTransceivers() if t.kind == "video"), None)
+        if vtrans is not None:
+            vtrans.sender.replaceTrack(player.video)
+            vtrans.direction = "sendonly"
+        else:
+            pc.addTrack(player.video)
+        pc._preview_player = player  # giữ ref tránh bị GC đóng
+        print(f"[relay] video OK ({src}) → gắn track", flush=True)
 
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)

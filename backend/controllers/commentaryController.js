@@ -6,6 +6,7 @@ import asyncHandler from "express-async-handler";
 import jwt from "jsonwebtoken";
 import LiveControlMachine from "../models/liveControlMachineModel.js";
 import CommentaryCode from "../models/commentaryCodeModel.js";
+import TournamentAutoLiveSession from "../models/tournamentAutoLiveSessionModel.js";
 
 const ONLINE_MS = 60 * 1000;
 const TOKEN_TTL = "2h";
@@ -147,6 +148,15 @@ export const commentaryOffer = asyncHandler(async (req, res) => {
   preview.searchParams.set("sid", d.sid);
   if (m.pin) preview.searchParams.set("k", m.pin);
 
+  // Nếu nguồn phiên là RTSP (VPS cùng Tailscale có thể tới) → cho aiortc kéo THẲNG
+  // RTSP full-res (đẹp hơn 360p). aiortc thử rtsp trước, lỗi thì fallback preview360.
+  let rtspUrl = "";
+  try {
+    const sess = await TournamentAutoLiveSession.findById(d.sid).select("sourceUrl").lean();
+    const su = String(sess?.sourceUrl || "").trim();
+    if (/^rtsp:\/\//i.test(su)) rtspUrl = su;
+  } catch {}
+
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15000);
   try {
@@ -158,6 +168,7 @@ export const commentaryOffer = asyncHandler(async (req, res) => {
         type,
         relayUrl: relay.toString(),
         previewUrl: preview.toString(),
+        rtspUrl, // ưu tiên: VPS kéo RTSP full-res; rỗng/lỗi → dùng previewUrl 360p
       }),
       signal: ctrl.signal,
     });
