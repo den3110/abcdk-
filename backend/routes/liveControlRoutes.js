@@ -1,6 +1,6 @@
 import express from "express";
 import { protect, authorize, adminOrCommentator } from "../middleware/authMiddleware.js";
-import { registerMachine, listMachines, proxyCall } from "../controllers/liveControlController.js";
+import { registerMachine, listMachines, proxyCall, sessionRtsp } from "../controllers/liveControlController.js";
 import { createCommentaryToken } from "../controllers/commentaryController.js";
 
 const router = express.Router();
@@ -14,5 +14,7 @@ router.get("/machines", protect, adminOrCommentator, listMachines);
 router.post("/:machineId/call", protect, adminOrCommentator, express.json(), proxyCall);
 // Tạo liên kết bình luận viên: admin + BLV.
 router.post("/:machineId/commentary-token", protect, adminOrCommentator, express.json(), createCommentaryToken);
+// RTSP nguồn (chứa creds) — CHỈ admin, để xem trực tiếp mượt khi cùng Tailscale.
+router.get("/:machineId/session-rtsp", protect, admin, sessionRtsp);
 
 export default router;

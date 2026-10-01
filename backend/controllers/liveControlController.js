@@ -1,5 +1,6 @@
 import asyncHandler from "express-async-handler";
 import LiveControlMachine from "../models/liveControlMachineModel.js";
+import TournamentAutoLiveSession from "../models/tournamentAutoLiveSessionModel.js";
 import { isAdminActor } from "../middleware/authMiddleware.js";
 
 // Bình luận viên (không phải admin) chỉ được gọi các path ĐỌC qua proxy.
@@ -26,6 +27,26 @@ function publicMachine(m) {
 
 // POST /api/live-control/register  (desktop app gọi — admin auth)
 // body: { machineId, label, tailscaleIp, port, pin, cpuModel?, cpuPct?, moreCourts? }
+
+// GET /api/live-control/:machineId/session-rtsp?sid=  (ADMIN ONLY — URL chứa creds cam)
+// Trả rtspUrl nếu nguồn là RTSP ngoài (phone có thể tới qua Tailscale); rỗng nếu
+// nguồn là local (Dahua P2P tunnel 127.x) / Imou / không RTSP → app dùng WebRTC.
+export const sessionRtsp = asyncHandler(async (req, res) => {
+  const sid = String(req.query.sid || "").trim();
+  if (!sid) { res.status(400); throw new Error("Thiếu sid"); }
+  let sess = null;
+  try {
+    sess = await TournamentAutoLiveSession.findById(sid).select("sourceUrl").lean();
+  } catch { sess = null; }
+  const url = String(sess?.sourceUrl || "").trim();
+  const isRtsp = /^rtsp:\/\//i.test(url);
+  let host = "";
+  try { if (isRtsp) host = new URL(url).hostname; } catch { host = ""; }
+  const local = !host || /^(127\.|0\.0\.0\.0$|localhost$|::1$)/i.test(host);
+  const direct = isRtsp && !local;
+  res.json({ direct, rtspUrl: direct ? url : "", host: direct ? host : "" });
+});
+
 export const registerMachine = asyncHandler(async (req, res) => {
   const b = req.body || {};
   const machineId = String(b.machineId || "").trim();
