@@ -137,38 +137,39 @@ async def offer(request):
     async def _open(url, opener):
         return await asyncio.wait_for(loop.run_in_executor(None, lambda: opener(url)), timeout=8)
 
-    # Nguồn video: ƯU TIÊN RTSP full-res (VPS kéo), lỗi/không có → preview360 (PC).
-    player = None
-    src = ""
-    if rtsp_url:
-        try:
-            player = await _open(rtsp_url, _open_rtsp)
-            if not (player and player.video):
+    # CHỈ xử lý video khi offer CÓ m-line video (recvonly). Nếu offer audio-only
+    # (app dùng VLC xem RTSP phía điện thoại) → KHÔNG mở nguồn gì cả → VPS khỏi tốn
+    # tài nguyên (kéo RTSP/encode). VPS chỉ làm cầu khi app thật sự xin video.
+    vtrans = next((t for t in pc.getTransceivers() if t.kind == "video"), None)
+    if vtrans is None:
+        print("[relay] offer audio-only → VPS chỉ relay mic, KHÔNG kéo video", flush=True)
+    else:
+        # Nguồn video: ƯU TIÊN RTSP full-res (VPS kéo), lỗi/không có → preview360 (PC).
+        player = None
+        src = ""
+        if rtsp_url:
+            try:
+                player = await _open(rtsp_url, _open_rtsp)
+                if not (player and player.video):
+                    player = None
+                else:
+                    src = "rtsp-fullres"
+            except Exception as e:  # noqa: BLE001
+                print(f"[relay] RTSP full-res lỗi → fallback 360p: {e!r}", flush=True)
                 player = None
-            else:
-                src = "rtsp-fullres"
-        except Exception as e:  # noqa: BLE001
-            print(f"[relay] RTSP full-res lỗi → fallback 360p: {e!r}", flush=True)
-            player = None
-    if player is None and preview_url:
-        try:
-            player = await _open(preview_url, _open_preview)
-            if player and player.video:
-                src = "preview360"
-        except Exception as e:  # noqa: BLE001
-            print(f"[relay] preview360 lỗi (bỏ video, vẫn có audio): {e!r}", flush=True)
-            player = None
-
-    if player and player.video:
-        # Gắn thẳng vào transceiver video (recvonly) của offer để đi đúng m-line.
-        vtrans = next((t for t in pc.getTransceivers() if t.kind == "video"), None)
-        if vtrans is not None:
+        if player is None and preview_url:
+            try:
+                player = await _open(preview_url, _open_preview)
+                if player and player.video:
+                    src = "preview360"
+            except Exception as e:  # noqa: BLE001
+                print(f"[relay] preview360 lỗi (bỏ video, vẫn có audio): {e!r}", flush=True)
+                player = None
+        if player and player.video:
             vtrans.sender.replaceTrack(player.video)
             vtrans.direction = "sendonly"
-        else:
-            pc.addTrack(player.video)
-        pc._preview_player = player  # giữ ref tránh bị GC đóng
-        print(f"[relay] video OK ({src}) → gắn track", flush=True)
+            pc._preview_player = player  # giữ ref tránh bị GC đóng
+            print(f"[relay] video OK ({src}) → gắn track", flush=True)
 
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
