@@ -433,7 +433,7 @@ function buildRuntimeRoundLabel(match, roundCode = inferRoundCode(match)) {
   return codeToRoundLabel(roundCode);
 }
 
-function buildRuntimePhaseText(match) {
+export function buildRuntimePhaseText(match) {
   const bracketType = String(match?.bracket?.type || match?.format || "")
     .trim()
     .toLowerCase();
