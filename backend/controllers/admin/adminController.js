@@ -198,6 +198,27 @@ export const deleteUser = asyncHandler(async (req, res) => {
   res.json({ message: "Đã xoá user" });
 });
 
+/**
+ * PATCH /api/admin/users/:id/restore
+ * Khôi phục tài khoản đã xoá mềm (isDeleted=true → false). Dùng khi user lỡ xoá tài khoản.
+ * Private/Admin
+ */
+export const restoreUser = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.params.id).select(
+    "_id phone email nickname isDeleted"
+  );
+  if (!user) {
+    res.status(404);
+    throw new Error("User không tồn tại");
+  }
+  if (!user.isDeleted) {
+    return res.json({ ok: true, message: "Tài khoản đang hoạt động (không cần khôi phục).", user });
+  }
+  user.isDeleted = false;
+  await user.save({ validateModifiedOnly: true });
+  res.json({ ok: true, message: "Đã khôi phục tài khoản.", user });
+});
+
 /* ✨ Cập nhật thông tin tuỳ ý */
 export const updateUserInfo = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id);

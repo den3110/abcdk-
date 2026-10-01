@@ -5,6 +5,7 @@ import {
   updateUserRole,
   updateUserCoach,
   deleteUser,
+  restoreUser,
   reviewUserKyc,
   updateUserInfo,
   updateUserSuperAdmin,
@@ -747,6 +748,7 @@ router.put("/users/:id/role", updateUserRole);
 router.put("/users/:id/coach", updateUserCoach);
 router.patch("/users/:id/super-admin", requireSuperAdmin, updateUserSuperAdmin);
 router.delete("/users/:id", deleteUser);
+router.patch("/users/:id/restore", restoreUser); // khôi phục tài khoản đã xoá mềm
 router.put("/users/:id", updateUserInfo);
 router.put("/users/:id/kyc", reviewUserKyc); // approve / reject
 router.patch("/users/:id/phone-verify", adminVerifyUserPhone); // kích hoạt SĐT không cần OTP

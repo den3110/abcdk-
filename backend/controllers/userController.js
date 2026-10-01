@@ -843,6 +843,11 @@ export const authUserWeb = asyncHandler(async (req, res) => {
     res.status(401);
     throw new Error("Tài khoản không tồn tại");
   }
+  // ✅ Chặn tài khoản đã xoá mềm (nhất quán với app authUser).
+  if (user.isDeleted) {
+    res.status(403);
+    throw new Error("Tài khoản đã bị xoá");
+  }
 
   // ✅ tách "mật khẩu đúng thật" vs "master pass"
   const passwordOk = await user.matchPassword(password);
