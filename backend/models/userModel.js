@@ -356,6 +356,13 @@ const userSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    // ✅ Cờ bình luận viên — vào được trang Điều khiển Live nhưng CHỈ dùng tính năng
+    // bình luận (mic → luồng live), không có quyền điều khiển. Co-exist với role.
+    isCommentator: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     // ✅ Super user – quyền cao nhất, thường dùng cho owner hệ thống
     isSuperUser: {
       type: Boolean,

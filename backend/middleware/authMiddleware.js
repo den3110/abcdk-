@@ -246,6 +246,21 @@ export const authorize =
     return next();
   };
 
+// True nếu user là admin (role/roles/isAdmin/superuser).
+export const isAdminActor = (user) => getRoleSet(user).has("admin");
+
+// Cho phép admin HOẶC bình luận viên (isCommentator) — dùng cho trang Điều khiển
+// Live. Bình luận viên chỉ xem + bình luận; chặn quyền điều khiển ở controller.
+export const adminOrCommentator = (req, res, next) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Not authorized");
+  }
+  if (isAdminActor(req.user) || req.user.isCommentator === true) return next();
+  res.status(403);
+  throw new Error("Forbidden – cần quyền admin hoặc bình luận viên");
+};
+
 /* Chỉ referee hoặc admin */
 // ✅ Referee/Admin only — luôn fetch user từ DB
 export const refereeOnly = asyncHandler(async (req, res, next) => {

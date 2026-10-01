@@ -184,6 +184,28 @@ export const updateUserCoach = asyncHandler(async (req, res) => {
 });
 
 /**
+ * PATCH /api/admin/users/:id/commentator
+ * Bật/tắt quyền bình luận viên (vào trang Điều khiển Live chỉ để bình luận).
+ * Private/Admin
+ */
+export const updateUserCommentator = asyncHandler(async (req, res) => {
+  const { isCommentator } = req.body || {};
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    res.status(404);
+    throw new Error("User không tồn tại");
+  }
+  user.isCommentator = Boolean(isCommentator);
+  await user.save();
+  res.json({
+    message: user.isCommentator
+      ? "Đã bật quyền bình luận viên"
+      : "Đã tắt quyền bình luận viên",
+    user: { _id: user._id, isCommentator: Boolean(user.isCommentator) },
+  });
+});
+
+/**
  * DELETE /api/admin/users/:id
  * Private/Admin
  */

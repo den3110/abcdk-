@@ -1,7 +1,8 @@
 // Điều khiển luồng live từ web pickletour.vn (admin).
 // Web → backend proxy → control-server desktop (Tailscale). Port từ bản mobile.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Navigate } from "react-router-dom";
+import { useSelector } from "react-redux";
 import {
   Alert,
   Box,
@@ -45,8 +46,25 @@ const LAYOUT_KEYS = [
   ["sponsor", "Tài trợ"],
 ];
 
+function normalizeRole(r) {
+  return String(r || "").trim().toLowerCase();
+}
+function isAdminUser(u) {
+  const roles = new Set(Array.isArray(u?.roles) ? u.roles.map(normalizeRole) : []);
+  if (u?.role) roles.add(normalizeRole(u.role));
+  if (u?.isAdmin === true) roles.add("admin");
+  if (u?.isSuperUser || u?.isSuperAdmin) roles.add("admin");
+  return roles.has("admin");
+}
+
 export default function LiveControlPage() {
   const navigate = useNavigate();
+  const { userInfo } = useSelector((s) => s.auth || {});
+  const isAdmin = isAdminUser(userInfo);
+  const isCommentator = !!userInfo?.isCommentator;
+  const canAccess = isAdmin || isCommentator;
+  // Bình luận viên (không phải admin): chỉ xem + bình luận, ẩn mọi điều khiển.
+  const commentaryOnly = !isAdmin;
 
   const {
     data: machinesData,
@@ -176,6 +194,9 @@ export default function LiveControlPage() {
   const sessions = snap.sessions || [];
   const perf = snap.perf || {};
 
+  if (!userInfo) return <Navigate to="/login" replace />;
+  if (!canAccess) return <Navigate to="/403" replace />;
+
   return (
     <Box sx={{ maxWidth: 1000, mx: "auto" }}>
       <SEOHead title="Điều khiển Live" noIndex />
@@ -187,7 +208,7 @@ export default function LiveControlPage() {
         sx={{ mb: 2 }}
       >
         <Typography variant="h5" sx={{ fontWeight: 800 }}>
-          🎬 Điều khiển Live
+          {commentaryOnly ? "🎙️ Bình luận Live" : "🎬 Điều khiển Live"}
         </Typography>
         <Tooltip title="Làm mới">
           <IconButton
@@ -245,20 +266,22 @@ export default function LiveControlPage() {
 
       {!!machineId && (
         <>
-          {/* Thêm sân live / hẹn giờ */}
-          <Button
-            fullWidth
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() =>
-              navigate(
-                `/admin/live-add?machineId=${encodeURIComponent(machineId)}`,
-              )
-            }
-            sx={{ mb: 2, py: 1.25, fontWeight: 800 }}
-          >
-            Thêm sân live / Hẹn giờ
-          </Button>
+          {/* Thêm sân live / hẹn giờ (chỉ admin) */}
+          {!commentaryOnly && (
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() =>
+                navigate(
+                  `/admin/live-add?machineId=${encodeURIComponent(machineId)}`,
+                )
+              }
+              sx={{ mb: 2, py: 1.25, fontWeight: 800 }}
+            >
+              Thêm sân live / Hẹn giờ
+            </Button>
+          )}
 
           {/* Perf + lỗi */}
           <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
@@ -276,28 +299,30 @@ export default function LiveControlPage() {
             )}
           </Card>
 
-          {/* Độ hiển thị overlay (chung) */}
-          <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
-            <Typography sx={{ fontWeight: 700, mb: 1 }}>
-              🎚️ Độ hiển thị overlay (chung mọi sân)
-            </Typography>
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              {OPACITY_PRESETS.map((p) => (
-                <Button
-                  key={p}
-                  size="small"
-                  variant={opacity === p ? "contained" : "outlined"}
-                  onClick={() => applyOpacity(p)}
-                  sx={{ minWidth: 56, fontWeight: 700 }}
-                >
-                  {p}%
-                </Button>
-              ))}
-            </Stack>
-          </Card>
+          {/* Độ hiển thị overlay (chung) — chỉ admin */}
+          {!commentaryOnly && (
+            <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
+              <Typography sx={{ fontWeight: 700, mb: 1 }}>
+                🎚️ Độ hiển thị overlay (chung mọi sân)
+              </Typography>
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                {OPACITY_PRESETS.map((p) => (
+                  <Button
+                    key={p}
+                    size="small"
+                    variant={opacity === p ? "contained" : "outlined"}
+                    onClick={() => applyOpacity(p)}
+                    sx={{ minWidth: 56, fontWeight: 700 }}
+                  >
+                    {p}%
+                  </Button>
+                ))}
+              </Stack>
+            </Card>
+          )}
 
-          {/* Dừng tất cả */}
-          {sessions.length > 0 && (
+          {/* Dừng tất cả — chỉ admin */}
+          {!commentaryOnly && sessions.length > 0 && (
             <Button
               fullWidth
               color="error"
@@ -363,19 +388,23 @@ export default function LiveControlPage() {
                       >
                         Bình luận
                       </Button>
-                      <Button
-                        color="error"
-                        variant="contained"
-                        size="small"
-                        startIcon={<StopIcon />}
-                        onClick={() => stopCourt(s)}
-                        sx={{ fontWeight: 700 }}
-                      >
-                        Dừng
-                      </Button>
+                      {!commentaryOnly && (
+                        <Button
+                          color="error"
+                          variant="contained"
+                          size="small"
+                          startIcon={<StopIcon />}
+                          onClick={() => stopCourt(s)}
+                          sx={{ fontWeight: 700 }}
+                        >
+                          Dừng
+                        </Button>
+                      )}
                     </Stack>
                   </Stack>
 
+                  {!commentaryOnly && (
+                  <>
                   {/* Link xem */}
                   {(s.watchUrls || []).map((u) => (
                     <Stack
@@ -475,6 +504,8 @@ export default function LiveControlPage() {
                       Bật/tắt sẽ khởi động lại luồng ~vài giây.
                     </Typography>
                   ) : null}
+                  </>
+                  )}
                 </Card>
               ))}
             </Stack>

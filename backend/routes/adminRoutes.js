@@ -4,6 +4,7 @@ import {
   getUsers,
   updateUserRole,
   updateUserCoach,
+  updateUserCommentator,
   deleteUser,
   restoreUser,
   reviewUserKyc,
@@ -746,6 +747,7 @@ router.get("/users", getUsersWithRank);
 router.post("/users", adminCreateUser);
 router.put("/users/:id/role", updateUserRole);
 router.put("/users/:id/coach", updateUserCoach);
+router.patch("/users/:id/commentator", updateUserCommentator); // bật/tắt bình luận viên
 router.patch("/users/:id/super-admin", requireSuperAdmin, updateUserSuperAdmin);
 router.delete("/users/:id", deleteUser);
 router.patch("/users/:id/restore", restoreUser); // khôi phục tài khoản đã xoá mềm

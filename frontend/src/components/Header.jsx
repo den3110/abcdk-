@@ -295,6 +295,12 @@ export default function Header() {
       items.push({ label: "Quản lý sân", path: "/owner/venues" });
       items.push({ label: t("header.nav.admin"), path: "/admin" });
     }
+    // Admin: điều khiển live; Bình luận viên: chỉ vào bình luận.
+    if (isAdmin) {
+      items.push({ label: "Điều khiển Live", path: "/live-control" });
+    } else if (userInfo?.isCommentator) {
+      items.push({ label: "Bình luận Live", path: "/live-control" });
+    }
 
     return items;
   }, [t, userInfo, isAdmin, showClubNewBadge]);

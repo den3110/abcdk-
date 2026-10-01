@@ -328,6 +328,8 @@ const router = sentryCreateBrowserRouter(
       <Route path="/overlay/score" element={<ScoreOverlay />} />
       <Route path="/commentary/:token" element={<CommentaryPage />} />
       <Route path="/c/:code" element={<CommentaryPage />} />
+      {/* Trang điều khiển/bình luận live cho admin & bình luận viên (tự kiểm quyền) */}
+      <Route path="/live-control" element={<LiveControlPage />} />
       <Route path="/overlay/mlp/court/:courtStationId" element={<MlpOverlay />} />
       <Route path="/503" element={<V3Wrap hideNav hideFooter><ServiceUnavailable /></V3Wrap>} />
       <Route path="/studio/live" element={<LiveStudioPage />} />

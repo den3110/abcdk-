@@ -1,5 +1,9 @@
 import asyncHandler from "express-async-handler";
 import LiveControlMachine from "../models/liveControlMachineModel.js";
+import { isAdminActor } from "../middleware/authMiddleware.js";
+
+// Bình luận viên (không phải admin) chỉ được gọi các path ĐỌC qua proxy.
+const COMMENTATOR_READ_PATHS = new Set(["/api/state", "/api/get-opacity"]);
 
 const ONLINE_MS = 60 * 1000; // coi là online nếu heartbeat trong 60s
 const PROXY_TIMEOUT_MS = 15000;
@@ -68,6 +72,14 @@ export const proxyCall = asyncHandler(async (req, res) => {
   if (!path.startsWith("/")) path = "/" + path;
   if (!path.startsWith("/api/")) { res.status(400); throw new Error("path không hợp lệ"); }
   const method = String(b.method || "GET").toUpperCase();
+
+  // Bình luận viên: CHỈ cho phép path đọc (xem phiên), chặn mọi lệnh điều khiển.
+  if (!isAdminActor(req.user)) {
+    if (method !== "GET" || !COMMENTATOR_READ_PATHS.has(path.split("?")[0])) {
+      res.status(403);
+      throw new Error("Bình luận viên không có quyền điều khiển luồng live");
+    }
+  }
 
   const base = `http://${m.tailscaleIp}:${m.port || 8788}`;
   const url = new URL(base + path);
