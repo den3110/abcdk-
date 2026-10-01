@@ -18,6 +18,7 @@ import os
 import av
 from aiohttp import web, ClientSession, ClientTimeout
 from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc.contrib.media import MediaPlayer
 
 HOST = os.environ.get("COMMENTARY_RELAY_HOST", "127.0.0.1")
 PORT = int(os.environ.get("COMMENTARY_RELAY_PORT") or 8790)
@@ -94,6 +95,7 @@ async def offer(request):
     sdp = params.get("sdp")
     typ = params.get("type")
     relay_url = params.get("relayUrl")
+    preview_url = params.get("previewUrl")
     if not sdp or not typ or not relay_url:
         return web.json_response({"error": "Thiếu sdp/type/relayUrl"}, status=400)
 
@@ -111,6 +113,20 @@ async def offer(request):
             await _close_pc(pc)
 
     await pc.setRemoteDescription(RTCSessionDescription(sdp=sdp, type=typ))
+
+    # Gửi video 360p của luồng về trình duyệt BLV (độ trễ thấp) nếu có. PHẢI gắn SAU
+    # setRemoteDescription để aiortc gắn track vào m-line video (recvonly) của offer.
+    if preview_url:
+        try:
+            player = MediaPlayer(preview_url, format="mpegts",
+                                 options={"fflags": "nobuffer", "flags": "low_delay",
+                                          "analyzeduration": "1000000", "probesize": "500000"})
+            if player.video:
+                pc.addTrack(player.video)
+                pc._preview_player = player  # giữ ref tránh bị GC đóng
+        except Exception as e:  # noqa: BLE001
+            print(f"[relay] preview360 lỗi: {e!r}", flush=True)
+
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
     return web.json_response({
@@ -122,6 +138,13 @@ async def offer(request):
 async def _close_pc(pc):
     if pc in pcs:
         pcs.discard(pc)
+        player = getattr(pc, "_preview_player", None)
+        if player is not None:
+            try:
+                if player.video:
+                    player.video.stop()
+            except Exception:
+                pass
         try:
             await pc.close()
         except Exception:

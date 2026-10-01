@@ -147,6 +147,12 @@ COMMENTARY_BYTES_PER_FRAME = COMMENTARY_SR * 2 * COMMENTARY_CH * COMMENTARY_FRAM
 COMMENTARY_DUCK = os.environ.get("AUTOLIVE_COMMENTARY_DUCK", "1").strip().lower() not in ("0", "false", "no", "")
 # Hệ số khuếch tiếng bình luận trước khi trộn (1.0 = giữ nguyên).
 COMMENTARY_GAIN = float(os.environ.get("AUTOLIVE_COMMENTARY_GAIN") or 1.0)
+# Preview 360p độ trễ thấp cho BLV XEM luồng khi bình luận: ffmpeg xuất thêm 1 bản
+# 360p MPEG-TS ra UDP nội bộ (không chặn luồng chính) → worker fan-out TCP → control
+# -server → aiortc gắn làm video track gửi về trình duyệt. Mặc định bật cùng commentary.
+PREVIEW360 = COMMENTARY and os.environ.get("AUTOLIVE_PREVIEW360", "1").strip().lower() not in ("0", "false", "no", "")
+PREVIEW360_H = int(os.environ.get("AUTOLIVE_PREVIEW360_H") or 360)
+PREVIEW360_KBPS = int(os.environ.get("AUTOLIVE_PREVIEW360_KBPS") or 600)
 
 
 def _delogo_filter():
@@ -267,6 +273,22 @@ def encoder_args(enc):
             "-threads", str(X264_THREADS), "-bf", "0",
             "-x264-params", f"rc-lookahead={X264_LOOKAHEAD}:sync-lookahead=0:threads={X264_THREADS}",
             *common_rate]
+
+
+def encoder360_args(enc):
+    """Encoder nhẹ, GOP ngắn (keyframe ~1s) cho bản 360p xem bình luận (video-only)."""
+    fps = OUT_FPS or 25
+    gop = fps
+    rate = ["-r", str(fps), "-g", str(gop), "-keyint_min", str(gop),
+            "-b:v", f"{PREVIEW360_KBPS}k", "-maxrate", f"{PREVIEW360_KBPS}k",
+            "-bufsize", f"{PREVIEW360_KBPS}k", "-pix_fmt", "yuv420p"]
+    if enc == "h264_nvenc":
+        return ["-c:v", "h264_nvenc", "-preset", "p1", "-tune", "ll", "-rc", "cbr", *rate]
+    if enc == "h264_videotoolbox":
+        return ["-c:v", "h264_videotoolbox", "-realtime", "1", *rate]
+    if enc == "h264_qsv":
+        return ["-c:v", "h264_qsv", "-preset", "veryfast", *rate]
+    return ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-bf", "0", *rate]
 
 
 def build_tee_output(destinations):
@@ -555,7 +577,8 @@ def probe_url(url):
     return has_audio, fps
 
 
-def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None, commentary_src=None):
+def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None, commentary_src=None,
+                      preview360_udp=None):
     # Cam Imou có thể xuất 2K (2560x1440@20fps): scale về 1080p TRƯỚC khi
     # chồng overlay (PNG vẽ theo 1920x1080). -r 25 + GOP 50 = keyframe 2s.
     # PTS gốc của DHAV (không wallclock) — prebuffer ghi dồn sẽ không bị dồn
@@ -636,10 +659,17 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None, commentar
             idx += 1
     else:
         fc += "[comp]"
+    # Nếu có preview360: tách [comp] làm 2 (luồng chính + bản 360p).
+    main_label = "comp"
+    if preview360_udp:
+        fc += ";[comp]split=2[compmain][comp360]"
+        main_label = "compmain"
     if RES_H and RES_H != 1080:
-        fc += f";[comp]scale=-2:{RES_H}:flags=bicubic[vout]"
+        fc += f";[{main_label}]scale=-2:{RES_H}:flags=bicubic[vout]"
     else:
-        fc += ";[comp]null[vout]"
+        fc += f";[{main_label}]null[vout]"
+    if preview360_udp:
+        fc += f";[comp360]scale=-2:{PREVIEW360_H}:flags=bilinear[v360]"
     # Audio nền (camera hoặc im lặng) → nhãn [acam] ở 44100 stereo.
     if has_audio:
         fc += ";[0:a:0]aresample=async=1000:first_pts=0,aformat=sample_rates=44100:channel_layouts=stereo[acam]"
@@ -672,6 +702,10 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None, commentar
         "-stats_period", "2", "-progress", "pipe:1",
         "-shortest", "-f", "tee", tee,
     ]
+    # Output phụ: bản 360p (video-only) ra UDP nội bộ cho BLV xem (độ trễ thấp).
+    if preview360_udp:
+        args += ["-map", "[v360]", *encoder360_args(ENCODER), "-an",
+                 "-f", "mpegts", preview360_udp]
     return args
 
 
@@ -1041,6 +1075,75 @@ def setup_commentary(work_dir, stop_event):
     return commentary_src
 
 
+def start_preview360_relay(work_dir, stop_event):
+    """Nhận MPEG-TS 360p từ ffmpeg qua UDP nội bộ (không chặn), fan-out tới các
+    consumer TCP (control-server kéo khi có BLV). Trả (udp_port, consumer_port)."""
+    udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try: udp.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1 << 21)
+    except OSError: pass
+    udp.bind(("127.0.0.1", 0))
+    udp_port = udp.getsockname()[1]
+    tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    tcp.bind(("127.0.0.1", 0))
+    tcp.listen(5)
+    cons_port = tcp.getsockname()[1]
+    consumers = set()
+    lock = threading.Lock()
+
+    def accept_loop():
+        tcp.settimeout(1.0)
+        while not stop_event.is_set():
+            try:
+                conn, _ = tcp.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            with lock:
+                consumers.add(conn)
+            log("preview360: consumer kết nối")
+        try: tcp.close()
+        except OSError: pass
+
+    def recv_loop():
+        udp.settimeout(1.0)
+        while not stop_event.is_set():
+            try:
+                data, _ = udp.recvfrom(65536)
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            if not data:
+                continue
+            with lock:
+                targets = list(consumers)
+            dead = []
+            for c in targets:
+                try:
+                    c.sendall(data)
+                except OSError:
+                    dead.append(c)
+            if dead:
+                with lock:
+                    for c in dead:
+                        consumers.discard(c)
+                        try: c.close()
+                        except OSError: pass
+        try: udp.close()
+        except OSError: pass
+
+    threading.Thread(target=accept_loop, daemon=True).start()
+    threading.Thread(target=recv_loop, daemon=True).start()
+    try:
+        with open(os.path.join(work_dir, "preview360.port"), "w") as f:
+            f.write(str(cons_port))
+    except OSError:
+        pass
+    return udp_port, cons_port
+
+
 def drain_fifo(overlay_fifo):
     # Mở FIFO đọc-nonblock để writer đang chặn open()/write() thoát ra.
     if not overlay_fifo or str(overlay_fifo).startswith("tcp://"):
@@ -1165,6 +1268,16 @@ def main():
         log("overlay unavailable → stream without overlay", err=True)
     # Bình luận viên (tuỳ chọn): input audio PCM để amix vào luồng (mặc định im lặng).
     commentary_src = setup_commentary(work_dir, stop_event)
+    # Preview 360p cho BLV xem (độ trễ thấp) — UDP nội bộ + fan-out TCP.
+    preview360_udp = None
+    if PREVIEW360:
+        try:
+            udp_port, cons_port = start_preview360_relay(work_dir, stop_event)
+            preview360_udp = f"udp://127.0.0.1:{udp_port}?pkt_size=1316"
+            log(f"preview360: ffmpeg→udp 127.0.0.1:{udp_port} · consumer tcp 127.0.0.1:{cons_port}")
+        except Exception as e:  # noqa: BLE001
+            log(f"preview360 fail: {e} → tắt xem live BLV", err=True)
+            preview360_udp = None
     ff_holder = [None]
 
     def cleanup(*_):
@@ -1219,9 +1332,10 @@ def main():
                 tee_now = f"{tee}|{rs}" if tee else rs
         args = build_ffmpeg_args(overlay_fifo, has_audio, tee_now,
                                  browser_fifo=(BROWSER_OVERLAY or None),
-                                 commentary_src=commentary_src)
+                                 commentary_src=commentary_src,
+                                 preview360_udp=preview360_udp)
         log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} "
-            f"commentary={bool(commentary_src)} record={RECORD_CLIPS} restart#{ff_restarts}")
+            f"commentary={bool(commentary_src)} preview360={bool(preview360_udp)} record={RECORD_CLIPS} restart#{ff_restarts}")
         ff_spawn_t = time.monotonic()
         # URL mode: ffmpeg tự đọc URL (stdin không dùng). Imou mode: feed DHAV.
         # cwd=PREVIEW_DIR để tee HLS ghi bằng TÊN TƯƠNG ĐỐI (né `:` trong tee spec

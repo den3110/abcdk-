@@ -1230,6 +1230,35 @@ function startControlServer() {
         req.pipe(sock); // net.Socket đệm ghi tới khi connect xong
         return;
       }
+      // Preview 360p cho BLV xem (độ trễ thấp): kéo MPEG-TS từ cổng fan-out của worker
+      // → stream về VPS (aiortc đọc làm video track).
+      if (req.method === "GET" && u.pathname === "/api/preview360") {
+        const sid = u.searchParams.get("sid") || "";
+        if (!sid) return send(400, { error: "thiếu sid" });
+        let port = 0;
+        try {
+          port = parseInt(
+            fs.readFileSync(path.join(os.tmpdir(), `autolive-${sid}`, "preview360.port"), "utf8").trim(),
+            10,
+          );
+        } catch {}
+        if (!port) return send(409, { error: "sân chưa có preview360" });
+        const net = require("net");
+        const sock = net.connect(port, "127.0.0.1");
+        let headSent = false;
+        sock.on("connect", () => {
+          headSent = true;
+          res.writeHead(200, { "content-type": "video/mp2t", "cache-control": "no-cache" });
+          sock.pipe(res);
+        });
+        sock.on("error", (e) => {
+          if (!headSent) { try { send(502, { error: "worker preview360: " + e.message }); } catch {} }
+          else { try { res.end(); } catch {} }
+        });
+        req.on("close", () => { try { sock.destroy(); } catch {} });
+        res.on("close", () => { try { sock.destroy(); } catch {} });
+        return;
+      }
       if (req.method === "GET" && u.pathname === "/api/state") {
         const r = await remoteInvoke("state");
         return send(200, { perf: localStats(), sessions: r.data?.sessions || [], ok: r.ok });

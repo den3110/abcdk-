@@ -46,6 +46,8 @@ export default function CommentaryPage() {
   const trackRef = useRef(null);
   const rafRef = useRef(null);
   const audioCtxRef = useRef(null);
+  const videoRef = useRef(null);
+  const [hasVideo, setHasVideo] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -116,7 +118,15 @@ export default function CommentaryPage() {
       const track = stream.getAudioTracks()[0];
       trackRef.current = track;
       track.enabled = false; // bắt đầu TẮT mic, bấm "Bắt đầu nói" mới phát
-      pc.addTrack(track, stream);
+      pc.addTransceiver(track, { direction: "sendonly", streams: [stream] });
+      // Nhận video 360p của luồng live để BLV xem.
+      pc.addTransceiver("video", { direction: "recvonly" });
+      pc.addEventListener("track", (e) => {
+        if (e.track.kind === "video" && videoRef.current) {
+          videoRef.current.srcObject = e.streams[0] || new MediaStream([e.track]);
+          setHasVideo(true);
+        }
+      });
 
       pc.addEventListener("connectionstatechange", () => {
         const st = pc.connectionState;
@@ -127,7 +137,7 @@ export default function CommentaryPage() {
         }
       });
 
-      const offer = await pc.createOffer({ offerToReceiveAudio: false, offerToReceiveVideo: false });
+      const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       await waitIceComplete(pc);
 
@@ -174,6 +184,8 @@ export default function CommentaryPage() {
     pcRef.current = null;
     streamRef.current = null;
     trackRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setHasVideo(false);
     setTalking(false);
     setStatus("idle");
     setLevel(0);
@@ -251,6 +263,26 @@ export default function CommentaryPage() {
                 )}
                 {connected && (
                   <>
+                    {/* Xem luồng live (360p, độ trễ thấp) */}
+                    <Box
+                      sx={{
+                        mb: 2,
+                        borderRadius: 2,
+                        overflow: "hidden",
+                        bgcolor: "#000",
+                        aspectRatio: "16 / 9",
+                        display: hasVideo ? "block" : "none",
+                      }}
+                    >
+                      <Box
+                        component="video"
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        sx={{ width: "100%", height: "100%", objectFit: "contain" }}
+                      />
+                    </Box>
                     <Button
                       fullWidth
                       size="large"

@@ -95,6 +95,10 @@ export const commentaryOffer = asyncHandler(async (req, res) => {
   const relay = new URL(`http://${m.tailscaleIp}:${m.port || 8788}/api/commentary`);
   relay.searchParams.set("sid", d.sid);
   if (m.pin) relay.searchParams.set("k", m.pin);
+  // URL preview 360p (video-only) cho BLV xem luồng — aiortc sẽ đọc làm video track.
+  const preview = new URL(`http://${m.tailscaleIp}:${m.port || 8788}/api/preview360`);
+  preview.searchParams.set("sid", d.sid);
+  if (m.pin) preview.searchParams.set("k", m.pin);
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15000);
@@ -102,7 +106,12 @@ export const commentaryOffer = asyncHandler(async (req, res) => {
     const r = await fetch(`${AIORTC_URL}/offer`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sdp, type, relayUrl: relay.toString() }),
+      body: JSON.stringify({
+        sdp,
+        type,
+        relayUrl: relay.toString(),
+        previewUrl: preview.toString(),
+      }),
       signal: ctrl.signal,
     });
     const text = await r.text();
