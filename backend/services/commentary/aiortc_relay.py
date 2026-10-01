@@ -116,16 +116,23 @@ async def offer(request):
 
     # Gửi video 360p của luồng về trình duyệt BLV (độ trễ thấp) nếu có. PHẢI gắn SAU
     # setRemoteDescription để aiortc gắn track vào m-line video (recvonly) của offer.
+    # av.open (MediaPlayer.__init__) là ĐỒNG BỘ → chạy trong executor + timeout để
+    # KHÔNG bao giờ treo event loop (nếu nguồn chậm/treo thì bỏ video, vẫn có audio).
     if preview_url:
+        def _open_player():
+            return MediaPlayer(
+                preview_url, format="mpegts",
+                options={"fflags": "nobuffer", "flags": "low_delay",
+                         "analyzeduration": "1000000", "probesize": "500000",
+                         "timeout": "5000000", "rw_timeout": "5000000"})
         try:
-            player = MediaPlayer(preview_url, format="mpegts",
-                                 options={"fflags": "nobuffer", "flags": "low_delay",
-                                          "analyzeduration": "1000000", "probesize": "500000"})
-            if player.video:
+            loop = asyncio.get_event_loop()
+            player = await asyncio.wait_for(loop.run_in_executor(None, _open_player), timeout=8)
+            if player and player.video:
                 pc.addTrack(player.video)
                 pc._preview_player = player  # giữ ref tránh bị GC đóng
         except Exception as e:  # noqa: BLE001
-            print(f"[relay] preview360 lỗi: {e!r}", flush=True)
+            print(f"[relay] preview360 lỗi (bỏ video, vẫn có audio): {e!r}", flush=True)
 
     answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
