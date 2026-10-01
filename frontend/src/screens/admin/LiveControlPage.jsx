@@ -23,10 +23,12 @@ import RefreshIcon from "@mui/icons-material/Refresh";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import LaunchIcon from "@mui/icons-material/Launch";
 import FiberManualRecordIcon from "@mui/icons-material/FiberManualRecord";
+import MicIcon from "@mui/icons-material/Mic";
 import SEOHead from "../../components/SEOHead";
 import {
   useGetLiveMachinesQuery,
   useLiveControlCallMutation,
+  useCreateCommentaryTokenMutation,
 } from "../../slices/liveControlApiSlice";
 
 const CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"];
@@ -57,6 +59,7 @@ export default function LiveControlPage() {
   );
   const [machineId, setMachineId] = useState("");
   const [callMut] = useLiveControlCallMutation();
+  const [createCommentaryToken] = useCreateCommentaryTokenMutation();
 
   const [snap, setSnap] = useState({ perf: {}, sessions: [] });
   const [opacity, setOpacity] = useState(100);
@@ -150,6 +153,23 @@ export default function LiveControlPage() {
       setToast("Đã copy link");
     } catch (e) {
       /* bỏ qua */
+    }
+  };
+  // Mở trang bình luận viên (mic → luồng live) cho 1 sân. Mở tab mới NGAY để không bị
+  // trình duyệt chặn popup, rồi điều hướng khi có link.
+  const openCommentary = async (s) => {
+    const w = window.open("", "_blank");
+    try {
+      const d = await createCommentaryToken({
+        machineId,
+        sid: s.sid,
+        courtName: s.court || "",
+      }).unwrap();
+      if (w) w.location.href = d.url;
+      else setToast("Hãy cho phép mở cửa sổ bật lên để bình luận");
+    } catch (e) {
+      if (w) w.close();
+      setToast(e?.data?.message || e?.message || "Không tạo được liên kết bình luận");
     }
   };
 
@@ -333,16 +353,27 @@ export default function LiveControlPage() {
                         {s.speed ? ` · ${Number(s.speed).toFixed(2)}×` : ""}
                       </Typography>
                     </Box>
-                    <Button
-                      color="error"
-                      variant="contained"
-                      size="small"
-                      startIcon={<StopIcon />}
-                      onClick={() => stopCourt(s)}
-                      sx={{ fontWeight: 700, flexShrink: 0 }}
-                    >
-                      Dừng
-                    </Button>
+                    <Stack direction="row" spacing={1} sx={{ flexShrink: 0 }}>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<MicIcon />}
+                        onClick={() => openCommentary(s)}
+                        sx={{ fontWeight: 700 }}
+                      >
+                        Bình luận
+                      </Button>
+                      <Button
+                        color="error"
+                        variant="contained"
+                        size="small"
+                        startIcon={<StopIcon />}
+                        onClick={() => stopCourt(s)}
+                        sx={{ fontWeight: 700 }}
+                      >
+                        Dừng
+                      </Button>
+                    </Stack>
                   </Stack>
 
                   {/* Link xem */}

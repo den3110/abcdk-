@@ -133,6 +133,22 @@ DELOGO_W = int(os.environ.get("AUTOLIVE_DELOGO_W") or 544)
 DELOGO_H = int(os.environ.get("AUTOLIVE_DELOGO_H") or 72)
 
 
+# ── Bình luận viên (mic điện thoại trộn vào luồng live) ───────────────────────
+# Nhận PCM từ main.js (relay từ VPS aiortc) qua TCP cục bộ, bơm realtime vào 1
+# input audio của ffmpeg rồi amix với tiếng camera. Mặc định phát IM LẶNG → khi
+# có BLV nói mới có tiếng → bật/tắt KHÔNG cần restart luồng. Có ducking (hạ tiếng
+# camera khi BLV nói) qua sidechaincompress. Định dạng PCM cố định: s16le 48k mono.
+COMMENTARY = os.environ.get("AUTOLIVE_COMMENTARY", "").strip().lower() in ("1", "true", "yes", "on")
+COMMENTARY_SR = 48000
+COMMENTARY_CH = 1
+COMMENTARY_FRAME_MS = 20
+COMMENTARY_BYTES_PER_FRAME = COMMENTARY_SR * 2 * COMMENTARY_CH * COMMENTARY_FRAME_MS // 1000
+# Ducking: hạ tiếng camera khi có tiếng bình luận. Tắt bằng AUTOLIVE_COMMENTARY_DUCK=0.
+COMMENTARY_DUCK = os.environ.get("AUTOLIVE_COMMENTARY_DUCK", "1").strip().lower() not in ("0", "false", "no", "")
+# Hệ số khuếch tiếng bình luận trước khi trộn (1.0 = giữ nguyên).
+COMMENTARY_GAIN = float(os.environ.get("AUTOLIVE_COMMENTARY_GAIN") or 1.0)
+
+
 def _delogo_filter():
     """Trả về đoạn filter delogo (đã kẹp toạ độ vào trong 1920x1080, cách mép ≥1px)
     hoặc chuỗi rỗng nếu không bật. delogo lỗi nếu hộp chạm mép/tràn khung."""
@@ -539,7 +555,7 @@ def probe_url(url):
     return has_audio, fps
 
 
-def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None):
+def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None, commentary_src=None):
     # Cam Imou có thể xuất 2K (2560x1440@20fps): scale về 1080p TRƯỚC khi
     # chồng overlay (PNG vẽ theo 1920x1080). -r 25 + GOP 50 = keyframe 2s.
     # PTS gốc của DHAV (không wallclock) — prebuffer ghi dồn sẽ không bị dồn
@@ -624,10 +640,30 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None):
         fc += f";[comp]scale=-2:{RES_H}:flags=bicubic[vout]"
     else:
         fc += ";[comp]null[vout]"
+    # Audio nền (camera hoặc im lặng) → nhãn [acam] ở 44100 stereo.
     if has_audio:
-        fc += ";[0:a:0]aresample=async=1000:first_pts=0,aformat=sample_rates=44100:channel_layouts=stereo[aout]"
+        fc += ";[0:a:0]aresample=async=1000:first_pts=0,aformat=sample_rates=44100:channel_layouts=stereo[acam]"
     else:
-        fc += ";anullsrc=channel_layout=stereo:sample_rate=44100[aout]"
+        fc += ";anullsrc=channel_layout=stereo:sample_rate=44100[acam]"
+    # Bình luận viên: thêm 1 input PCM (s16le 48k mono) làm input cuối cùng, trộn
+    # (amix) với tiếng nền. Có ducking (hạ tiếng nền khi BLV nói) bằng sidechain.
+    if commentary_src:
+        cm_idx = 1 + len(overlay_inputs)  # sau video(0) + các overlay(1..n)
+        args += ["-thread_queue_size", "64", "-f", "s16le",
+                 "-ar", str(COMMENTARY_SR), "-ac", str(COMMENTARY_CH), "-i", commentary_src]
+        gain = "" if abs(COMMENTARY_GAIN - 1.0) < 1e-3 else f",volume={COMMENTARY_GAIN:.3f}"
+        fc += (f";[{cm_idx}:a]aresample=async=1:first_pts=0,"
+               f"aformat=sample_rates=44100:channel_layouts=stereo{gain}[acomm]")
+        if COMMENTARY_DUCK:
+            # Tách tiếng BLV: 1 nhánh để trộn, 1 nhánh làm "chìa khoá" nén tiếng nền.
+            fc += ";[acomm]asplit=2[acomm_mix][acomm_key]"
+            fc += (";[acam][acomm_key]sidechaincompress="
+                   "threshold=0.03:ratio=8:attack=5:release=250:makeup=1[acam_d]")
+            fc += ";[acam_d][acomm_mix]amix=inputs=2:normalize=0:dropout_transition=0[aout]"
+        else:
+            fc += ";[acam][acomm]amix=inputs=2:normalize=0:dropout_transition=0[aout]"
+    else:
+        fc += ";[acam]anull[aout]"
     args += ["-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
     args += encoder_args(ENCODER)
     args += [
@@ -835,6 +871,176 @@ def start_overlay_tcp(overlay_url, stop_event, fps=None):
     return port, th
 
 
+SILENCE_FRAME = b"\x00" * COMMENTARY_BYTES_PER_FRAME
+
+
+class CommentaryBuffer:
+    """Hàng đợi PCM (s16le 48k mono) nhận từ main.js. Giữ tối đa max_ms để tránh
+    trễ dồn (nếu bơm vào nhanh hơn tiêu thụ thì bỏ phần cũ nhất)."""
+    def __init__(self, max_ms=1500):
+        self.buf = bytearray()
+        self.lock = threading.Lock()
+        self.max_bytes = COMMENTARY_SR * 2 * COMMENTARY_CH * max_ms // 1000
+
+    def push(self, data):
+        with self.lock:
+            self.buf.extend(data)
+            extra = len(self.buf) - self.max_bytes
+            if extra > 0:
+                del self.buf[:extra]
+
+    def pull(self, n):
+        with self.lock:
+            if len(self.buf) >= n:
+                out = bytes(self.buf[:n]); del self.buf[:n]; return out
+            if self.buf:
+                out = bytes(self.buf) + b"\x00" * (n - len(self.buf))
+                self.buf.clear(); return out
+        return SILENCE_FRAME
+
+
+def start_commentary_ingest(buf, stop_event):
+    """TCP server cục bộ nhận PCM từ main.js (relay từ VPS aiortc). Trả về port."""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def serve():
+        srv.settimeout(1.0)
+        while not stop_event.is_set():
+            try:
+                conn, _ = srv.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            log("commentary: BLV đã kết nối")
+            conn.settimeout(1.0)
+            try:
+                while not stop_event.is_set():
+                    try:
+                        data = conn.recv(8192)
+                    except socket.timeout:
+                        continue
+                    except OSError:
+                        break
+                    if not data:
+                        break
+                    buf.push(data)
+            finally:
+                try: conn.close()
+                except OSError: pass
+                log("commentary: BLV ngắt kết nối")
+        try: srv.close()
+        except OSError: pass
+
+    threading.Thread(target=serve, daemon=True).start()
+    return port
+
+
+def _commentary_pace(write_frame, buf, stop_event):
+    """Vòng bơm realtime: mỗi 20ms ghi 1 khung (PCM thật hoặc im lặng)."""
+    next_t = time.monotonic()
+    while not stop_event.is_set():
+        frame = buf.pull(COMMENTARY_BYTES_PER_FRAME)
+        try:
+            write_frame(frame)
+        except (BrokenPipeError, OSError):
+            return  # ffmpeg restart → vòng ngoài mở lại
+        next_t += COMMENTARY_FRAME_MS / 1000.0
+        delay = next_t - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        elif delay < -0.5:
+            next_t = time.monotonic()  # tụt quá xa → đồng bộ lại nhịp
+
+
+def start_commentary_pump_fifo(fifo_path, buf, stop_event):
+    """Unix: mở FIFO ghi (chặn tới khi ffmpeg mở đọc) rồi bơm realtime. ffmpeg
+    restart → reopen."""
+    def run():
+        while not stop_event.is_set():
+            try:
+                f = open(fifo_path, "wb")
+            except OSError:
+                if _sleep_stop(stop_event, 0.2):
+                    return
+                continue
+            try:
+                _commentary_pace(lambda fr: (f.write(fr), f.flush()), buf, stop_event)
+            finally:
+                try: f.close()
+                except OSError: pass
+    threading.Thread(target=run, daemon=True).start()
+
+
+def start_commentary_source_tcp(buf, stop_event):
+    """Windows (không mkfifo): TCP server, ffmpeg nối vào (client) → worker bơm
+    PCM paced. Trả về port."""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    port = srv.getsockname()[1]
+
+    def serve():
+        srv.settimeout(1.0)
+        while not stop_event.is_set():
+            try:
+                conn, _ = srv.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            try:
+                _commentary_pace(conn.sendall, buf, stop_event)
+            finally:
+                try: conn.close()
+                except OSError: pass
+        try: srv.close()
+        except OSError: pass
+
+    threading.Thread(target=serve, daemon=True).start()
+    return port
+
+
+def setup_commentary(work_dir, stop_event):
+    """Chuẩn bị đường vào audio bình luận cho ffmpeg. Trả về commentary_src
+    (đường FIFO hoặc tcp://…) hoặc None nếu tắt/lỗi."""
+    if not COMMENTARY:
+        return None
+    buf = CommentaryBuffer()
+    ingest_port = start_commentary_ingest(buf, stop_event)
+    commentary_src = None
+    if hasattr(os, "mkfifo"):
+        commentary_src = os.path.join(work_dir, "commentary.pcm")
+        try:
+            if os.path.exists(commentary_src):
+                os.unlink(commentary_src)
+            os.mkfifo(commentary_src)
+            start_commentary_pump_fifo(commentary_src, buf, stop_event)
+        except OSError as e:
+            log(f"commentary mkfifo fail: {e} → thử TCP", err=True)
+            commentary_src = None
+    if not commentary_src:
+        try:
+            cm_port = start_commentary_source_tcp(buf, stop_event)
+            commentary_src = f"tcp://127.0.0.1:{cm_port}"
+        except Exception as e:  # noqa: BLE001
+            log(f"commentary TCP fail: {e} → tắt bình luận", err=True)
+            return None
+    # Ghi cổng nhận PCM ra file để main.js (cùng máy) kết nối + relay từ VPS.
+    try:
+        with open(os.path.join(work_dir, "commentary.port"), "w") as pf:
+            pf.write(str(ingest_port))
+    except OSError:
+        pass
+    log(f"commentary: nhận PCM ở 127.0.0.1:{ingest_port} · nguồn ffmpeg {commentary_src} · duck={COMMENTARY_DUCK}")
+    return commentary_src
+
+
 def drain_fifo(overlay_fifo):
     # Mở FIFO đọc-nonblock để writer đang chặn open()/write() thoát ra.
     if not overlay_fifo or str(overlay_fifo).startswith("tcp://"):
@@ -957,6 +1163,8 @@ def main():
                 overlay_fifo = None
     if not have_overlay:
         log("overlay unavailable → stream without overlay", err=True)
+    # Bình luận viên (tuỳ chọn): input audio PCM để amix vào luồng (mặc định im lặng).
+    commentary_src = setup_commentary(work_dir, stop_event)
     ff_holder = [None]
 
     def cleanup(*_):
@@ -1009,8 +1217,11 @@ def main():
             rs = record_slave(int(time.time()))
             if rs:
                 tee_now = f"{tee}|{rs}" if tee else rs
-        args = build_ffmpeg_args(overlay_fifo, has_audio, tee_now, browser_fifo=(BROWSER_OVERLAY or None))
-        log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} record={RECORD_CLIPS} restart#{ff_restarts}")
+        args = build_ffmpeg_args(overlay_fifo, has_audio, tee_now,
+                                 browser_fifo=(BROWSER_OVERLAY or None),
+                                 commentary_src=commentary_src)
+        log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} "
+            f"commentary={bool(commentary_src)} record={RECORD_CLIPS} restart#{ff_restarts}")
         ff_spawn_t = time.monotonic()
         # URL mode: ffmpeg tự đọc URL (stdin không dùng). Imou mode: feed DHAV.
         # cwd=PREVIEW_DIR để tee HLS ghi bằng TÊN TƯƠNG ĐỐI (né `:` trong tee spec

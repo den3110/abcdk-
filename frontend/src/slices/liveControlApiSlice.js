@@ -17,8 +17,19 @@ export const liveControlApiSlice = apiSlice.injectEndpoints({
         body: { path, method, body: body || {} },
       }),
     }),
+    // Tạo liên kết bình luận viên (mic → luồng live) cho 1 sân đang live.
+    createCommentaryToken: builder.mutation({
+      query: ({ machineId, sid, courtName }) => ({
+        url: `/api/live-control/${encodeURIComponent(machineId)}/commentary-token`,
+        method: "POST",
+        body: { sid, courtName: courtName || "" },
+      }),
+    }),
   }),
 });
 
-export const { useGetLiveMachinesQuery, useLiveControlCallMutation } =
-  liveControlApiSlice;
+export const {
+  useGetLiveMachinesQuery,
+  useLiveControlCallMutation,
+  useCreateCommentaryTokenMutation,
+} = liveControlApiSlice;

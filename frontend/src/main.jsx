@@ -104,6 +104,7 @@ import AssessmentHistoryPage from "./screens/admin/AssessmentHistoryPage.jsx";
 import BroadcastPage from "./screens/admin/BroadcastPage.jsx";
 import LiveControlPage from "./screens/admin/LiveControlPage.jsx";
 import LiveAddPage from "./screens/admin/LiveAddPage.jsx";
+import CommentaryPage from "./screens/CommentaryPage.jsx";
 import Forbidden403 from "./screens/403.jsx";
 import ServiceUnavailable from "./screens/503.jsx";
 import PublicProfilePage from "./screens/PublicProfilePage.jsx";
@@ -325,6 +326,7 @@ const router = sentryCreateBrowserRouter(
       <Route path="/docs" element={<Navigate to="/docs/api" replace />} />
       <Route path="/docs/api" element={<V3Wrap hideNav hideFooter><ApiDocsPage /></V3Wrap>} />
       <Route path="/overlay/score" element={<ScoreOverlay />} />
+      <Route path="/commentary/:token" element={<CommentaryPage />} />
       <Route path="/overlay/mlp/court/:courtStationId" element={<MlpOverlay />} />
       <Route path="/503" element={<V3Wrap hideNav hideFooter><ServiceUnavailable /></V3Wrap>} />
       <Route path="/studio/live" element={<LiveStudioPage />} />

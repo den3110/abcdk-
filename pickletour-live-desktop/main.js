@@ -898,6 +898,9 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
     // Ghi recording để cắt clip từng trận (live xuyên suốt). worker.py ghi segment
     // TS vào previewDir/rec; main.js đẩy về server ban đêm (startSegmentUploader).
     AUTOLIVE_RECORD: cfg.recordClips ? "1" : "",
+    // Bình luận viên: luôn mở sẵn đường nhận mic (im lặng khi chưa ai nói) → BLV có
+    // thể vào BẤT KỲ luồng nào. Tắt bằng settings.commentaryEnabled=false.
+    AUTOLIVE_COMMENTARY: readSettings().commentaryEnabled === false ? "" : "1",
     AUTOLIVE_RUNNER_LABEL: form.runnerLabel || os.hostname(),
     FFMPEG_PATH: ffmpeg,
     // Bản tự chứa: prepend bin/ vào PATH để worker gọi bare "ffmpeg"/"ffprobe"
@@ -1198,6 +1201,35 @@ function startControlServer() {
       if (!u.pathname.startsWith("/api/")) { res.writeHead(404); res.end("not found"); return; }
       const pin = u.searchParams.get("k") || req.headers["x-ctl-pin"] || "";
       if (pin !== control.pin) return send(401, { error: "Sai PIN" });
+      // Bình luận viên: nhận PCM (s16le 48k mono) STREAM từ VPS (relay từ aiortc) →
+      // chuyển tiếp vào cổng ingest cục bộ của worker sân (worker ghi commentary.port).
+      if (req.method === "POST" && u.pathname === "/api/commentary") {
+        const sid = u.searchParams.get("sid") || "";
+        if (!sid) return send(400, { error: "thiếu sid" });
+        let port = 0;
+        try {
+          port = parseInt(
+            fs.readFileSync(path.join(os.tmpdir(), `autolive-${sid}`, "commentary.port"), "utf8").trim(),
+            10,
+          );
+        } catch {}
+        if (!port) return send(409, { error: "sân chưa sẵn sàng nhận bình luận" });
+        const net = require("net");
+        const sock = net.connect(port, "127.0.0.1");
+        let replied = false;
+        const finish = (code, obj) => {
+          if (replied) return;
+          replied = true;
+          try { send(code, obj); } catch {}
+        };
+        sock.on("error", (e) => { try { req.destroy(); } catch {} finish(502, { error: "worker ingest: " + e.message }); });
+        sock.on("close", () => finish(200, { ok: true }));
+        req.on("error", () => { try { sock.destroy(); } catch {} });
+        req.on("aborted", () => { try { sock.destroy(); } catch {} });
+        req.on("end", () => { try { sock.end(); } catch {} });
+        req.pipe(sock); // net.Socket đệm ghi tới khi connect xong
+        return;
+      }
       if (req.method === "GET" && u.pathname === "/api/state") {
         const r = await remoteInvoke("state");
         return send(200, { perf: localStats(), sessions: r.data?.sessions || [], ok: r.ok });
