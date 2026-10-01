@@ -341,9 +341,16 @@ export async function createClipTaskForEndedMatch(session, matchId, { startAt, e
     if (!session?.recordClips || !matchId) return;
     const m = await Match.findById(matchId).select("startedAt finishedAt code labelKey").lean();
     // Ưu tiên mốc CHÍNH XÁC của trận (startedAt/finishedAt), fallback mốc poll.
-    const s = m?.startedAt || startAt || session.lastMatchChangeAt;
+    let s = m?.startedAt || startAt || session.lastMatchChangeAt;
     const e = m?.finishedAt || endAt || new Date();
     if (!s || !e || new Date(e) <= new Date(s)) return; // mốc không hợp lệ → bỏ
+    // CHẶN span phi lý: nhiều trận có startedAt rất cũ (đặt từ lúc tạo/đăng ký) → span
+    // vài ngày → clip KHÔNG BAO GIỜ cắt được + giữ segment (R2/đĩa) vĩnh viễn. Kẹp về
+    // tối đa MAX_CLIP_MS gần cuối trận (đủ phủ 1 trận pickleball thực tế).
+    const MAX_CLIP_MS = 4 * 3600 * 1000; // 4 giờ
+    if (new Date(e).getTime() - new Date(s).getTime() > MAX_CLIP_MS) {
+      s = new Date(new Date(e).getTime() - MAX_CLIP_MS);
+    }
     const tour = await Tournament.findById(session.tournament).select("name").lean();
     const label = m?.code || m?.labelKey || "";
     const title = `${tour?.name || "PickleTour"}${label ? " - " + label : ""}`.slice(0, 200);
@@ -405,14 +412,26 @@ async function processPendingClips() {
     for (const [sid, clips] of bySession) {
       let timeline;
       try { timeline = await buildTimeline(sid); } catch { timeline = []; }
-      if (!timeline.length) continue;
+      // Phiên đã stopped/error → sẽ KHÔNG có thêm segment nữa.
+      const sess = await TournamentAutoLiveSession.findById(sid).select("status").lean();
+      const sessionEnded = !!sess && ["stopped", "error"].includes(sess.status);
       for (const clip of clips) {
-        const cov = coveringSegments(timeline, new Date(clip.startAt).getTime(), new Date(clip.endAt).getTime());
-        if (!cov) continue; // chưa đủ segment → chờ lần sau
-        await processOneClip(clip, cov);
+        const cov = timeline.length
+          ? coveringSegments(timeline, new Date(clip.startAt).getTime(), new Date(clip.endAt).getTime())
+          : null;
+        if (cov) { await processOneClip(clip, cov); continue; }
+        // Không phủ được: nếu phiên đã kết thúc và clip tạo đã lâu (segment sẽ không
+        // bao giờ đủ) → bỏ (failed) để giải phóng segment thay vì giữ mãi.
+        const ageMs = Date.now() - new Date(clip.createdAt || clip.startAt).getTime();
+        if (sessionEnded && ageMs > 20 * 60 * 1000) {
+          await AutoLiveClip.updateOne({ _id: clip._id, status: "pending" }, {
+            $set: { status: "failed", lastError: "Không đủ segment phủ khoảng trận (phiên đã kết thúc, bỏ để giải phóng dung lượng)." },
+          });
+          console.warn(`[autolive-clip] bỏ clip không phủ được match=${clip.match} span=${Math.round((new Date(clip.endAt)-new Date(clip.startAt))/3600000)}h`);
+        }
       }
       // Dọn segment nguồn đã dùng xong (không phình đĩa server giữa sự kiện dài).
-      await cleanupOldSegments(sid, timeline).catch(() => {});
+      if (timeline.length) await cleanupOldSegments(sid, timeline).catch(() => {});
     }
     await cleanupFinishedSessions();
   } catch (e) {
