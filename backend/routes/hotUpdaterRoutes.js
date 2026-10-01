@@ -1,6 +1,8 @@
 import express from "express";
 import {
   checkUpdate,
+  checkUpdateAppVersionPath,
+  checkUpdateFingerprintPath,
   downloadFile,
   dbGetBundleById,
   dbGetBundles,
@@ -14,6 +16,15 @@ const router = express.Router();
 
 // ---- Public (app gọi, không auth) ----
 router.get("/check-update", checkUpdate);
+// Client hot-updater gọi dạng path (DefaultResolver) — KHÔNG qua header.
+router.get(
+  "/check-update/app-version/:platform/:appVersion/:channel/:minBundleId/:bundleId",
+  checkUpdateAppVersionPath
+);
+router.get(
+  "/check-update/fingerprint/:platform/:fingerprintHash/:channel/:minBundleId/:bundleId",
+  checkUpdateFingerprintPath
+);
 router.get("/file/*", downloadFile);
 
 // ---- Deploy plugin API (bảo vệ bằng header x-hotupdater-key) ----

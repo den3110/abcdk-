@@ -275,6 +275,50 @@ export const checkUpdate = asyncHandler(async (req, res) => {
   return res.status(200).json(withFileUrl(info));
 });
 
+// Client hot-updater (DefaultResolver) gọi theo ĐƯỜNG DẪN, KHÔNG dùng header:
+//   GET /check-update/app-version/<platform>/<appVersion>/<channel>/<minBundleId>/<bundleId>
+//   GET /check-update/fingerprint/<platform>/<fingerprintHash>/<channel>/<minBundleId>/<bundleId>
+// (Thiếu 2 route này là lý do app nhận null từ 28/9 — self-host chỉ có /check-update header.)
+export const checkUpdateAppVersionPath = asyncHandler(async (req, res) => {
+  const { platform, appVersion, channel, minBundleId, bundleId } = req.params;
+  console.log(
+    `[hotupdater][check-path] app-version platform=${platform} ver=${appVersion} ` +
+    `channel=${channel} bundleId=${bundleId} minBundleId=${minBundleId}`
+  );
+  if (!platform || !bundleId || !appVersion) {
+    return res.status(400).json({ error: "Missing path params" });
+  }
+  const info = await appVersionStrategy({
+    platform,
+    appVersion,
+    bundleId,
+    minBundleId: minBundleId || NIL_UUID,
+    channel: channel || "production",
+  });
+  console.log(`[hotupdater][check-path] → ${info ? info.status + " " + info.id : "NULL (no update)"}`);
+  return res.status(200).json(withFileUrl(info));
+});
+
+export const checkUpdateFingerprintPath = asyncHandler(async (req, res) => {
+  const { platform, fingerprintHash, channel, minBundleId, bundleId } = req.params;
+  console.log(
+    `[hotupdater][check-path] fingerprint platform=${platform} fp=${fingerprintHash} ` +
+    `channel=${channel} bundleId=${bundleId} minBundleId=${minBundleId}`
+  );
+  if (!platform || !bundleId || !fingerprintHash) {
+    return res.status(400).json({ error: "Missing path params" });
+  }
+  const info = await fingerprintStrategy({
+    platform,
+    fingerprintHash,
+    bundleId,
+    minBundleId: minBundleId || NIL_UUID,
+    channel: channel || "production",
+  });
+  console.log(`[hotupdater][check-path] → ${info ? info.status + " " + info.id : "NULL (no update)"}`);
+  return res.status(200).json(withFileUrl(info));
+});
+
 // GET /api/hot-updater/file/* -> stream file .zip
 export const downloadFile = asyncHandler(async (req, res) => {
   const key = req.params[0] || "";
