@@ -784,6 +784,9 @@ async function startWorker({ baseUrl, token, form }) {
       splitPerTournament: !!form.splitPerTournament, // tách live theo giải (đổi giải → live mới)
       title: form.title || "",
       recordClips: !!form.recordClips, // ghi + cắt clip từng trận lên Drive (live xuyên suốt)
+      // Che ngày/giờ camera bằng overlay-box (bật/tắt được NGAY khi đang live, mỗi sân riêng).
+      hideTimestamp: !!form.hideTimestamp,
+      delogoBox: form.delogoBox || undefined,
       runner: "client",
     },
   });
@@ -888,8 +891,8 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
     AUTOLIVE_SOURCE_URL: dahuaSourceUrl || cfg.sourceUrl || "",
     AUTOLIVE_DESTINATIONS: JSON.stringify(cfg.destinations || []),
     AUTOLIVE_ENCODER: form.encoder || "auto",
-    // Ẩn ngày/giờ camera (delogo) trên luồng live — chủ cam xem DMSS vẫn còn.
-    ...delogoEnv(form),
+    // Che ngày/giờ camera giờ dùng OVERLAY-BOX phía server (bật/tắt live, mỗi sân) —
+    // KHÔNG dùng ffmpeg delogo ở worker nữa (tránh che 2 lần + cho toggle khi đang live).
     AUTOLIVE_PREVIEW_HLS_DIR: previewDir,
     // Ghi recording để cắt clip từng trận (live xuyên suốt). worker.py ghi segment
     // TS vào previewDir/rec; main.js đẩy về server ban đêm (startSegmentUploader).
@@ -1190,7 +1193,7 @@ function startControlServer() {
       if (req.method === "POST") {
         const body = await readReqBody(req);
         const j = body ? JSON.parse(body) : {};
-        const map = { "/api/stop": "stop", "/api/stop-all": "stopAll", "/api/start": "start", "/api/set-layout": "setLayout", "/api/set-opacity": "setOpacity", "/api/schedule": "schedule" };
+        const map = { "/api/stop": "stop", "/api/stop-all": "stopAll", "/api/start": "start", "/api/set-layout": "setLayout", "/api/set-opacity": "setOpacity", "/api/schedule": "schedule", "/api/set-ts-cover": "setTimestampCover" };
         const action = map[u.pathname];
         if (!action) return send(404, { error: "not found" });
         const r = await remoteInvoke(action, j);

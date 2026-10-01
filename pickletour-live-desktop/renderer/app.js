@@ -636,6 +636,8 @@ function registerSession(res, form, { tournamentName = "", courtName = "" } = {}
     perMatchArmed: !!res.perMatchArmed,
     watchUrls: res.watchUrls || [],
     layout: form.layout || { scoreboard: "top-left", brand: "top-right", sponsor: "bottom-right" },
+    hideTimestamp: !!form.hideTimestamp,
+    timestampBox: form.delogoBox || { x: 1360, y: 46, w: 544, h: 72 },
     lastStatus: null, recUpload: null, clips: [], exited: null,
   });
   ensurePoller();
@@ -1037,6 +1039,38 @@ function setupLiveOverlay(S) {
       }
     };
   }
+  // Che ngày/giờ camera (bật/tắt + vùng) — áp NGAY khi đang live.
+  const box = S.timestampBox || { x: 1360, y: 46, w: 544, h: 72 };
+  if ($("live_hideTs")) {
+    $("live_hideTs").checked = !!S.hideTimestamp;
+    for (const [id, v] of [["live_dl_x", box.x], ["live_dl_y", box.y], ["live_dl_w", box.w], ["live_dl_h", box.h]]) {
+      if ($(id)) $(id).value = v;
+    }
+    const syncBox = () => $("live_dlBox")?.classList.toggle("hidden", !$("live_hideTs").checked);
+    syncBox();
+    const applyTs = async () => {
+      syncBox();
+      const payload = {
+        hideTimestamp: $("live_hideTs").checked,
+        box: {
+          x: Number($("live_dl_x").value) || 1360, y: Number($("live_dl_y").value) || 46,
+          w: Number($("live_dl_w").value) || 544, h: Number($("live_dl_h").value) || 72,
+        },
+      };
+      if ($("live_tsHint")) $("live_tsHint").textContent = "Đang áp dụng…";
+      try {
+        await apiReq("PATCH", `/api/tournament-auto-live/${S.sid}/timestamp-cover`, payload);
+        S.hideTimestamp = payload.hideTimestamp; S.timestampBox = payload.box;
+        if ($("live_tsHint")) $("live_tsHint").textContent = "✓ Đã áp dụng (overlay cập nhật ~2s).";
+      } catch (e) {
+        if ($("live_tsHint")) $("live_tsHint").textContent = "Lỗi: " + (e?.message || e);
+      }
+    };
+    $("live_hideTs").onchange = applyTs;
+    for (const id of ["live_dl_x", "live_dl_y", "live_dl_w", "live_dl_h"]) {
+      if ($(id)) $(id).onchange = () => { if ($("live_hideTs").checked) applyTs(); };
+    }
+  }
 }
 
 function renderDetail() {
@@ -1209,6 +1243,8 @@ function buildRemoteState() {
       clipsTotal: clips.length,
       watchUrls,
       layout: S.layout || { scoreboard: "top-left", brand: "top-right", sponsor: "bottom-right" },
+      hideTimestamp: !!S.hideTimestamp,
+      timestampBox: S.timestampBox || { x: 1360, y: 46, w: 544, h: 72 },
       exited: !!(S.exited && !S.perMatch),
     };
   });
@@ -1342,6 +1378,20 @@ async function remoteStart(p = {}) {
   return { sessionId: res.sessionId };
 }
 
+// Bật/tắt che ngày giờ 1 sân từ xa (điều khiển điện thoại) — áp ngay khi live.
+async function remoteSetTimestampCover(p = {}) {
+  if (!state.token) throw new Error("App chưa đăng nhập");
+  const S = p.sid && state.sessions.get(p.sid);
+  if (!S) throw new Error("Không tìm thấy sân");
+  const payload = { hideTimestamp: !!p.hideTimestamp };
+  if (p.box) payload.box = p.box;
+  const r = await apiReq("PATCH", `/api/tournament-auto-live/${p.sid}/timestamp-cover`, payload);
+  S.hideTimestamp = !!p.hideTimestamp;
+  if (p.box) S.timestampBox = p.box;
+  if (state.activeSid === p.sid) setupLiveOverlay(S);
+  return r || { ok: true };
+}
+
 // Hẹn giờ bắt đầu live 1 sân từ xa (điều khiển điện thoại) → đặt lịch ở main.
 async function remoteSchedule(p = {}) {
   const startAt = Number(p.startAt);
@@ -1366,6 +1416,7 @@ if (window.api.onRemoteCmd) {
       else if (action === "start") data = await remoteStart(payload || {});
       else if (action === "setLayout") data = await remoteSetLayout(payload || {});
       else if (action === "schedule") data = await remoteSchedule(payload || {});
+      else if (action === "setTimestampCover") data = await remoteSetTimestampCover(payload || {});
       else if (action === "getOpacity") data = await apiGet("/api/tournament-auto-live/overlay-opacity");
       else if (action === "setOpacity") data = await apiReq("PATCH", "/api/tournament-auto-live/overlay-opacity", { opacity: Number(payload?.opacity) });
       else { ok = false; error = "unknown action"; }

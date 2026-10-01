@@ -178,7 +178,9 @@ function cardHtml(s){
         <div style="flex:1"><div class="mut" style="font-size:11px">Tài trợ</div>${laySel(s.sid,"sponsor",lay.sponsor||"bottom-right")}</div>
       </div>
       <div class="mut" id="layhint_${s.sid}" style="font-size:11px"></div>
-    </div>`;
+    </div>
+    <label class="row" style="margin-top:8px"><span>Ẩn ngày giờ camera</span><input type="checkbox" id="ts_${s.sid}" ${s.hideTimestamp?"checked":""} style="width:auto" onchange="setTsCover('${s.sid}')" /></label>
+    <div class="mut" id="tshint_${s.sid}" style="font-size:11px"></div>`;
   const links = (s.watchUrls||[]).length
     ? `<div style="margin-top:6px">` + s.watchUrls.map((u)=>
         `<div class="chip" style="justify-content:space-between;width:100%;margin-top:4px">
@@ -193,6 +195,12 @@ function cardHtml(s){
     <div class="mut">Trận: <b>${esc(s.match||"—")}</b> · ${s.bitrateKbps?(s.bitrateKbps/1000).toFixed(2)+"Mbps":"—"} · ${fmtSpeed(s.speed)}</div>
     ${clip}${ex}${links}${layoutRow}
   </div>`;
+}
+async function setTsCover(sid){
+  const on = $("ts_"+sid)?.checked;
+  const h = $("tshint_"+sid); if(h) h.textContent="Đang áp dụng…";
+  try{ await api("/api/set-ts-cover","POST",{sid, hideTimestamp:on}); if(h) h.textContent="✓ Đã áp dụng (~2s)."; }
+  catch(e){ if(h) h.textContent="Lỗi: "+(e.message||e); }
 }
 async function setLayout(sid){
   const layout = {

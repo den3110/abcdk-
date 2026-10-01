@@ -113,6 +113,15 @@ const tournamentAutoLiveSessionSchema = new Schema(
       brand: { type: String, default: "top-right" },
       sponsor: { type: String, default: "bottom-right" },
     },
+    // Che ngày/giờ camera bằng 1 hộp đè trong overlay (bật/tắt + đổi vùng NGAY khi đang
+    // live, mỗi sân riêng — khác với delogo ffmpeg phải đặt lúc start). Toạ độ khung 1920x1080.
+    hideTimestamp: { type: Boolean, default: false },
+    timestampBox: {
+      x: { type: Number, default: 1360 },
+      y: { type: Number, default: 46 },
+      w: { type: Number, default: 544 },
+      h: { type: Number, default: 72 },
+    },
     // Cấu hình nâng cao encode (chỉnh từ app desktop)
     advanced: {
       videoBitrateKbps: { type: Number, default: 4500 },

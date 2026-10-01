@@ -320,6 +320,16 @@
           </div>
           <div id="liveLayoutHint" class="hint"></div>
         </div>
+        <div style="margin-top:12px; border-top:1px solid #243244; padding-top:10px">
+          <label class="chk"><input type="checkbox" id="live_hideTs" /> Ẩn ngày giờ camera (che — đổi được khi đang live)</label>
+          <div id="live_dlBox" class="row3 hidden" style="margin-top:6px">
+            <div><span class="mini">X</span><input type="number" id="live_dl_x" value="1360" /></div>
+            <div><span class="mini">Y</span><input type="number" id="live_dl_y" value="46" /></div>
+            <div><span class="mini">Rộng</span><input type="number" id="live_dl_w" value="544" /></div>
+            <div><span class="mini">Cao</span><input type="number" id="live_dl_h" value="72" /></div>
+          </div>
+          <div id="live_tsHint" class="hint"></div>
+        </div>
         <div class="actions">
           <button id="openLog" class="ghost">Xem log</button>
           <button id="stopLive" class="danger big">■ DỪNG</button>

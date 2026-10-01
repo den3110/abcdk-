@@ -114,14 +114,19 @@ const SPONSOR_BUCKET_MS = 8000;
 // Độ MỜ overlay (0..1) CHUNG cho mọi stream — chỉnh được khi đang live. Lưu AppSetting
 // "autoLiveOverlayOpacity"; cache module (không hỏi DB mỗi lần render). 1 = đục hoàn toàn.
 const OVERLAY_OPACITY_KEY = "autoLiveOverlayOpacity";
-let _overlayOpacity = null; // null = chưa nạp
+// Đọc LẠI từ DB theo TTL ngắn để MỌI instance pm2 (cluster) hội tụ cùng giá trị →
+// hết lỗi nháy (trước đây mỗi instance cache vĩnh viễn, chỉ instance nhận PATCH đổi).
+let _overlayOpacity = 1;
+let _overlayOpacityAt = 0;
+const OVERLAY_OPACITY_TTL = 1000;
 async function ensureOverlayOpacity() {
-  if (_overlayOpacity != null) return _overlayOpacity;
+  if (Date.now() - _overlayOpacityAt < OVERLAY_OPACITY_TTL) return _overlayOpacity;
   try {
     const doc = await AppSetting.findOne({ key: OVERLAY_OPACITY_KEY }).lean();
     const v = Number(doc?.value?.opacity);
     _overlayOpacity = Number.isFinite(v) && v >= 0 && v <= 1 ? v : 1;
-  } catch { _overlayOpacity = 1; }
+  } catch { /* giữ giá trị cũ */ }
+  _overlayOpacityAt = Date.now();
   return _overlayOpacity;
 }
 export function getOverlayOpacitySync() {
@@ -140,13 +145,14 @@ export async function setOverlayOpacity(value) {
     { upsert: true }
   );
   _overlayOpacity = v;
+  _overlayOpacityAt = Date.now();
   overlayCache.clear();        // bust cache → mọi stream render lại với độ mờ mới
   userOverlayCache.clear();
   return { ok: true, opacity: v };
 }
 export async function getCachedOverlayPng(sessionId) {
   const doc = await TournamentAutoLiveSession.findById(sessionId)
-    .select("_id court status overlayVersion layout")
+    .select("_id court status overlayVersion layout hideTimestamp timestampBox")
     .lean();
   if (!doc) return null;
   if (doc.status === "stopped") return null;
@@ -155,7 +161,12 @@ export async function getCachedOverlayPng(sessionId) {
   const cached = overlayCache.get(String(sessionId));
   if (cached && cached.token === token) return cached.buf;
   const data = await loadOverlayData(doc.court);
-  if (data) { data.layout = doc.layout || {}; data.opacity = opacity; }
+  if (data) {
+    data.layout = doc.layout || {};
+    data.opacity = opacity;
+    data.hideTimestamp = !!doc.hideTimestamp;
+    data.timestampBox = doc.timestampBox || null;
+  }
   const buf = await renderOverlayPng(data);
   overlayCache.set(String(sessionId), { buf, token });
   return buf;
@@ -208,6 +219,28 @@ export async function updateSessionLayout(sessionId, layout = {}) {
   // Xoá cache overlay để lần fetch kế render lại ngay.
   try { overlayCache.delete(String(sessionId)); } catch {}
   return { ok: true, layout: next };
+}
+
+// Bật/tắt + đổi vùng CHE NGÀY GIỜ cho 1 sân NGAY khi đang live (không restart worker).
+export async function setSessionTimestampCover(sessionId, { hideTimestamp, box } = {}) {
+  const doc = await TournamentAutoLiveSession.findById(sessionId)
+    .select("_id hideTimestamp timestampBox overlayVersion status");
+  if (!doc) { const e = new Error("Không tìm thấy phiên"); e.status = 404; throw e; }
+  if (hideTimestamp != null) doc.hideTimestamp = !!hideTimestamp;
+  if (box && typeof box === "object") {
+    const cur = doc.timestampBox || {};
+    const num = (v, d) => (Number.isFinite(Number(v)) ? Math.round(Number(v)) : d);
+    doc.timestampBox = {
+      x: num(box.x, cur.x ?? 1360),
+      y: num(box.y, cur.y ?? 46),
+      w: num(box.w, cur.w ?? 544),
+      h: num(box.h, cur.h ?? 72),
+    };
+  }
+  doc.overlayVersion = (Number(doc.overlayVersion) || 0) + 1;
+  await doc.save();
+  try { overlayCache.delete(String(sessionId)); } catch {}
+  return { ok: true, hideTimestamp: doc.hideTimestamp, timestampBox: doc.timestampBox };
 }
 
 async function pollOnce(sessionId) {
@@ -770,6 +803,7 @@ export async function startAutoLive(input) {
     startedBy, autoNext = true, venueId: explicitVenueId, layout, advanced,
     sourceUrl, dahuaP2p, perMatchLive = false, title: customTitle,
     recordClips = false, splitPerTournament = false,
+    hideTimestamp = false, timestampBox,
   } = input || {};
   // Tách live theo giải: chạy theo cơ chế status-driven (paused→live) như per-match.
   const lazyBroadcast = !!perMatchLive || !!splitPerTournament;
@@ -870,6 +904,8 @@ export async function startAutoLive(input) {
     recordClips: !perMatchLive && !!recordClips,
     layout: layout && typeof layout === "object" ? layout : undefined,
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
+    hideTimestamp: !!hideTimestamp,
+    timestampBox: timestampBox && typeof timestampBox === "object" ? timestampBox : undefined,
     runner,
     status: lazyBroadcast ? "paused" : "starting", workerId: crypto.randomUUID(),
     startedAt: new Date(),

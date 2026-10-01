@@ -14,7 +14,7 @@ import {
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
   refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
   getCourtImouStreamUrlForApp, saveVenueDahuaNvr, resolveDahuaRtsp,
-  updateSessionLayout, getOverlayOpacity, setOverlayOpacity,
+  updateSessionLayout, getOverlayOpacity, setOverlayOpacity, setSessionTimestampCover,
 } from "../services/autoLive/tournamentAutoLive.service.js";
 import { recordingPlan, saveSegmentStream, presignSegment, registerUploadedSegment, listClips } from "../services/autoLive/autoLiveClip.service.js";
 import { spawn } from "child_process";
@@ -91,6 +91,16 @@ export const courtImouStreamUrl = asyncHandler(async (req, res) => {
 // Body: { layout: { scoreboard?, brand?, sponsor? } } (giá trị góc: top-left/top-right/bottom-left/bottom-right)
 export const setSessionLayout = asyncHandler(async (req, res) => {
   const r = await updateSessionLayout(String(req.params.id), req.body?.layout || req.body || {});
+  res.json(r);
+});
+
+// PATCH /api/tournament-auto-live/:id/timestamp-cover (admin) — bật/tắt + đổi vùng che giờ khi live
+export const setTimestampCoverCtl = asyncHandler(async (req, res) => {
+  const b = req.body || {};
+  const r = await setSessionTimestampCover(String(req.params.id), {
+    hideTimestamp: b.hideTimestamp,
+    box: b.box || b.delogoBox || b.timestampBox,
+  });
   res.json(r);
 });
 
@@ -184,6 +194,8 @@ export const startSession = asyncHandler(async (req, res) => {
 
     layout: body.layout,
     advanced: body.advanced,
+    hideTimestamp: body.hideTimestamp === true, // che ngày/giờ camera bằng overlay-box
+    timestampBox: body.delogoBox || body.timestampBox || undefined,
     runner: body.runner,
     startedBy: req.user?._id,
   });

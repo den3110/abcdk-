@@ -8,7 +8,7 @@ import {
   courtImouStreamUrl, getVenueDahua, setVenueDahua, listDahuaVenues, dahuaSnapshot,
   listRtspSources, createRtspSource, updateRtspSource, deleteRtspSource,
   internalRecordingPlan, internalUploadSegment, internalSegmentPresign, internalSegmentComplete, listClipsForAdmin,
-  getOverlayOpacityCtl, setOverlayOpacityCtl,
+  getOverlayOpacityCtl, setOverlayOpacityCtl, setTimestampCoverCtl,
 } from "../controllers/tournamentAutoLiveController.js";
 
 const router = express.Router();
@@ -54,6 +54,7 @@ router.put("/rtsp-sources/:id", protect, admin, express.json(), updateRtspSource
 router.delete("/rtsp-sources/:id", protect, admin, deleteRtspSource);
 router.get("/:id/worker-config", protect, admin, workerConfig);
 router.patch("/:id/layout", protect, admin, express.json(), setSessionLayout);
+router.patch("/:id/timestamp-cover", protect, admin, express.json(), setTimestampCoverCtl);
 router.get("/:id", protect, admin, getSession);
 
 export default router;

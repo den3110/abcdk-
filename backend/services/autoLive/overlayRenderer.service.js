@@ -246,6 +246,20 @@ function shadowOff(ctx) {
   ctx.shadowOffsetY = 0;
 }
 
+// Hộp che ngày/giờ camera: vẽ khối tối đặc bo góc tại vùng chỉ định (toạ độ 1920x1080).
+function drawTimestampCover(ctx, box) {
+  const W0 = 1920, H0 = 1080;
+  const x = Math.max(0, Math.min(Number(box?.x) || 1360, W0 - 8));
+  const y = Math.max(0, Math.min(Number(box?.y) || 46, H0 - 8));
+  const w = Math.max(8, Math.min(Number(box?.w) || 544, W0 - x));
+  const h = Math.max(8, Math.min(Number(box?.h) || 72, H0 - y));
+  ctx.save();
+  ctx.fillStyle = "rgba(12,17,28,0.98)"; // tối gần đặc → che kín ngày giờ
+  roundedRect(ctx, x, y, w, h, Math.min(12, h / 3));
+  ctx.fill();
+  ctx.restore();
+}
+
 // Áp ĐỘ MỜ chung cho toàn overlay: vẽ lại canvas lên canvas trong suốt với globalAlpha.
 function finalizeBuffer(canvas, opacity) {
   const a = Number(opacity);
@@ -264,6 +278,10 @@ export async function renderOverlayPng(data) {
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, W, H);
   ctx.textBaseline = "alphabetic";
+
+  // Che ngày/giờ camera (bật/tắt + đổi vùng NGAY khi đang live). Vẽ TRƯỚC (dưới cùng
+  // overlay) để scoreboard/logo nằm trên. Hộp đè mờ tối, bo góc — hợp tông overlay.
+  if (data?.hideTimestamp) drawTimestampCover(ctx, data?.timestampBox);
 
   // Vị trí các overlay có thể cấu hình (data.layout). Mặc định:
   //   scoreboard góc trái-trên, logo PickleTour góc phải-trên, sponsor phải-dưới
