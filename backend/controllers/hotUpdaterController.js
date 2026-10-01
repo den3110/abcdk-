@@ -248,6 +248,13 @@ export const checkUpdate = asyncHandler(async (req, res) => {
     });
   }
 
+  // [TẠM] Log để chẩn đoán vì sao app nhận null — gỡ sau khi xác định.
+  console.log(
+    `[hotupdater][check] platform=${appPlatform} ver=${appVersion} channel=${channel} ` +
+    `bundleId=${bundleId} minBundleId=${minBundleId} fp=${fingerprintHash || "-"} ` +
+    `ua=${(h["user-agent"] || "").slice(0, 40)}`
+  );
+
   const info = fingerprintHash
     ? await fingerprintStrategy({
         platform: appPlatform,
@@ -264,6 +271,7 @@ export const checkUpdate = asyncHandler(async (req, res) => {
         channel,
       });
 
+  console.log(`[hotupdater][check] → ${info ? (info.status + " " + info.id) : "NULL (no update)"}`);
   return res.status(200).json(withFileUrl(info));
 });
 
