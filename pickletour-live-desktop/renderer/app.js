@@ -861,6 +861,30 @@ function goDashboard() {
   loadControl();
   loadSchedules();
   loadOverlayOpacity();
+  startMachineRegister();
+}
+
+// Đăng ký máy lên backend để ĐIỀU KHIỂN TỪ APP (qua proxy Tailscale). Cần: đã đăng nhập
+// + bật "Điều khiển từ xa" (control server) + có IP Tailscale. Gửi lại mỗi 20s (heartbeat).
+let _regTimer = null;
+async function registerMachineOnce() {
+  if (!state.token) return;
+  let ci; try { ci = await window.api.controlGet(); } catch { return; }
+  if (!ci?.enabled) return;            // phải bật control server
+  if (!ci.tailscaleIp) return;         // phải có IP Tailscale (VPS gọi vào được)
+  let perf = {}; try { perf = await window.api.sysStats(); } catch {}
+  try {
+    await apiReq("POST", "/api/live-control/register", {
+      machineId: ci.machineId, label: ci.label,
+      tailscaleIp: ci.tailscaleIp, port: ci.port, pin: ci.pin,
+      cpuModel: perf.cpuModel, cpuPct: perf.cpuPct, moreCourts: perf.moreCourts,
+    });
+  } catch { /* transient */ }
+}
+function startMachineRegister() {
+  if (_regTimer) return;
+  registerMachineOnce();
+  _regTimer = setInterval(registerMachineOnce, 20000);
 }
 
 // ── Độ hiển thị (opacity) overlay — chung mọi sân, đổi ngay khi live ──

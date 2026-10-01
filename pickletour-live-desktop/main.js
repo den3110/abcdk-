@@ -1237,8 +1237,24 @@ function stopControlServer() {
   try { control.server?.close(); } catch {}
   control.server = null; control.port = 0;
 }
+// ID máy ổn định (để app điều khiển nhiều máy) — persist ở settings.json.
+function machineId() {
+  let s = readSettings();
+  if (!s.machineId) {
+    const id = `pc-${os.hostname()}-${Math.random().toString(36).slice(2, 8)}`.replace(/\s+/g, "");
+    writeSettings({ machineId: id });
+    return id;
+  }
+  return s.machineId;
+}
 function controlInfo() {
-  return { enabled: !!control.server, port: control.port, pin: control.pin, ips: lanIps() };
+  const ips = lanIps();
+  const ts = ips.find((x) => x.tailscale);
+  return {
+    enabled: !!control.server, port: control.port, pin: control.pin, ips,
+    machineId: machineId(), label: os.hostname(),
+    tailscaleIp: ts ? ts.address : "",
+  };
 }
 ipcMain.handle("control-get", () => controlInfo());
 ipcMain.handle("control-enable", (_e, { enabled }) => {
