@@ -261,6 +261,18 @@ export const adminOrCommentator = (req, res, next) => {
   throw new Error("Forbidden – cần quyền admin hoặc bình luận viên");
 };
 
+// Cho phép admin HOẶC user được cấp quyền Pickletour Network (hasNetworkAccess)
+// — dùng cho các endpoint cấp vé vào tailnet (xem camera/máy live qua Tailscale).
+export const adminOrNetworkAccess = (req, res, next) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Not authorized");
+  }
+  if (isAdminActor(req.user) || req.user.hasNetworkAccess === true) return next();
+  res.status(403);
+  throw new Error("Forbidden – cần quyền truy cập Pickletour Network");
+};
+
 /* Chỉ referee hoặc admin */
 // ✅ Referee/Admin only — luôn fetch user từ DB
 export const refereeOnly = asyncHandler(async (req, res, next) => {

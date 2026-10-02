@@ -206,6 +206,29 @@ export const updateUserCommentator = asyncHandler(async (req, res) => {
 });
 
 /**
+ * PATCH /api/admin/users/:id/network-access
+ * Bật/tắt quyền "Pickletour Network" — truy cập chung mạng lưới Tailscale
+ * (xem camera/máy live qua tailnet) mà không cần cài app Tailscale.
+ * Private/Admin
+ */
+export const updateUserNetworkAccess = asyncHandler(async (req, res) => {
+  const { hasNetworkAccess } = req.body || {};
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    res.status(404);
+    throw new Error("User không tồn tại");
+  }
+  user.hasNetworkAccess = Boolean(hasNetworkAccess);
+  await user.save();
+  res.json({
+    message: user.hasNetworkAccess
+      ? "Đã cấp quyền Pickletour Network"
+      : "Đã thu quyền Pickletour Network",
+    user: { _id: user._id, hasNetworkAccess: Boolean(user.hasNetworkAccess) },
+  });
+});
+
+/**
  * DELETE /api/admin/users/:id
  * Private/Admin
  */

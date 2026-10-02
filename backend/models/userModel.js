@@ -369,6 +369,14 @@ const userSchema = new mongoose.Schema(
       default: false,
       index: true,
     },
+    // ✅ Cờ "Pickletour Network" — user được cấp quyền truy cập chung mạng lưới
+    // Tailscale (xem camera/máy live qua tailnet) mà KHÔNG cần cài app Tailscale
+    // hay có tài khoản Tailscale riêng. Co-exist với role. Cấp/thu từ admin panel.
+    hasNetworkAccess: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     /* ------- Năng lực chấm trình ------- */
     evaluator: { type: EvaluatorSchema, default: () => ({}) },
     referee: { type: RefereeScopeSchema, default: () => ({ tournaments: [] }) },
