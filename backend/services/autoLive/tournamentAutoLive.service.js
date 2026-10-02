@@ -205,7 +205,7 @@ async function bumpOverlayForSession(sessionId) {
 // → worker fetch overlay PNG (~2fps) sẽ nhận vị trí mới ngay (không cần restart live).
 const OVERLAY_CORNERS = new Set(["top-left", "top-right", "bottom-left", "bottom-right"]);
 export async function updateSessionLayout(sessionId, layout = {}) {
-  const doc = await TournamentAutoLiveSession.findById(sessionId).select("_id layout status");
+  const doc = await TournamentAutoLiveSession.findById(sessionId).select("_id layout status court");
   if (!doc) { const e = new Error("Không tìm thấy phiên"); e.status = 404; throw e; }
   const cur = doc.layout || {};
   const next = { ...cur };
@@ -218,6 +218,18 @@ export async function updateSessionLayout(sessionId, layout = {}) {
   await doc.save();
   // Xoá cache overlay để lần fetch kế render lại ngay.
   try { overlayCache.delete(String(sessionId)); } catch {}
+  // GHI NHỚ vị trí overlay cho SÂN → lần tạo live sau tự dùng lại (không chỉnh lại).
+  try {
+    if (doc.court) {
+      const $set = {};
+      for (const key of ["scoreboard", "brand", "sponsor"]) {
+        if (next[key]) $set[`overlayLayout.${key}`] = next[key];
+      }
+      if (Object.keys($set).length) {
+        await CourtStation.updateOne({ _id: doc.court }, { $set });
+      }
+    }
+  } catch (e) { console.warn("[auto-live] lưu overlayLayout cho sân lỗi:", e?.message || e); }
   return { ok: true, layout: next };
 }
 
@@ -823,7 +835,7 @@ export async function startAutoLive(input) {
     const err = new Error("Cần chọn camera Imou / đầu thu Dahua hoặc nhập Custom link");
     err.status = 400; throw err;
   }
-  const station = await CourtStation.findById(courtStationId).select("_id clusterId").lean();
+  const station = await CourtStation.findById(courtStationId).select("_id clusterId overlayLayout").lean();
   if (!station) { const e = new Error("Court không tồn tại"); e.status = 404; throw e; }
 
   // Nguồn Imou cần venue + session; nguồn URL thì bỏ qua toàn bộ Imou.
@@ -880,6 +892,18 @@ export async function startAutoLive(input) {
   // ID máy desktop (ổn định) — để hiển thị/nhóm luồng theo máy. Rỗng = server.
   const machineId = String(input.machineId || "").trim();
 
+  // Vị trí overlay: ưu tiên layout client gửi; nếu không có → DÙNG LẠI vị trí đã lưu
+  // cho SÂN này (overlayLayout) → tạo live lần sau không phải chỉnh lại.
+  let effectiveLayout = layout && typeof layout === "object" ? layout : null;
+  if (!effectiveLayout && station?.overlayLayout) {
+    const ol = station.overlayLayout;
+    const picked = {};
+    for (const k of ["scoreboard", "brand", "sponsor"]) {
+      if (ol[k]) picked[k] = ol[k];
+    }
+    if (Object.keys(picked).length) effectiveLayout = picked;
+  }
+
   // KHÔNG dọn/stop phiên cũ trên cùng sân nữa: cho phép NHIỀU luồng live song song
   // trên 1 sân (kể cả cùng 1 máy). Phiên treo/mồ côi sẽ tự được dọn qua heartbeat
   // (pollOnce: client mất heartbeat >60s → error). Mỗi lần "thêm sân live" = 1 phiên mới.
@@ -897,7 +921,7 @@ export async function startAutoLive(input) {
     liveTitle: baseTitle,
     // Ghi + cắt clip từng trận lên Drive: chỉ live xuyên suốt (không per-match).
     recordClips: !perMatchLive && !!recordClips,
-    layout: layout && typeof layout === "object" ? layout : undefined,
+    layout: effectiveLayout || undefined,
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     hideTimestamp: !!hideTimestamp,
     timestampBox: timestampBox && typeof timestampBox === "object" ? timestampBox : undefined,

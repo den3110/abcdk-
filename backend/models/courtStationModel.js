@@ -87,6 +87,14 @@ const courtStationSchema = new Schema(
       default: null,
       index: true,
     },
+    // Ghi nhớ VỊ TRÍ OVERLAY mặc định cho SÂN này (auto-live) — để tạo live lần sau
+    // không phải chỉnh lại. Tự cập nhật mỗi khi đổi vị trí overlay lúc đang live.
+    // Giá trị góc: top-left / top-right / bottom-left / bottom-right.
+    overlayLayout: {
+      scoreboard: { type: String, default: "" },
+      brand: { type: String, default: "" },
+      sponsor: { type: String, default: "" },
+    },
     defaultReferees: [
       { type: Types.ObjectId, ref: "User", default: undefined },
     ],
