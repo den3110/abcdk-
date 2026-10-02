@@ -1337,6 +1337,7 @@ def main():
         log(f"spawning ffmpeg (persistent) overlay={bool(overlay_fifo)} audio={has_audio} "
             f"commentary={bool(commentary_src)} preview360={bool(preview360_udp)} record={RECORD_CLIPS} restart#{ff_restarts}")
         ff_spawn_t = time.monotonic()
+        fb_flag = {"fb": False}  # watcher bật True khi FB huỷ phiên RTMPS (session invalidated)
         # URL mode: ffmpeg tự đọc URL (stdin không dùng). Imou mode: feed DHAV.
         # cwd=PREVIEW_DIR để tee HLS ghi bằng TÊN TƯƠNG ĐỐI (né `:` trong tee spec
         # khi đường dẫn tuyệt đối chứa drive letter Windows).
@@ -1344,8 +1345,10 @@ def main():
             args,
             stdin=(subprocess.DEVNULL if SOURCE_URL else subprocess.PIPE),
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             cwd=(PREVIEW_DIR or None))
         ff_holder[0] = ff
+        threading.Thread(target=_watch_ffmpeg_stderr, args=(ff, fb_flag, stop_event), daemon=True).start()
         threading.Thread(target=progress_reader, args=(ff, stop_event), daemon=True).start()
         threading.Thread(target=rss_watchdog, args=(ff, stop_event), daemon=True).start()
         ow_th, ow_done = start_overlay_writer(overlay_fifo, overlay_url, stop_event)
@@ -1374,6 +1377,24 @@ def main():
 
         ran_s = time.monotonic() - ff_spawn_t
         ff_restarts += 1
+        # FB huỷ phiên RTMPS ("session has been invalidated") — KHÔNG phải lỗi nguồn/cấu
+        # hình. Link FB hiện tại đã chết, retry cùng link sẽ fail mãi (hay gặp khi tách
+        # live từng trận: tạo broadcast liên tiếp). → Xin link FB MỚI rồi thử lại NGAY,
+        # kể cả khi ffmpeg chết nhanh. (Backend đã có delay cho ingest FB sẵn sàng.)
+        if fb_flag.get("fb") and not PREVIEW_ONLY and not stop_event.is_set():
+            if ff_restarts > MAX_ATTEMPTS:
+                log(f"FB huỷ phiên quá {MAX_ATTEMPTS} lần → dừng", err=True)
+                break
+            log("FB huỷ phiên (session invalidated) → xin link FB mới rồi thử lại")
+            new_tee = refresh_destinations(
+                session_post_url.replace("/imou-session", "/destinations"),
+                worker_token, session_id)
+            if new_tee:
+                tee = new_tee
+                log("đã lấy link FB mới sau khi FB huỷ phiên")
+            if _sleep_stop(stop_event, 3):
+                break
+            continue
         # ffmpeg chết NHANH (<20s) = lỗi cấu hình (encoder/bitrate/res) chứ
         # không phải đứt mạng → KHÔNG tạo lại FB live (tránh spam video mới),
         # chỉ retry; quá nhiều lần fast-fail → dừng hẳn.
@@ -1412,6 +1433,34 @@ def main():
     ok = stop_event.is_set()
     log(f"exit ok={ok}")
     sys.exit(0 if ok else 1)
+
+
+# Dấu hiệu trong stderr ffmpeg cho biết FACEBOOK huỷ phiên RTMPS (không phải lỗi nguồn).
+FB_FAIL_MARKERS = ("has been invalidated",)
+
+
+def _watch_ffmpeg_stderr(proc, fb_flag, stop_event):
+    """Đọc stderr ffmpeg: in lại ra stderr (giữ nguyên log) + bật cờ khi FB huỷ phiên."""
+    try:
+        for raw in iter(proc.stderr.readline, b""):
+            if not raw:
+                break
+            try:
+                line = raw.decode("utf-8", "replace")
+            except Exception:  # noqa: BLE001
+                line = str(raw)
+            try:
+                sys.stderr.write(line)
+                sys.stderr.flush()
+            except Exception:  # noqa: BLE001
+                pass
+            low = line.lower()
+            if any(mk in low for mk in FB_FAIL_MARKERS):
+                fb_flag["fb"] = True
+            if stop_event.is_set():
+                break
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def refresh_destinations(url, token, session_id):

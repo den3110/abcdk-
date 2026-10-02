@@ -540,6 +540,11 @@ async function prepareDestinations(destinations, title) {
         const e = new Error(`FB không trả stream URL cho page ${d.pageName || pageId}`);
         e.status = 502; throw e;
       }
+      // FB cần vài giây để ingest sẵn sàng sau khi tạo live_video; publish quá sớm
+      // (nhất là khi tách live từng trận — tạo broadcast liên tiếp) sẽ bị FB huỷ phiên
+      // "session has been invalidated" → luồng không lên. Chờ trước khi worker đẩy stream.
+      const fbDelayMs = Math.max(0, Number(process.env.AUTOLIVE_FB_PUBLISH_DELAY_MS) || 6000);
+      if (fbDelayMs) await new Promise((r) => setTimeout(r, fbDelayMs));
       // Crosspost (live chéo page): 1 luồng, hiện trên nhiều page. Cần quan hệ crosspost
       // đã thiết lập trong Business Suite. FB không báo lỗi nếu quan hệ sai → verify sau.
       let crosspostPages = [];
