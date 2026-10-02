@@ -1191,7 +1191,13 @@ function readReqBody(req) {
 }
 function startControlServer() {
   if (control.server) return controlInfo();
-  if (!control.pin) control.pin = genPin();
+  // PIN ỔN ĐỊNH qua các lần khởi động (lưu settings) → tránh lệch PIN với backend
+  // khi renderer chưa kịp đăng ký lại sau restart (gây lỗi "Sai PIN" → proxy 401).
+  if (!control.pin) {
+    const s = readSettings();
+    control.pin = (s.controlPin && String(s.controlPin)) || genPin();
+    if (!s.controlPin) writeSettings({ controlPin: control.pin });
+  }
   const srv = http.createServer(async (req, res) => {
     const send = (code, obj) => { res.writeHead(code, { "content-type": "application/json; charset=utf-8" }); res.end(JSON.stringify(obj)); };
     try {
@@ -1326,7 +1332,7 @@ ipcMain.handle("control-enable", (_e, { enabled }) => {
   writeSettings({ controlEnabled: !!enabled });
   return controlInfo();
 });
-ipcMain.handle("control-regen-pin", () => { control.pin = genPin(); return controlInfo(); });
+ipcMain.handle("control-regen-pin", () => { control.pin = genPin(); writeSettings({ controlPin: control.pin }); return controlInfo(); });
 
 ipcMain.handle("env-check", () => {
   const selfContained = isSelfContained();

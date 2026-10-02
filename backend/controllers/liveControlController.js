@@ -117,6 +117,17 @@ export const proxyCall = asyncHandler(async (req, res) => {
     });
     const text = await r.text();
     let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+    // Máy live từ chối (PIN sai / không đủ quyền phía máy): KHÔNG trả 401/403 cho
+    // trình duyệt — SPA coi 401 là HẾT PHIÊN đăng nhập và tự đá người dùng ra login.
+    // Đây là lỗi upstream (cổng), đổi thành 502 kèm thông báo rõ.
+    if (r.status === 401 || r.status === 403) {
+      return res.status(502).json({
+        error:
+          "Máy live từ chối kết nối (PIN không khớp). Hãy mở lại app live trên máy đó để đăng ký lại.",
+        machineStatus: r.status,
+        detail: data?.error || data?.message || undefined,
+      });
+    }
     return res.status(r.status).json(data);
   } catch (e) {
     res.status(502);
