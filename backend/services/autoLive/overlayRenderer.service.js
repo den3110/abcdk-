@@ -486,7 +486,24 @@ function drawBug(ctx, o) {
   const hasBottom = !!(o.bottomLeft || o.bottomRight);
   const bottomH = hasBottom ? BUG.bottomH : 0;
   const totalH = BUG.topH + midH + bottomH;
-  const w = BUG.w;
+  // TỰ GIÃN chiều ngang để hiện FULL tên (không cắt) — nhất là khi dùng họ tên đầy đủ.
+  // Đo bề rộng tên ở đúng font của hàng; lấy tối thiểu = BUG.w, tối đa = vừa trong khung.
+  let w = BUG.w;
+  try {
+    ctx.save();
+    ctx.font = o.single ? `700 24px ${FONT}` : `800 27px ${FONT}`;
+    let needName = 0;
+    for (const row of (rows || [])) {
+      const serveOff = row.serve >= 2 ? 44 : (row.serve > 0 ? 24 : 0);
+      const off = 22 + serveOff;        // vị trí bắt đầu tên so với mép trái (nameX - x)
+      const wName = ctx.measureText(String(row.name || "")).width;
+      needName = Math.max(needName, off + wName + 18); // +18 đệm phải
+    }
+    ctx.restore();
+    const needW = needName + BUG.setColW + BUG.scoreColW;
+    const maxW = W - BUG.x - 40;         // không vượt ra ngoài khung
+    w = Math.round(Math.max(BUG.w, Math.min(needW, maxW)));
+  } catch { w = BUG.w; }
   const r = BUG.r;
   const { x, y } = cornerXY(o.corner || "top-left", w, totalH, 48, 40);
 
