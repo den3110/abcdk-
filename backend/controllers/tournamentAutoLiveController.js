@@ -197,6 +197,7 @@ export const startSession = asyncHandler(async (req, res) => {
     hideTimestamp: body.hideTimestamp === true, // che ngày/giờ camera bằng overlay-box
     timestampBox: body.delogoBox || body.timestampBox || undefined,
     runner: body.runner,
+    machineId: body.machineId, // máy desktop chạy luồng (cho phép nhiều luồng/sân)
     startedBy: req.user?._id,
   });
   res.status(201).json(stripSecrets(doc));

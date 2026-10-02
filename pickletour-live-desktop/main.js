@@ -788,6 +788,9 @@ async function startWorker({ baseUrl, token, form }) {
       hideTimestamp: !!form.hideTimestamp,
       delogoBox: form.delogoBox || undefined,
       runner: "client",
+      // ID máy này → backend cho phép NHIỀU luồng/sân (mỗi máy 1 luồng), chỉ dọn
+      // luồng cũ trên CÙNG máy+sân thay vì stop luồng của máy khác.
+      machineId: machineId(),
     },
   });
   const sid = session._id;

@@ -65,6 +65,10 @@ const tournamentAutoLiveSessionSchema = new Schema(
     // Nơi chạy encode: "server" (VPS) hoặc "client" (app desktop PC/Mac có GPU)
     runner: { type: String, enum: ["server", "client"], default: "server", index: true },
     runnerLabel: { type: String, default: "" }, // tên máy client
+    // ID máy desktop chạy luồng (ổn định theo máy). Cho phép NHIỀU luồng/sân: mỗi máy
+    // 1 luồng (vd máy A live Facebook cắt trận, máy B live YouTube xuyên suốt cùng 1 sân).
+    // Rỗng = runner server (VPS).
+    machineId: { type: String, default: "", index: true },
     runnerOs: { type: String, default: "" },
     encoder: { type: String, default: "" }, // h264_nvenc / videotoolbox / libx264…
     // Metadata process Python
@@ -135,9 +139,10 @@ const tournamentAutoLiveSessionSchema = new Schema(
   { timestamps: true }
 );
 
-// 1 court chỉ có 1 session không phải stopped
+// Mỗi (sân + máy) chỉ 1 session không phải stopped → cho phép NHIỀU luồng/sân
+// (mỗi máy desktop 1 luồng) nhưng chặn trùng luồng trên cùng 1 máy cho cùng sân.
 tournamentAutoLiveSessionSchema.index(
-  { court: 1, status: 1 },
+  { court: 1, machineId: 1, status: 1 },
   {
     unique: true,
     partialFilterExpression: { status: { $in: ["starting", "live", "reconnecting", "paused"] } },
