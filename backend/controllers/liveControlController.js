@@ -102,6 +102,15 @@ export const proxyCall = asyncHandler(async (req, res) => {
     }
   }
 
+  // [TẠM] debug hẹn giờ: log body forward để biết web có gửi startAt không.
+  if (path.startsWith("/api/schedule")) {
+    try {
+      const bb = b.body || {};
+      console.log("[live-control][schedule] forward body keys:", Object.keys(bb),
+        "| startAt:", bb.startAt, "type:", typeof bb.startAt);
+    } catch {}
+  }
+
   const base = `http://${m.tailscaleIp}:${m.port || 8788}`;
   const url = new URL(base + path);
   if (m.pin) url.searchParams.set("k", m.pin);
