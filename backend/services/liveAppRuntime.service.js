@@ -396,7 +396,7 @@ function isAutoStageBracketName(name) {
   return false;
 }
 
-function buildRuntimeRoundLabel(match, roundCode = inferRoundCode(match)) {
+function buildRuntimeRoundLabel(match, roundCode = inferRoundCode(match), roundOffset = 0) {
   const bracketType = String(match?.bracket?.type || match?.format || "")
     .trim()
     .toLowerCase();
@@ -421,7 +421,10 @@ function buildRuntimeRoundLabel(match, roundCode = inferRoundCode(match)) {
       roundNo > 0 &&
       !isAutoStageBracketName(bracketName)
     ) {
-      return `Vòng ${roundNo} - ${bracketName}`;
+      // roundOffset = tổng số vòng của các bracket trước đó (theo thứ tự giai đoạn)
+      // → đánh số vòng LIÊN TỤC toàn giải (vd Pre-Qualifying 2 vòng → Knockout vòng 1
+      // hiển thị "Vòng 3"). Mặc định 0 (giữ nguyên hành vi cho caller khác).
+      return `Vòng ${roundNo + (Number(roundOffset) || 0)} - ${bracketName}`;
     }
   }
 
@@ -488,8 +491,8 @@ export function buildRuntimePhaseText(match) {
   return roundLabel || "";
 }
 
-export function buildStageName(match, roundCode = inferRoundCode(match)) {
-  const roundLabel = buildRuntimeRoundLabel(match, roundCode);
+export function buildStageName(match, roundCode = inferRoundCode(match), roundOffset = 0) {
+  const roundLabel = buildRuntimeRoundLabel(match, roundCode, roundOffset);
   const phaseText = buildRuntimePhaseText(match);
   return firstText(roundLabel, phaseText);
 }

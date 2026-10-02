@@ -8,6 +8,7 @@ import Match from "../../models/matchModel.js";
 import UserMatch from "../../models/userMatchModel.js";
 import CourtStation from "../../models/courtStationModel.js";
 import Tournament from "../../models/tournamentModel.js";
+import Bracket from "../../models/bracketModel.js";
 import { Sponsor } from "../../models/sponsorModel.js";
 import { buildStageName } from "../liveAppRuntime.service.js";
 
@@ -146,8 +147,36 @@ export async function loadOverlayData(courtStationId) {
   let roundLabel = "";
   let contentLabel = "";
   if (match) {
-    // Thanh xanh trên = VÒNG + TÊN BRACKET: "Vòng 2 - PRE-QUALIFYING" (buildStageName).
-    try { roundLabel = buildStageName(match) || ""; } catch { roundLabel = ""; }
+    // Đánh số vòng LIÊN TỤC toàn giải: cộng dồn số vòng của các bracket trước đó
+    // (theo thứ tự giai đoạn order/stage). VD giải có Pre-Qualifying (2 vòng) rồi
+    // Knockout → Knockout vòng 1 hiển thị "Vòng 3 - Knockout" thay vì "Vòng 1".
+    let roundOffset = 0;
+    try {
+      const b = match.bracket;
+      const tourId = match.tournament;
+      const myPos = Number(b?.order ?? b?.stage ?? 0);
+      if (b?._id && tourId && Number.isFinite(myPos) && myPos > 0) {
+        const all = await Bracket.find({ tournament: tourId })
+          .select("_id order stage")
+          .lean();
+        const priorIds = all
+          .filter((x) => String(x._id) !== String(b._id))
+          .filter((x) => {
+            const p = Number(x.order ?? x.stage ?? 0);
+            return Number.isFinite(p) && p > 0 && p < myPos;
+          })
+          .map((x) => x._id);
+        if (priorIds.length) {
+          const agg = await Match.aggregate([
+            { $match: { bracket: { $in: priorIds } } },
+            { $group: { _id: "$bracket", maxRound: { $max: "$round" } } },
+          ]);
+          roundOffset = agg.reduce((s, r) => s + (Number(r.maxRound) || 0), 0);
+        }
+      }
+    } catch { roundOffset = 0; }
+    // Thanh xanh trên = VÒNG + TÊN BRACKET: "Vòng 3 - KNOCKOUT" (buildStageName).
+    try { roundLabel = buildStageName(match, undefined, roundOffset) || ""; } catch { roundLabel = ""; }
     // Thanh dưới = TÊN GIẢI ĐẤU (đã chứa nội dung, vd "THE RIVERSIDE CHAMPIONSHIP • Đôi nữ 3.7").
     contentLabel = (tournament?.name || tournament?.shortName || "").toString().trim();
   }
