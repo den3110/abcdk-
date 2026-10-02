@@ -221,7 +221,7 @@ export default function LiveAddPage() {
       setToast("Đã bắt đầu live.");
       setTimeout(() => navigate(-1), 600);
     } catch (e) {
-      setToast(e?.data?.message || e?.message || "Lỗi, thử lại");
+      setToast(e?.data?.error || e?.data?.detail || e?.data?.message || e?.message || "Lỗi, thử lại");
     } finally {
       setBusy(false);
     }
@@ -241,7 +241,7 @@ export default function LiveAddPage() {
       setToast("Đã hẹn giờ live lúc " + when.toLocaleString("vi-VN"));
       setTimeout(() => navigate(-1), 600);
     } catch (e) {
-      setToast(e?.data?.message || e?.message || "Lỗi, thử lại");
+      setToast(e?.data?.error || e?.data?.detail || e?.data?.message || e?.message || "Lỗi, thử lại");
     } finally {
       setBusy(false);
     }
