@@ -117,13 +117,14 @@ export const proxyCall = asyncHandler(async (req, res) => {
     });
     const text = await r.text();
     let data; try { data = JSON.parse(text); } catch { data = { raw: text }; }
-    // Máy live từ chối (PIN sai / không đủ quyền phía máy): KHÔNG trả 401/403 cho
-    // trình duyệt — SPA coi 401 là HẾT PHIÊN đăng nhập và tự đá người dùng ra login.
-    // Đây là lỗi upstream (cổng), đổi thành 502 kèm thông báo rõ.
+    // Máy live từ chối (PIN sai / không đủ quyền phía máy): KHÔNG trả 401/403 (SPA coi
+    // 401 là HẾT PHIÊN đăng nhập → tự đá ra login) và KHÔNG trả 5xx (ops-monitor báo
+    // "bão lỗi 5xx" → spam Telegram vì màn live poll /api/state mỗi 5s). Dùng 409 (lỗi
+    // cấu hình/kết nối máy live, không phải lỗi server) kèm thông báo rõ.
     if (r.status === 401 || r.status === 403) {
-      return res.status(502).json({
+      return res.status(409).json({
         error:
-          "Máy live từ chối kết nối (PIN không khớp). Hãy mở lại app live trên máy đó để đăng ký lại.",
+          "Máy live từ chối kết nối (PIN không khớp). Hãy đăng nhập lại app live trên máy đó để đăng ký lại.",
         machineStatus: r.status,
         detail: data?.error || data?.message || undefined,
       });
