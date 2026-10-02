@@ -375,7 +375,9 @@ function workerScriptPath() {
 // overlay DƯỚI scoreboard native). Trả { port, close() }.
 async function startBrowserOverlay(url) {
   const net = require("net");
-  const fps = 2;
+  // fps CAO cho browser overlay vì có TICKER (chữ chạy liên tục) — 2fps sẽ giật.
+  // Scoreboard tĩnh không cần, nhưng ticker cần ~24fps mới mượt.
+  const fps = Number(process.env.AUTOLIVE_BROWSER_OVERLAY_FPS) || 24;
   const win = new BrowserWindow({
     width: 1920, height: 1080, show: false, frame: false, transparent: true,
     webPreferences: { offscreen: true, backgroundThrottling: false },
@@ -890,6 +892,7 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
     ...process.env,
     PICKLETOUR_PYTHON: undefined,
     AUTOLIVE_BROWSER_OVERLAY: browserOverlay ? `tcp://127.0.0.1:${browserOverlay.port}` : "",
+    AUTOLIVE_BROWSER_OVERLAY_FPS: String(Number(process.env.AUTOLIVE_BROWSER_OVERLAY_FPS) || 24),
     PYTHONIOENCODING: "utf-8",
     PYTHONUTF8: "1",
     AUTOLIVE_SESSION_ID: cfg.sessionId,

@@ -457,9 +457,12 @@ async function drawSponsorRotating(ctx, logos, corner = "bottom-right") {
 }
 
 // Toạ độ góc neo cho 1 hộp wxh theo corner + lề.
+// Chừa chỗ cho TICKER (chữ chạy) ở đáy khung → overlay neo đáy (logo/sponsor) đẩy lên
+// trên, không đè ticker. (Ticker cao ~54px + khoảng cách.)
+const TICKER_RESERVE_PX = 74;
 function cornerXY(corner, w, h, mx = 48, my = 40) {
   const right = W - mx - w;
-  const bottom = H - my - h;
+  const bottom = H - my - h - TICKER_RESERVE_PX;
   switch (corner) {
     case "top-right": return { x: right, y: my };
     case "bottom-left": return { x: mx, y: bottom };

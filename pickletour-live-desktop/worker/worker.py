@@ -640,6 +640,9 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None, commentar
     # video ĐỨNG mà overlay vẫn ghi → frame KHÔNG dồn vô hạn (tránh phình RAM).
     fc = base
     ov_fps = max(1, round(OVERLAY_FPS))
+    # Browser overlay có TICKER chạy chữ → cần fps CAO mới mượt (2fps sẽ giật). Scoreboard
+    # native (overlay_fifo) vẫn 2fps là đủ.
+    browser_fps = max(1, int(os.environ.get("AUTOLIVE_BROWSER_OVERLAY_FPS") or 24))
     overlay_inputs = []
     if browser_fifo:
         overlay_inputs.append(browser_fifo)   # lớp DƯỚI
@@ -651,8 +654,11 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None, commentar
         idx = 1
         n = len(overlay_inputs)
         for ov in overlay_inputs:
-            args += ["-thread_queue_size", "8", "-f", "image2pipe",
-                     "-framerate", str(ov_fps), "-i", ov]
+            is_browser = (ov == browser_fifo)
+            fps_for = browser_fps if is_browser else ov_fps
+            tq = "32" if is_browser else "8"  # browser fps cao → hàng đợi lớn hơn tránh drop
+            args += ["-thread_queue_size", tq, "-f", "image2pipe",
+                     "-framerate", str(fps_for), "-i", ov]
             lbl = "comp" if idx == n else f"ov{idx}"
             fc += f";[{prev}][{idx}:v]overlay=0:0:eof_action=pass[{lbl}]"
             prev = lbl
