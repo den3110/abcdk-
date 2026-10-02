@@ -26,7 +26,7 @@ import Match from "../../models/matchModel.js";
 import Tournament from "../../models/tournamentModel.js";
 import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionModel.js";
 import { decryptToken } from "../secret.service.js";
-import { loadOverlayData, loadOverlayDataFromUserMatch, renderOverlayPng } from "./overlayRenderer.service.js";
+import { loadOverlayData, loadOverlayDataFromUserMatch, renderOverlayPng, buildOverlayBugData } from "./overlayRenderer.service.js";
 import { sampleProcessTree, clearProcSample, systemCapacity } from "./procStat.service.js";
 import { ensureDahuaTunnel, dahuaChannelUrl, triggerDahuaReconcile } from "./dahuaTunnel.service.js";
 import { getValidPageToken } from "../fbTokenService.js";
@@ -184,6 +184,14 @@ export async function getCachedOverlayPng(sessionId) {
 // Overlay PNG cho trận ngẫu nhiên (UserMatch) — desktop worker fetch trực tiếp
 // bằng userMatchId (không cần session auto-live). Cache ~1s theo mốc thời gian.
 const userOverlayCache = new Map();
+// Dữ liệu bảng điểm JSON cho overlay HTML (browser) — theo sessionId (giống overlay PNG).
+export async function getOverlayBugDataForSession(sessionId) {
+  const doc = await TournamentAutoLiveSession.findById(sessionId).select("_id court status").lean();
+  if (!doc || doc.status === "stopped") return null;
+  const data = await loadOverlayData(doc.court);
+  return buildOverlayBugData(data || {});
+}
+
 export async function getUserMatchOverlayPng(userMatchId) {
   const id = String(userMatchId || "");
   const data = await loadOverlayDataFromUserMatch(id);

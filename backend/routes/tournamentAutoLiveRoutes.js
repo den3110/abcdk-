@@ -2,7 +2,7 @@ import express from "express";
 import { protect, authorize } from "../middleware/authMiddleware.js";
 import {
   startSession, stopSession, listSessions, getSession,
-  getOverlayImage, getUserMatchOverlayImage, internalHeartbeat, listAvailableCams, internalImouSession,
+  getOverlayImage, getOverlayData, getUserMatchOverlayImage, internalHeartbeat, listAvailableCams, internalImouSession,
   internalGetImouSession, getStats, internalRefreshDestinations, workerConfig, setSessionLayout,
   listTournamentsForApp, listCourtsForApp, listFbPagesForApp, courtImouSession,
   courtImouStreamUrl, getVenueDahua, setVenueDahua, listDahuaVenues, dahuaSnapshot,
@@ -16,6 +16,7 @@ const admin = authorize("admin");
 
 // Public overlay PNG (worker fetch) + internal heartbeat KHÔNG cần user auth.
 router.get("/overlay/usermatch/:id", getUserMatchOverlayImage);
+router.get("/overlay-data/:id", getOverlayData); // JSON cho overlay HTML (browser)
 router.get("/overlay/:id", getOverlayImage);
 router.post("/internal/heartbeat", express.json(), internalHeartbeat);
 router.post("/internal/imou-session", express.json(), internalImouSession);

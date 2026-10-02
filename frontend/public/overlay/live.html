@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1920, initial-scale=1" />
+<title>PickleTour overlay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=Inter:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* Overlay bảng điểm HTML cho PickleTour auto-live (render offscreen 1920x1080,
+     nền TRONG SUỐT). Poll /api/tournament-auto-live/overlay-data/<sid>. theme=A|B|C|D. */
+  html,body{margin:0;width:1920px;height:1080px;background:transparent;overflow:hidden;
+    font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  .num{font-family:"Barlow Condensed",Inter,sans-serif;font-variant-numeric:tabular-nums}
+  #ov{position:absolute;opacity:0;transition:opacity .25s}
+  #ov.ready{opacity:1}
+  /* góc */
+  .corner-top-left{top:46px;left:56px}
+  .corner-top-right{top:46px;right:56px}
+  .corner-bottom-left{bottom:56px;left:56px}
+  .corner-bottom-right{bottom:56px;right:56px}
+  .live{display:inline-flex;align-items:center;gap:8px;font-weight:800;font-size:17px;letter-spacing:1.4px}
+  .live i{width:11px;height:11px;border-radius:50%;background:#ff3b30;box-shadow:0 0 10px #ff3b30;animation:bl 1.2s infinite}
+  @keyframes bl{50%{opacity:.35}}
+  .dot{width:14px;height:14px;border-radius:50%;flex:0 0 auto;background:transparent}
+  .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* ===== A — Broadcast Pro ===== */
+  .theme-A{width:640px}
+  .theme-A .top{display:flex;align-items:center;justify-content:space-between;gap:10px;background:linear-gradient(90deg,#0a2a6b,#0a1736);color:#dfe9ff;padding:10px 18px;border-radius:12px 12px 0 0;font-size:18px;font-weight:800;letter-spacing:.6px;text-transform:uppercase}
+  .theme-A .top .live i{background:#ffd23f;box-shadow:0 0 10px #ffd23f}
+  .theme-A .rows{background:linear-gradient(180deg,#0f1830,#0b1222);border:1px solid rgba(255,255,255,.08);border-top:none}
+  .theme-A .r{display:flex;align-items:center;gap:14px;padding:13px 18px}
+  .theme-A .r+.r{border-top:1px solid rgba(255,255,255,.06)}
+  .theme-A .acc{width:7px;height:40px;border-radius:4px;background:#2b8cff}
+  .theme-A .r:first-child .acc{background:#ffd23f}
+  .theme-A .nm{font-weight:700;font-size:30px;color:#fff}
+  .theme-A .st{width:46px;text-align:center;font-size:26px;font-weight:800;color:#9fb4d6}
+  .theme-A .pt{width:76px;text-align:center;font-size:44px;font-weight:800;color:#fff;background:#122447;border-radius:8px}
+  .theme-A .foot{display:flex;justify-content:space-between;background:#0a1736;color:#9fb4d6;font-size:17px;font-weight:700;padding:8px 18px;border-radius:0 0 12px 12px;letter-spacing:.5px}
+
+  /* ===== B — Aurora Glass ===== */
+  .theme-B{width:640px;border-radius:24px;overflow:hidden;background:linear-gradient(135deg,rgba(18,24,38,.70),rgba(10,14,22,.70));backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.14);box-shadow:0 22px 60px rgba(0,0,0,.45)}
+  .theme-B .top{display:flex;align-items:center;justify-content:space-between;padding:14px 22px 4px;font-size:18px;font-weight:700;color:#cbd6ea;letter-spacing:.6px;text-transform:uppercase}
+  .theme-B .top .live i{background:#43e0c0;box-shadow:0 0 12px #43e0c0}
+  .theme-B .r{display:flex;align-items:center;gap:16px;padding:11px 22px}
+  .theme-B .acc{display:none}
+  .theme-B .nm{font-weight:700;font-size:31px;color:#fff}
+  .theme-B .st{width:42px;text-align:center;color:#9fb0c8;font-weight:700;font-size:24px}
+  .theme-B .pt{width:78px;text-align:center;font-weight:800;font-size:48px;background:linear-gradient(180deg,#5de0ff,#2b8cff);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .theme-B .foot{padding:6px 22px 16px;color:#93a1b8;font-size:17px;font-weight:600;display:flex;justify-content:space-between;letter-spacing:.3px}
+
+  /* ===== C — Minimal Clean ===== */
+  .theme-C{width:600px;border-radius:16px;overflow:hidden;background:rgba(255,255,255,.96);color:#111;box-shadow:0 16px 40px rgba(0,0,0,.35)}
+  .theme-C .top{display:flex;align-items:center;justify-content:space-between;background:#111;color:#fff;padding:9px 20px;font-size:16px;font-weight:800;letter-spacing:1px;text-transform:uppercase}
+  .theme-C .r{display:flex;align-items:center;gap:14px;padding:12px 20px}
+  .theme-C .r+.r{border-top:1px solid #eceff3}
+  .theme-C .acc{display:none}
+  .theme-C .dot{border:2px solid #cfd6df}
+  .theme-C .nm{font-weight:700;font-size:28px}
+  .theme-C .st{width:40px;text-align:center;color:#8a94a3;font-weight:700;font-size:22px}
+  .theme-C .pt{width:66px;text-align:center;font-weight:800;font-size:40px;color:#111}
+  .theme-C .r.lead .pt{color:#0a7d2c}
+  .theme-C .foot{padding:8px 20px;background:#f3f5f8;color:#6b7686;font-size:16px;font-weight:700;display:flex;justify-content:space-between}
+
+  /* ===== D — Neon Volt ===== */
+  .theme-D{width:650px;border-radius:20px;overflow:hidden;background:linear-gradient(145deg,#06131f,#071a2b);border:1px solid rgba(34,211,238,.35);box-shadow:0 0 0 1px rgba(34,211,238,.15),0 18px 52px rgba(0,0,0,.5)}
+  .theme-D .top{display:flex;align-items:center;justify-content:space-between;padding:11px 20px;background:linear-gradient(90deg,rgba(34,211,238,.18),transparent);color:#aef3ff;font-size:18px;font-weight:800;letter-spacing:.8px;text-transform:uppercase}
+  .theme-D .top .live i{background:#c7ff2f;box-shadow:0 0 12px #c7ff2f}
+  .theme-D .r{display:flex;align-items:center;gap:14px;padding:13px 20px}
+  .theme-D .r+.r{border-top:1px solid rgba(34,211,238,.12)}
+  .theme-D .acc{display:none}
+  .theme-D .dot{border:2px solid rgba(34,211,238,.4)}
+  .theme-D .nm{font-weight:800;font-size:30px;color:#eaffff}
+  .theme-D .st{width:42px;text-align:center;color:#5fd4e6;font-weight:700;font-size:24px}
+  .theme-D .pt{width:80px;text-align:center;font-weight:800;font-size:46px;color:#0a0f14;background:linear-gradient(180deg,#5de7ff,#22d3ee);border-radius:10px;box-shadow:0 0 16px rgba(34,211,238,.5)}
+  .theme-D .r.lead .pt{background:linear-gradient(180deg,#e2ff6b,#c7ff2f);box-shadow:0 0 16px rgba(199,255,47,.55)}
+  .theme-D .foot{display:flex;justify-content:space-between;padding:8px 20px;color:#7fd8e6;font-size:16px;font-weight:700;letter-spacing:.4px;background:rgba(34,211,238,.06)}
+
+  /* serve dot màu theo theme */
+  .theme-A .r.serving .dot{background:#ffd23f;box-shadow:0 0 10px #ffd23f}
+  .theme-B .r.serving .dot{background:#43e0c0;box-shadow:0 0 10px #43e0c0}
+  .theme-C .r.serving .dot{background:#0a7d2c;border-color:#0a7d2c}
+  .theme-D .r.serving .dot{background:#c7ff2f;box-shadow:0 0 10px #c7ff2f;border-color:#c7ff2f}
+</style>
+</head>
+<body>
+  <div id="ov" class="theme-A corner-top-left">
+    <div class="top"><span class="live"><i></i><span id="liveText">LIVE</span></span><span id="round"></span></div>
+    <div class="rows">
+      <div class="r" id="rowA"><span class="acc"></span><span class="dot"></span><span class="nm" id="nameA"></span><span class="st num" id="setA"></span><span class="pt num" id="ptA"></span></div>
+      <div class="r" id="rowB"><span class="acc"></span><span class="dot"></span><span class="nm" id="nameB"></span><span class="st num" id="setB"></span><span class="pt num" id="ptB"></span></div>
+    </div>
+    <div class="foot"><span id="footL"></span><span id="footR"></span></div>
+  </div>
+<script>
+(function(){
+  var q = new URLSearchParams(location.search);
+  var sid = q.get("sid") || q.get("session") || "";
+  var theme = (q.get("theme") || "A").toUpperCase();
+  var corner = q.get("corner") || "top-left";
+  var apiBase = (q.get("api") || (location.origin + "/api")).replace(/\/+$/,"");
+  var ov = document.getElementById("ov");
+  ov.className = "theme-" + (["A","B","C","D"].indexOf(theme)>=0?theme:"A") + " corner-" + corner;
+
+  function txt(id,v){ var el=document.getElementById(id); if(el) el.textContent = v==null?"":String(v); }
+  function row(id, r){
+    var el=document.getElementById(id); if(!el) return;
+    el.classList.toggle("serving", !!(r && r.serve));
+  }
+  async function tick(){
+    if(!sid) return;
+    try{
+      var res = await fetch(apiBase + "/tournament-auto-live/overlay-data/" + encodeURIComponent(sid), {cache:"no-store"});
+      if(!res.ok) return;
+      var d = await res.json();
+      if(d.waiting || !d.rows || d.rows.length<2){
+        txt("round", d.top || "");
+        txt("nameA", "Đang chờ trận tiếp theo…"); txt("ptA",""); txt("setA","");
+        txt("nameB",""); txt("ptB",""); txt("setB","");
+        txt("footL", d.bottomLeft||""); txt("footR","");
+        document.getElementById("rowB").style.display="none";
+        ov.classList.add("ready");
+        return;
+      }
+      document.getElementById("rowB").style.display="";
+      var a=d.rows[0], b=d.rows[1];
+      txt("round", d.top||"");
+      txt("nameA", a.name); txt("ptA", a.pts); txt("setA", a.sets);
+      txt("nameB", b.name); txt("ptB", b.pts); txt("setB", b.sets);
+      txt("footL", d.bottomLeft||""); txt("footR", d.bottomRight||"");
+      row("rowA", a); row("rowB", b);
+      // đội dẫn điểm (ván hiện tại) → class lead
+      var la = Number(a.pts)||0, lb = Number(b.pts)||0;
+      document.getElementById("rowA").classList.toggle("lead", la>lb);
+      document.getElementById("rowB").classList.toggle("lead", lb>la);
+      ov.classList.add("ready");
+    }catch(e){ /* giữ hiển thị cũ */ }
+  }
+  tick(); setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

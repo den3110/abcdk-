@@ -366,6 +366,47 @@ export async function renderOverlayPng(data) {
   return finalizeBuffer(canvas, data?.opacity);
 }
 
+// Dữ liệu bảng điểm dạng JSON (dùng chung cho overlay HTML qua browser). Cùng cách
+// tính với renderOverlayPng để overlay PNG và overlay HTML hiển thị giống nhau.
+export function buildOverlayBugData(data) {
+  const match = data?.match;
+  const tournamentName = (data?.tournament?.name || data?.tournament?.shortName || "GIẢI PICKLETOUR").toString();
+  const roundLabel = (data?.roundLabel || "").toString().trim();
+  const contentLabel = (data?.contentLabel || "").toString().trim();
+  const stationName = data?.station?.name || "";
+  const cluster = data?.station?.clusterId;
+  const clusterLabel = cluster?.venueName || cluster?.name || "";
+  const bottomLeftFallback = [stationName, clusterLabel].filter(Boolean).join(" · ");
+  if (!match) {
+    return {
+      waiting: true,
+      top: roundLabel || tournamentName,
+      rows: [],
+      bottomLeft: contentLabel || bottomLeftFallback,
+      bottomRight: "",
+    };
+  }
+  const rules = match.rules || {};
+  const gs = match.gameScores || [];
+  const cur = Math.max(0, Math.min(gs.length - 1, Number(match.currentGame || 0)));
+  const g = gs[cur] || { a: 0, b: 0 };
+  const { a: setsA, b: setsB } = setWins(gs, rules);
+  const bestOf = Number(rules.bestOf || 3);
+  const serveSide = String(match?.serve?.side || "A").toUpperCase() === "B" ? "B" : "A";
+  const serveCount = Math.max(1, Math.min(2, Number(match?.serve?.server ?? 1) || 1));
+  return {
+    waiting: false,
+    top: roundLabel || tournamentName,
+    tournament: tournamentName,
+    rows: [
+      { name: pairShortName(match.pairA), pts: Number(g.a || 0), sets: Number(setsA), serve: serveSide === "A" ? serveCount : 0 },
+      { name: pairShortName(match.pairB), pts: Number(g.b || 0), sets: Number(setsB), serve: serveSide === "B" ? serveCount : 0 },
+    ],
+    bottomLeft: contentLabel || bottomLeftFallback,
+    bottomRight: `VÁN ${cur + 1}/${bestOf}`,
+  };
+}
+
 // Vẽ ảnh vừa khung (contain) trong hộp, giữ tỉ lệ, căn theo align.
 function drawContain(ctx, img, bx, by, bw, bh, alignX) {
   const s = Math.min(bw / img.width, bh / img.height);

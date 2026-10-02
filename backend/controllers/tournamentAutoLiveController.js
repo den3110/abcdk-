@@ -10,7 +10,7 @@ import FbToken from "../models/fbTokenModel.js";
 import RtspSource from "../models/rtspSourceModel.js";
 import Bracket from "../models/bracketModel.js";
 import {
-  startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, getUserMatchOverlayPng, backfillWatchUrls,
+  startAutoLive, stopAutoLive, recordHeartbeat, getCachedOverlayPng, getOverlayBugDataForSession, getUserMatchOverlayPng, backfillWatchUrls,
   saveImouSessionFromWorker, getImouSessionForWorker, getSystemStats,
   refreshDestinationsForWorker, getWorkerConfig, getCourtImouSessionForApp,
   getCourtImouStreamUrlForApp, saveVenueDahuaNvr, resolveDahuaRtsp,
@@ -350,6 +350,16 @@ export const getOverlayImage = asyncHandler(async (req, res) => {
   res.setHeader("Content-Type", "image/png");
   res.setHeader("Cache-Control", "no-store, must-revalidate");
   res.send(buf);
+});
+
+// GET /api/tournament-auto-live/overlay-data/:id  (công khai — dữ liệu bảng điểm JSON
+// cho overlay HTML qua browser; chỉ gồm tên/điểm/vòng đã công khai trên luồng live).
+export const getOverlayData = asyncHandler(async (req, res) => {
+  const sessionId = String(req.params.id);
+  const d = await getOverlayBugDataForSession(sessionId).catch(() => null);
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.json(d || { waiting: true, rows: [], top: "", bottomLeft: "", bottomRight: "" });
 });
 
 // GET /api/tournament-auto-live/overlay/usermatch/:id.png — overlay trận ngẫu nhiên
