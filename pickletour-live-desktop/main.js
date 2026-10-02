@@ -791,6 +791,7 @@ async function startWorker({ baseUrl, token, form }) {
       // ID máy này → backend cho phép NHIỀU luồng/sân (mỗi máy 1 luồng), chỉ dọn
       // luồng cũ trên CÙNG máy+sân thay vì stop luồng của máy khác.
       machineId: machineId(),
+      overlayStyle: form.overlayStyle || "", // classic | A | B | C | D (PNG bỏ scoreboard nếu browser)
     },
   });
   const sid = session._id;
@@ -866,8 +867,19 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
   }
 
   // 3c) Browser overlay (tuỳ chọn): render trang web transparent → TCP feed cho ffmpeg.
+  //     Nếu chọn kiểu overlay A/B/C/D (HTML cao cấp) → tự dựng URL trang overlay theo
+  //     sid + theme + góc; nếu đã truyền browserOverlayUrl thủ công thì ưu tiên nó.
   let browserOverlay = null;
-  const bovUrl = (form.browserOverlayUrl || "").trim();
+  let bovUrl = (form.browserOverlayUrl || "").trim();
+  const ovStyle = String(form.overlayStyle || "").trim();
+  // LUÔN chạy browser overlay để hiện TICKER (chữ chạy cuối màn hình). theme=classic
+  // → trang chỉ hiện ticker (bảng điểm do PNG vẽ); theme=A/B/C/D → bảng điểm HTML + ticker.
+  if (!bovUrl && form.noTicker !== true) {
+    const theme = ["A", "B", "C", "D"].includes(ovStyle) ? ovStyle : "classic";
+    const webBase = String(baseUrl || "").replace(/\/api\/?$/, "").replace(/\/+$/, "");
+    const corner = (form.layout && form.layout.scoreboard) || "top-left";
+    bovUrl = `${webBase}/overlay/live.html?sid=${encodeURIComponent(sid)}&theme=${theme}&corner=${encodeURIComponent(corner)}`;
+  }
   if (bovUrl) {
     try { browserOverlay = await startBrowserOverlay(bovUrl); }
     catch (e) { console.error("[browser-overlay] start fail:", e?.message || e); }

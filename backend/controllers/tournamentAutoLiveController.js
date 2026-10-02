@@ -198,6 +198,7 @@ export const startSession = asyncHandler(async (req, res) => {
     timestampBox: body.delogoBox || body.timestampBox || undefined,
     runner: body.runner,
     machineId: body.machineId, // máy desktop chạy luồng (cho phép nhiều luồng/sân)
+    overlayStyle: body.overlayStyle, // kiểu overlay: classic | A | B | C | D
     startedBy: req.user?._id,
   });
   res.status(201).json(stripSecrets(doc));

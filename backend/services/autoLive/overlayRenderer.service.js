@@ -321,6 +321,11 @@ export async function renderOverlayPng(data) {
   await drawBrandLogo(ctx, brandCorner);
   await drawSponsorRotating(ctx, data?.sponsorLogos || [], sponsorCorner);
 
+  // Theme browser tự vẽ bảng điểm (overlay HTML) → PNG chỉ giữ logo/sponsor, BỎ scoreboard.
+  if (data?.hideScoreboard) {
+    return finalizeBuffer(canvas, data?.opacity);
+  }
+
   const match = data?.match;
   const stationName = data?.station?.name || "";
   const cluster = data?.station?.clusterId;

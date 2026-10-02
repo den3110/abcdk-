@@ -95,6 +95,8 @@ const courtStationSchema = new Schema(
       brand: { type: String, default: "" },
       sponsor: { type: String, default: "" },
     },
+    // Ghi nhớ KIỂU overlay mặc định cho sân ("classic"/"A"/"B"/"C"/"D").
+    overlayStyle: { type: String, default: "" },
     defaultReferees: [
       { type: Types.ObjectId, ref: "User", default: undefined },
     ],

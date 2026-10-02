@@ -75,6 +75,7 @@ export default function LiveAddPage() {
   const [hideTs, setHideTs] = useState(false);
   const [title, setTitle] = useState("");
   const [encoder, setEncoder] = useState("auto");
+  const [overlayStyle, setOverlayStyle] = useState("classic");
   const [schedAt, setSchedAt] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -179,6 +180,7 @@ export default function LiveAddPage() {
       splitPerTournament: split,
       title: title.trim(),
       encoder,
+      overlayStyle,
       advanced: { resolutionH: 1080, fps: 0, videoBitrateKbps: 4500 },
     };
     if (hideTs) payload.hideTimestamp = true;
@@ -460,6 +462,23 @@ export default function LiveAddPage() {
               ))}
             </TextField>
           ) : null}
+
+          {/* Kiểu overlay bảng điểm */}
+          <TextField
+            select
+            fullWidth
+            size="small"
+            label="Kiểu overlay bảng điểm"
+            value={overlayStyle}
+            onChange={(e) => setOverlayStyle(e.target.value)}
+            helperText="Classic = overlay gốc. A/B/C/D = overlay HTML cao cấp."
+          >
+            <MenuItem value="classic">Classic (mặc định)</MenuItem>
+            <MenuItem value="A">A · Broadcast Pro</MenuItem>
+            <MenuItem value="B">B · Aurora Glass</MenuItem>
+            <MenuItem value="C">C · Minimal Clean</MenuItem>
+            <MenuItem value="D">D · Neon Volt</MenuItem>
+          </TextField>
 
           {/* Toggles */}
           <Card variant="outlined" sx={{ p: 1.5 }}>

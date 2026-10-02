@@ -69,6 +69,10 @@ const tournamentAutoLiveSessionSchema = new Schema(
     // 1 luồng (vd máy A live Facebook cắt trận, máy B live YouTube xuyên suốt cùng 1 sân).
     // Rỗng = runner server (VPS).
     machineId: { type: String, default: "", index: true },
+    // Kiểu overlay bảng điểm: "classic" = PNG native (mặc định); "A"/"B"/"C"/"D" =
+    // overlay HTML cao cấp qua browser (desktop mở trang /overlay/live.html). Khi là
+    // theme browser → PNG KHÔNG vẽ bảng điểm (tránh chồng), browser lo bảng điểm.
+    overlayStyle: { type: String, default: "classic" },
     runnerOs: { type: String, default: "" },
     encoder: { type: String, default: "" }, // h264_nvenc / videotoolbox / libx264…
     // Metadata process Python

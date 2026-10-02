@@ -78,6 +78,14 @@
   .theme-D .r.lead .pt{background:linear-gradient(180deg,#e2ff6b,#c7ff2f);box-shadow:0 0 16px rgba(199,255,47,.55)}
   .theme-D .foot{display:flex;justify-content:space-between;padding:8px 20px;color:#7fd8e6;font-size:16px;font-weight:700;letter-spacing:.4px;background:rgba(34,211,238,.06)}
 
+  /* ===== Ticker chạy chữ cuối màn hình (phải → trái), luôn hiện ===== */
+  #ticker{position:absolute;left:0;right:0;bottom:0;height:54px;display:flex;align-items:center;overflow:hidden;
+    background:linear-gradient(90deg,rgba(6,19,31,.74),rgba(6,19,31,.52));border-top:1px solid rgba(255,255,255,.12)}
+  #ticker.hidden{display:none}
+  .marq{display:flex;white-space:nowrap;will-change:transform;animation:scroll 34s linear infinite}
+  .marq .seg{padding:0 44px;font-size:27px;font-weight:700;color:#fff;letter-spacing:.3px;text-shadow:0 1px 2px rgba(0,0,0,.6)}
+  @keyframes scroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
   /* serve dot màu theo theme */
   .theme-A .r.serving .dot{background:#ffd23f;box-shadow:0 0 10px #ffd23f}
   .theme-B .r.serving .dot{background:#43e0c0;box-shadow:0 0 10px #43e0c0}
@@ -94,6 +102,7 @@
     </div>
     <div class="foot"><span id="footL"></span><span id="footR"></span></div>
   </div>
+  <div id="ticker"><div class="marq"><span class="seg"></span><span class="seg"></span></div></div>
 <script>
 (function(){
   var q = new URLSearchParams(location.search);
@@ -102,7 +111,31 @@
   var corner = q.get("corner") || "top-left";
   var apiBase = (q.get("api") || (location.origin + "/api")).replace(/\/+$/,"");
   var ov = document.getElementById("ov");
-  ov.className = "theme-" + (["A","B","C","D"].indexOf(theme)>=0?theme:"A") + " corner-" + corner;
+  var isBrowserTheme = ["A","B","C","D"].indexOf(theme) >= 0;
+  // theme=classic → bảng điểm do PNG vẽ; trang này chỉ hiện ticker. theme=A/B/C/D →
+  // hiện bảng điểm HTML + ticker.
+  if (isBrowserTheme) {
+    ov.className = "theme-" + theme + " corner-" + corner;
+  } else {
+    ov.style.display = "none";
+  }
+
+  // Ticker chạy chữ cuối màn hình (luôn hiện trừ khi ticker=off/0).
+  var DEFAULT_TICKER = "Pickletour - Nền tảng quản lý giải đấu & livestream thể thao chuyên nghiệp. Liên hệ hợp tác & tổ chức giải đấu (A Linh : 0932 471 990) hoặc Fanpage/Zalo : Pickletour";
+  var tk = q.get("ticker");
+  var tickerText = (tk === null) ? DEFAULT_TICKER : tk;
+  var tickerOff = (tk === "0" || tk === "off" || tk === "false" || q.get("noticker") === "1");
+  var tickerEl = document.getElementById("ticker");
+  if (tickerOff || !tickerText.trim()) {
+    tickerEl.classList.add("hidden");
+  } else {
+    var segs = tickerEl.querySelectorAll(".seg");
+    segs[0].textContent = tickerText;
+    segs[1].textContent = tickerText;
+  }
+  if (!isBrowserTheme && (tickerOff || !tickerText.trim())) {
+    // không có gì để hiện
+  }
 
   function txt(id,v){ var el=document.getElementById(id); if(el) el.textContent = v==null?"":String(v); }
   function row(id, r){

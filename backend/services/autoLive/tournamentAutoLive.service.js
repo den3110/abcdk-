@@ -161,12 +161,13 @@ export async function setOverlayOpacity(value) {
 }
 export async function getCachedOverlayPng(sessionId) {
   const doc = await TournamentAutoLiveSession.findById(sessionId)
-    .select("_id court status overlayVersion layout hideTimestamp timestampBox")
+    .select("_id court status overlayVersion layout hideTimestamp timestampBox overlayStyle")
     .lean();
   if (!doc) return null;
   if (doc.status === "stopped") return null;
   const opacity = await ensureOverlayOpacity();
-  const token = `${doc.overlayVersion || 0}:${Math.floor(Date.now() / SPONSOR_BUCKET_MS)}:${opacity}`;
+  const style = String(doc.overlayStyle || "classic");
+  const token = `${doc.overlayVersion || 0}:${Math.floor(Date.now() / SPONSOR_BUCKET_MS)}:${opacity}:${style}`;
   const cached = overlayCache.get(String(sessionId));
   if (cached && cached.token === token) return cached.buf;
   const data = await loadOverlayData(doc.court);
@@ -175,6 +176,8 @@ export async function getCachedOverlayPng(sessionId) {
     data.opacity = opacity;
     data.hideTimestamp = !!doc.hideTimestamp;
     data.timestampBox = doc.timestampBox || null;
+    // Theme browser (A/B/C/D) tự vẽ bảng điểm → PNG BỎ vẽ scoreboard (tránh chồng).
+    data.hideScoreboard = style !== "classic";
   }
   const buf = await renderOverlayPng(data);
   overlayCache.set(String(sessionId), { buf, token });
@@ -921,6 +924,16 @@ export async function startAutoLive(input) {
     if (Object.keys(picked).length) effectiveLayout = picked;
   }
 
+  // Kiểu overlay: client gửi → dùng; không gửi → dùng lại kiểu đã lưu cho sân;
+  // fallback "classic". Lưu lại cho sân để lần sau giữ nguyên.
+  const ALLOWED_OVERLAY_STYLES = ["classic", "A", "B", "C", "D"];
+  let overlayStyle = String(input.overlayStyle || "").trim();
+  if (!ALLOWED_OVERLAY_STYLES.includes(overlayStyle)) overlayStyle = "";
+  if (!overlayStyle) {
+    const saved = String(station?.overlayStyle || "").trim();
+    overlayStyle = ALLOWED_OVERLAY_STYLES.includes(saved) ? saved : "classic";
+  }
+
   // KHÔNG dọn/stop phiên cũ trên cùng sân nữa: cho phép NHIỀU luồng live song song
   // trên 1 sân (kể cả cùng 1 máy). Phiên treo/mồ côi sẽ tự được dọn qua heartbeat
   // (pollOnce: client mất heartbeat >60s → error). Mỗi lần "thêm sân live" = 1 phiên mới.
@@ -942,10 +955,21 @@ export async function startAutoLive(input) {
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     hideTimestamp: !!hideTimestamp,
     timestampBox: timestampBox && typeof timestampBox === "object" ? timestampBox : undefined,
-    runner, machineId,
+    runner, machineId, overlayStyle,
     status: lazyBroadcast ? "paused" : "starting", workerId: crypto.randomUUID(),
     startedAt: new Date(),
   });
+
+  // Ghi nhớ cho SÂN: kiểu overlay + vị trí (để lần tạo live sau tự dùng lại).
+  try {
+    const $set = { overlayStyle };
+    if (effectiveLayout && typeof effectiveLayout === "object") {
+      for (const k of ["scoreboard", "brand", "sponsor"]) {
+        if (effectiveLayout[k]) $set[`overlayLayout.${k}`] = effectiveLayout[k];
+      }
+    }
+    await CourtStation.updateOne({ _id: courtStationId }, { $set });
+  } catch (e) { console.warn("[auto-live] lưu overlayStyle cho sân lỗi:", e?.message || e); }
 
   // Client-runner: KHÔNG spawn trên server. App desktop lấy worker-config rồi
   // tự chạy (GPU). Backend vẫn poll để bump overlay + theo dõi heartbeat.
