@@ -1456,6 +1456,21 @@ function buildAuthPayload(user) {
   };
 }
 
+// Trả thông báo RÕ RÀNG trường nào bị trùng (lỗi E11000) để báo cho người dùng biết
+// phải sửa gì (email / SĐT / biệt danh / CCCD), thay vì chỉ "Dữ liệu bị trùng.".
+function dupKeyMessage(err) {
+  const keys = Object.keys(err?.keyPattern || err?.keyValue || {});
+  const idxMsg = String(err?.errmsg || err?.message || "");
+  const has = (k) => keys.includes(k) || idxMsg.includes(`index: ${k}_`);
+  if (has("email")) return "Email đã được sử dụng.";
+  if (has("phone")) return "Số điện thoại đã được sử dụng.";
+  if (has("nickname")) return "Biệt danh (nickname) đã tồn tại, vui lòng chọn tên khác.";
+  if (has("cccd")) return "Số CCCD đã được sử dụng (đã có tài khoản dùng CCCD này).";
+  const label = { email: "Email", phone: "Số điện thoại", nickname: "Biệt danh", cccd: "Số CCCD" };
+  const named = keys.map((k) => label[k] || k).join(", ");
+  return named ? `Dữ liệu bị trùng: ${named}.` : "Dữ liệu bị trùng.";
+}
+
 /**
  * POST /api/users/register
  * - nếu có phone và phone chưa verified ở hệ thống => trả otpRequired + registerToken
@@ -1627,18 +1642,7 @@ const registerUser = async (req, res, next) => {
           });
         } catch (saveErr) {
           if (String(saveErr?.code) === "11000") {
-            const keys = Object.keys(
-              saveErr?.keyPattern || saveErr?.keyValue || {},
-            );
-            if (keys.includes("email"))
-              return res.status(400).json({ message: "Email đã được sử dụng." });
-            if (keys.includes("phone"))
-              return res
-                .status(400)
-                .json({ message: "Số điện thoại đã được sử dụng." });
-            if (keys.includes("nickname"))
-              return res.status(400).json({ message: "Nickname đã tồn tại." });
-            return res.status(400).json({ message: "Dữ liệu bị trùng." });
+            return res.status(400).json({ message: dupKeyMessage(saveErr) });
           }
           return res.status(400).json({
             message: "Gửi OTP thất bại. Vui lòng thử lại.",
@@ -1685,18 +1689,9 @@ const registerUser = async (req, res, next) => {
     return res.status(201).json(buildAuthPayload(user));
   } catch (err) {
     console.log(err);
-    // Duplicate key (E11000)
+    // Duplicate key (E11000) — báo rõ trường nào trùng.
     if (String(err?.code) === "11000") {
-      const keys = Object.keys(err?.keyPattern || err?.keyValue || {});
-      if (keys.includes("email")) {
-        return res.status(400).json({ message: "Email đã được sử dụng." });
-      }
-      if (keys.includes("phone")) {
-        return res
-          .status(400)
-          .json({ message: "Số điện thoại đã được sử dụng." });
-      }
-      return res.status(400).json({ message: "Dữ liệu bị trùng." });
+      return res.status(400).json({ message: dupKeyMessage(err) });
     }
     return res.status(500).json({ message: err?.message || "Register failed" });
   }
