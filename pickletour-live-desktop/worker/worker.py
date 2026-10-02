@@ -85,6 +85,21 @@ SOURCE_URL = (os.environ.get("AUTOLIVE_SOURCE_URL") or "").strip()
 # Browser overlay (tuỳ chọn): tcp://127.0.0.1:PORT do main.js (Electron) render
 # trang web transparent → capturePage PNG → feed image2pipe. Lớp DƯỚI scoreboard.
 BROWSER_OVERLAY = (os.environ.get("AUTOLIVE_BROWSER_OVERLAY") or "").strip()
+# Ticker NATIVE (chữ chạy cuối màn hình) vẽ bằng ffmpeg drawtext — mượt ở output fps,
+# gần như không tốn CPU (thay cho browser-overlay 1080p@24fps gây lag). Cần font có
+# dấu tiếng Việt (AUTOLIVE_TICKER_FONT) + file text UTF-8 (AUTOLIVE_TICKER_TEXTFILE,
+# nội dung ĐÃ nhân đôi để cuộn liền mạch). Rỗng = tắt ticker.
+TICKER_TEXTFILE = (os.environ.get("AUTOLIVE_TICKER_TEXTFILE") or "").strip()
+TICKER_FONT = (os.environ.get("AUTOLIVE_TICKER_FONT") or "").strip()
+TICKER_SPEED = max(40, int(float(os.environ.get("AUTOLIVE_TICKER_SPEED") or 120)))  # px/giây
+TICKER_BAR_H = max(28, int(float(os.environ.get("AUTOLIVE_TICKER_BAR_H") or 54)))   # cao thanh (canvas 1080)
+TICKER_FONT_SIZE = max(12, int(float(os.environ.get("AUTOLIVE_TICKER_FONT_SIZE") or 27)))
+
+
+def _ff_path(p):
+    """Chuẩn hoá path cho filtergraph ffmpeg (fontfile/textfile): đổi \\ → / để tránh
+    bị hiểu là escape (Windows C:\\...), và escape dấu nháy đơn."""
+    return str(p or "").replace("\\", "/").replace("'", r"\'")
 # PREVIEW-ONLY: xem thử nguồn TRƯỚC khi live (RTSP/m3u8/RTMP/HTTP hoặc Imou). Chỉ
 # xuất HLS cục bộ (AUTOLIVE_PREVIEW_HLS_DIR), KHÔNG overlay/heartbeat/destinations
 # FB-YT. Tái dùng nguyên đường đọc nguồn (URL + Imou DHAV) của worker.
@@ -665,10 +680,26 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None, commentar
             idx += 1
     else:
         fc += "[comp]"
+    # Ticker NATIVE: thanh dưới đáy (drawbox) + chữ chạy phải→trái (drawtext) vẽ TRỰC
+    # TIẾP lên khung đã ghép, mượt ở output fps & gần như không tốn CPU. Text ĐÃ nhân
+    # đôi trong file → cuộn modulo tw/2 để LIỀN MẠCH (không có khoảng trống chạy hết).
+    comp_label = "comp"
+    if TICKER_TEXTFILE and TICKER_FONT:
+        fnt = _ff_path(TICKER_FONT)
+        tf = _ff_path(TICKER_TEXTFILE)
+        bh, fs2, spd = TICKER_BAR_H, TICKER_FONT_SIZE, TICKER_SPEED
+        fc += (
+            f";[comp]drawbox=x=0:y=ih-{bh}:w=iw:h={bh}:color=0x06131f@0.62:t=fill,"
+            f"drawtext=fontfile='{fnt}':textfile='{tf}':reload=0:expansion=none:"
+            f"fontsize={fs2}:fontcolor=white:"
+            f"x=w-mod(t*{spd}\\,tw/2):y=h-{bh}+({bh}-th)/2:"
+            f"shadowcolor=black@0.6:shadowx=1:shadowy=1[compT]"
+        )
+        comp_label = "compT"
     # Nếu có preview360: tách [comp] làm 2 (luồng chính + bản 360p).
-    main_label = "comp"
+    main_label = comp_label
     if preview360_udp:
-        fc += ";[comp]split=2[compmain][comp360]"
+        fc += f";[{comp_label}]split=2[compmain][comp360]"
         main_label = "compmain"
     if RES_H and RES_H != 1080:
         fc += f";[{main_label}]scale=-2:{RES_H}:flags=bicubic[vout]"

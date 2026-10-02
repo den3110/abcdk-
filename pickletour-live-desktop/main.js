@@ -14,6 +14,16 @@ let win;
 // sessionId → { proc, previewDir, previewServer, previewPort, cfg }
 const running = new Map();
 
+// Ticker (chữ chạy cuối màn hình) — vẽ NATIVE bằng ffmpeg drawtext ở worker. Text mặc
+// định + dải ngăn cách giữa 2 bản (để cuộn liền mạch). Font có dấu tiếng Việt bundle
+// trong app (assets/fonts). Giữ ĐỒNG BỘ với DEFAULT_TICKER trong frontend live.html.
+const DEFAULT_TICKER = "Pickletour - Nền tảng quản lý giải đấu & livestream thể thao chuyên nghiệp. Liên hệ hợp tác & tổ chức giải đấu (A Linh : 0932 471 990) hoặc Fanpage/Zalo : Pickletour";
+const TICKER_SEP = "        •        ";
+function tickerFontPath() {
+  // asar:false → __dirname = Resources/app (đóng gói) hoặc thư mục dự án (dev).
+  return path.join(__dirname, "assets", "fonts", "BeVietnamPro-Bold.ttf");
+}
+
 // ── Cấu hình app (lưu ở userData/settings.json) ──
 function settingsPath() {
   try { return path.join(app.getPath("userData"), "settings.json"); } catch { return null; }
@@ -408,9 +418,9 @@ function workerScriptPath() {
 // overlay DƯỚI scoreboard native). Trả { port, close() }.
 async function startBrowserOverlay(url) {
   const net = require("net");
-  // fps CAO cho browser overlay vì có TICKER (chữ chạy liên tục) — 2fps sẽ giật.
-  // Scoreboard tĩnh không cần, nhưng ticker cần ~24fps mới mượt.
-  const fps = Number(process.env.AUTOLIVE_BROWSER_OVERLAY_FPS) || 24;
+  // Browser overlay giờ CHỈ còn bảng điểm (theme A/B/C/D) — cập nhật chậm nên 10fps là
+  // dư (TICKER đã tách sang native drawtext). fps thấp = nhẹ CPU/RAM, hết lag.
+  const fps = Number(process.env.AUTOLIVE_BROWSER_OVERLAY_FPS) || 10;
   const win = new BrowserWindow({
     width: 1920, height: 1080, show: false, frame: false, transparent: true,
     webPreferences: { offscreen: true, backgroundThrottling: false },
@@ -922,22 +932,39 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
   //     sid + theme + góc; nếu đã truyền browserOverlayUrl thủ công thì ưu tiên nó.
   let browserOverlay = null;
   // Scoreboard từ URL tuỳ chỉnh: nếu có browserOverlayUrl → dùng THẲNG trang đó làm
-  // overlay (không dùng trang /overlay/live.html của ta, không ticker của ta).
+  // overlay (không dùng trang /overlay/live.html của ta).
   let bovUrl = (form.browserOverlayUrl || "").trim();
   const ovStyle = String(form.overlayStyle || "").trim();
   const isBrowserTheme = ["A", "B", "C", "D"].includes(ovStyle);
   const wantTicker = form.noTicker !== true; // ticker bật mặc định
-  // Chạy trang overlay của ta khi: dùng theme HTML (A/B/C/D) HOẶC bật ticker.
-  if (!bovUrl && (isBrowserTheme || wantTicker)) {
-    const theme = isBrowserTheme ? ovStyle : "classic";
+  // Browser overlay CHỈ dùng cho BẢNG ĐIỂM HTML (theme A/B/C/D) hoặc URL tuỳ chỉnh.
+  // TICKER đã chuyển sang NATIVE (ffmpeg drawtext ở worker) → classic + ticker KHÔNG
+  // chạy browser overlay nữa → HẾT LAG. theme A-D vẫn có ticker nhưng do native vẽ
+  // (truyền ticker=off cho trang HTML để tránh vẽ 2 lần).
+  if (!bovUrl && isBrowserTheme) {
     const webBase = String(baseUrl || "").replace(/\/api\/?$/, "").replace(/\/+$/, "");
     const corner = (form.layout && form.layout.scoreboard) || "top-left";
-    bovUrl = `${webBase}/overlay/live.html?sid=${encodeURIComponent(sid)}&theme=${theme}`
-      + `&corner=${encodeURIComponent(corner)}&ticker=${wantTicker ? "1" : "off"}`;
+    bovUrl = `${webBase}/overlay/live.html?sid=${encodeURIComponent(sid)}&theme=${ovStyle}`
+      + `&corner=${encodeURIComponent(corner)}&ticker=off`;
   }
   if (bovUrl) {
     try { browserOverlay = await startBrowserOverlay(bovUrl); }
     catch (e) { console.error("[browser-overlay] start fail:", e?.message || e); }
+  }
+
+  // Ticker NATIVE: ghi text (ĐÃ nhân đôi để cuộn liền mạch) ra file UTF-8 + truyền font
+  // có dấu tiếng Việt. worker vẽ bằng drawtext (mượt, nhẹ). Tắt khi noTicker.
+  let tickerTextFile = "";
+  const tickerFont = tickerFontPath();
+  if (wantTicker && fs.existsSync(tickerFont)) { // thiếu font → bỏ ticker, tránh ffmpeg lỗi
+    const tickerText = (form.tickerText && String(form.tickerText).trim()) || DEFAULT_TICKER;
+    const doubled = tickerText + TICKER_SEP + tickerText + TICKER_SEP;
+    try {
+      tickerTextFile = path.join(previewDir, "ticker.txt");
+      fs.writeFileSync(tickerTextFile, doubled, "utf8");
+    } catch (e) { console.error("[ticker] write text fail:", e?.message || e); tickerTextFile = ""; }
+  } else if (wantTicker) {
+    console.error("[ticker] font không tồn tại → bỏ ticker:", tickerFont);
   }
 
   // 4) Spawn worker.py với GPU + preview
@@ -945,7 +972,9 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
     ...process.env,
     PICKLETOUR_PYTHON: undefined,
     AUTOLIVE_BROWSER_OVERLAY: browserOverlay ? `tcp://127.0.0.1:${browserOverlay.port}` : "",
-    AUTOLIVE_BROWSER_OVERLAY_FPS: String(Number(process.env.AUTOLIVE_BROWSER_OVERLAY_FPS) || 24),
+    AUTOLIVE_BROWSER_OVERLAY_FPS: String(Number(process.env.AUTOLIVE_BROWSER_OVERLAY_FPS) || 10),
+    AUTOLIVE_TICKER_TEXTFILE: tickerTextFile,
+    AUTOLIVE_TICKER_FONT: tickerTextFile ? tickerFont : "",
     PYTHONIOENCODING: "utf-8",
     PYTHONUTF8: "1",
     AUTOLIVE_SESSION_ID: cfg.sessionId,
