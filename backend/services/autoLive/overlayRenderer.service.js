@@ -445,9 +445,9 @@ async function drawSponsorRotating(ctx, logos, corner = "bottom-right") {
   const idx = Math.floor(Date.now() / SPONSOR_ROTATE_MS) % logos.length;
   const img = await loadImageCached(logos[idx]);
   if (!img) return;
-  // To hơn cho tương xứng với logo PickleTour (132) + dịch sang trái (lề 48 → 22).
+  // To hơn cho tương xứng với logo PickleTour (132) + dịch sang trái (lề 48 → 8).
   const boxW = 300, boxH = 150;
-  const { x: bx, y: by } = cornerXY(corner, boxW, boxH, 22, 40);
+  const { x: bx, y: by } = cornerXY(corner, boxW, boxH, 8, 40);
   // KHÔNG vẽ nền trắng bao quanh — logo tài trợ hiển thị TRỰC TIẾP (nền trong suốt).
   // Chỉ thêm bóng đổ nhẹ để logo vẫn rõ trên nền video sáng.
   ctx.save();
