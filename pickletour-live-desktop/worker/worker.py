@@ -1457,6 +1457,14 @@ def _watch_ffmpeg_stderr(proc, fb_flag, stop_event):
             low = line.lower()
             if any(mk in low for mk in FB_FAIL_MARKERS):
                 fb_flag["fb"] = True
+                # tee dùng onfail=ignore nên khi FB huỷ phiên, ffmpeg KHÔNG tự chết (bỏ
+                # FB, chạy tiếp slave còn lại) → FB mất luôn. Chủ động kill để vòng lặp
+                # xin link FB mới rồi phát lại.
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+                break
             if stop_event.is_set():
                 break
     except Exception:  # noqa: BLE001
