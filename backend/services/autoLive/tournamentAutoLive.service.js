@@ -161,13 +161,14 @@ export async function setOverlayOpacity(value) {
 }
 export async function getCachedOverlayPng(sessionId) {
   const doc = await TournamentAutoLiveSession.findById(sessionId)
-    .select("_id court status overlayVersion layout hideTimestamp timestampBox overlayStyle brandLogoUrl")
+    .select("_id court status overlayVersion layout hideTimestamp timestampBox overlayStyle brandLogoUrl nameMode")
     .lean();
   if (!doc) return null;
   if (doc.status === "stopped") return null;
   const opacity = await ensureOverlayOpacity();
   const style = String(doc.overlayStyle || "classic");
-  const token = `${doc.overlayVersion || 0}:${Math.floor(Date.now() / SPONSOR_BUCKET_MS)}:${opacity}:${style}`;
+  const nameMode = doc.nameMode === "full" ? "full" : "nick";
+  const token = `${doc.overlayVersion || 0}:${Math.floor(Date.now() / SPONSOR_BUCKET_MS)}:${opacity}:${style}:${nameMode}`;
   const cached = overlayCache.get(String(sessionId));
   if (cached && cached.token === token) return cached.buf;
   const data = await loadOverlayData(doc.court);
@@ -180,6 +181,8 @@ export async function getCachedOverlayPng(sessionId) {
     data.hideScoreboard = style !== "classic";
     // Logo thương hiệu tuỳ chỉnh cho sân (rỗng = logo PickleTour mặc định).
     data.brandLogoUrl = String(doc.brandLogoUrl || "");
+    // Tên hiển thị bảng điểm: biệt danh (nick) hay họ tên đầy đủ (full).
+    data.nameMode = nameMode;
   }
   const buf = await renderOverlayPng(data);
   overlayCache.set(String(sessionId), { buf, token });
@@ -191,9 +194,10 @@ export async function getCachedOverlayPng(sessionId) {
 const userOverlayCache = new Map();
 // Dữ liệu bảng điểm JSON cho overlay HTML (browser) — theo sessionId (giống overlay PNG).
 export async function getOverlayBugDataForSession(sessionId) {
-  const doc = await TournamentAutoLiveSession.findById(sessionId).select("_id court status").lean();
+  const doc = await TournamentAutoLiveSession.findById(sessionId).select("_id court status nameMode").lean();
   if (!doc || doc.status === "stopped") return null;
   const data = await loadOverlayData(doc.court);
+  if (data) data.nameMode = doc.nameMode === "full" ? "full" : "nick";
   return buildOverlayBugData(data || {});
 }
 
@@ -227,7 +231,7 @@ async function bumpOverlayForSession(sessionId) {
 // → worker fetch overlay PNG (~2fps) sẽ nhận vị trí mới ngay (không cần restart live).
 const OVERLAY_CORNERS = new Set(["top-left", "top-right", "bottom-left", "bottom-right"]);
 export async function updateSessionLayout(sessionId, layout = {}) {
-  const doc = await TournamentAutoLiveSession.findById(sessionId).select("_id layout status court");
+  const doc = await TournamentAutoLiveSession.findById(sessionId).select("_id layout status court nameMode");
   if (!doc) { const e = new Error("Không tìm thấy phiên"); e.status = 404; throw e; }
   const cur = doc.layout || {};
   const next = { ...cur };
@@ -236,23 +240,28 @@ export async function updateSessionLayout(sessionId, layout = {}) {
     if (v && OVERLAY_CORNERS.has(v)) next[key] = v;
   }
   doc.layout = next;
+  // Kiểu tên hiển thị overlay (biệt danh/họ tên) — đổi được ngay khi đang live.
+  const nm = String(layout?.nameMode || "").trim();
+  const nameChanged = nm === "nick" || nm === "full";
+  if (nameChanged) doc.nameMode = nm;
   doc.overlayVersion = (Number(doc.overlayVersion) || 0) + 1;
   await doc.save();
   // Xoá cache overlay để lần fetch kế render lại ngay.
   try { overlayCache.delete(String(sessionId)); } catch {}
-  // GHI NHỚ vị trí overlay cho SÂN → lần tạo live sau tự dùng lại (không chỉnh lại).
+  // GHI NHỚ vị trí overlay + kiểu tên cho SÂN → lần tạo live sau tự dùng lại.
   try {
     if (doc.court) {
       const $set = {};
       for (const key of ["scoreboard", "brand", "sponsor"]) {
         if (next[key]) $set[`overlayLayout.${key}`] = next[key];
       }
+      if (nameChanged) $set.nameMode = nm;
       if (Object.keys($set).length) {
         await CourtStation.updateOne({ _id: doc.court }, { $set });
       }
     }
   } catch (e) { console.warn("[auto-live] lưu overlayLayout cho sân lỗi:", e?.message || e); }
-  return { ok: true, layout: next };
+  return { ok: true, layout: next, nameMode: doc.nameMode };
 }
 
 // Bật/tắt + đổi vùng CHE NGÀY GIỜ cho 1 sân NGAY khi đang live (không restart worker).
@@ -857,7 +866,7 @@ export async function startAutoLive(input) {
     const err = new Error("Cần chọn camera Imou / đầu thu Dahua hoặc nhập Custom link");
     err.status = 400; throw err;
   }
-  const station = await CourtStation.findById(courtStationId).select("_id clusterId overlayLayout overlayStyle brandLogoUrl").lean();
+  const station = await CourtStation.findById(courtStationId).select("_id clusterId overlayLayout overlayStyle brandLogoUrl nameMode").lean();
   if (!station) { const e = new Error("Court không tồn tại"); e.status = 404; throw e; }
 
   // Nguồn Imou cần venue + session; nguồn URL thì bỏ qua toàn bộ Imou.
@@ -943,6 +952,12 @@ export async function startAutoLive(input) {
   let brandLogoUrl = String(input.brandLogoUrl || "").trim();
   if (!brandLogoUrl) brandLogoUrl = String(station?.brandLogoUrl || "").trim();
 
+  // Kiểu tên hiển thị overlay: client gửi → dùng; không → theo sân; mặc định "nick".
+  let nameMode = String(input.nameMode || "").trim();
+  if (nameMode !== "nick" && nameMode !== "full") {
+    nameMode = station?.nameMode === "full" ? "full" : "nick";
+  }
+
   // KHÔNG dọn/stop phiên cũ trên cùng sân nữa: cho phép NHIỀU luồng live song song
   // trên 1 sân (kể cả cùng 1 máy). Phiên treo/mồ côi sẽ tự được dọn qua heartbeat
   // (pollOnce: client mất heartbeat >60s → error). Mỗi lần "thêm sân live" = 1 phiên mới.
@@ -964,14 +979,14 @@ export async function startAutoLive(input) {
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     hideTimestamp: !!hideTimestamp,
     timestampBox: timestampBox && typeof timestampBox === "object" ? timestampBox : undefined,
-    runner, machineId, overlayStyle, brandLogoUrl,
+    runner, machineId, overlayStyle, brandLogoUrl, nameMode,
     status: lazyBroadcast ? "paused" : "starting", workerId: crypto.randomUUID(),
     startedAt: new Date(),
   });
 
   // Ghi nhớ cho SÂN: kiểu overlay + vị trí (để lần tạo live sau tự dùng lại).
   try {
-    const $set = { overlayStyle, brandLogoUrl };
+    const $set = { overlayStyle, brandLogoUrl, nameMode };
     if (effectiveLayout && typeof effectiveLayout === "object") {
       for (const k of ["scoreboard", "brand", "sponsor"]) {
         if (effectiveLayout[k]) $set[`overlayLayout.${k}`] = effectiveLayout[k];

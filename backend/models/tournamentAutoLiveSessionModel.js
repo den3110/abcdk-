@@ -75,6 +75,8 @@ const tournamentAutoLiveSessionSchema = new Schema(
     overlayStyle: { type: String, default: "classic" },
     // Logo thương hiệu overlay cho SÂN này (URL ảnh). Rỗng = dùng logo PickleTour mặc định.
     brandLogoUrl: { type: String, default: "" },
+    // Tên hiển thị trên bảng điểm: "nick" = biệt danh (mặc định), "full" = họ tên đầy đủ.
+    nameMode: { type: String, enum: ["nick", "full"], default: "nick" },
     runnerOs: { type: String, default: "" },
     encoder: { type: String, default: "" }, // h264_nvenc / videotoolbox / libx264…
     // Metadata process Python

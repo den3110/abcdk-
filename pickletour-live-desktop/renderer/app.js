@@ -639,6 +639,7 @@ function registerSession(res, form, { tournamentName = "", courtName = "" } = {}
     perMatchArmed: !!res.perMatchArmed,
     watchUrls: res.watchUrls || [],
     layout: form.layout || { scoreboard: "top-left", brand: "top-right", sponsor: "bottom-right" },
+    nameMode: form.nameMode === "full" ? "full" : "nick",
     hideTimestamp: !!form.hideTimestamp,
     timestampBox: form.delogoBox || { x: 1360, y: 46, w: 544, h: 72 },
     lastStatus: null, recUpload: null, clips: [], exited: null,
@@ -1271,6 +1272,7 @@ function buildRemoteState() {
       clipsTotal: clips.length,
       watchUrls,
       layout: S.layout || { scoreboard: "top-left", brand: "top-right", sponsor: "bottom-right" },
+      nameMode: S.nameMode === "full" ? "full" : "nick",
       hideTimestamp: !!S.hideTimestamp,
       timestampBox: S.timestampBox || { x: 1360, y: 46, w: 544, h: 72 },
       exited: !!(S.exited && !S.perMatch),
@@ -1290,10 +1292,15 @@ async function remoteSetLayout(p = {}) {
     brand: p.layout?.brand || S.layout?.brand || "top-right",
     sponsor: p.layout?.sponsor || S.layout?.sponsor || "bottom-right",
   };
-  await apiReq("PATCH", `/api/tournament-auto-live/${sid}/layout`, { layout });
+  // Kiểu tên hiển thị overlay (nick|full) — đổi được ngay khi đang live.
+  const body = { layout };
+  const nm = (p.nameMode === "nick" || p.nameMode === "full") ? p.nameMode : "";
+  if (nm) body.nameMode = nm;
+  await apiReq("PATCH", `/api/tournament-auto-live/${sid}/layout`, body);
   S.layout = layout;
+  if (nm) S.nameMode = nm;
   if (state.activeSid === sid) setupLiveOverlay(S);
-  return { ok: true, layout };
+  return { ok: true, layout, nameMode: S.nameMode || "nick" };
 }
 
 async function remoteOptions(payload = {}) {

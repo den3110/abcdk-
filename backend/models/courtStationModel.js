@@ -99,6 +99,8 @@ const courtStationSchema = new Schema(
     overlayStyle: { type: String, default: "" },
     // Ghi nhớ logo thương hiệu overlay cho sân (URL ảnh; rỗng = logo PickleTour mặc định).
     brandLogoUrl: { type: String, default: "" },
+    // Ghi nhớ kiểu tên hiển thị overlay cho sân: "nick" (biệt danh) | "full" (họ tên).
+    nameMode: { type: String, enum: ["nick", "full"], default: "nick" },
     defaultReferees: [
       { type: Types.ObjectId, ref: "User", default: undefined },
     ],

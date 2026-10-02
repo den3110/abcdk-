@@ -87,10 +87,15 @@ export const courtImouStreamUrl = asyncHandler(async (req, res) => {
   res.json(r);
 });
 
-// PATCH /api/tournament-auto-live/:id/layout (admin) — đổi VỊ TRÍ overlay khi ĐANG LIVE.
-// Body: { layout: { scoreboard?, brand?, sponsor? } } (giá trị góc: top-left/top-right/bottom-left/bottom-right)
+// PATCH /api/tournament-auto-live/:id/layout (admin) — đổi VỊ TRÍ overlay + KIỂU TÊN khi ĐANG LIVE.
+// Body: { layout: { scoreboard?, brand?, sponsor? }, nameMode?: "nick"|"full" }
 export const setSessionLayout = asyncHandler(async (req, res) => {
-  const r = await updateSessionLayout(String(req.params.id), req.body?.layout || req.body || {});
+  const base = req.body?.layout || req.body || {};
+  // Cho phép truyền nameMode ở top-level HOẶC trong layout.
+  const payload = { ...base };
+  const nm = req.body?.nameMode || base?.nameMode;
+  if (nm) payload.nameMode = nm;
+  const r = await updateSessionLayout(String(req.params.id), payload);
   res.json(r);
 });
 

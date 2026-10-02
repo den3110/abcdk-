@@ -161,6 +161,8 @@ export default function LiveControlPage() {
   };
   const toggleTs = (s, on) =>
     withBusy(() => call("/api/set-ts-cover", "POST", { sid: s.sid, hideTimestamp: on }));
+  const setNameMode = (s, mode) =>
+    withBusy(() => call("/api/set-layout", "POST", { sid: s.sid, nameMode: mode }));
   const applyOpacity = (pct) => {
     setOpacity(pct);
     withBusy(() => call("/api/set-opacity", "POST", { opacity: pct / 100 }));
@@ -482,6 +484,27 @@ export default function LiveControlPage() {
                         </Typography>
                       </Button>
                     ))}
+                  </Stack>
+
+                  {/* Tên hiển thị trên bảng điểm: biệt danh / họ tên */}
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: "block" }}>
+                    Tên hiển thị trên bảng điểm
+                  </Typography>
+                  <Stack direction="row" spacing={1} sx={{ mt: 0.5 }}>
+                    {[["nick", "Biệt danh"], ["full", "Họ tên đầy đủ"]].map(([mode, label]) => {
+                      const active = (s.nameMode || "nick") === mode;
+                      return (
+                        <Button
+                          key={mode}
+                          variant={active ? "contained" : "outlined"}
+                          color={active ? "primary" : "inherit"}
+                          onClick={() => setNameMode(s, mode)}
+                          sx={{ flex: 1, textTransform: "none", py: 0.75 }}
+                        >
+                          {label}
+                        </Button>
+                      );
+                    })}
                   </Stack>
 
                   {/* Ẩn ngày giờ */}

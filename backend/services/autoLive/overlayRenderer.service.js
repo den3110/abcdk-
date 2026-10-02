@@ -201,17 +201,21 @@ export async function loadOverlayDataFromUserMatch(userMatchId) {
   };
 }
 
-function playerLabel(p) {
+function playerLabel(p, mode = "nick") {
   if (!p) return "";
+  // mode "full" → ưu tiên họ tên đầy đủ; mặc định "nick" → ưu tiên biệt danh.
+  if (mode === "full") {
+    return String(p.fullName || p.name || p.nickName || p.nickname || "").trim();
+  }
   return String(p.nickName || p.nickname || p.fullName || p.name || "").trim();
 }
 
-function pairShortName(pair) {
+function pairShortName(pair, mode = "nick") {
   if (!pair) return "—";
   const team = String(pair.teamName || "").trim();
   if (team) return team;
-  const p1 = playerLabel(pair.player1);
-  const p2 = playerLabel(pair.player2);
+  const p1 = playerLabel(pair.player1, mode);
+  const p2 = playerLabel(pair.player2, mode);
   if (p1 && p2) return `${p1} / ${p2}`;
   return p1 || p2 || String(pair.label || "").trim() || "—";
 }
@@ -334,6 +338,7 @@ export async function renderOverlayPng(data) {
   // Thanh XANH trên cùng = VÒNG ĐẤU; thanh dưới = NỘI DUNG THI ĐẤU (vd "Đôi hỗn hợp 4.6").
   const roundLabel = (data?.roundLabel || "").toString().trim();
   const contentLabel = (data?.contentLabel || "").toString().trim();
+  const nameMode = data?.nameMode === "full" ? "full" : "nick";
 
   if (!match) {
     drawBug(ctx, {
@@ -361,8 +366,8 @@ export async function renderOverlayPng(data) {
     // Thanh xanh trên = VÒNG ĐẤU (fallback tên giải nếu không suy ra được vòng).
     tournament: roundLabel || tournamentName,
     rows: [
-      { name: pairShortName(match.pairA), pts: String(g.a || 0), sets: String(setsA), serve: serveSide === "A" ? serveCount : 0 },
-      { name: pairShortName(match.pairB), pts: String(g.b || 0), sets: String(setsB), serve: serveSide === "B" ? serveCount : 0 },
+      { name: pairShortName(match.pairA, nameMode), pts: String(g.a || 0), sets: String(setsA), serve: serveSide === "A" ? serveCount : 0 },
+      { name: pairShortName(match.pairB, nameMode), pts: String(g.b || 0), sets: String(setsB), serve: serveSide === "B" ? serveCount : 0 },
     ],
     // Thanh dưới = NỘI DUNG THI ĐẤU (fallback sân · cụm nếu trống).
     bottomLeft: contentLabel || [stationName, clusterLabel].filter(Boolean).join(" · "),
@@ -399,13 +404,14 @@ export function buildOverlayBugData(data) {
   const bestOf = Number(rules.bestOf || 3);
   const serveSide = String(match?.serve?.side || "A").toUpperCase() === "B" ? "B" : "A";
   const serveCount = Math.max(1, Math.min(2, Number(match?.serve?.server ?? 1) || 1));
+  const nameMode = data?.nameMode === "full" ? "full" : "nick";
   return {
     waiting: false,
     top: roundLabel || tournamentName,
     tournament: tournamentName,
     rows: [
-      { name: pairShortName(match.pairA), pts: Number(g.a || 0), sets: Number(setsA), serve: serveSide === "A" ? serveCount : 0 },
-      { name: pairShortName(match.pairB), pts: Number(g.b || 0), sets: Number(setsB), serve: serveSide === "B" ? serveCount : 0 },
+      { name: pairShortName(match.pairA, nameMode), pts: Number(g.a || 0), sets: Number(setsA), serve: serveSide === "A" ? serveCount : 0 },
+      { name: pairShortName(match.pairB, nameMode), pts: Number(g.b || 0), sets: Number(setsB), serve: serveSide === "B" ? serveCount : 0 },
     ],
     bottomLeft: contentLabel || bottomLeftFallback,
     bottomRight: `VÁN ${cur + 1}/${bestOf}`,
