@@ -87,9 +87,12 @@ SOURCE_URL = (os.environ.get("AUTOLIVE_SOURCE_URL") or "").strip()
 BROWSER_OVERLAY = (os.environ.get("AUTOLIVE_BROWSER_OVERLAY") or "").strip()
 # Ticker NATIVE (chữ chạy cuối màn hình) vẽ bằng ffmpeg drawtext — mượt ở output fps,
 # gần như không tốn CPU (thay cho browser-overlay 1080p@24fps gây lag). Cần font có
-# dấu tiếng Việt (AUTOLIVE_TICKER_FONT) + file text UTF-8 (AUTOLIVE_TICKER_TEXTFILE,
-# nội dung ĐÃ nhân đôi để cuộn liền mạch). Rỗng = tắt ticker.
-TICKER_TEXTFILE = (os.environ.get("AUTOLIVE_TICKER_TEXTFILE") or "").strip()
+# dấu tiếng Việt (AUTOLIVE_TICKER_FONT) + nội dung chữ (AUTOLIVE_TICKER_TEXT, ĐÃ nhân
+# đôi để cuộn liền mạch). Rỗng = tắt ticker.
+# DÙNG text INLINE (không dùng textfile): một số bản ffmpeg-static (Windows) đặt option
+# `text` mặc định là chuỗi RỖNG (non-NULL) → khi có textfile sẽ báo "Both text and text
+# file provided" rồi chết. text inline tránh hẳn lỗi đó.
+TICKER_TEXT = (os.environ.get("AUTOLIVE_TICKER_TEXT") or "")
 TICKER_FONT = (os.environ.get("AUTOLIVE_TICKER_FONT") or "").strip()
 TICKER_SPEED = max(40, int(float(os.environ.get("AUTOLIVE_TICKER_SPEED") or 120)))  # px/giây
 TICKER_BAR_H = max(28, int(float(os.environ.get("AUTOLIVE_TICKER_BAR_H") or 54)))   # cao thanh (canvas 1080)
@@ -97,9 +100,16 @@ TICKER_FONT_SIZE = max(12, int(float(os.environ.get("AUTOLIVE_TICKER_FONT_SIZE")
 
 
 def _ff_path(p):
-    """Chuẩn hoá path cho filtergraph ffmpeg (fontfile/textfile): đổi \\ → / để tránh
-    bị hiểu là escape (Windows C:\\...), và escape dấu nháy đơn."""
+    """Chuẩn hoá path cho filtergraph ffmpeg (fontfile): đổi \\ → / để tránh bị hiểu là
+    escape (Windows C:\\...), và escape dấu nháy đơn."""
     return str(p or "").replace("\\", "/").replace("'", r"\'")
+
+
+def _ff_text(s):
+    """Escape chữ cho drawtext text='...' trong filtergraph. Bọc trong nháy đơn nên chỉ
+    cần xử lý backslash, nháy đơn (đổi sang nháy cong để không phá chuỗi) và xuống dòng."""
+    s = str(s or "").replace("\\", "\\\\").replace(":", "\\:").replace("'", "\u2019")
+    return s.replace("\r", " ").replace("\n", " ")
 # PREVIEW-ONLY: xem thử nguồn TRƯỚC khi live (RTSP/m3u8/RTMP/HTTP hoặc Imou). Chỉ
 # xuất HLS cục bộ (AUTOLIVE_PREVIEW_HLS_DIR), KHÔNG overlay/heartbeat/destinations
 # FB-YT. Tái dùng nguyên đường đọc nguồn (URL + Imou DHAV) của worker.
@@ -684,13 +694,13 @@ def build_ffmpeg_args(overlay_fifo, has_audio, tee, browser_fifo=None, commentar
     # TIẾP lên khung đã ghép, mượt ở output fps & gần như không tốn CPU. Text ĐÃ nhân
     # đôi trong file → cuộn modulo tw/2 để LIỀN MẠCH (không có khoảng trống chạy hết).
     comp_label = "comp"
-    if TICKER_TEXTFILE and TICKER_FONT:
+    if TICKER_TEXT.strip() and TICKER_FONT:
         fnt = _ff_path(TICKER_FONT)
-        tf = _ff_path(TICKER_TEXTFILE)
+        txt = _ff_text(TICKER_TEXT)
         bh, fs2, spd = TICKER_BAR_H, TICKER_FONT_SIZE, TICKER_SPEED
         fc += (
             f";[comp]drawbox=x=0:y=ih-{bh}:w=iw:h={bh}:color=0x06131f@0.62:t=fill,"
-            f"drawtext=fontfile='{fnt}':textfile='{tf}':reload=0:expansion=none:"
+            f"drawtext=fontfile='{fnt}':text='{txt}':expansion=none:"
             f"fontsize={fs2}:fontcolor=white:"
             f"x=w-mod(t*{spd}\\,tw/2):y=h-{bh}+({bh}-th)/2:"
             f"shadowcolor=black@0.6:shadowx=1:shadowy=1[compT]"

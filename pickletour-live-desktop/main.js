@@ -954,15 +954,12 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
 
   // Ticker NATIVE: ghi text (ĐÃ nhân đôi để cuộn liền mạch) ra file UTF-8 + truyền font
   // có dấu tiếng Việt. worker vẽ bằng drawtext (mượt, nhẹ). Tắt khi noTicker.
-  let tickerTextFile = "";
+  let tickerText = "";
   const tickerFont = tickerFontPath();
   if (wantTicker && fs.existsSync(tickerFont)) { // thiếu font → bỏ ticker, tránh ffmpeg lỗi
-    const tickerText = (form.tickerText && String(form.tickerText).trim()) || DEFAULT_TICKER;
-    const doubled = tickerText + TICKER_SEP + tickerText + TICKER_SEP;
-    try {
-      tickerTextFile = path.join(previewDir, "ticker.txt");
-      fs.writeFileSync(tickerTextFile, doubled, "utf8");
-    } catch (e) { console.error("[ticker] write text fail:", e?.message || e); tickerTextFile = ""; }
+    const base = (form.tickerText && String(form.tickerText).trim()) || DEFAULT_TICKER;
+    // Nhân đôi (có dải ngăn cách) để cuộn LIỀN MẠCH (worker cuộn modulo tw/2).
+    tickerText = base + TICKER_SEP + base + TICKER_SEP;
   } else if (wantTicker) {
     console.error("[ticker] font không tồn tại → bỏ ticker:", tickerFont);
   }
@@ -973,8 +970,8 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
     PICKLETOUR_PYTHON: undefined,
     AUTOLIVE_BROWSER_OVERLAY: browserOverlay ? `tcp://127.0.0.1:${browserOverlay.port}` : "",
     AUTOLIVE_BROWSER_OVERLAY_FPS: String(Number(process.env.AUTOLIVE_BROWSER_OVERLAY_FPS) || 10),
-    AUTOLIVE_TICKER_TEXTFILE: tickerTextFile,
-    AUTOLIVE_TICKER_FONT: tickerTextFile ? tickerFont : "",
+    AUTOLIVE_TICKER_TEXT: tickerText,
+    AUTOLIVE_TICKER_FONT: tickerText ? tickerFont : "",
     PYTHONIOENCODING: "utf-8",
     PYTHONUTF8: "1",
     AUTOLIVE_SESSION_ID: cfg.sessionId,
