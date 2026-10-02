@@ -78,6 +78,8 @@ export default function LiveAddPage() {
   const [overlayStyle, setOverlayStyle] = useState("classic");
   const [browserOverlayUrl, setBrowserOverlayUrl] = useState("");
   const [showTicker, setShowTicker] = useState(true);
+  const [brandLogoUrl, setBrandLogoUrl] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
   const [schedAt, setSchedAt] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -125,6 +127,23 @@ export default function LiveAddPage() {
       setCourts(d.courts || []);
     } catch (e) {
       /* bỏ qua */
+    }
+  };
+
+  const uploadLogo = async (file) => {
+    if (!file) return;
+    setLogoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("avatar", file);
+      const r = await fetch("/api/upload/avatar", { method: "POST", body: fd });
+      const d = await r.json();
+      if (d?.url) setBrandLogoUrl(d.url);
+      else throw new Error("Upload lỗi");
+    } catch (e) {
+      setToast("Tải logo lên lỗi: " + (e?.message || e));
+    } finally {
+      setLogoUploading(false);
     }
   };
 
@@ -190,6 +209,7 @@ export default function LiveAddPage() {
       if (!browserOverlayUrl.trim()) throw new Error("Nhập URL scoreboard");
       payload.browserOverlayUrl = browserOverlayUrl.trim();
     }
+    if (brandLogoUrl.trim()) payload.brandLogoUrl = brandLogoUrl.trim();
     if (hideTs) payload.hideTimestamp = true;
     return payload;
   };
@@ -487,6 +507,27 @@ export default function LiveAddPage() {
             <MenuItem value="D">D · Neon Volt</MenuItem>
             <MenuItem value="url">Scoreboard từ URL (tuỳ chỉnh)</MenuItem>
           </TextField>
+
+          {/* Logo overlay tuỳ chỉnh cho sân (trống = logo PickleTour mặc định) */}
+          <TextField
+            fullWidth
+            size="small"
+            label="Logo overlay (URL — trống = logo PickleTour)"
+            value={brandLogoUrl}
+            onChange={(e) => setBrandLogoUrl(e.target.value)}
+            placeholder="https://… hoặc bấm Tải ảnh lên"
+            InputProps={{
+              endAdornment: (
+                <Button component="label" size="small" disabled={logoUploading} sx={{ whiteSpace: "nowrap" }}>
+                  {logoUploading ? "Đang tải…" : "Tải ảnh lên"}
+                  <input hidden type="file" accept="image/*" onChange={(e) => uploadLogo(e.target.files?.[0])} />
+                </Button>
+              ),
+            }}
+          />
+          {brandLogoUrl ? (
+            <img src={brandLogoUrl} alt="logo" style={{ height: 48, objectFit: "contain", alignSelf: "flex-start", background: "rgba(255,255,255,.06)", borderRadius: 6, padding: 4 }} />
+          ) : null}
 
           {overlayStyle === "url" && (
             <TextField

@@ -73,6 +73,8 @@ const tournamentAutoLiveSessionSchema = new Schema(
     // overlay HTML cao cấp qua browser (desktop mở trang /overlay/live.html). Khi là
     // theme browser → PNG KHÔNG vẽ bảng điểm (tránh chồng), browser lo bảng điểm.
     overlayStyle: { type: String, default: "classic" },
+    // Logo thương hiệu overlay cho SÂN này (URL ảnh). Rỗng = dùng logo PickleTour mặc định.
+    brandLogoUrl: { type: String, default: "" },
     runnerOs: { type: String, default: "" },
     encoder: { type: String, default: "" }, // h264_nvenc / videotoolbox / libx264…
     // Metadata process Python

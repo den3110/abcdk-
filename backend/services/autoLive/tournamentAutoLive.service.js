@@ -161,7 +161,7 @@ export async function setOverlayOpacity(value) {
 }
 export async function getCachedOverlayPng(sessionId) {
   const doc = await TournamentAutoLiveSession.findById(sessionId)
-    .select("_id court status overlayVersion layout hideTimestamp timestampBox overlayStyle")
+    .select("_id court status overlayVersion layout hideTimestamp timestampBox overlayStyle brandLogoUrl")
     .lean();
   if (!doc) return null;
   if (doc.status === "stopped") return null;
@@ -178,6 +178,8 @@ export async function getCachedOverlayPng(sessionId) {
     data.timestampBox = doc.timestampBox || null;
     // Theme browser (A/B/C/D) tự vẽ bảng điểm → PNG BỎ vẽ scoreboard (tránh chồng).
     data.hideScoreboard = style !== "classic";
+    // Logo thương hiệu tuỳ chỉnh cho sân (rỗng = logo PickleTour mặc định).
+    data.brandLogoUrl = String(doc.brandLogoUrl || "");
   }
   const buf = await renderOverlayPng(data);
   overlayCache.set(String(sessionId), { buf, token });
@@ -855,7 +857,7 @@ export async function startAutoLive(input) {
     const err = new Error("Cần chọn camera Imou / đầu thu Dahua hoặc nhập Custom link");
     err.status = 400; throw err;
   }
-  const station = await CourtStation.findById(courtStationId).select("_id clusterId overlayLayout").lean();
+  const station = await CourtStation.findById(courtStationId).select("_id clusterId overlayLayout overlayStyle brandLogoUrl").lean();
   if (!station) { const e = new Error("Court không tồn tại"); e.status = 404; throw e; }
 
   // Nguồn Imou cần venue + session; nguồn URL thì bỏ qua toàn bộ Imou.
@@ -936,6 +938,11 @@ export async function startAutoLive(input) {
     overlayStyle = ALLOWED_OVERLAY_STYLES.includes(saved) ? saved : "classic";
   }
 
+  // Logo thương hiệu: client gửi brandLogoUrl → dùng; không gửi → dùng lại của sân;
+  // rỗng = logo PickleTour mặc định. Lưu lại cho sân.
+  let brandLogoUrl = String(input.brandLogoUrl || "").trim();
+  if (!brandLogoUrl) brandLogoUrl = String(station?.brandLogoUrl || "").trim();
+
   // KHÔNG dọn/stop phiên cũ trên cùng sân nữa: cho phép NHIỀU luồng live song song
   // trên 1 sân (kể cả cùng 1 máy). Phiên treo/mồ côi sẽ tự được dọn qua heartbeat
   // (pollOnce: client mất heartbeat >60s → error). Mỗi lần "thêm sân live" = 1 phiên mới.
@@ -957,21 +964,21 @@ export async function startAutoLive(input) {
     advanced: advanced && typeof advanced === "object" ? advanced : undefined,
     hideTimestamp: !!hideTimestamp,
     timestampBox: timestampBox && typeof timestampBox === "object" ? timestampBox : undefined,
-    runner, machineId, overlayStyle,
+    runner, machineId, overlayStyle, brandLogoUrl,
     status: lazyBroadcast ? "paused" : "starting", workerId: crypto.randomUUID(),
     startedAt: new Date(),
   });
 
   // Ghi nhớ cho SÂN: kiểu overlay + vị trí (để lần tạo live sau tự dùng lại).
   try {
-    const $set = { overlayStyle };
+    const $set = { overlayStyle, brandLogoUrl };
     if (effectiveLayout && typeof effectiveLayout === "object") {
       for (const k of ["scoreboard", "brand", "sponsor"]) {
         if (effectiveLayout[k]) $set[`overlayLayout.${k}`] = effectiveLayout[k];
       }
     }
     await CourtStation.updateOne({ _id: courtStationId }, { $set });
-  } catch (e) { console.warn("[auto-live] lưu overlayStyle cho sân lỗi:", e?.message || e); }
+  } catch (e) { console.warn("[auto-live] lưu overlayStyle/logo cho sân lỗi:", e?.message || e); }
 
   // Client-runner: KHÔNG spawn trên server. App desktop lấy worker-config rồi
   // tự chạy (GPU). Backend vẫn poll để bump overlay + theo dõi heartbeat.

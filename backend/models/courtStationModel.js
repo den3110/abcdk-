@@ -95,8 +95,10 @@ const courtStationSchema = new Schema(
       brand: { type: String, default: "" },
       sponsor: { type: String, default: "" },
     },
-    // Ghi nhớ KIỂU overlay mặc định cho sân ("classic"/"A"/"B"/"C"/"D").
+    // Ghi nhớ KIỂU overlay mặc định cho sân ("classic"/"A"/"B"/"C"/"D"/"url").
     overlayStyle: { type: String, default: "" },
+    // Ghi nhớ logo thương hiệu overlay cho sân (URL ảnh; rỗng = logo PickleTour mặc định).
+    brandLogoUrl: { type: String, default: "" },
     defaultReferees: [
       { type: Types.ObjectId, ref: "User", default: undefined },
     ],

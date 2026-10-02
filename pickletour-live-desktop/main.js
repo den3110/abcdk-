@@ -793,7 +793,8 @@ async function startWorker({ baseUrl, token, form }) {
       // ID máy này → backend cho phép NHIỀU luồng/sân (mỗi máy 1 luồng), chỉ dọn
       // luồng cũ trên CÙNG máy+sân thay vì stop luồng của máy khác.
       machineId: machineId(),
-      overlayStyle: form.overlayStyle || "", // classic | A | B | C | D (PNG bỏ scoreboard nếu browser)
+      overlayStyle: form.overlayStyle || "", // classic | A | B | C | D | url (PNG bỏ scoreboard nếu browser)
+      brandLogoUrl: form.brandLogoUrl || "", // logo thương hiệu tuỳ chỉnh cho sân
     },
   });
   const sid = session._id;

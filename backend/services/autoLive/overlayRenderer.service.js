@@ -318,7 +318,7 @@ export async function renderOverlayPng(data) {
   const brandCorner = layout.brand || "top-right";
   const sponsorCorner = layout.sponsor || "bottom-right";
 
-  await drawBrandLogo(ctx, brandCorner);
+  await drawBrandLogo(ctx, brandCorner, data?.brandLogoUrl || "");
   await drawSponsorRotating(ctx, data?.sponsorLogos || [], sponsorCorner);
 
   // Theme browser tự vẽ bảng điểm (overlay HTML) → PNG chỉ giữ logo/sponsor, BỎ scoreboard.
@@ -423,9 +423,12 @@ function drawContain(ctx, img, bx, by, bw, bh, alignX) {
   ctx.drawImage(img, x, y, w, h);
 }
 
-async function drawBrandLogo(ctx, corner = "top-right") {
-  let img = await loadImageCached(PT_LOGO_URL);
-  // URL tuỳ chỉnh hỏng (file không có → trả HTML) → dùng logo v3 mặc định.
+async function drawBrandLogo(ctx, corner = "top-right", customUrl = "") {
+  // Logo tuỳ chỉnh của sân (nếu có) → ưu tiên; hỏng/không có → logo PickleTour mặc định.
+  let img = null;
+  const cu = String(customUrl || "").trim();
+  if (cu) img = await loadImageCached(cu);
+  if (!img) img = await loadImageCached(PT_LOGO_URL);
   if (!img && PT_LOGO_URL !== PT_LOGO_FALLBACK) img = await loadImageCached(PT_LOGO_FALLBACK);
   if (!img) return;
   const box = 132;
