@@ -151,6 +151,19 @@
         <h3>2 · Encoder & Overlay</h3>
         <label>Encoder (GPU giúp chạy nhiều luồng)</label>
         <select id="encoder"></select>
+        <label style="margin-top:12px">Kiểu overlay bảng điểm</label>
+        <select id="overlayStyle">
+          <option value="classic">Classic (mặc định)</option>
+          <option value="A">A · Broadcast Pro</option>
+          <option value="B">B · Aurora Glass</option>
+          <option value="C">C · Minimal Clean</option>
+          <option value="D">D · Neon Volt</option>
+          <option value="url">Scoreboard từ URL (tuỳ chỉnh)</option>
+        </select>
+        <div class="hint">A/B/C/D dùng bảng điểm web đẹp hơn (nền trong suốt chồng lên video). "URL" = tự nhập trang scoreboard ở ô Browser overlay URL bên dưới.</div>
+        <label class="chk" style="margin-top:10px"><input type="checkbox" id="showTicker" checked /> Chữ chạy cuối màn hình (ticker)</label>
+        <label style="margin-top:12px">Logo overlay (trống = logo PickleTour mặc định)</label>
+        <input id="brandLogoUrl" placeholder="https://... (ảnh PNG nền trong suốt)" />
         <label>Vị trí các lớp overlay trên khung hình</label>
         <div class="row3">
           <div><span class="mini">Bảng điểm</span><select id="lay_scoreboard" class="corner"></select></div>

@@ -1,7 +1,7 @@
 // PickleTour Live — Electron main process.
 // Đăng nhập admin → chọn giải/sân/cam → tạo phiên runner:"client" trên backend
 // → lấy worker-config → spawn worker.py (GPU) local → preview HLS.
-const { app, BrowserWindow, ipcMain, dialog, shell, powerSaveBlocker } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, powerSaveBlocker, nativeImage } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -383,14 +383,29 @@ async function startBrowserOverlay(url) {
     webPreferences: { offscreen: true, backgroundThrottling: false },
   });
   try { win.webContents.setFrameRate(fps); } catch {}
+  // QUAN TRỌNG: seed sẵn 1 frame TRONG SUỐT 1920x1080 ngay từ đầu. Nếu để lastPng=null
+  // tới khi trang (tải từ pickletour.vn) paint lần đầu, thì input image2pipe của ffmpeg
+  // KHÔNG có byte nào → filter `overlay` (framesync) CHẶN chờ frame đầu → cả luồng đứng
+  // → MẤT TÍN HIỆU (trang lỗi/offline thì đứng vĩnh viễn). Có seed thì ffmpeg luôn có
+  // frame để chạy; khi trang paint xong, lastPng tự cập nhật thành overlay thật.
   let lastPng = null;
+  try {
+    const seed = nativeImage.createFromBitmap(Buffer.alloc(1920 * 1080 * 4), { width: 1920, height: 1080 });
+    lastPng = seed.toPNG();
+  } catch (e) { console.error("[browser-overlay] seed fail:", e?.message || e); }
   win.webContents.on("paint", (_e, _dirty, image) => {
-    try { lastPng = image.toPNG(); } catch {}
+    try { const p = image.toPNG(); if (p && p.length) lastPng = p; } catch {}
   });
   win.loadURL(url).catch((e) => console.error("[browser-overlay] loadURL fail:", e?.message || e));
   const server = net.createServer((sock) => {
+    // Ghi NGAY frame hiện có khi ffmpeg vừa kết nối (không đợi tick đầu) → không trễ start.
+    if (lastPng) { try { sock.write(lastPng); } catch {} }
     const iv = setInterval(() => {
-      if (lastPng) { try { sock.write(lastPng); } catch {} }
+      // Nếu ffmpeg nghẽn (thread_queue đầy → ngừng đọc) thì BỎ frame này thay vì buffer
+      // vô hạn trong RAM Node (backpressure). Overlay rớt vài frame không sao.
+      if (lastPng && sock.writable && sock.writableLength < 4 * 1024 * 1024) {
+        try { sock.write(lastPng); } catch {}
+      }
     }, Math.round(1000 / fps));
     const done = () => clearInterval(iv);
     sock.on("close", done); sock.on("error", done);

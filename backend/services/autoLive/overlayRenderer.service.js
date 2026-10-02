@@ -17,7 +17,7 @@ const H = 1080;
 
 // Logo PickleTour luôn hiển thị góc phải-trên mọi stream.
 const PT_LOGO_URL = process.env.AUTOLIVE_PT_LOGO_URL
-  || `${process.env.PUBLIC_BACKEND_URL || "https://pickletour.vn"}/pickletour-v3-logo.png`;
+  || `${process.env.PUBLIC_BACKEND_URL || "https://pickletour.vn"}/favicon-64.png`;
 // Fallback logo hợp lệ: nếu AUTOLIVE_PT_LOGO_URL trỏ file KHÔNG tồn tại (server trả
 // HTML index.html → nạp ảnh thất bại → mất logo) thì dùng logo v3 luôn có sẵn.
 const PT_LOGO_FALLBACK = `${process.env.PUBLIC_BACKEND_URL || "https://pickletour.vn"}/pickletour-v3-logo.png`;
