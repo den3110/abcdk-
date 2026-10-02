@@ -29,6 +29,7 @@ import ShadowFrame from "../astryx/ShadowFrame.jsx";
 import { A } from "../astryx/ui.jsx";
 import SportFooter from "./SportFooter.jsx";
 import SportNav from "./SportNav.jsx";
+import EventLiveBannerV3 from "../../components/EventLiveBannerV3.jsx";
 
 const asArray = (data) =>
   Array.isArray(data)
@@ -178,6 +179,8 @@ export default function SportHomePage() {
         <Theme theme={neutralTheme}>
           <div className="v3-page">
             <SportNav />
+
+            <EventLiveBannerV3 />
 
             <main>
               <section className="v3-hero">
