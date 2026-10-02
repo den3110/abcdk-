@@ -206,13 +206,19 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
     const isDelta = isDeltaNote(displayNote);
     const isSelf = isSelfNote(displayNote);
 
-    // Hiển thị note
+    // Hiển thị note: LUÔN hiện lý do chấm trình. Non-admin chỉ ẩn TÊN người chấm
+    // ('Mod "<tên>" chấm trình' → 'Mod Pickletour chấm trình', giữ nguyên "Ghi chú thêm: …").
+    const maskNoteName = (note) => {
+      let out = String(note ?? "");
+      out = out.replace(/Mod\s+"[^"]*"\s+chấm trình/g, "Mod Pickletour chấm trình");
+      const nm = r.scorer?.name ? String(r.scorer.name).trim() : "";
+      if (nm.length >= 3) out = out.split(nm).join("Mod Pickletour");
+      return out;
+    };
     const noteForClient =
-      isDelta || isSelf
+      isDelta || isSelf || isAdmin
         ? displayNote ?? ""
-        : isAdmin
-        ? displayNote ?? ""
-        : "Mod Pickletour chấm trình";
+        : maskNoteName(displayNote);
 
     // Scorer: delta => null; còn lại: admin thấy thật, non-admin thấy mask
     const realScorer = r.scorer
