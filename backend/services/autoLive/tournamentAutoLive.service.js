@@ -1349,8 +1349,11 @@ export async function getImouSessionForWorker(sessionId) {
  *  FB không cho re-publish cùng key) và trả tee destinations mới. RTMP/YT giữ
  *  nguyên. Cập nhật session.destinations + watchUrl. */
 export async function refreshDestinationsForWorker(sessionId) {
-  const session = await TournamentAutoLiveSession.findById(sessionId);
+  const session = await TournamentAutoLiveSession.findById(sessionId).lean();
   if (!session) return null;
+  // Phiên đang DỪNG/chờ trận (trọng tài vừa kết thúc trận) → KHÔNG tạo lại FB: tránh
+  // tạo video FB thừa + tránh race VersionError với perMatchStop/stop đang sửa cùng doc.
+  if (["stopped", "paused", "reconnecting"].includes(session.status)) return null;
   const tournament = await Tournament.findById(session.tournament).select("name").lean();
   const title = session.liveTitle || tournament?.name || "PickleTour Live";
   const fresh = [];
@@ -1368,8 +1371,13 @@ export async function refreshDestinationsForWorker(sessionId) {
       fresh.push(d);
     }
   }
-  session.destinations = fresh;
-  await session.save();
+  // Lưu bằng updateOne (KHÔNG dùng doc.save) để tránh VersionError khi phiên bị sửa
+  // song song (perMatchStop/stop). CHỈ cập nhật nếu phiên vẫn còn "live".
+  const r = await TournamentAutoLiveSession.updateOne(
+    { _id: sessionId, status: "live" },
+    { $set: { destinations: fresh } },
+  );
+  if (!r.matchedCount) return null; // phiên đã dừng trong lúc tạo lại → bỏ
   return fresh.map((d) => ({
     type: d.type, streamUrl: d.streamUrl, streamKey: d.streamKey || "",
   }));
