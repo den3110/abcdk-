@@ -75,10 +75,19 @@ function workerLogPath(sessionId) {
 
 async function adoptRunningSessions() {
   const docs = await TournamentAutoLiveSession.find({
-    status: { $in: ["starting", "live", "reconnecting"] },
-  }).select("_id workerPid runner").lean();
+    status: { $in: ["starting", "live", "reconnecting", "paused"] },
+  }).select("_id workerPid runner status").lean();
   for (const d of docs) {
     const sid = String(d._id);
+    // "paused" = per-match/split đang CHỜ trận → KHÔNG có worker là ĐÚNG; chỉ cần
+    // re-arm poll để còn tự lên live khi trận bắt đầu (trước đây bỏ sót "paused" →
+    // sau restart backend, phiên chờ trận mất poll → không bao giờ cắt/lên live nữa).
+    if (d.status === "paused") {
+      if (!registry.has(sid)) registry.set(sid, { proc: null, pollTimer: null });
+      startPoll(sid);
+      console.log(`[auto-live] adopted PAUSED session ${sid} runner=${d.runner}`);
+      continue;
+    }
     // Client-runner: app chạy độc lập ngoài server → luôn adopt, heartbeat lo liveness.
     if (d.runner === "client" || isPidAlive(d.workerPid)) {
       if (!registry.has(sid)) registry.set(sid, { proc: null, pollTimer: null });
@@ -1142,8 +1151,14 @@ async function pollPerMatch(session, station) {
     await perMatchGoLive(session, curMatchId);
     return;
   }
-  // 2) Đang live nhưng trận đã kết thúc / đổi / rời sân → dừng, chờ trận kế.
-  if (liveMatchId && !(shouldLive && liveMatchId === curMatchId)) {
+  // 2) Đang stream nhưng KHÔNG phải đang live đúng trận → dừng, chờ trận kế. Gồm:
+  //    - trận đã kết thúc / đổi / rời sân (liveMatchId còn nhưng trận hết "live"), VÀ
+  //    - trạng thái MỒ CÔI: status="live"/"reconnecting" nhưng liveMatchId rỗng / sân
+  //      không có currentMatch (state hỏng sau restart/đổi sân) → phải dừng, nếu không
+  //      sẽ "live xuyên suốt" dù không có trận nào.
+  const streamingStatus = ["live", "reconnecting"].includes(session.status);
+  const liveOnRightMatch = shouldLive && liveMatchId && liveMatchId === curMatchId;
+  if ((liveMatchId || streamingStatus) && !liveOnRightMatch) {
     await perMatchStop(session);
     return;
   }
