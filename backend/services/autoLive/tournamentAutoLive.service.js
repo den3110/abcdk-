@@ -524,7 +524,8 @@ async function getYouTubeProvider() {
   return new YouTubeProvider({ refreshToken, accessToken: "", expiresAt: "" });
 }
 
-/** Kết thúc broadcast của các destination (best-effort): FB end, YouTube end+delete. */
+/** Kết thúc broadcast của các destination (best-effort): FB end, YouTube end GIỮ VOD.
+ *  YouTube: chỉ transition "complete" (KHÔNG xoá broadcast) → video replay còn trên kênh. */
 async function endDestinationBroadcasts(destinations) {
   let ytProvider = null;
   for (const d of destinations || []) {
@@ -534,7 +535,7 @@ async function endDestinationBroadcasts(destinations) {
         if (token) await fbEndLiveVideo({ liveVideoId: d.broadcastId, pageAccessToken: token });
       } else if (d.type === "youtube" && d.broadcastId) {
         if (!ytProvider) ytProvider = await getYouTubeProvider().catch(() => null);
-        if (ytProvider) await ytProvider.endAndDelete({ broadcastId: d.broadcastId, streamId: d.ytStreamId || "" });
+        if (ytProvider) await ytProvider.endLiveKeepVod({ broadcastId: d.broadcastId, streamId: d.ytStreamId || "" });
       }
     } catch (e) {
       console.warn(`[auto-live] end broadcast ${d.type} ${d.broadcastId} fail:`, e?.message || e);

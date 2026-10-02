@@ -399,7 +399,34 @@ export class YouTubeProvider extends LiveProvider {
     }
   }
 
-  /** Kết thúc + xoá broadcast/stream (best-effort) — dùng cho dọn phiên test. */
+  /** Kết thúc live GIỮ VOD (best-effort) — chỉ transition "complete", KHÔNG xoá broadcast
+   *  → video replay vẫn còn trên kênh. Có thể xoá liveStream ingest (không ảnh hưởng VOD).
+   *  Dùng cho auto-live giải đấu (muốn giữ lại bản ghi). */
+  async endLiveKeepVod({ broadcastId, streamId, deleteStream = true }) {
+    const { oauth2 } = await getOAuthReady(this.cred || {});
+    const yt = google.youtube({ version: "v3", auth: oauth2 });
+    if (broadcastId) {
+      try {
+        await yt.liveBroadcasts.transition({
+          id: broadcastId,
+          broadcastStatus: "complete",
+          part: ["id", "status"],
+        });
+      } catch (e) {
+        // "redundantTransition" (đã complete do enableAutoStop) là bình thường → bỏ qua.
+        const msg = String(e?.errors?.[0]?.reason || e?.message || "");
+        if (!/redundant|invalidTransition|complete/i.test(msg)) {
+          console.warn("[YT] transition complete fail:", msg);
+        }
+      }
+    }
+    // Xoá liveStream ingest (dedicated per-match) để khỏi tồn đọng — KHÔNG đụng VOD.
+    if (deleteStream && streamId) {
+      try { await yt.liveStreams.delete({ id: streamId }); } catch {}
+    }
+  }
+
+  /** Kết thúc + xoá broadcast/stream (best-effort) — dùng cho dọn phiên test (KHÔNG giữ VOD). */
   async endAndDelete({ broadcastId, streamId }) {
     const { oauth2 } = await getOAuthReady(this.cred || {});
     const yt = google.youtube({ version: "v3", auth: oauth2 });
