@@ -447,16 +447,14 @@ async function drawSponsorRotating(ctx, logos, corner = "bottom-right") {
   if (!img) return;
   const boxW = 260, boxH = 100;
   const { x: bx, y: by } = cornerXY(corner, boxW, boxH, 48, 44);
-  // Nền bo tròn mờ cho logo nổi trên nền video sáng/tối
+  // KHÔNG vẽ nền trắng bao quanh — logo tài trợ hiển thị TRỰC TIẾP (nền trong suốt).
+  // Chỉ thêm bóng đổ nhẹ để logo vẫn rõ trên nền video sáng.
   ctx.save();
-  ctx.fillStyle = "rgba(255,255,255,0.92)";
-  roundedRect(ctx, bx - 14, by - 12, boxW + 28, boxH + 24, 14);
-  ctx.shadowColor = "rgba(0,0,0,0.35)";
-  ctx.shadowBlur = 16;
-  ctx.shadowOffsetY = 4;
-  ctx.fill();
-  ctx.restore();
+  ctx.shadowColor = "rgba(0,0,0,0.5)";
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 2;
   drawContain(ctx, img, bx, by, boxW, boxH, "center");
+  ctx.restore();
 }
 
 // Toạ độ góc neo cho 1 hộp wxh theo corner + lề.
