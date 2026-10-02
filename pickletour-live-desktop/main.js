@@ -872,15 +872,19 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
   //     Nếu chọn kiểu overlay A/B/C/D (HTML cao cấp) → tự dựng URL trang overlay theo
   //     sid + theme + góc; nếu đã truyền browserOverlayUrl thủ công thì ưu tiên nó.
   let browserOverlay = null;
+  // Scoreboard từ URL tuỳ chỉnh: nếu có browserOverlayUrl → dùng THẲNG trang đó làm
+  // overlay (không dùng trang /overlay/live.html của ta, không ticker của ta).
   let bovUrl = (form.browserOverlayUrl || "").trim();
   const ovStyle = String(form.overlayStyle || "").trim();
-  // LUÔN chạy browser overlay để hiện TICKER (chữ chạy cuối màn hình). theme=classic
-  // → trang chỉ hiện ticker (bảng điểm do PNG vẽ); theme=A/B/C/D → bảng điểm HTML + ticker.
-  if (!bovUrl && form.noTicker !== true) {
-    const theme = ["A", "B", "C", "D"].includes(ovStyle) ? ovStyle : "classic";
+  const isBrowserTheme = ["A", "B", "C", "D"].includes(ovStyle);
+  const wantTicker = form.noTicker !== true; // ticker bật mặc định
+  // Chạy trang overlay của ta khi: dùng theme HTML (A/B/C/D) HOẶC bật ticker.
+  if (!bovUrl && (isBrowserTheme || wantTicker)) {
+    const theme = isBrowserTheme ? ovStyle : "classic";
     const webBase = String(baseUrl || "").replace(/\/api\/?$/, "").replace(/\/+$/, "");
     const corner = (form.layout && form.layout.scoreboard) || "top-left";
-    bovUrl = `${webBase}/overlay/live.html?sid=${encodeURIComponent(sid)}&theme=${theme}&corner=${encodeURIComponent(corner)}`;
+    bovUrl = `${webBase}/overlay/live.html?sid=${encodeURIComponent(sid)}&theme=${theme}`
+      + `&corner=${encodeURIComponent(corner)}&ticker=${wantTicker ? "1" : "off"}`;
   }
   if (bovUrl) {
     try { browserOverlay = await startBrowserOverlay(bovUrl); }

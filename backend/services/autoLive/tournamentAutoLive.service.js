@@ -926,7 +926,9 @@ export async function startAutoLive(input) {
 
   // Kiểu overlay: client gửi → dùng; không gửi → dùng lại kiểu đã lưu cho sân;
   // fallback "classic". Lưu lại cho sân để lần sau giữ nguyên.
-  const ALLOWED_OVERLAY_STYLES = ["classic", "A", "B", "C", "D"];
+  // "url" = scoreboard từ URL tuỳ chỉnh (browserOverlayUrl do desktop dùng); PNG vẫn
+  // bỏ vẽ scoreboard (hideScoreboard) vì style !== "classic".
+  const ALLOWED_OVERLAY_STYLES = ["classic", "A", "B", "C", "D", "url"];
   let overlayStyle = String(input.overlayStyle || "").trim();
   if (!ALLOWED_OVERLAY_STYLES.includes(overlayStyle)) overlayStyle = "";
   if (!overlayStyle) {

@@ -76,6 +76,8 @@ export default function LiveAddPage() {
   const [title, setTitle] = useState("");
   const [encoder, setEncoder] = useState("auto");
   const [overlayStyle, setOverlayStyle] = useState("classic");
+  const [browserOverlayUrl, setBrowserOverlayUrl] = useState("");
+  const [showTicker, setShowTicker] = useState(true);
   const [schedAt, setSchedAt] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -181,8 +183,13 @@ export default function LiveAddPage() {
       title: title.trim(),
       encoder,
       overlayStyle,
+      noTicker: !showTicker,
       advanced: { resolutionH: 1080, fps: 0, videoBitrateKbps: 4500 },
     };
+    if (overlayStyle === "url") {
+      if (!browserOverlayUrl.trim()) throw new Error("Nhập URL scoreboard");
+      payload.browserOverlayUrl = browserOverlayUrl.trim();
+    }
     if (hideTs) payload.hideTimestamp = true;
     return payload;
   };
@@ -478,10 +485,32 @@ export default function LiveAddPage() {
             <MenuItem value="B">B · Aurora Glass</MenuItem>
             <MenuItem value="C">C · Minimal Clean</MenuItem>
             <MenuItem value="D">D · Neon Volt</MenuItem>
+            <MenuItem value="url">Scoreboard từ URL (tuỳ chỉnh)</MenuItem>
           </TextField>
+
+          {overlayStyle === "url" && (
+            <TextField
+              fullWidth
+              size="small"
+              label="URL scoreboard (trang HTML trong suốt)"
+              value={browserOverlayUrl}
+              onChange={(e) => setBrowserOverlayUrl(e.target.value)}
+              placeholder="https://… (trang overlay của bạn)"
+              helperText="Trang này sẽ được ghép vào luồng thay bảng điểm. Ticker của hệ thống sẽ không dùng (tự thêm trong trang nếu cần)."
+            />
+          )}
 
           {/* Toggles */}
           <Card variant="outlined" sx={{ p: 1.5 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={showTicker}
+                  onChange={(e) => setShowTicker(e.target.checked)}
+                />
+              }
+              label="Chữ chạy cuối màn hình (ticker)"
+            />
             <FormControlLabel
               control={
                 <Switch
