@@ -139,15 +139,12 @@ const tournamentAutoLiveSessionSchema = new Schema(
   { timestamps: true }
 );
 
-// Mỗi (sân + máy) chỉ 1 session không phải stopped → cho phép NHIỀU luồng/sân
-// (mỗi máy desktop 1 luồng) nhưng chặn trùng luồng trên cùng 1 máy cho cùng sân.
-tournamentAutoLiveSessionSchema.index(
-  { court: 1, machineId: 1, status: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { status: { $in: ["starting", "live", "reconnecting", "paused"] } },
-  }
-);
+// Cho phép NHIỀU luồng live trên CÙNG 1 sân (kể cả cùng 1 máy desktop) — mỗi lần
+// "thêm sân live" là 1 phiên độc lập (vd 1 máy vừa live Facebook cắt trận vừa live
+// YouTube xuyên suốt cùng sân). KHÔNG ràng buộc unique. Index phụ để truy vấn nhanh.
+// Phiên treo/mồ côi được dọn bằng cơ chế heartbeat (pollOnce: client mất heartbeat
+// >60s → error), không cần ép "1 phiên/sân".
+tournamentAutoLiveSessionSchema.index({ court: 1, machineId: 1, status: 1 });
 tournamentAutoLiveSessionSchema.index({ tournament: 1, status: 1 });
 
 export default mongoose.model("TournamentAutoLiveSession", tournamentAutoLiveSessionSchema);
