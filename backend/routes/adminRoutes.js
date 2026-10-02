@@ -13,6 +13,7 @@ import {
   updateUserSuperAdmin,
   adminVerifyUserPhone,
   adminSetPhoneRequired,
+  adminResetPhoneOtp,
 } from "../controllers/admin/adminController.js";
 import {
   createFinanceEntry,
@@ -756,6 +757,7 @@ router.patch("/users/:id/restore", restoreUser); // khôi phục tài khoản đ
 router.put("/users/:id", updateUserInfo);
 router.put("/users/:id/kyc", reviewUserKyc); // approve / reject
 router.patch("/users/:id/phone-verify", adminVerifyUserPhone); // kích hoạt SĐT không cần OTP
+router.post("/otp/reset", adminResetPhoneOtp); // reset lượt OTP trong ngày theo SĐT
 router.patch("/users/:id/phone-required", adminSetPhoneRequired); // buộc tài khoản xác minh SĐT
 
 // ===== Duyệt đổi biệt danh + reset cooldown =====

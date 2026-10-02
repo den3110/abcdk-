@@ -10,6 +10,25 @@ import mongoose from "mongoose";
 import { syncRegistrationProfileSnapshot } from "../../services/registrationProfileSync.service.js";
 import { sanitizeNameStyle } from "../../utils/nameStyle.js";
 import { invalidateNameStyleCache } from "../nameStyleController.js";
+import { resetOtpForPhone } from "../../services/otpSender.service.js";
+
+/**
+ * POST /api/admin/otp/reset  { phone }
+ * Admin reset lượt OTP trong ngày cho 1 SĐT (khi người dùng bị chặn "quá N lần/ngày").
+ */
+export const adminResetPhoneOtp = asyncHandler(async (req, res) => {
+  const raw = String(req.body?.phone || "").trim();
+  if (!raw) {
+    res.status(400);
+    throw new Error("Vui lòng nhập số điện thoại.");
+  }
+  const { phone84, deleted } = await resetOtpForPhone(raw);
+  res.json({
+    message: `Đã reset lượt OTP hôm nay cho ${raw} (xoá ${deleted} log). Người dùng có thể gửi lại ngay.`,
+    phone: phone84,
+    deleted,
+  });
+});
 
 const isSuperAdminActor = (req) =>
   Boolean(req.user?.isSuperUser || req.user?.isSuperAdmin);

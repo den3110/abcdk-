@@ -1,12 +1,31 @@
 // services/otpSender.service.js
 // Gửi OTP có rate-limit + ghi nhật ký (OtpLog). Dùng chung cho đăng ký + kích hoạt SĐT.
-//   - Tối đa 3 lần / ngày / SĐT (đếm lần gửi thành công)
+//   - Tối đa OTP_MAX_PER_DAY lần / ngày / SĐT (mặc định 5; đếm lần gửi thành công)
 //   - Mỗi lần cách nhau tối thiểu 60 giây (tính từ lần gửi gần nhất, mọi trạng thái)
 import OtpLog from "../models/otpLogModel.js";
 import { sendZaloZnsOtp } from "./zaloZns.service.js";
 
-export const OTP_MAX_PER_DAY = 3;
+// Cho phép chỉnh qua env OTP_MAX_PER_DAY (mặc định 5 lần/ngày/SĐT).
+export const OTP_MAX_PER_DAY = Math.max(1, Number(process.env.OTP_MAX_PER_DAY) || 5);
 export const OTP_MIN_INTERVAL_MS = 60 * 1000;
+
+/**
+ * Reset lượt OTP TRONG NGÀY cho 1 SĐT (admin dùng khi người dùng bị chặn).
+ * Xoá log OTP hôm nay của SĐT → đếm lại từ 0 + hết cooldown 60s.
+ * @returns {Promise<{phone84:string, deleted:number}>}
+ */
+export async function resetOtpForPhone(phone) {
+  const phone84 = normalizeTo84(phone);
+  if (!phone84 || phone84.length < 10) {
+    const e = new Error("Số điện thoại không hợp lệ.");
+    e.statusCode = 400;
+    throw e;
+  }
+  const startOfDay = new Date();
+  startOfDay.setHours(0, 0, 0, 0);
+  const r = await OtpLog.deleteMany({ phone: phone84, createdAt: { $gte: startOfDay } });
+  return { phone84, deleted: r?.deletedCount || 0 };
+}
 
 export function normalizeTo84(phone = "") {
   let s = String(phone).trim().replace(/\s+/g, "");
