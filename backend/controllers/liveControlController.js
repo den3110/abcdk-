@@ -102,13 +102,12 @@ export const proxyCall = asyncHandler(async (req, res) => {
     }
   }
 
-  // [TẠM] debug hẹn giờ: log body forward để biết web có gửi startAt không.
-  if (path.startsWith("/api/schedule")) {
-    try {
-      const bb = b.body || {};
-      console.log("[live-control][schedule] forward body keys:", Object.keys(bb),
-        "| startAt:", bb.startAt, "type:", typeof bb.startAt);
-    } catch {}
+  // Hẹn giờ: chuẩn hoá startAt về SỐ epoch(ms) trước khi forward tới máy live. Web/
+  // middleware có thể để startAt thành Date/chuỗi ISO → desktop Number(ISO)=NaN →
+  // "Thời điểm hẹn không hợp lệ". new Date(...).getTime() xử lý mọi dạng (số/chuỗi/Date).
+  if (path.startsWith("/api/schedule") && b.body && b.body.startAt != null) {
+    const ms = new Date(b.body.startAt).getTime();
+    if (Number.isFinite(ms)) b.body.startAt = ms;
   }
 
   const base = `http://${m.tailscaleIp}:${m.port || 8788}`;
