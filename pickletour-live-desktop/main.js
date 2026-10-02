@@ -88,8 +88,41 @@ app.whenReady().then(() => {
   // Khôi phục các lịch hẹn giờ live còn hiệu lực (app từng tắt/mở lại).
   try { restoreSchedules(); } catch (e) { console.error("[schedule] restore fail", e?.message || e); }
 });
-app.on("window-all-closed", () => { stopAll(); if (process.platform !== "darwin") app.quit(); });
-app.on("before-quit", stopAll);
+app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
+
+// Khi TẮT app → FORCE QUIT mọi luồng live do app này tạo: báo backend dừng (end
+// FB/YT + đánh dấu stopped, tránh phiên "treo" vẫn hiện live) rồi KILL CỨNG cả cây
+// tiến trình (python + ffmpeg con). Giữ app sống tới khi xong (có timeout an toàn).
+let isQuitting = false;
+app.on("before-quit", (e) => {
+  if (isQuitting) return;
+  isQuitting = true;
+  try { stopPreview(); } catch {}
+  if (!running.size) return; // không còn luồng → thoát ngay
+  e.preventDefault();
+  const finish = () => { try { app.exit(0); } catch { try { process.exit(0); } catch {} } };
+  const safety = setTimeout(finish, 4500); // dù backend chậm/không phản hồi cũng thoát
+  stopAllForQuit().catch(() => {}).finally(() => { clearTimeout(safety); finish(); });
+});
+
+async function stopAllForQuit() {
+  const entries = [...running.entries()];
+  if (!entries.length) return;
+  // 1) Báo backend dừng từng phiên (best-effort, timeout tổng ~3s để không kẹt thoát).
+  await Promise.race([
+    Promise.allSettled(entries.map(([sid, r]) =>
+      (r.baseUrl && r.token)
+        ? apiFetch(r.baseUrl, `/api/tournament-auto-live/${sid}/stop`, { method: "POST", token: r.token })
+        : Promise.resolve()
+    )),
+    new Promise((res) => setTimeout(res, 3000)),
+  ]);
+  // 2) Kill CỨNG cả cây tiến trình + dọn server/overlay/tunnel.
+  for (const [sid, r] of entries) {
+    try { killTree(r.proc); } catch {}
+    try { cleanupWorker(sid); } catch {}
+  }
+}
 
 function stopAll() {
   for (const [sid] of running) stopWorker(sid);
@@ -953,9 +986,13 @@ async function startFfmpegForSession({ baseUrl, token, form, sid }) {
   const logFd = fs.openSync(logFile, "a");
   // Tự chứa → spawn binary worker đã đóng gói (không cần Python); ngược lại
   // spawn python worker.py.
+  // detached (POSIX): worker ở NHÓM tiến trình riêng → khi tắt app ta kill cả NHÓM
+  // (python + ffmpeg con) bằng process.kill(-pid). Windows dùng taskkill /T /F nên
+  // KHÔNG đặt detached (tránh bật cửa sổ console phụ). Xem killTree().
+  const spawnOpts = { env, stdio: ["ignore", logFd, logFd], detached: process.platform !== "win32" };
   const proc = selfContained
-    ? spawn(bundledWorkerBin(), [], { env, stdio: ["ignore", logFd, logFd] })
-    : spawn(python, [workerScriptPath()], { env, stdio: ["ignore", logFd, logFd] });
+    ? spawn(bundledWorkerBin(), [], spawnOpts)
+    : spawn(python, [workerScriptPath()], spawnOpts);
   running.set(sid, { proc, previewDir, previewServer, previewPort, cfg, logFile, dahuaSerial, browserOverlay, baseUrl, token, form });
 
   // Recording clip từng trận: chạy uploader đẩy segment về server ban đêm. Uploader
@@ -986,11 +1023,26 @@ function cleanupWorker(sid) {
   running.delete(sid);
 }
 
+// Kill CẢ CÂY tiến trình của worker (python + ffmpeg con + overlay con…). POSIX:
+// worker spawn detached nên nằm ở nhóm riêng → kill nguyên nhóm bằng -pid. Windows:
+// taskkill /T (tree) /F (force) diệt luôn tiến trình con ffmpeg.
+function killTree(proc, signal = "SIGKILL") {
+  if (!proc || proc.killed || !proc.pid) return;
+  const pid = proc.pid;
+  if (process.platform === "win32") {
+    try { spawnSync("taskkill", ["/PID", String(pid), "/T", "/F"]); } catch {}
+  } else {
+    try { process.kill(-pid, signal); }
+    catch { try { proc.kill(signal); } catch {} }
+  }
+}
+
 function stopWorker(sid) {
   const r = running.get(sid);
   if (!r) return;
   try { r.proc.kill("SIGTERM"); } catch {}
-  setTimeout(() => { try { r.proc.kill("SIGKILL"); } catch {} }, 5000);
+  // Sau 5s chưa chết → diệt CẢ CÂY (python + ffmpeg con), tránh ffmpeg mồ côi còn stream.
+  setTimeout(() => { try { killTree(r.proc); } catch {} }, 5000);
   cleanupWorker(sid);
 }
 
@@ -1085,9 +1137,10 @@ async function startPreview({ baseUrl, token, source, destinations, overlayUrl }
   const logFile = path.join(dir, "preview.log");
   lastPreviewLog = logFile;
   const logFd = fs.openSync(logFile, "a");
+  const spawnOpts = { env, stdio: ["ignore", logFd, logFd], detached: process.platform !== "win32" };
   const proc = selfContained
-    ? spawn(bundledWorkerBin(), [], { env, stdio: ["ignore", logFd, logFd] })
-    : spawn(python, [workerScriptPath()], { env, stdio: ["ignore", logFd, logFd] });
+    ? spawn(bundledWorkerBin(), [], spawnOpts)
+    : spawn(python, [workerScriptPath()], spawnOpts);
   previewState = { proc, dir, server, logFile };
   proc.on("exit", (code) => {
     sendToRenderer("preview-exit", { code, log: tailFile(logFile) });
@@ -1101,7 +1154,7 @@ function stopPreview() {
   previewState = null;
   if (!p) return;
   try { p.proc.kill("SIGTERM"); } catch {}
-  setTimeout(() => { try { p.proc.kill("SIGKILL"); } catch {} }, 4000);
+  setTimeout(() => { try { killTree(p.proc); } catch {} }, 4000);
   try { p.server?.close(); } catch {}
 }
 
