@@ -79,7 +79,7 @@ export default function LiveControlPage() {
   const [callMut] = useLiveControlCallMutation();
   const [createCommentaryToken] = useCreateCommentaryTokenMutation();
 
-  const [snap, setSnap] = useState({ perf: {}, sessions: [] });
+  const [snap, setSnap] = useState({ perf: {}, sessions: [], schedules: [] });
   const [opacity, setOpacity] = useState(100);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -106,7 +106,7 @@ export default function LiveControlPage() {
     if (!machineId) return;
     try {
       const d = await call("/api/state");
-      setSnap({ perf: d?.perf || {}, sessions: d?.sessions || [] });
+      setSnap({ perf: d?.perf || {}, sessions: d?.sessions || [], schedules: d?.schedules || [] });
       setErr("");
     } catch (e) {
       setErr(e?.data?.message || e?.message || "Không kết nối được máy live");
@@ -194,7 +194,10 @@ export default function LiveControlPage() {
   };
 
   const sessions = snap.sessions || [];
+  const schedules = snap.schedules || [];
   const perf = snap.perf || {};
+  const fmtSched = (ms) => { try { return new Date(Number(ms)).toLocaleString("vi-VN"); } catch { return String(ms); } };
+  const cancelSchedule = (sc) => withBusy(() => call("/api/schedule-cancel", "POST", { id: sc.id }));
 
   if (!userInfo) return <Navigate to="/login" replace />;
   if (!canAccess) return <Navigate to="/403" replace />;
@@ -335,6 +338,39 @@ export default function LiveControlPage() {
             >
               Dừng tất cả
             </Button>
+          )}
+
+          {/* Lịch đã hẹn giờ */}
+          {!commentaryOnly && schedules.length > 0 && (
+            <Card variant="outlined" sx={{ p: 2, mb: 2, mt: 1 }}>
+              <Typography sx={{ fontWeight: 700, mb: 1 }}>
+                ⏰ Lịch đã hẹn ({schedules.length})
+              </Typography>
+              <Stack spacing={1}>
+                {schedules.map((sc) => (
+                  <Stack
+                    key={sc.id}
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                    spacing={1}
+                    sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, px: 1.5, py: 1 }}
+                  >
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
+                        {sc.label || sc.title || [sc.meta?.tournamentName, sc.meta?.courtName].filter(Boolean).join(" - ") || "(live)"}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {fmtSched(sc.startAt)}{sc.meta?.perMatch ? " · live từng trận" : ""}
+                      </Typography>
+                    </Box>
+                    <Button size="small" color="error" variant="outlined" onClick={() => cancelSchedule(sc)}>
+                      Xoá
+                    </Button>
+                  </Stack>
+                ))}
+              </Stack>
+            </Card>
           )}
 
           {/* Danh sách sân */}

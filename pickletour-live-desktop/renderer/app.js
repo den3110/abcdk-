@@ -599,6 +599,8 @@ if ($("btnSchedule")) {
   };
   loadSchedules();
 }
+// Poll lịch định kỳ → lịch hẹn thêm TỪ XA (web/mobile) cũng hiện trên desktop.
+try { setInterval(() => { loadSchedules(); }, 12000); } catch {}
 if (window.api.onScheduleStarted) {
   window.api.onScheduleFired?.(({ label }) => {
     $("setupErr").textContent = `⏰ Tới giờ — đang bắt đầu live: ${label || ""}`;
@@ -1250,7 +1252,9 @@ function resetSetupForNewCourt() {
 }
 
 // ══════════ Điều khiển từ xa (nhận lệnh từ web mobile qua main) ══════════
-function buildRemoteState() {
+async function buildRemoteState() {
+  let schedules = [];
+  try { const r = await window.api.scheduleList(); schedules = r?.schedules || []; } catch {}
   const sessions = [...state.sessions.values()].map((S) => {
     const s = S.lastStatus || {};
     const clips = S.clips || [];
@@ -1450,13 +1454,14 @@ if (window.api.onRemoteCmd) {
   window.api.onRemoteCmd(async ({ id, action, payload }) => {
     let ok = true, data = null, error = "";
     try {
-      if (action === "state") data = buildRemoteState();
+      if (action === "state") data = await buildRemoteState();
       else if (action === "options") data = await remoteOptions(payload || {});
       else if (action === "stop") { await stopSession(payload?.sid); data = { stopped: payload?.sid }; }
       else if (action === "stopAll") { for (const sid of [...state.sessions.keys()]) await stopSession(sid); data = { stopped: "all" }; }
       else if (action === "start") data = await remoteStart(payload || {});
       else if (action === "setLayout") data = await remoteSetLayout(payload || {});
       else if (action === "schedule") data = await remoteSchedule(payload || {});
+      else if (action === "scheduleCancel") { const r = await window.api.scheduleCancel(String(payload?.id || "")); data = { ok: true, schedules: r?.schedules || [] }; }
       else if (action === "setTimestampCover") data = await remoteSetTimestampCover(payload || {});
       else if (action === "getOpacity") data = await apiGet("/api/tournament-auto-live/overlay-opacity");
       else if (action === "setOpacity") data = await apiReq("PATCH", "/api/tournament-auto-live/overlay-opacity", { opacity: Number(payload?.opacity) });

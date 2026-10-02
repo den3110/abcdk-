@@ -1398,7 +1398,7 @@ function startControlServer() {
       if (req.method === "POST") {
         const body = await readReqBody(req);
         const j = body ? JSON.parse(body) : {};
-        const map = { "/api/stop": "stop", "/api/stop-all": "stopAll", "/api/start": "start", "/api/set-layout": "setLayout", "/api/set-opacity": "setOpacity", "/api/schedule": "schedule", "/api/set-ts-cover": "setTimestampCover" };
+        const map = { "/api/stop": "stop", "/api/stop-all": "stopAll", "/api/start": "start", "/api/set-layout": "setLayout", "/api/set-opacity": "setOpacity", "/api/schedule": "schedule", "/api/schedule-cancel": "scheduleCancel", "/api/set-ts-cover": "setTimestampCover" };
         const action = map[u.pathname];
         if (!action) return send(404, { error: "not found" });
         const r = await remoteInvoke(action, j);
