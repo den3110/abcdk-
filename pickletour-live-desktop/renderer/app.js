@@ -1282,7 +1282,7 @@ async function buildRemoteState() {
       exited: !!(S.exited && !S.perMatch),
     };
   });
-  return { sessions, loggedIn: !!state.token };
+  return { sessions, schedules, loggedIn: !!state.token };
 }
 
 // Đổi vị trí overlay 1 sân từ xa (điều khiển điện thoại).
