@@ -47,6 +47,32 @@ const angleColor = (angle) =>
         ? "#f59e0b"
         : "#3b82f6";
 
+/** Giây -> "h:mm:ss" / "m:ss". Rỗng nếu không có. */
+const fmtDuration = (sec) => {
+  const s = Math.max(0, Math.floor(Number(sec) || 0));
+  if (!s) return "";
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const p = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${p(m)}:${p(ss)}` : `${m}:${p(ss)}`;
+};
+
+/** Ngày up clip: "20/10 14:30" (năm nay) hoặc "20/10/2025". Rỗng nếu không có. */
+const fmtClipDate = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  if (d.getFullYear() === new Date().getFullYear()) {
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mi = String(d.getMinutes()).padStart(2, "0");
+    return `${dd}/${mm} ${hh}:${mi}`;
+  }
+  return `${dd}/${mm}/${d.getFullYear()}`;
+};
+
 function LiveDot() {
   return (
     <Box
@@ -762,6 +788,25 @@ export default function EventLivePage() {
                                       loading="lazy"
                                     />
                                   )}
+                                  {fmtDuration(v.durationSec) && (
+                                    <Box
+                                      sx={{
+                                        position: "absolute",
+                                        bottom: 3,
+                                        right: 3,
+                                        px: 0.5,
+                                        py: "1px",
+                                        borderRadius: 0.75,
+                                        bgcolor: "rgba(0,0,0,.8)",
+                                        color: "#fff",
+                                        fontSize: 10,
+                                        fontWeight: 700,
+                                        lineHeight: 1.4,
+                                      }}
+                                    >
+                                      {fmtDuration(v.durationSec)}
+                                    </Box>
+                                  )}
                                 </Box>
                                 <Box sx={{ minWidth: 0 }}>
                                   <Chip
@@ -775,6 +820,19 @@ export default function EventLivePage() {
                                   >
                                     {v.title}
                                   </Typography>
+                                  {(fmtClipDate(v.publishedAt) || fmtDuration(v.durationSec)) && (
+                                    <Typography
+                                      variant="caption"
+                                      sx={{ display: "block", color: "#64748b", fontSize: 11, mt: 0.1 }}
+                                    >
+                                      {[
+                                        fmtClipDate(v.publishedAt),
+                                        fmtDuration(v.durationSec) && `⏱ ${fmtDuration(v.durationSec)}`,
+                                      ]
+                                        .filter(Boolean)
+                                        .join(" · ")}
+                                    </Typography>
+                                  )}
                                 </Box>
                               </Stack>
                             ))}

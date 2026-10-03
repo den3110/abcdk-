@@ -136,6 +136,17 @@ export function parseCourtAngle(rawTitle) {
   return { courtKey, courtLabel, courtSort, venue, angle, angleLabel };
 }
 
+/** Chuyển duration ISO 8601 của YouTube (vd "PT1H23M45S") -> số giây. 0 nếu không có/không hợp lệ (live). */
+function parseIsoDuration(iso) {
+  const s = String(iso || "");
+  const m = s.match(/^P(?:\d+D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/);
+  if (!m) return 0;
+  const h = Number(m[1] || 0),
+    mi = Number(m[2] || 0),
+    se = Number(m[3] || 0);
+  return h * 3600 + mi * 60 + se;
+}
+
 const bestThumb = (sn) => {
   const t = sn?.thumbnails || {};
   return (
@@ -320,7 +331,7 @@ async function fetchOneChannel({ channel, keywords }, apiKey) {
     try {
       j = await ytApi(
         "videos",
-        { part: "snippet,status", id: ids.slice(i, i + 50).join(",") },
+        { part: "snippet,status,contentDetails", id: ids.slice(i, i + 50).join(",") },
         apiKey,
       );
     } catch {
@@ -335,6 +346,7 @@ async function fetchOneChannel({ channel, keywords }, apiKey) {
         title,
         thumbnail: bestThumb(sn),
         publishedAt: sn.publishedAt || null,
+        durationSec: parseIsoDuration(v.contentDetails?.duration),
         embeddable: v.status?.embeddable !== false,
         ...parseCourtAngle(title),
       });
