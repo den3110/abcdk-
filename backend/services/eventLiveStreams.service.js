@@ -10,6 +10,14 @@ const TTL_MS = 90 * 1000;
 const CHANNEL_TTL_MS = 6 * 3600 * 1000;
 
 /** Chuẩn hoá chuỗi -> slug ổn định (bỏ dấu, thường hoá). */
+const slugKey = (s) =>
+  String(s || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+
 async function ytApi(path, params, apiKey) {
   const url = new URL(`https://www.googleapis.com/youtube/v3/${path}`);
   for (const [k, v] of Object.entries(params || {})) {
