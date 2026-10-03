@@ -104,10 +104,19 @@ function maskOpsMonitor(opsMonitor) {
 function maskEventLive(eventLive) {
   if (!eventLive || typeof eventLive !== "object") return eventLive;
   const youtubeApiKeySet = Boolean(String(eventLive.youtubeApiKey || "").trim());
+  // Che cả API key của từng giải trong events[]
+  const events = Array.isArray(eventLive.events)
+    ? eventLive.events.map((ev) => ({
+        ...ev,
+        youtubeApiKey: "",
+        youtubeApiKeySet: Boolean(String(ev?.youtubeApiKey || "").trim()),
+      }))
+    : eventLive.events;
   return {
     ...eventLive,
     youtubeApiKey: "",
     youtubeApiKeySet,
+    ...(events !== undefined ? { events } : {}),
   };
 }
 
@@ -665,6 +674,28 @@ export const updateSystemSettings = async (req, res, next) => {
     // eventLive: dot-notation từng field. Bỏ youtubeApiKey rỗng để KHÔNG xoá key
     // đã lưu khi UI mask và gửi trống.
     if (patch.eventLive && typeof patch.eventLive === "object") {
+      // events[]: giữ lại youtubeApiKey cũ (theo slug) khi UI gửi rỗng (do mask).
+      if (Array.isArray(patch.eventLive.events)) {
+        const prevEvents = Array.isArray(previous?.eventLive?.events)
+          ? previous.eventLive.events
+          : [];
+        const prevKeyBySlug = new Map(
+          prevEvents
+            .filter((e) => String(e?.slug || "").trim())
+            .map((e) => [
+              String(e.slug).trim().toLowerCase(),
+              String(e?.youtubeApiKey || ""),
+            ]),
+        );
+        patch.eventLive.events = patch.eventLive.events.map((ev) => {
+          const key = String(ev?.youtubeApiKey || "").trim();
+          if (key) return ev;
+          const prevKey = prevKeyBySlug.get(
+            String(ev?.slug || "").trim().toLowerCase(),
+          );
+          return prevKey ? { ...ev, youtubeApiKey: prevKey } : ev;
+        });
+      }
       for (const [k, v] of Object.entries(patch.eventLive)) {
         if (k === "youtubeApiKey" && !String(v || "").trim()) continue;
         patch[`eventLive.${k}`] = v;

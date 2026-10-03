@@ -16,6 +16,7 @@ import {
   Grid,
   Avatar,
 } from "@mui/material";
+import { useParams } from "react-router-dom";
 import LiveTvIcon from "@mui/icons-material/LiveTv";
 import ReplayIcon from "@mui/icons-material/Replay";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
@@ -394,7 +395,8 @@ function MiniPlayer({ feed, onSwap, onClose }) {
 }
 
 export default function EventLivePage() {
-  const { data, isLoading, isError } = useGetEventLiveQuery(undefined, {
+  const { slug = "" } = useParams();
+  const { data, isLoading, isError } = useGetEventLiveQuery(slug || undefined, {
     pollingInterval: 60000,
     refetchOnMountOrArgChange: true,
   });

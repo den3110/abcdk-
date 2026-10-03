@@ -4,11 +4,12 @@
 import { getSystemSettingsRuntime } from "./systemSettingsRuntime.service.js";
 import { getCfgStr } from "./config.service.js";
 
-const CACHE = { at: 0, data: null };
+const CACHE = new Map(); // slugKey -> { at, data } (mỗi giải 1 slot)
 const CHANNEL_CACHE = new Map(); // channel(config) -> { channelId, uploads, at }
 const TTL_MS = 90 * 1000;
 const CHANNEL_TTL_MS = 6 * 3600 * 1000;
 
+/** Chuẩn hoá chuỗi -> slug ổn định (bỏ dấu, thường hoá). */
 async function ytApi(path, params, apiKey) {
   const url = new URL(`https://www.googleapis.com/youtube/v3/${path}`);
   for (const [k, v] of Object.entries(params || {})) {
@@ -342,16 +343,13 @@ const dedupById = (arr) => {
   return arr.filter((f) => f.videoId && !seen.has(f.videoId) && seen.add(f.videoId));
 };
 
-export async function getEventLiveConfig() {
-  let cfg = {};
-  try {
-    const settings = await getSystemSettingsRuntime({ ensureDocument: true });
-    cfg = settings?.eventLive || {};
-  } catch {
-    cfg = {};
-  }
+/** Chuẩn hoá 1 object cấu hình giải (dùng chung cho giải mặc định & giải trong events[]). */
+function normalizeEventCfg(raw) {
+  const cfg = raw || {};
   return {
     enabled: cfg.enabled === true,
+    slug: slugKey(cfg.slug || ""),
+    pinnedToHome: cfg.pinnedToHome !== false,
     eventName: cfg.eventName || "",
     eventLogoUrl: cfg.eventLogoUrl || "",
     bannerImageUrl: cfg.bannerImageUrl || "",
@@ -365,11 +363,67 @@ export async function getEventLiveConfig() {
   };
 }
 
+/** Một giải được xem là "có cấu hình" khi có kênh YouTube hoặc >=1 luồng thủ công. */
+function isEventConfigured(cfg) {
+  if (cfg?.youtubeChannel) return true;
+  return (cfg?.manualStreams || []).some(
+    (m) => m && m.enabled !== false && String(m.url || "").trim(),
+  );
+}
+
+/** Đọc toàn bộ cấu hình event-live: giải mặc định + mảng giải phụ (events[]). */
+async function getAllEventConfigs() {
+  let root = {};
+  try {
+    const settings = await getSystemSettingsRuntime({ ensureDocument: true });
+    root = settings?.eventLive || {};
+  } catch {
+    root = {};
+  }
+  const def = { ...normalizeEventCfg(root), __default: true };
+  const extra = (Array.isArray(root.events) ? root.events : []).map((e) =>
+    normalizeEventCfg(e),
+  );
+  return { def, extra, all: [def, ...extra] };
+}
+
+/** Cấu hình 1 giải theo slug. Không truyền slug -> giải mặc định (tương thích cũ).
+ *  slug không khớp -> trả cấu hình "tắt" để client hiện trạng thái trống. */
+export async function getEventLiveConfig(slug = "") {
+  const want = slugKey(slug || "");
+  const { def, all } = await getAllEventConfigs();
+  if (!want) return def;
+  const found = all.find((c) => c.slug && c.slug === want);
+  if (found) return found;
+  return { ...normalizeEventCfg({}), slug: want };
+}
+
+/** Danh sách giải để hiện banner trang chủ (web + mobile): bật + ghim + có cấu hình. */
+export async function listHomeEvents() {
+  const { all } = await getAllEventConfigs();
+  return all
+    .filter((c) => c.enabled && c.pinnedToHome && isEventConfigured(c))
+    .map((c) => ({
+      slug: c.slug || "",
+      eventName: c.eventName || "",
+      eventLogoUrl: c.eventLogoUrl || "",
+      bannerImageUrl: c.bannerImageUrl || "",
+      tournamentId: c.tournamentId || "",
+      configured: true,
+    }));
+}
+
+/** Các giải cần auto-notify (bật + autoNotify + có kênh YouTube). Dùng cho job. */
+export async function getAutoNotifyEvents() {
+  const { all } = await getAllEventConfigs();
+  return all.filter((c) => c.enabled && c.autoNotify && c.youtubeChannel);
+}
+
 /** Dò nhanh & RẺ các luồng đang LIVE (chỉ playlistItems + videos.list, KHÔNG
  *  dùng search 100-quota) — dùng cho job auto-notify chạy định kỳ.
  *  @returns {Promise<{enabled, eventName, live:[{videoId,courtKey,courtLabel}]}>} */
-export async function detectLiveNow() {
-  const cfg = await getEventLiveConfig();
+export async function detectLiveNow(inputCfg = null) {
+  const cfg = inputCfg || (await getEventLiveConfig());
   if (!cfg.enabled || !cfg.youtubeChannel) return { enabled: false, live: [] };
   const apiKey =
     (cfg._apiKey || "").trim() || (await getCfgStr("YOUTUBE_API_KEY", "")).trim();
@@ -423,14 +477,6 @@ function hashUrl(str) {
   return `hls_${(h >>> 0).toString(36)}`;
 }
 
-const slugKey = (s) =>
-  String(s || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-
 /** Xây feed từ các luồng thủ công (HLS/URL) trong cấu hình. */
 function buildManualFeeds(cfg) {
   const list = Array.isArray(cfg.manualStreams) ? cfg.manualStreams : [];
@@ -464,13 +510,16 @@ function buildManualFeeds(cfg) {
 }
 
 /** Dữ liệu cho client: { enabled, event..., live:[], replays:[] }. Cache 90s. */
-export async function getEventLiveData({ force = false } = {}) {
+export async function getEventLiveData({ force = false, slug = "" } = {}) {
+  const key = slugKey(slug || "");
   const now = Date.now();
-  if (!force && CACHE.data && now - CACHE.at < TTL_MS) return CACHE.data;
+  const cached = CACHE.get(key);
+  if (!force && cached && now - cached.at < TTL_MS) return cached.data;
 
-  const cfg = await getEventLiveConfig();
+  const cfg = await getEventLiveConfig(slug);
   const base = {
     enabled: cfg.enabled,
+    slug: cfg.slug || key,
     eventName: cfg.eventName,
     eventLogoUrl: cfg.eventLogoUrl,
     bannerImageUrl: cfg.bannerImageUrl,
@@ -481,8 +530,7 @@ export async function getEventLiveData({ force = false } = {}) {
   };
 
   if (!cfg.enabled) {
-    CACHE.data = base;
-    CACHE.at = now;
+    CACHE.set(key, { data: base, at: now });
     return base;
   }
 
@@ -538,12 +586,10 @@ export async function getEventLiveData({ force = false } = {}) {
   base.replays = groupByCourt(allReplays, "videos");
   base.updatedAt = new Date().toISOString();
 
-  CACHE.data = base;
-  CACHE.at = now;
+  CACHE.set(key, { data: base, at: now });
   return base;
 }
 
 export function invalidateEventLiveCache() {
-  CACHE.at = 0;
-  CACHE.data = null;
+  CACHE.clear();
 }

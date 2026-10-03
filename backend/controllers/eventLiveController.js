@@ -4,6 +4,7 @@ import asyncHandler from "express-async-handler";
 import {
   getEventLiveData,
   getEventLiveConfig,
+  listHomeEvents,
 } from "../services/eventLiveStreams.service.js";
 import EventLiveView from "../models/eventLiveViewModel.js";
 
@@ -17,27 +18,41 @@ const normPlatform = (p) =>
     ? String(p).toLowerCase()
     : "unknown";
 
-// GET /api/event-live  -> { enabled, event..., live:[], replays:[] }
+// GET /api/event-live        -> giải mặc định
+// GET /api/event-live/:slug  -> giải theo slug (vd /api/event-live/riverside)
+// -> { enabled, slug, event..., live:[], replays:[] }
 export const getEventLive = asyncHandler(async (req, res) => {
   const force = String(req.query.refresh || "") === "1";
-  const data = await getEventLiveData({ force });
+  const slug = String(req.params?.slug || "").trim();
+  const data = await getEventLiveData({ force, slug });
   res.set("Cache-Control", "public, max-age=60");
   res.json(data);
 });
 
-// GET /api/event-live/config -> { enabled, eventName, eventLogoUrl, bannerImageUrl, tournamentId }
+// GET /api/event-live/config        -> cấu hình giải mặc định (cho banner cũ)
+// GET /api/event-live/config/:slug  -> cấu hình 1 giải theo slug
 // (nhẹ, cho banner trang chủ; KHÔNG trả apiKey/channel)
 export const getEventLiveConfigPublic = asyncHandler(async (req, res) => {
-  const cfg = await getEventLiveConfig();
+  const slug = String(req.params?.slug || "").trim();
+  const cfg = await getEventLiveConfig(slug);
   res.set("Cache-Control", "public, max-age=120");
   res.json({
     enabled: cfg.enabled,
+    slug: cfg.slug || slug,
     eventName: cfg.eventName,
     eventLogoUrl: cfg.eventLogoUrl,
     bannerImageUrl: cfg.bannerImageUrl,
     tournamentId: cfg.tournamentId,
     configured: Boolean(cfg.youtubeChannel),
   });
+});
+
+// GET /api/event-live/home -> [{ slug, eventName, eventLogoUrl, bannerImageUrl, tournamentId, configured }]
+// Danh sách các giải cần hiện banner trên trang chủ (web + mobile).
+export const getEventLiveHome = asyncHandler(async (req, res) => {
+  const events = await listHomeEvents();
+  res.set("Cache-Control", "public, max-age=120");
+  res.json({ events });
 });
 
 // POST /api/event-live/track  body: { platform, videoId?, deviceId? }

@@ -63,6 +63,7 @@ function needsV3ContentShell(pathname, search = "") {
   if (V3_SHELL_PATHS.has(path)) return true;
 
   return [
+    /^\/live\/event(?:\/|$)/,
     /^\/(?:user|profile)\/[^/]+$/,
     /^\/courts(?:\/|$)/,
     /^\/events\/[^/]+$/,
@@ -385,7 +386,8 @@ const App = () => {
     isOverlayStudioPage;
   // Trang Xem live giải đấu: giữ header (điều hướng) nhưng KHÔNG footer +
   // không ép min-height, để layout khít viewport (không phải scroll trang).
-  const isEventLiveFull = astryxPath === "/live/event";
+  const isEventLiveFull =
+    astryxPath === "/live/event" || astryxPath.startsWith("/live/event/");
   // /messages page fullscreen trên mobile khi user đã chọn 1 conversation
   // (?c=xxx) — hide site header + bottom nav để chat chiếm trọn viewport.
   const isMessagesConvView =
@@ -397,7 +399,8 @@ const App = () => {
       routeMatches.some((match) => match.id === "public-not-found"));
   const isV3AuthPage = isV3Version && isAuthPage;
   const isV3ImmersiveChromeRoute =
-    isV3Version && astryxPath === "/live/event";
+    isV3Version &&
+    (astryxPath === "/live/event" || astryxPath.startsWith("/live/event/"));
   const isV3FullScreenLayout = isV3ContentShellRoute || isV3AuthPage;
   const hideMobileBottomNav =
     isAstryxHomeRoute || isMessagesConvView || isV3ContentShellRoute;

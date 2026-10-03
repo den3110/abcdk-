@@ -318,8 +318,10 @@ app.use("/api/admin/feed", adminFeedRoutes);
 app.use("/api/feed", feedRoutes);
 app.use("/api/market", marketRoutes);
 app.use("/api/name-styles", nameStyleRoutes);
-app.use("/api/event-live", eventLiveRoutes);
+// Mount /comments TRƯỚC router chính vì router chính có route động /:slug
+// (nếu không, "/api/event-live/comments" sẽ bị khớp thành slug="comments").
 app.use("/api/event-live/comments", eventLiveCommentRoutes);
+app.use("/api/event-live", eventLiveRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/court-owner", courtOwnerRoutes);
 app.use("/api/packages", packageRoutes);

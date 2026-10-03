@@ -320,6 +320,7 @@ const router = sentryCreateBrowserRouter(
         <Route path="/live" element={<LiveMatchesPage />} />
         <Route path="/live/feed" element={<LiveFeedPage />} />
         <Route path="/live/event" element={<EventLivePage />} />
+        <Route path="/live/event/:slug" element={<EventLivePage />} />
         <Route path="/live/clusters" element={<LiveCourtClustersPage />} />
         <Route path="/settings/facebook" element={<FacebookLiveSettings />} />
       </Route>

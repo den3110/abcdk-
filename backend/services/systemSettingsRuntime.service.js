@@ -145,6 +145,10 @@ export const DEFAULT_SYSTEM_SETTINGS = {
   },
   eventLive: {
     enabled: false,
+    // Slug đường dẫn của giải mặc định (/live/event/<slug>). Rỗng = chỉ /live/event.
+    slug: "",
+    // Đẩy banner giải ra trang chủ (web + mobile).
+    pinnedToHome: true,
     eventName: "",
     eventLogoUrl: "",
     bannerImageUrl: "",
@@ -157,6 +161,8 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     // Lọc danh sách "Xem lại" theo tên sân/tiêu đề: chỉ hiện video có title chứa chuỗi
     // này (không phân biệt hoa thường). Rỗng = hiện tất cả. VD: "Riverside".
     replayTitleFilter: "",
+    // Nhiều giải song song, mỗi giải có slug riêng (/live/event/<slug>).
+    events: [],
   },
   aiGateway: {
     enabled: true,
@@ -299,6 +305,9 @@ export function normalizeSystemSettings(doc = {}) {
     eventLive: {
       ...DEFAULT_SYSTEM_SETTINGS.eventLive,
       ...(source.eventLive || {}),
+      events: Array.isArray(source.eventLive?.events)
+        ? source.eventLive.events
+        : DEFAULT_SYSTEM_SETTINGS.eventLive.events,
     },
     aiGateway: {
       ...DEFAULT_SYSTEM_SETTINGS.aiGateway,

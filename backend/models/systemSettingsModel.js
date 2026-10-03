@@ -342,6 +342,11 @@ const SystemSettingsSchema = new mongoose.Schema(
     // tổng hợp live + video xem lại từ 1 kênh YouTube, gom theo sân/góc cam.
     eventLive: {
       enabled: { type: Boolean, default: false },
+      // Slug đường dẫn của giải mặc định (vd "riverside" -> /live/event/riverside).
+      // Để trống vẫn xem được ở /live/event.
+      slug: { type: String, default: "", trim: true },
+      // Đẩy banner giải này ra trang chủ (web + mobile).
+      pinnedToHome: { type: Boolean, default: true },
       eventName: { type: String, default: "", trim: true },
       eventLogoUrl: { type: String, default: "", trim: true },
       bannerImageUrl: { type: String, default: "", trim: true },
@@ -355,6 +360,8 @@ const SystemSettingsSchema = new mongoose.Schema(
       autoNotify: { type: Boolean, default: false },
       // Cooldown giữa 2 lần auto-push (phút) để tránh spam khi nhiều sân lên sóng lệch giờ
       autoNotifyCooldownMinutes: { type: Number, default: 180 },
+      // Lọc danh sách "Xem lại" theo tên sân/tiêu đề (rỗng = hiện tất cả).
+      replayTitleFilter: { type: String, default: "", trim: true },
       // Luồng thêm thủ công từ URL (HLS .m3u8 / mp4) — cho các sân không có
       // video YouTube. Hiển thị song song với luồng YouTube.
       manualStreams: {
@@ -370,6 +377,45 @@ const SystemSettingsSchema = new mongoose.Schema(
             kind: { type: String, default: "live" },
             thumbnail: { type: String, default: "", trim: true },
             enabled: { type: Boolean, default: true },
+          },
+        ],
+        default: [],
+      },
+      // NHIỀU GIẢI song song: mỗi phần tử là 1 giải riêng có slug
+      // (vd slug "riverside" -> /live/event/riverside). Giải mặc định ở trên
+      // vẫn phục vụ /live/event và /live/event/<slug mặc định>.
+      events: {
+        type: [
+          {
+            _id: false,
+            enabled: { type: Boolean, default: true },
+            slug: { type: String, default: "", trim: true },
+            pinnedToHome: { type: Boolean, default: true },
+            eventName: { type: String, default: "", trim: true },
+            eventLogoUrl: { type: String, default: "", trim: true },
+            bannerImageUrl: { type: String, default: "", trim: true },
+            youtubeChannel: { type: String, default: "", trim: true },
+            youtubeApiKey: { type: String, default: "", trim: true },
+            tournamentId: { type: String, default: "", trim: true },
+            autoNotify: { type: Boolean, default: false },
+            autoNotifyCooldownMinutes: { type: Number, default: 180 },
+            replayTitleFilter: { type: String, default: "", trim: true },
+            manualStreams: {
+              type: [
+                {
+                  _id: false,
+                  id: { type: String, default: "" },
+                  url: { type: String, default: "", trim: true },
+                  title: { type: String, default: "", trim: true },
+                  courtLabel: { type: String, default: "", trim: true },
+                  angleLabel: { type: String, default: "", trim: true },
+                  kind: { type: String, default: "live" },
+                  thumbnail: { type: String, default: "", trim: true },
+                  enabled: { type: Boolean, default: true },
+                },
+              ],
+              default: [],
+            },
           },
         ],
         default: [],

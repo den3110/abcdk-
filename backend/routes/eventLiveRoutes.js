@@ -3,6 +3,7 @@ import express from "express";
 import {
   getEventLive,
   getEventLiveConfigPublic,
+  getEventLiveHome,
   trackEventLiveView,
   getEventLiveStats,
 } from "../controllers/eventLiveController.js";
@@ -15,7 +16,10 @@ import {
 const router = express.Router();
 
 router.get("/", getEventLive);
+// Danh sách giải hiện banner trang chủ (đặt TRƯỚC /:slug để không bị nuốt)
+router.get("/home", getEventLiveHome);
 router.get("/config", getEventLiveConfigPublic);
+router.get("/config/:slug", getEventLiveConfigPublic);
 
 // Ghi nhận lượt dùng (web + app). Gắn user nếu có token, không thì tính theo deviceId.
 router.post("/track", attachJwtIfPresent, trackEventLiveView);
@@ -98,5 +102,9 @@ router.get("/viewers/history", protect, authorize("admin"), async (req, res) => 
     res.status(500).json({ message: e?.message || "Lỗi viewer history" });
   }
 });
+
+// Giải theo slug (ĐẶT CUỐI để không nuốt các route tĩnh phía trên).
+// vd GET /api/event-live/riverside
+router.get("/:slug", getEventLive);
 
 export default router;

@@ -4,11 +4,27 @@ import { apiSlice } from "./apiSlice";
 export const eventLiveApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getEventLive: builder.query({
-      query: () => ({ url: `/api/event-live`, method: "GET" }),
+      // slug rỗng -> giải mặc định (/api/event-live); có slug -> /api/event-live/<slug>
+      query: (slug) => ({
+        url: slug
+          ? `/api/event-live/${encodeURIComponent(slug)}`
+          : `/api/event-live`,
+        method: "GET",
+      }),
       keepUnusedDataFor: 30,
     }),
     getEventLiveConfig: builder.query({
-      query: () => ({ url: `/api/event-live/config`, method: "GET" }),
+      query: (slug) => ({
+        url: slug
+          ? `/api/event-live/config/${encodeURIComponent(slug)}`
+          : `/api/event-live/config`,
+        method: "GET",
+      }),
+      keepUnusedDataFor: 120,
+    }),
+    // Danh sách giải hiện banner trang chủ
+    getEventLiveHome: builder.query({
+      query: () => ({ url: `/api/event-live/home`, method: "GET" }),
       keepUnusedDataFor: 120,
     }),
     trackEventLiveView: builder.mutation({
@@ -48,6 +64,7 @@ export const eventLiveApiSlice = apiSlice.injectEndpoints({
 export const {
   useGetEventLiveQuery,
   useGetEventLiveConfigQuery,
+  useGetEventLiveHomeQuery,
   useTrackEventLiveViewMutation,
   useGetEventLiveStatsQuery,
   useGetEventLiveCommentsQuery,
