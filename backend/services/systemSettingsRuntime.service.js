@@ -154,6 +154,9 @@ export const DEFAULT_SYSTEM_SETTINGS = {
     autoNotify: false,
     autoNotifyCooldownMinutes: 180,
     manualStreams: [],
+    // Lọc danh sách "Xem lại" theo tên sân/tiêu đề: chỉ hiện video có title chứa chuỗi
+    // này (không phân biệt hoa thường). Rỗng = hiện tất cả. VD: "Riverside".
+    replayTitleFilter: "",
   },
   aiGateway: {
     enabled: true,

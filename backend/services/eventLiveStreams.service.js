@@ -360,6 +360,7 @@ export async function getEventLiveConfig() {
     autoNotify: cfg.autoNotify === true,
     autoNotifyCooldownMinutes: Number(cfg.autoNotifyCooldownMinutes) || 180,
     manualStreams: Array.isArray(cfg.manualStreams) ? cfg.manualStreams : [],
+    replayTitleFilter: String(cfg.replayTitleFilter || "").trim(),
     _apiKey: cfg.youtubeApiKey || "",
   };
 }
@@ -522,6 +523,16 @@ export async function getEventLiveData({ force = false } = {}) {
   allLive = dedupById(allLive);
   const liveSet = new Set(allLive.map((f) => f.videoId));
   allReplays = dedupById(allReplays.filter((f) => !liveSet.has(f.videoId)));
+
+  // Lọc "Xem lại" theo tên sân/tiêu đề (admin cấu hình): chỉ giữ video có title chứa
+  // chuỗi lọc (không phân biệt hoa thường). Rỗng = giữ tất cả.
+  const titleFilter = String(cfg.replayTitleFilter || "").trim().toLowerCase();
+  if (titleFilter) {
+    allReplays = allReplays.filter((f) => {
+      const hay = `${f.title || ""} ${f.courtLabel || ""} ${f.venue || ""}`.toLowerCase();
+      return hay.includes(titleFilter);
+    });
+  }
 
   base.live = groupByCourt(allLive, "angles");
   base.replays = groupByCourt(allReplays, "videos");
