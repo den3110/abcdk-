@@ -443,13 +443,17 @@ async function applyLiveLinksToMatch(session, matchId) {
   }
 }
 
-/** Gỡ link live khỏi trận (khi trận kết thúc/đổi/dừng phiên). Chỉ xoá match.video
- *  khi nó ĐÚNG là link live của phiên (tránh đụng VOD/link khác); liveTargets do
- *  luồng live tạo nên gỡ luôn. */
-async function clearLiveLinksFromMatch(matchId, knownUrls = []) {
+/** Hạ cấp link live của trận thành "Xem lại" khi trận kết thúc/đổi/dừng phiên.
+ *  GIỮ `match.video` (YouTube giữ VOD sau khi complete; FB giữ permalink) để mọi
+ *  trận đã phát trên sân vẫn còn link xem lại — chỉ gỡ cờ `liveTargets` để trận
+ *  xong không còn bị coi là "đang trực tiếp" (nhãn live/replay dựa trên status).
+ *  Nếu muốn CƯỠNG BỨC xoá hẳn video (vd nguồn không lưu VOD), truyền
+ *  { clearVideo: true } — mặc định giữ lại.
+ *  (knownUrls giữ lại cho tương thích chữ ký + để giới hạn đúng link của phiên.) */
+async function clearLiveLinksFromMatch(matchId, knownUrls = [], opts = {}) {
   try {
     if (!matchId) return;
-    if (knownUrls.length) {
+    if (opts.clearVideo && knownUrls.length) {
       await Match.updateOne(
         { _id: matchId, video: { $in: knownUrls } },
         { $set: { video: "" } }
@@ -460,7 +464,7 @@ async function clearLiveLinksFromMatch(matchId, knownUrls = []) {
       { $unset: { liveTargets: "" } }
     ).catch(() => {});
   } catch (e) {
-    console.warn("[auto-live] gỡ link live khỏi trận lỗi:", e?.message || e);
+    console.warn("[auto-live] hạ cấp link live của trận lỗi:", e?.message || e);
   }
 }
 
