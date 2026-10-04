@@ -306,6 +306,184 @@ function finalizeBuffer(canvas, opacity) {
   return out.toBuffer("image/png");
 }
 
+// ════════════════ INTRO GIỚI THIỆU VĐV (vài giây đầu trận) ════════════════
+// Thẻ "VS" giữa màn: avatar + biệt danh + họ tên + trình + TỈ LỆ THẮNG + số trận.
+async function drawIntroAvatar(ctx, url, cx, cy, r, accent, initial) {
+  let img = null;
+  try { if (url) img = await loadImageCached(url); } catch { img = null; }
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, r - 3, 0, Math.PI * 2); ctx.closePath(); ctx.clip();
+  if (img) {
+    const s = Math.max((2 * (r - 3)) / img.width, (2 * (r - 3)) / img.height);
+    const dw = img.width * s, dh = img.height * s;
+    ctx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+  } else {
+    const gg = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+    gg.addColorStop(0, accent); gg.addColorStop(1, "#0EA5E9");
+    ctx.fillStyle = gg; ctx.fillRect(cx - r, cy - r, 2 * r, 2 * r);
+    ctx.fillStyle = "#fff"; ctx.font = `800 ${Math.round(r)}px ${FONT}`;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(String(initial || "?").toUpperCase(), cx, cy + 2);
+  }
+  ctx.restore();
+  // Viền avatar theo màu đội
+  ctx.save();
+  ctx.lineWidth = 5; ctx.strokeStyle = accent;
+  ctx.beginPath(); ctx.arc(cx, cy, r - 1, 0, Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
+function drawIntroChip(ctx, x, y, text, { bg = "rgba(30,41,59,0.95)", fg = "#E2E8F0" } = {}) {
+  ctx.save();
+  ctx.font = `700 24px ${FONT}`;
+  const padX = 14, h = 40;
+  const w = ctx.measureText(text).width + padX * 2;
+  roundedRect(ctx, x, y, w, h, 10);
+  ctx.fillStyle = bg; ctx.fill();
+  ctx.fillStyle = fg; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+  ctx.fillText(text, x + padX, y + h / 2 + 1);
+  ctx.restore();
+  return x + w + 10;
+}
+
+async function drawIntroPlayerCard(ctx, pl, cardX, cardY, cardW, cardH, accent) {
+  // Nền thẻ
+  ctx.save();
+  shadowOn(ctx);
+  roundedRect(ctx, cardX, cardY, cardW, cardH, 18);
+  ctx.fillStyle = "rgba(15,23,42,0.90)";
+  ctx.fill();
+  shadowOff(ctx);
+  ctx.restore();
+  // Thanh màu đội bên trái
+  ctx.save();
+  roundedRect(ctx, cardX, cardY + 12, 8, cardH - 24, 4);
+  ctx.fillStyle = accent; ctx.fill();
+  ctx.restore();
+
+  const r = Math.round((cardH - 44) / 2);
+  const acx = cardX + 28 + r;
+  const acy = cardY + cardH / 2;
+  const initial = (pl?.nick || pl?.full || "?").trim().charAt(0);
+  await drawIntroAvatar(ctx, pl?.avatar, acx, acy, r, accent, initial);
+
+  const textX = acx + r + 26;
+  const textMaxW = cardX + cardW - textX - 24;
+  ctx.save();
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  // Biệt danh (hoặc tên chính)
+  const nick = String(pl?.nick || pl?.full || "—").trim();
+  ctx.font = `800 40px ${FONT}`;
+  ctx.fillStyle = "#F8FAFC";
+  ctx.fillText(truncate(ctx, nick, textMaxW), textX, cardY + 60);
+  // Họ tên đầy đủ (nếu khác biệt danh)
+  const full = String(pl?.full || "").trim();
+  if (full && full.toLowerCase() !== nick.toLowerCase()) {
+    ctx.font = `500 26px ${FONT}`;
+    ctx.fillStyle = "#94A3B8";
+    ctx.fillText(truncate(ctx, full, textMaxW), textX, cardY + 96);
+  }
+  ctx.restore();
+
+  // Chip thông số: Trình · Tỉ lệ thắng · Số trận
+  let chipX = textX;
+  const chipY = cardY + cardH - 56;
+  const trinh = Number(pl?.trinh);
+  if (Number.isFinite(trinh) && trinh > 0) {
+    chipX = drawIntroChip(ctx, chipX, chipY, `Trình ${trinh.toFixed(3).replace(/\.?0+$/, "")}`);
+  }
+  if (pl?.winRate != null) {
+    chipX = drawIntroChip(ctx, chipX, chipY, `Thắng ${pl.winRate}%`, {
+      bg: "rgba(22,163,74,0.92)",
+      fg: "#FFFFFF",
+    });
+  }
+  const mt = Number(pl?.matches) || 0;
+  chipX = drawIntroChip(ctx, chipX, chipY, mt > 0 ? `${mt} trận` : "VĐV mới");
+}
+
+async function drawIntroTeamColumn(ctx, players, cx, cardW, accent) {
+  const list = (Array.isArray(players) ? players : []).slice(0, 2);
+  if (!list.length) return;
+  const cardH = 200, gap = 26;
+  const totalH = list.length * cardH + (list.length - 1) * gap;
+  let y = Math.round(612 - totalH / 2);
+  const cardX = Math.round(cx - cardW / 2);
+  for (const pl of list) {
+    await drawIntroPlayerCard(ctx, pl, cardX, y, cardW, cardH, accent);
+    y += cardH + gap;
+  }
+}
+
+async function drawIntroCard(ctx, intro) {
+  const teamA = Array.isArray(intro?.teamA) ? intro.teamA : [];
+  const teamB = Array.isArray(intro?.teamB) ? intro.teamB : [];
+
+  // Nền mờ toàn khung để thẻ nổi bật
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "rgba(6,10,22,0.92)");
+  bg.addColorStop(0.5, "rgba(10,16,34,0.84)");
+  bg.addColorStop(1, "rgba(6,10,22,0.94)");
+  ctx.save();
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+
+  // Tiêu đề
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "#38BDF8";
+  ctx.font = `700 30px ${FONT}`;
+  ctx.fillText("GIỚI THIỆU TRẬN ĐẤU", W / 2, 150);
+  const header = String(intro?.header || intro?.eventLabel || "").toUpperCase();
+  if (header) {
+    ctx.fillStyle = "#F8FAFC";
+    ctx.font = `800 56px ${FONT}`;
+    ctx.fillText(truncate(ctx, header, W - 240), W / 2, 214);
+  }
+  const eventLabel = String(intro?.eventLabel || "").trim();
+  if (eventLabel && eventLabel.toUpperCase() !== header) {
+    ctx.fillStyle = "#CBD5E1";
+    ctx.font = `600 30px ${FONT}`;
+    ctx.fillText(truncate(ctx, eventLabel, W - 320), W / 2, 260);
+  }
+  ctx.restore();
+
+  // 2 cột đội
+  await drawIntroTeamColumn(ctx, teamA, 500, 760, "#22C1D6");
+  await drawIntroTeamColumn(ctx, teamB, 1420, 760, "#F97316");
+
+  // Huy hiệu VS ở giữa
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const vcx = W / 2, vcy = 612, vr = 74;
+  const vg = ctx.createLinearGradient(vcx - vr, vcy - vr, vcx + vr, vcy + vr);
+  vg.addColorStop(0, "#0EA5E9");
+  vg.addColorStop(1, "#22C1D6");
+  shadowOn(ctx);
+  ctx.fillStyle = vg;
+  ctx.beginPath(); ctx.arc(vcx, vcy, vr, 0, Math.PI * 2); ctx.fill();
+  shadowOff(ctx);
+  ctx.lineWidth = 6; ctx.strokeStyle = "rgba(255,255,255,0.9)";
+  ctx.beginPath(); ctx.arc(vcx, vcy, vr, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = "#FFFFFF";
+  ctx.font = `900 54px ${FONT}`;
+  ctx.fillText("VS", vcx, vcy + 2);
+  ctx.restore();
+
+  // Chân trang
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillStyle = "rgba(203,213,225,0.82)";
+  ctx.font = `600 24px ${FONT}`;
+  ctx.fillText("pickletour.vn", W / 2, H - 68);
+  ctx.restore();
+}
+
 export async function renderOverlayPng(data) {
   const canvas = createCanvas(W, H);
   const ctx = canvas.getContext("2d");
@@ -324,6 +502,15 @@ export async function renderOverlayPng(data) {
 
   await drawBrandLogo(ctx, brandCorner, data?.brandLogoUrl || "");
   await drawSponsorRotating(ctx, data?.sponsorLogos || [], sponsorCorner);
+
+  // INTRO: thẻ giới thiệu VĐV giữa màn vài giây đầu trận → vẽ đè, BỎ scoreboard.
+  if (
+    data?.intro?.active &&
+    ((data.intro.teamA || []).length + (data.intro.teamB || []).length) > 0
+  ) {
+    await drawIntroCard(ctx, data.intro);
+    return finalizeBuffer(canvas, data?.opacity);
+  }
 
   // Theme browser tự vẽ bảng điểm (overlay HTML) → PNG chỉ giữ logo/sponsor, BỎ scoreboard.
   if (data?.hideScoreboard) {

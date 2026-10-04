@@ -27,6 +27,7 @@ import Tournament from "../../models/tournamentModel.js";
 import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionModel.js";
 import { decryptToken } from "../secret.service.js";
 import { loadOverlayData, loadOverlayDataFromUserMatch, renderOverlayPng, buildOverlayBugData } from "./overlayRenderer.service.js";
+import { buildPublicProfileSummary } from "../publicProfileSummary.service.js";
 import { sampleProcessTree, clearProcSample, systemCapacity } from "./procStat.service.js";
 import { ensureDahuaTunnel, dahuaChannelUrl, triggerDahuaReconcile } from "./dahuaTunnel.service.js";
 import { getValidPageToken } from "../fbTokenService.js";
@@ -120,6 +121,75 @@ const overlayCache = new Map(); // sessionId → { buf, token }
 // Sponsor xoay vòng mỗi 8s → re-render tối thiểu mỗi bucket kể cả điểm không đổi.
 const SPONSOR_BUCKET_MS = 8000;
 
+// INTRO giới thiệu VĐV khi vào trận: hiện thẻ VS giữa màn trong N giây đầu rồi tự ẩn.
+// Đặt AUTOLIVE_INTRO_SECONDS=0 để tắt. Mặc định 11s.
+const INTRO_MS =
+  Math.max(0, Number(process.env.AUTOLIVE_INTRO_SECONDS ?? 11)) * 1000;
+const introStatsCache = new Map(); // matchId → { at, intro }
+const INTRO_STATS_TTL = 5 * 60 * 1000;
+
+/** Dựng dữ liệu intro (tên VĐV + trình + tỉ lệ thắng + số trận) cho 1 trận. Cache theo matchId. */
+async function buildIntroForMatch(match, extra = {}) {
+  if (!match?._id) return null;
+  const key = String(match._id);
+  const cached = introStatsCache.get(key);
+  if (cached && Date.now() - cached.at < INTRO_STATS_TTL) return cached.intro;
+
+  const sideOf = (pair) => {
+    const out = [];
+    for (const p of [pair?.player1, pair?.player2]) {
+      if (!p) continue;
+      const nick = String(p.nickName || p.nickname || "").trim();
+      const full = String(p.fullName || p.name || "").trim();
+      if (!nick && !full && !p.user) continue;
+      out.push({
+        userId: p.user ? String(p.user) : "",
+        nick: nick || full,
+        full,
+        avatar: String(p.avatar || "").trim(),
+        trinh: Number(p.score) > 0 ? Number(p.score) : null,
+        winRate: null,
+        matches: 0,
+      });
+    }
+    return out;
+  };
+  const teamA = sideOf(match.pairA);
+  const teamB = sideOf(match.pairB);
+  const all = [...teamA, ...teamB];
+  if (!all.length) return null;
+
+  await Promise.all(
+    all.map(async (pl) => {
+      if (!pl.userId) return;
+      try {
+        const s = await buildPublicProfileSummary(pl.userId);
+        const total = Number(s?.matches?.total) || 0;
+        pl.matches = total;
+        pl.winRate =
+          total > 0 ? Math.round(Number(s?.matches?.winRate) || 0) : null;
+        if (pl.trinh == null) {
+          const sc = Number(s?.score?.double) || Number(s?.score?.single) || 0;
+          pl.trinh = sc > 0 ? sc : null;
+        }
+      } catch {
+        /* thiếu stats → vẫn hiện tên */
+      }
+    }),
+  );
+
+  const intro = {
+    header: String(extra?.roundLabel || "").trim(),
+    eventLabel: String(
+      extra?.contentLabel || extra?.tournament?.name || "",
+    ).trim(),
+    teamA,
+    teamB,
+  };
+  introStatsCache.set(key, { at: Date.now(), intro });
+  return intro;
+}
+
 // Độ MỜ overlay (0..1) CHUNG cho mọi stream — chỉnh được khi đang live. Lưu AppSetting
 // "autoLiveOverlayOpacity"; cache module (không hỏi DB mỗi lần render). 1 = đục hoàn toàn.
 const OVERLAY_OPACITY_KEY = "autoLiveOverlayOpacity";
@@ -161,14 +231,27 @@ export async function setOverlayOpacity(value) {
 }
 export async function getCachedOverlayPng(sessionId) {
   const doc = await TournamentAutoLiveSession.findById(sessionId)
-    .select("_id court status overlayVersion layout hideTimestamp timestampBox overlayStyle brandLogoUrl nameMode")
+    .select("_id court status overlayVersion layout hideTimestamp timestampBox overlayStyle brandLogoUrl nameMode currentMatch lastMatchChangeAt")
     .lean();
   if (!doc) return null;
   if (doc.status === "stopped") return null;
   const opacity = await ensureOverlayOpacity();
   const style = String(doc.overlayStyle || "classic");
   const nameMode = doc.nameMode === "full" ? "full" : "nick";
-  const token = `${doc.overlayVersion || 0}:${Math.floor(Date.now() / SPONSOR_BUCKET_MS)}:${opacity}:${style}:${nameMode}`;
+  // Intro VĐV: chỉ ở style "classic", trong N giây đầu kể từ khi đổi/vào trận.
+  const changedAt = doc.lastMatchChangeAt
+    ? new Date(doc.lastMatchChangeAt).getTime()
+    : 0;
+  const introActive =
+    INTRO_MS > 0 &&
+    style === "classic" &&
+    !!doc.currentMatch &&
+    changedAt > 0 &&
+    Date.now() - changedAt < INTRO_MS;
+  // Trong lúc intro: token cố định theo trận → render 1 lần, giữ nguyên tới khi hết intro.
+  const token = introActive
+    ? `intro:${String(doc.currentMatch)}:${opacity}:${nameMode}`
+    : `${doc.overlayVersion || 0}:${Math.floor(Date.now() / SPONSOR_BUCKET_MS)}:${opacity}:${style}:${nameMode}`;
   const cached = overlayCache.get(String(sessionId));
   if (cached && cached.token === token) return cached.buf;
   const data = await loadOverlayData(doc.court);
@@ -183,6 +266,17 @@ export async function getCachedOverlayPng(sessionId) {
     data.brandLogoUrl = String(doc.brandLogoUrl || "");
     // Tên hiển thị bảng điểm: biệt danh (nick) hay họ tên đầy đủ (full).
     data.nameMode = nameMode;
+    // Gắn dữ liệu intro nếu đang trong cửa sổ giới thiệu.
+    if (introActive && data.match) {
+      try {
+        const intro = await buildIntroForMatch(data.match, data);
+        if (intro && (intro.teamA.length || intro.teamB.length)) {
+          data.intro = { active: true, ...intro };
+        }
+      } catch {
+        /* lỗi dựng intro → hiện scoreboard thường */
+      }
+    }
   }
   const buf = await renderOverlayPng(data);
   overlayCache.set(String(sessionId), { buf, token });
