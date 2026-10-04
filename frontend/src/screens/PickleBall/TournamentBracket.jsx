@@ -48,9 +48,11 @@ import {
   Autocomplete,
   TextField,
   MenuItem,
+  InputAdornment,
 } from "@mui/material";
 import { useSelector } from "react-redux"; // NEW
 import {
+  Search as SearchIcon,
   Close as CloseIcon,
   EmojiEvents as TrophyIcon,
   Stadium as StadiumIcon,
@@ -5540,6 +5542,49 @@ export default function TournamentBracket() {
     refetch: refetchMatches,
   } = useListTournamentMatchesQuery({ tournamentId: tourId, view: "bracket" });
   const allMatchesFetched = allMatchesFetchedData ?? EMPTY_LIST;
+
+  // ===== Tìm trận theo tên/biệt danh VĐV (toàn giải, mọi bảng/nhánh) =====
+  const [playerSearch, setPlayerSearch] = useState("");
+  const playerSearchMatches = useMemo(() => {
+    const norm = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const q = norm(playerSearch);
+    if (q.length < 2) return null; // null = chưa tìm → không hiện panel
+    const eventType = tour?.eventType;
+    const list = Array.isArray(allMatchesFetched) ? allMatchesFetched : [];
+    const bName = (b) => {
+      const id = String(b?._id || b || "");
+      return (brackets || []).find((x) => String(x._id) === id)?.name || "";
+    };
+    const out = [];
+    for (const m of list) {
+      if (!m?.pairA && !m?.pairB) continue;
+      const hay = norm(
+        [
+          getTournamentPairName(m.pairA, eventType, "nickname"),
+          getTournamentPairName(m.pairA, eventType, "fullName"),
+          getTournamentPairName(m.pairB, eventType, "nickname"),
+          getTournamentPairName(m.pairB, eventType, "fullName"),
+        ].join(" "),
+      );
+      if (hay && hay.includes(q)) {
+        out.push({
+          _id: String(m._id),
+          m,
+          code: m.code || m.displayCode || "",
+          bracketName: bName(m.bracket),
+        });
+        if (out.length >= 50) break;
+      }
+    }
+    return out;
+  }, [playerSearch, allMatchesFetched, tour?.eventType, brackets]);
+
   const {
     data: registrationsData,
     isLoading: loadingRegistrations,
@@ -10582,6 +10627,88 @@ export default function TournamentBracket() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Tìm trận theo tên / biệt danh VĐV (toàn giải) */}
+      <Box sx={{ position: "relative", maxWidth: 560, mb: 2 }}>
+        <TextField
+          fullWidth
+          size="small"
+          placeholder="Tìm trận theo tên hoặc biệt danh VĐV…"
+          value={playerSearch}
+          onChange={(e) => setPlayerSearch(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+            endAdornment: playerSearch ? (
+              <InputAdornment position="end">
+                <IconButton size="small" onClick={() => setPlayerSearch("")}>
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </InputAdornment>
+            ) : null,
+          }}
+        />
+        {playerSearchMatches && (
+          <Paper
+            elevation={6}
+            sx={{
+              position: "absolute",
+              zIndex: 30,
+              left: 0,
+              right: 0,
+              mt: 0.5,
+              maxHeight: 380,
+              overflowY: "auto",
+              borderRadius: 2,
+            }}
+          >
+            {playerSearchMatches.length === 0 ? (
+              <Typography sx={{ p: 1.5, color: "text.secondary", fontSize: 13 }}>
+                Không tìm thấy trận nào khớp “{playerSearch.trim()}”.
+              </Typography>
+            ) : (
+              <>
+                <Typography
+                  sx={{ px: 1.5, pt: 1, pb: 0.5, color: "text.secondary", fontSize: 12 }}
+                >
+                  {playerSearchMatches.length} trận khớp
+                </Typography>
+                {playerSearchMatches.map((r) => (
+                  <Box
+                    key={r._id}
+                    onClick={() => {
+                      openMatchModal(r.m);
+                      setPlayerSearch("");
+                    }}
+                    sx={{
+                      px: 1.5,
+                      py: 1,
+                      cursor: "pointer",
+                      borderTop: "1px solid",
+                      borderColor: "divider",
+                      "&:hover": { bgcolor: "action.hover" },
+                    }}
+                  >
+                    <Typography sx={{ fontSize: 11, color: "text.secondary" }} noWrap>
+                      {[r.bracketName, r.code].filter(Boolean).join(" · ")}
+                    </Typography>
+                    <Typography sx={{ fontSize: 13.5, fontWeight: 600 }} noWrap>
+                      {resolveSideLabel(r.m, "A")}
+                      <Box component="span" sx={{ opacity: 0.5, mx: 0.75 }}>
+                        vs
+                      </Box>
+                      {resolveSideLabel(r.m, "B")}
+                    </Typography>
+                  </Box>
+                ))}
+              </>
+            )}
+          </Paper>
+        )}
+      </Box>
 
       {isBracketV2 ? (
         renderUnifiedBracketV2()
