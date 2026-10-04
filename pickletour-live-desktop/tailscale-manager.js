@@ -126,6 +126,39 @@ async function ensureUp(opts = {}) {
   return status();
 }
 
+const LAUNCHD_LABEL = "vn.pickletour.tailscaled";
+const LAUNCHD_PLIST = `/Library/LaunchDaemons/${LAUNCHD_LABEL}.plist`;
+
+function xmlEsc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+// Tạo nội dung plist LaunchDaemon chạy tailscaled (root, nền, tự bật lại) — launchd
+// giữ tiến trình sống kể cả sau khi app thoát / reboot (không dùng nohup vì osascript
+// không có tty → "can't detach from console").
+function buildPlist({ tsd, dir, sock, log }) {
+  const args = [tsd, `--statedir=${dir}`, `--socket=${sock}`, "--tun=utun", "--port=0"];
+  const argXml = args.map((a) => `    <string>${xmlEsc(a)}</string>`).join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${LAUNCHD_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+${argXml}
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${xmlEsc(log)}</string>
+  <key>StandardErrorPath</key><string>${xmlEsc(log)}</string>
+</dict>
+</plist>
+`;
+}
+
 async function ensureUpMac({ authKey, hostname, loginServer }) {
   const tsd = tailscaledBin();
   const ts = tailscaleBin();
@@ -134,7 +167,7 @@ async function ensureUpMac({ authKey, hostname, loginServer }) {
   const log = logPath();
   const user = os.userInfo().username || process.env.USER || "";
 
-  // Nếu daemon chưa chạy (socket không phản hồi) → cần root để khởi chạy TUN.
+  // Nếu daemon chưa chạy (socket không phản hồi) → cần root để cài LaunchDaemon.
   const daemonUp = readStatus() != null;
 
   if (!daemonUp) {
@@ -142,16 +175,27 @@ async function ensureUpMac({ authKey, hostname, loginServer }) {
       _state.lastError = "Chưa có authKey để kết nối tailnet.";
       return status();
     }
-    // 1 lần hỏi mật khẩu: khởi chạy tailscaled (root, nền) + up + set operator.
+    // Ghi plist ra file tạm (user ghi được) rồi copy vào /Library/LaunchDaemons (root).
+    const tmpPlist = path.join(dir, "tailscaled.plist");
+    try { fs.writeFileSync(tmpPlist, buildPlist({ tsd, dir, sock, log })); } catch (e) {
+      _state.lastError = "Không ghi được cấu hình dịch vụ: " + (e?.message || e);
+      return status();
+    }
     const loginArg = loginServer ? ` --login-server=${shq(loginServer)}` : "";
+    // 1 lần hỏi mật khẩu: cài + nạp LaunchDaemon (tailscaled root, tự bật lại) → chờ
+    // socket → up + set operator (để sau này user điều khiển không cần root).
     const script = [
       `mkdir -p ${shq(dir)}`,
-      // Khởi chạy daemon nền nếu chưa có (nohup để sống sau khi shell root thoát).
-      `if ! ${shq(ts)} --socket=${shq(sock)} status >/dev/null 2>&1; then `
-        + `nohup ${shq(tsd)} --statedir=${shq(dir)} --socket=${shq(sock)} --tun=utun --port=0 >> ${shq(log)} 2>&1 & `
-        + `for i in $(seq 1 30); do ${shq(ts)} --socket=${shq(sock)} status >/dev/null 2>&1 && break; sleep 0.5; done; fi`,
-      // Kết nối + cho phép user điều khiển không cần root các lần sau.
+      `cp ${shq(tmpPlist)} ${shq(LAUNCHD_PLIST)}`,
+      `chown root:wheel ${shq(LAUNCHD_PLIST)}`,
+      `chmod 644 ${shq(LAUNCHD_PLIST)}`,
+      // Nạp lại sạch (bỏ bản cũ nếu có) để áp đúng tham số hiện tại.
+      `launchctl bootout system ${shq(LAUNCHD_PLIST)} 2>/dev/null || launchctl unload ${shq(LAUNCHD_PLIST)} 2>/dev/null || true`,
+      `launchctl bootstrap system ${shq(LAUNCHD_PLIST)} 2>/dev/null || launchctl load -w ${shq(LAUNCHD_PLIST)} 2>/dev/null || true`,
+      `for i in $(seq 1 40); do ${shq(ts)} --socket=${shq(sock)} status >/dev/null 2>&1 && break; sleep 0.5; done`,
       `${shq(ts)} --socket=${shq(sock)} up --authkey=${shq(authKey)} --hostname=${shq(hostname)} --operator=${shq(user)} --accept-routes --reset${loginArg}`,
+      // Cho user đọc socket ngay phiên đầu (các lần sau daemon tự set theo operator).
+      `chmod 0666 ${shq(sock)} 2>/dev/null || true`,
     ].join("; ");
     const r = await runElevatedMac(script);
     if (!r.ok) {
