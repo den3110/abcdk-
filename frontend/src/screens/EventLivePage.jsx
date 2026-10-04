@@ -711,6 +711,48 @@ export default function EventLivePage() {
                               );
                             })()}
                           </Stack>
+                          {court.match && (
+                            <Box
+                              sx={{
+                                mb: 0.75,
+                                px: 0.75,
+                                py: 0.5,
+                                borderRadius: 1.5,
+                                bgcolor: "rgba(255,255,255,.03)",
+                                border: "1px solid rgba(255,255,255,.06)",
+                              }}
+                            >
+                              {court.match.stageName && (
+                                <Typography
+                                  sx={{ color: "#fbbf24", fontSize: 11, fontWeight: 700, mb: 0.25, textAlign: "center" }}
+                                >
+                                  {court.match.stageName}
+                                </Typography>
+                              )}
+                              <Stack direction="row" alignItems="center" spacing={0.75}>
+                                <Typography
+                                  sx={{ color: "#e5e7eb", fontSize: 12.5, fontWeight: 600, flex: 1, textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                >
+                                  {court.match.teamA}
+                                </Typography>
+                                <Box sx={{ px: 1, py: 0.25, borderRadius: 1, bgcolor: "#0b1220", border: "1px solid rgba(255,255,255,.12)", display: "flex", alignItems: "center", gap: 0.5, flexShrink: 0 }}>
+                                  <Typography sx={{ color: "#fff", fontWeight: 900, fontSize: 15, minWidth: 16, textAlign: "center" }}>{court.match.scoreA}</Typography>
+                                  <Typography sx={{ color: "#64748b", fontWeight: 700 }}>:</Typography>
+                                  <Typography sx={{ color: "#fff", fontWeight: 900, fontSize: 15, minWidth: 16, textAlign: "center" }}>{court.match.scoreB}</Typography>
+                                </Box>
+                                <Typography
+                                  sx={{ color: "#e5e7eb", fontSize: 12.5, fontWeight: 600, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                                >
+                                  {court.match.teamB}
+                                </Typography>
+                              </Stack>
+                              {court.match.bestOf > 1 && (
+                                <Typography sx={{ color: "#94a3b8", fontSize: 10.5, textAlign: "center", mt: 0.25 }}>
+                                  Ván thắng {court.match.gamesA}–{court.match.gamesB}
+                                </Typography>
+                              )}
+                            </Box>
+                          )}
                           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                             {(court.angles || []).map((a) => (
                               <Button

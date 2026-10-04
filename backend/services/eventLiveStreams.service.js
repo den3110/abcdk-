@@ -534,7 +534,8 @@ export async function getEventLiveData({ force = false, slug = "" } = {}) {
   const key = slugKey(slug || "");
   const now = Date.now();
   const cached = CACHE.get(key);
-  if (!force && cached && now - cached.at < TTL_MS) return cached.data;
+  if (!force && cached && now - cached.at < TTL_MS)
+    return await attachLiveMatchInfo(cached.data);
 
   const cfg = await getEventLiveConfig(slug);
   const base = {
@@ -551,7 +552,7 @@ export async function getEventLiveData({ force = false, slug = "" } = {}) {
 
   if (!cfg.enabled) {
     CACHE.set(key, { data: base, at: now });
-    return base;
+    return await attachLiveMatchInfo(base);
   }
 
   // Luồng thủ công (HLS/URL) — luôn hiển thị khi bật, không phụ thuộc YouTube.
@@ -607,7 +608,104 @@ export async function getEventLiveData({ force = false, slug = "" } = {}) {
   base.updatedAt = new Date().toISOString();
 
   CACHE.set(key, { data: base, at: now });
-  return base;
+  return await attachLiveMatchInfo(base);
+}
+
+/** Lấy token sân từ 1 nhãn ("The Riverside - Sân 1" -> "1"; "Sân D2" -> "D2"; "1" -> "1"). */
+function courtNumKey(label) {
+  const s = String(label || "").trim();
+  if (!s) return "";
+  let m =
+    s.match(/s[aâ]n\s*([a-zđ]{0,3})\s*0*(\d{1,3})/i) ||
+    s.match(/court\s*([a-z]{0,3})\s*0*(\d{1,3})/i) ||
+    s.match(/^([a-z]{0,3})\s*0*(\d{1,3})$/i);
+  if (!m) return "";
+  const letter = String(m[1] || "").toUpperCase();
+  const num = String(parseInt(m[2], 10));
+  return `${letter}${num}`;
+}
+
+/** Số ván mỗi đội đã THẮNG (các ván trước ván hiện tại). */
+function countGamesWon(gameScores, currentGame) {
+  const gs = Array.isArray(gameScores) ? gameScores : [];
+  const cg = Number.isInteger(currentGame) ? currentGame : Math.max(0, gs.length - 1);
+  let a = 0,
+    b = 0;
+  for (let i = 0; i < cg && i < gs.length; i++) {
+    const ga = Number(gs[i]?.a) || 0;
+    const gb = Number(gs[i]?.b) || 0;
+    if (ga > gb) a++;
+    else if (gb > ga) b++;
+  }
+  return { a, b };
+}
+
+/** Thông tin trận đang LIVE theo SỐ SÂN cho 1 giải (fetch tươi, KHÔNG cache 90s
+ *  như feed YouTube — để tỉ số luôn mới). Trả Map<courtKey, matchInfo>. */
+async function fetchLiveMatchInfoByCourt(tournamentId) {
+  const map = new Map();
+  if (!tournamentId) return map;
+  try {
+    const { default: Match } = await import("../models/matchModel.js");
+    const { toRealtimePublicMatchDTO } = await import("../socket/liveHandlers.js");
+    const matches = await Match.find({
+      tournament: tournamentId,
+      status: "live",
+    })
+      .populate([
+        { path: "pairA" },
+        { path: "pairB" },
+        { path: "bracket" },
+        { path: "tournament" },
+      ])
+      .limit(64);
+    for (const m of matches) {
+      const key = courtNumKey(m?.courtLabel || "");
+      if (!key || map.has(key)) continue;
+      let dto;
+      try {
+        dto = await toRealtimePublicMatchDTO(m);
+      } catch {
+        continue;
+      }
+      if (!dto) continue;
+      const gs = Array.isArray(dto.gameScores) ? dto.gameScores : [];
+      const cg = Number.isInteger(dto.currentGame)
+        ? dto.currentGame
+        : Math.max(0, gs.length - 1);
+      const cur = gs[cg] || gs[gs.length - 1] || { a: 0, b: 0 };
+      const games = countGamesWon(gs, cg);
+      map.set(key, {
+        teamA: dto.teamAName || "Đội A",
+        teamB: dto.teamBName || "Đội B",
+        scoreA: Number(cur.a) || 0,
+        scoreB: Number(cur.b) || 0,
+        gamesA: games.a,
+        gamesB: games.b,
+        bestOf: Number(dto.rules?.bestOf) || 1,
+        stageName: dto.stageName || "",
+      });
+    }
+  } catch {
+    /* DB lỗi → bỏ qua, overlay vẫn chạy */
+  }
+  return map;
+}
+
+/** Gắn thông tin trận đang live (tên VĐV + tỉ số + tên vòng) vào từng sân trong
+ *  base.live. KHÔNG mutate object cache — trả bản sao. */
+async function attachLiveMatchInfo(base) {
+  if (!base || !base.enabled || !base.tournamentId) return base;
+  const groups = Array.isArray(base.live) ? base.live : [];
+  if (!groups.length) return base;
+  const byCourt = await fetchLiveMatchInfoByCourt(base.tournamentId);
+  if (!byCourt.size) return base;
+  const live = groups.map((g) => {
+    const key = courtNumKey(g.courtLabel);
+    const mi = key ? byCourt.get(key) : null;
+    return mi ? { ...g, match: mi } : g;
+  });
+  return { ...base, live };
 }
 
 export function invalidateEventLiveCache() {
