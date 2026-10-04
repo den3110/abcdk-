@@ -28,6 +28,7 @@ import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionMod
 import { decryptToken } from "../secret.service.js";
 import { loadOverlayData, loadOverlayDataFromUserMatch, renderOverlayPng, buildOverlayBugData } from "./overlayRenderer.service.js";
 import { buildPublicProfileSummary } from "../publicProfileSummary.service.js";
+import { getUserAchievements } from "../../controllers/achievements.controller.js";
 import { sampleProcessTree, clearProcSample, systemCapacity } from "./procStat.service.js";
 import { ensureDahuaTunnel, dahuaChannelUrl, triggerDahuaReconcile } from "./dahuaTunnel.service.js";
 import { getValidPageToken } from "../fbTokenService.js";
@@ -128,6 +129,62 @@ const INTRO_MS =
 const introStatsCache = new Map(); // matchId → { at, intro }
 const INTRO_STATS_TTL = 5 * 60 * 1000;
 
+/** Gọi getUserAchievements (controller) an toàn qua req/res giả, có timeout → trả summary hoặc null. */
+function fetchUserAchievementSummary(userId, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => {
+      if (!done) {
+        done = true;
+        resolve(v);
+      }
+    };
+    const timer = setTimeout(() => finish(null), timeoutMs);
+    const res = {
+      json: (d) => {
+        clearTimeout(timer);
+        finish(d?.summary || null);
+      },
+      status: () => res,
+    };
+    try {
+      Promise.resolve(
+        getUserAchievements({ params: { userId: String(userId) } }, res, () => {
+          clearTimeout(timer);
+          finish(null);
+        }),
+      ).catch(() => {
+        clearTimeout(timer);
+        finish(null);
+      });
+    } catch {
+      clearTimeout(timer);
+      finish(null);
+    }
+  });
+}
+
+/** Chuỗi thành tích ngắn gọn cho thẻ intro + cờ vàng (có danh hiệu vô địch). */
+function achTextFromSummary(s) {
+  if (!s) return { text: "", gold: false };
+  const titles = Number(s.titles) || 0;
+  const finals = Number(s.finals) || 0;
+  const podiums = Number(s.podiums) || 0;
+  if (titles > 0) {
+    const extra = finals - titles > 0 ? ` · Á quân ${finals - titles}` : "";
+    return { text: `Vô địch ${titles} giải${extra}`, gold: true };
+  }
+  if (finals > 0) {
+    return { text: `Á quân ${finals} giải`, gold: false };
+  }
+  if (podiums > 0) {
+    return { text: `${podiums} lần lên bục`, gold: false };
+  }
+  const best = String(s.careerBestLabel || "").trim();
+  if (best && best !== "—") return { text: `Tốt nhất: ${best}`, gold: false };
+  return { text: "", gold: false };
+}
+
 /** Dựng dữ liệu intro (tên VĐV + trình + tỉ lệ thắng + số trận) cho 1 trận. Cache theo matchId. */
 async function buildIntroForMatch(match, extra = {}) {
   if (!match?._id) return null;
@@ -162,8 +219,13 @@ async function buildIntroForMatch(match, extra = {}) {
   await Promise.all(
     all.map(async (pl) => {
       if (!pl.userId) return;
+      pl.achText = "";
+      pl.achGold = false;
       try {
-        const s = await buildPublicProfileSummary(pl.userId);
+        const [s, ach] = await Promise.all([
+          buildPublicProfileSummary(pl.userId),
+          fetchUserAchievementSummary(pl.userId),
+        ]);
         const total = Number(s?.matches?.total) || 0;
         pl.matches = total;
         pl.winRate =
@@ -172,6 +234,9 @@ async function buildIntroForMatch(match, extra = {}) {
           const sc = Number(s?.score?.double) || Number(s?.score?.single) || 0;
           pl.trinh = sc > 0 ? sc : null;
         }
+        const a = achTextFromSummary(ach);
+        pl.achText = a.text;
+        pl.achGold = a.gold;
       } catch {
         /* thiếu stats → vẫn hiện tên */
       }

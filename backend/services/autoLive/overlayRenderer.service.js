@@ -369,6 +369,7 @@ async function drawIntroPlayerCard(ctx, pl, cardX, cardY, cardW, cardH, accent) 
 
   const textX = acx + r + 26;
   const textMaxW = cardX + cardW - textX - 24;
+  const hasAch = !!String(pl?.achText || "").trim();
   ctx.save();
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
@@ -376,19 +377,19 @@ async function drawIntroPlayerCard(ctx, pl, cardX, cardY, cardW, cardH, accent) 
   const nick = String(pl?.nick || pl?.full || "—").trim();
   ctx.font = `800 40px ${FONT}`;
   ctx.fillStyle = "#F8FAFC";
-  ctx.fillText(truncate(ctx, nick, textMaxW), textX, cardY + 60);
+  ctx.fillText(truncate(ctx, nick, textMaxW), textX, cardY + 54);
   // Họ tên đầy đủ (nếu khác biệt danh)
   const full = String(pl?.full || "").trim();
   if (full && full.toLowerCase() !== nick.toLowerCase()) {
-    ctx.font = `500 26px ${FONT}`;
+    ctx.font = `500 25px ${FONT}`;
     ctx.fillStyle = "#94A3B8";
-    ctx.fillText(truncate(ctx, full, textMaxW), textX, cardY + 96);
+    ctx.fillText(truncate(ctx, full, textMaxW), textX, cardY + 86);
   }
   ctx.restore();
 
   // Chip thông số: Trình · Tỉ lệ thắng · Số trận
   let chipX = textX;
-  const chipY = cardY + cardH - 56;
+  const chipY = cardY + (hasAch ? 104 : cardH - 56);
   const trinh = Number(pl?.trinh);
   if (Number.isFinite(trinh) && trinh > 0) {
     chipX = drawIntroChip(ctx, chipX, chipY, `Trình ${trinh.toFixed(3).replace(/\.?0+$/, "")}`);
@@ -401,12 +402,53 @@ async function drawIntroPlayerCard(ctx, pl, cardX, cardY, cardW, cardH, accent) 
   }
   const mt = Number(pl?.matches) || 0;
   chipX = drawIntroChip(ctx, chipX, chipY, mt > 0 ? `${mt} trận` : "VĐV mới");
+
+  // Dòng THÀNH TÍCH (vô địch / thành tích tốt nhất)
+  if (hasAch) {
+    ctx.save();
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
+    ctx.font = `700 25px ${FONT}`;
+    ctx.fillStyle = pl?.achGold ? "#FBBF24" : "#CBD5E1";
+    // Biểu tượng cúp vẽ tay (node-canvas không có emoji) + chữ
+    const ty = cardY + 164;
+    drawTrophyIcon(ctx, textX + 9, ty - 9, 18, pl?.achGold ? "#FBBF24" : "#94A3B8");
+    ctx.fillText(truncate(ctx, String(pl.achText), textMaxW - 34), textX + 30, ty);
+    ctx.restore();
+  }
+}
+
+// Biểu tượng cúp đơn giản (thay emoji không render được trong node-canvas).
+function drawTrophyIcon(ctx, cx, cy, s, color) {
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(2, s * 0.14);
+  // Bát cúp
+  ctx.beginPath();
+  ctx.moveTo(cx - s * 0.5, cy - s * 0.5);
+  ctx.lineTo(cx + s * 0.5, cy - s * 0.5);
+  ctx.lineTo(cx + s * 0.32, cy + s * 0.12);
+  ctx.quadraticCurveTo(cx, cy + s * 0.4, cx - s * 0.32, cy + s * 0.12);
+  ctx.closePath();
+  ctx.fill();
+  // Quai hai bên
+  ctx.beginPath();
+  ctx.arc(cx - s * 0.5, cy - s * 0.3, s * 0.26, Math.PI * 0.5, Math.PI * 1.5);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx + s * 0.5, cy - s * 0.3, s * 0.26, Math.PI * 1.5, Math.PI * 0.5);
+  ctx.stroke();
+  // Chân + đế
+  ctx.fillRect(cx - s * 0.08, cy + s * 0.12, s * 0.16, s * 0.3);
+  ctx.fillRect(cx - s * 0.34, cy + s * 0.42, s * 0.68, s * 0.14);
+  ctx.restore();
 }
 
 async function drawIntroTeamColumn(ctx, players, cx, cardW, accent) {
   const list = (Array.isArray(players) ? players : []).slice(0, 2);
   if (!list.length) return;
-  const cardH = 200, gap = 26;
+  const cardH = 210, gap = 24;
   const totalH = list.length * cardH + (list.length - 1) * gap;
   let y = Math.round(612 - totalH / 2);
   const cardX = Math.round(cx - cardW / 2);
