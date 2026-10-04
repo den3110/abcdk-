@@ -668,9 +668,58 @@ export const toDTO = (matchDoc) => {
         /^(chung k[eê]́?t|b[aá]n k[eê]́?t|t[uứ] k[eê]́?t|v[oò]ng\s+\d|nh[aá]nh)/i.test(
           bracketName
         );
+      // Tên bracket chỉ là TỪ LOẠI chung chung (Knockout/Playoff/Main draw/Vòng loại…)
+      // thì KHÔNG coi là tên riêng → rơi xuống nhãn theo kích thước vòng
+      // (Tứ kết/Bán kết/Chung kết/Vòng 1/16). Chỉ khi bracket đặt tên RIÊNG có nghĩa
+      // (vd "Pre-Qualifying") mới hiện "Vòng {N} - {tên}".
+      const genericKey = bracketName
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-z0-9]+/g, "");
+      const isGenericName = [
+        "",
+        "knockout",
+        "knockouts",
+        "ko",
+        "playoff",
+        "playoffs",
+        "play",
+        "playin",
+        "playins",
+        "po",
+        "single",
+        "singleelimination",
+        "singleelim",
+        "double",
+        "doubleelimination",
+        "doubleelim",
+        "elimination",
+        "elim",
+        "main",
+        "maindraw",
+        "mainbracket",
+        "mainround",
+        "bracket",
+        "vongloai",
+        "loai",
+        "vongchinh",
+        "chinh",
+        "winnerbracket",
+        "winnersbracket",
+        "loserbracket",
+        "losersbracket",
+        "upperbracket",
+        "lowerbracket",
+        "nhanhthang",
+        "nhanhthua",
+        "nhanh",
+        "roundelim",
+      ].includes(genericKey);
       if (
         bracketName &&
         !isAutoName &&
+        !isGenericName &&
         Number.isInteger(roundNo) &&
         roundNo > 0
       ) {
