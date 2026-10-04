@@ -8,25 +8,36 @@ import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import PlayerCourtPosition from "../models/playerCourtPositionModel.js";
 
-/** Base lúc MỞ MÀN (trước quả giao đầu tiên của ván 1). Trả { A:{uid:1|2}, B:{...} } hoặc null. */
+/** Base lúc MỞ MÀN ván 1 = lineup trọng tài CHỐT khi trận bắt đầu.
+ *  LƯU Ý: trước khi bấm "start", trọng tài hay test giao bóng + chỉnh lineup (slots)
+ *  nhiều lần → KHÔNG lấy ở quả giao đầu, mà lấy base ngay trước ĐIỂM đầu tiên
+ *  (fallback: trước "start"). liveLog sắp theo thời gian `at`. */
 function openingBaseOfMatch(m) {
+  const log = (Array.isArray(m?.liveLog) ? m.liveLog : [])
+    .filter((e) => e && e.at)
+    .map((e) => ({ ...e, _t: new Date(e.at).getTime() }))
+    .filter((e) => Number.isFinite(e._t))
+    .sort((a, b) => a._t - b._t);
+
+  // Mốc "mở màn" = điểm đầu tiên (rally thật đầu tiên); fallback: sự kiện "start".
+  const firstPoint = log.find((e) => e.type === "point");
+  const startEv = log.find((e) => e.type === "start");
+  const tOpen = firstPoint?._t ?? startEv?._t ?? null;
+
   let base = null;
-  for (const e of Array.isArray(m?.liveLog) ? m.liveLog : []) {
-    const t = String(e?.type || "");
-    if (t === "slots" && e?.payload?.nextBase) {
-      base = e.payload.nextBase; // lineup trọng tài đặt (lần gần nhất trước quả giao đầu)
-    } else if (t === "serve" || t === "point") {
-      // Đã tới quả giao / điểm đầu tiên → chốt base mở màn.
-      if (base) return base;
-      break;
-    }
+  for (const e of log) {
+    if (tOpen != null && e._t > tOpen) break;
+    if (e.type === "slots" && e.payload?.nextBase) base = e.payload.nextBase;
   }
-  // Không có slots trước quả giao đầu → fallback base đầu tiên từng ghi, hoặc base hiện tại.
   if (base) return base;
-  const firstSlots = (Array.isArray(m?.liveLog) ? m.liveLog : []).find(
-    (e) => String(e?.type) === "slots" && e?.payload?.nextBase,
+
+  // Không có slots trước mốc mở màn → base mặc định (lineup chưa chỉnh) = base hiện tại,
+  // hoặc slots event đầu tiên nếu có.
+  if (m?.slots?.base) return m.slots.base;
+  const firstSlots = log.find(
+    (e) => e.type === "slots" && e.payload?.nextBase,
   );
-  return firstSlots?.payload?.nextBase || m?.slots?.base || null;
+  return firstSlots?.payload?.nextBase || null;
 }
 
 /**
