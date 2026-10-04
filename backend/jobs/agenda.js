@@ -75,6 +75,8 @@ export async function startAgenda() {
   console.log("✅ emailCampaignJob handler registered");
   await import("./opsMonitorJobs.js");
   console.log("✅ opsMonitorJobs handlers registered");
+  await import("./playerCourtPositionJob.js");
+  console.log("✅ playerCourtPositionJob handler registered");
 
   // 🆕 logging tiện debug
   agenda.on("start", (job) => {
@@ -100,6 +102,8 @@ export async function startAgenda() {
     await agenda.every("1 minute", "booking.expire-pending");
     await agenda.every("10 minutes", "booking.settle-past");
     await agenda.every("6 hours", "recurring.auto-renew");
+    // Quét lại vị trí sở trường ô1/ô2 mỗi 6 giờ (nhẹ ~1-2s).
+    await agenda.every("6 hours", "stats.player-court-position.rebuild");
     console.log("✅ event-live.auto-notify scheduled (5m)");
 
     // 🆕 Giám sát vận hành: quét sức khoẻ định kỳ + báo cáo tổng hợp hằng ngày.
