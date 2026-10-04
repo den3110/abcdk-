@@ -52,6 +52,22 @@ Copy-Item (Join-Path $Dist 'ptlive-worker.exe') (Join-Path $Bin 'ptlive-worker.e
 Remove-Item -Recurse -Force $Work, $Dist -ErrorAction SilentlyContinue
 Remove-Item -Force (Join-Path $Root 'ptlive-worker.spec') -ErrorAction SilentlyContinue
 
+Write-Host '==> Tailscale (tailscaled + tailscale) - build tu Go de nhung app (tu vao tailnet)'
+$go = Get-Command go -ErrorAction SilentlyContinue
+if ($go) {
+  $tsdExe = Join-Path $Bin 'tailscaled.exe'
+  $tsExe  = Join-Path $Bin 'tailscale.exe'
+  if (-not (Test-Path $tsdExe) -or -not (Test-Path $tsExe)) {
+    $env:GOBIN = $Bin; $env:GOFLAGS = '-trimpath'; $env:CGO_ENABLED = '0'
+    go install tailscale.com/cmd/tailscaled@latest
+    go install tailscale.com/cmd/tailscale@latest
+  }
+  if (Test-Path $tsdExe) { Write-Host '  -> bin/tailscaled.exe, bin/tailscale.exe' }
+  else { Write-Host '  !! build tailscale loi' }
+} else {
+  Write-Host '  !! Go chua cai -> BO QUA Tailscale (app se khong tu vao tailnet; cai Go roi chay lai)'
+}
+
 Write-Host '==> Xong. bin/:'
 Get-ChildItem $Bin | Format-Table Name, Length -AutoSize
 Write-Host 'Giờ chạy: npm run dist:win'
