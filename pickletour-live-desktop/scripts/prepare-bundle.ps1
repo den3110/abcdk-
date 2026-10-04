@@ -52,20 +52,27 @@ Copy-Item (Join-Path $Dist 'ptlive-worker.exe') (Join-Path $Bin 'ptlive-worker.e
 Remove-Item -Recurse -Force $Work, $Dist -ErrorAction SilentlyContinue
 Remove-Item -Force (Join-Path $Root 'ptlive-worker.spec') -ErrorAction SilentlyContinue
 
-Write-Host '==> Tailscale (tailscaled + tailscale) - build tu Go de nhung app (tu vao tailnet)'
-$go = Get-Command go -ErrorAction SilentlyContinue
-if ($go) {
-  $tsdExe = Join-Path $Bin 'tailscaled.exe'
-  $tsExe  = Join-Path $Bin 'tailscale.exe'
-  if (-not (Test-Path $tsdExe) -or -not (Test-Path $tsExe)) {
+Write-Host '==> Tailscale (tailscaled.exe + tailscale.exe) de nhung app (tu vao tailnet)'
+$tsdExe = Join-Path $Bin 'tailscaled.exe'
+$tsExe  = Join-Path $Bin 'tailscale.exe'
+# 1) Uu tien binary da kem san trong vendor (git) -> khong can Go, khong copy tay.
+$Vend = Join-Path $Root 'vendor\tailscale\windows-amd64'
+if ((Test-Path (Join-Path $Vend 'tailscaled.exe')) -and (Test-Path (Join-Path $Vend 'tailscale.exe'))) {
+  Copy-Item (Join-Path $Vend 'tailscaled.exe') $tsdExe -Force
+  Copy-Item (Join-Path $Vend 'tailscale.exe')  $tsExe  -Force
+  Write-Host '  -> copy tu vendor/tailscale/windows-amd64 (tailscaled.exe, tailscale.exe)'
+}
+# 2) Neu chua co + co Go -> build tu nguon (ban moi nhat).
+if ((-not (Test-Path $tsdExe)) -or (-not (Test-Path $tsExe))) {
+  $go = Get-Command go -ErrorAction SilentlyContinue
+  if ($go) {
     $env:GOBIN = $Bin; $env:GOFLAGS = '-trimpath'; $env:CGO_ENABLED = '0'
     go install tailscale.com/cmd/tailscaled@latest
     go install tailscale.com/cmd/tailscale@latest
+    if (Test-Path $tsdExe) { Write-Host '  -> build tu Go: bin/tailscaled.exe, bin/tailscale.exe' }
+  } else {
+    Write-Host '  !! Khong co binary trong vendor va chua cai Go -> BO QUA Tailscale'
   }
-  if (Test-Path $tsdExe) { Write-Host '  -> bin/tailscaled.exe, bin/tailscale.exe' }
-  else { Write-Host '  !! build tailscale loi' }
-} else {
-  Write-Host '  !! Go chua cai -> BO QUA Tailscale (app se khong tu vao tailnet; cai Go roi chay lai)'
 }
 
 Write-Host '==> Xong. bin/:'
