@@ -1477,7 +1477,8 @@ ipcMain.handle("tailscale-ensure", async (_e, { baseUrl, token, hostname } = {})
     // 1) Ưu tiên lấy vé ephemeral từ backend (admin-authed).
     if (baseUrl && token) {
       try {
-        const r = await apiFetch(baseUrl, "/api/network-access/session", { method: "POST", token });
+        // relay:true → backend cấp key kèm tag:relay (máy live làm relay cho điều khiển/bình luận).
+        const r = await apiFetch(baseUrl, "/api/network-access/session", { method: "POST", token, body: { relay: true } });
         authKey = String(r?.authKey || "");
         loginServer = String(r?.loginServer || "");
       } catch (e) { console.warn("[tailscale] lấy vé backend lỗi:", e?.message || e); }

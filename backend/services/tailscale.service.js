@@ -103,13 +103,18 @@ async function getAuthHeader() {
  * @param {string} o.description  mô tả (vd "pickletour-net user <id>")
  * @returns {Promise<{key:string, expiresAt:string|null, tag:string, loginServer:string, keyTtlSeconds:number}>}
  */
-export async function createAuthKey({ description = "pickletour-net" } = {}) {
+export async function createAuthKey({ description = "pickletour-net", extraTags = [] } = {}) {
   if (!isConfigured()) {
     const err = new Error("Chưa cấu hình Tailscale (thiếu OAuth client / API key)");
     err.status = 501;
     throw err;
   }
   const authorization = await getAuthHeader();
+  // Gộp tag mặc định + tag phụ (chỉ nhận tag dạng "tag:..."), bỏ trùng.
+  const tags = [TAG, ...(Array.isArray(extraTags) ? extraTags : [])]
+    .map((t) => String(t || "").trim())
+    .filter((t) => /^tag:[a-zA-Z0-9-]+$/.test(t));
+  const uniqTags = [...new Set(tags)];
   const payload = {
     description: String(description).slice(0, 120),
     expirySeconds: KEY_TTL,
@@ -119,7 +124,7 @@ export async function createAuthKey({ description = "pickletour-net" } = {}) {
           reusable: false,
           ephemeral: true,
           preauthorized: true,
-          tags: [TAG],
+          tags: uniqTags,
         },
       },
     },
@@ -134,9 +139,13 @@ export async function createAuthKey({ description = "pickletour-net" } = {}) {
     key: data.key, // tskey-auth-... (bí mật — chỉ gửi cho đúng thiết bị của user)
     expiresAt: data.expires || null,
     tag: TAG,
+    tags: uniqTags,
     loginServer: process.env.TAILSCALE_LOGIN_SERVER || "",
     keyTtlSeconds: KEY_TTL,
   };
 }
 
-export default { isConfigured, networkConfig, createAuthKey };
+// Tag gán thêm cho MÁY LIVE để làm relay (route commentary/điều khiển). Mặc định "tag:relay".
+export const RELAY_TAG = process.env.TAILSCALE_RELAY_TAG || "tag:relay";
+
+export default { isConfigured, networkConfig, createAuthKey, RELAY_TAG };

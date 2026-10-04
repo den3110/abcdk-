@@ -34,14 +34,35 @@ export const createNetworkSession = asyncHandler(async (req, res) => {
     res.status(501);
     throw new Error("Pickletour Network chưa được cấu hình trên máy chủ");
   }
+  // Máy live desktop xin thêm tag:relay (để làm relay cho điều khiển/bình luận).
+  // Chỉ cho phép thêm đúng RELAY_TAG (không nhận tag tuỳ ý từ client).
+  const wantRelay = req.body?.relay === true || req.body?.relay === "true";
+  const extraTags = wantRelay ? [tailscale.RELAY_TAG] : [];
   let keyInfo;
+  let relayError = "";
   try {
     keyInfo = await tailscale.createAuthKey({
-      description: `pickletour-net ${req.user?._id || "user"}`,
+      description: `pickletour-net ${req.user?._id || "user"}${wantRelay ? " relay" : ""}`,
+      extraTags,
     });
   } catch (e) {
-    res.status(e?.status === 501 ? 501 : 502);
-    throw new Error("Không cấp được vé Tailscale: " + (e?.message || e));
+    // Nếu xin kèm tag:relay mà ACL chưa cho OAuth client sở hữu tag đó → cấp key
+    // KHÔNG relay để máy vẫn vào được tailnet (báo lý do để admin sửa ACL tagOwners).
+    if (wantRelay) {
+      relayError = String(e?.message || e);
+      console.warn("[network-access] cấp key kèm tag:relay lỗi → fallback không relay:", relayError);
+      try {
+        keyInfo = await tailscale.createAuthKey({
+          description: `pickletour-net ${req.user?._id || "user"}`,
+        });
+      } catch (e2) {
+        res.status(e2?.status === 501 ? 501 : 502);
+        throw new Error("Không cấp được vé Tailscale: " + (e2?.message || e2));
+      }
+    } else {
+      res.status(e?.status === 501 ? 501 : 502);
+      throw new Error("Không cấp được vé Tailscale: " + (e?.message || e));
+    }
   }
 
   // Danh sách máy live trong tailnet (chỉ địa chỉ 100.x + nhãn; KHÔNG lộ PIN).
@@ -61,6 +82,9 @@ export const createNetworkSession = asyncHandler(async (req, res) => {
     authKey: keyInfo.key, // bí mật — chỉ thiết bị của user này dùng
     expiresAt: keyInfo.expiresAt,
     tag: keyInfo.tag,
+    tags: keyInfo.tags || [keyInfo.tag],
+    relay: wantRelay && !relayError,
+    relayError: relayError || undefined,
     loginServer: keyInfo.loginServer,
     keyTtlSeconds: keyInfo.keyTtlSeconds,
     machines,
