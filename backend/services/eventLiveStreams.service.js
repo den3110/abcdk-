@@ -646,22 +646,65 @@ async function fetchLiveMatchInfoByCourt(tournamentId) {
   const map = new Map();
   if (!tournamentId) return map;
   try {
+    const { default: Tournament } = await import("../models/tournamentModel.js");
+    const { default: CourtStation } = await import(
+      "../models/courtStationModel.js"
+    );
+    const { default: Court } = await import("../models/courtModel.js");
     const { default: Match } = await import("../models/matchModel.js");
-    const { toRealtimePublicMatchDTO } = await import("../socket/liveHandlers.js");
-    const matches = await Match.find({
-      tournament: tournamentId,
-      status: "live",
-    })
-      .populate([
-        { path: "pairA" },
-        { path: "pairB" },
-        { path: "bracket" },
-        { path: "tournament" },
-      ])
-      .limit(64);
-    for (const m of matches) {
-      const key = courtNumKey(m?.courtLabel || "");
+    const { toRealtimePublicMatchDTO } = await import(
+      "../socket/liveHandlers.js"
+    );
+
+    const tour = await Tournament.findById(tournamentId)
+      .select("allowedCourtClusterIds")
+      .lean();
+    const clusterIds = Array.isArray(tour?.allowedCourtClusterIds)
+      ? tour.allowedCourtClusterIds
+      : [];
+
+    // Gom (tên sân, currentMatchId) từ CourtStation (theo cụm sân của giải) + Court cũ.
+    // currentMatch của sân = ĐÚNG trận đang trên sân đó (giống overlay scoreboard),
+    // không phụ thuộc trận thuộc giải nào — dàn sân có thể dùng chung nhiều giải con.
+    const pairs = []; // { name, matchId }
+    if (clusterIds.length) {
+      const stations = await CourtStation.find({
+        clusterId: { $in: clusterIds },
+        currentMatch: { $ne: null },
+      })
+        .select("name currentMatch")
+        .lean();
+      for (const s of stations)
+        pairs.push({ name: s.name, matchId: s.currentMatch });
+    }
+    try {
+      const legacy = await Court.find({
+        tournament: tournamentId,
+        currentMatch: { $ne: null },
+      })
+        .select("name currentMatch")
+        .lean();
+      for (const c of legacy)
+        pairs.push({ name: c.name, matchId: c.currentMatch });
+    } catch {
+      /* Court cũ có thể không có field currentMatch → bỏ qua */
+    }
+
+    const ids = [...new Set(pairs.map((p) => String(p.matchId)).filter(Boolean))];
+    if (!ids.length) return map;
+    const matches = await Match.find({ _id: { $in: ids } }).populate([
+      { path: "pairA" },
+      { path: "pairB" },
+      { path: "bracket" },
+      { path: "tournament" },
+    ]);
+    const matchById = new Map(matches.map((m) => [String(m._id), m]));
+
+    for (const p of pairs) {
+      const key = courtNumKey(p.name);
       if (!key || map.has(key)) continue;
+      const m = matchById.get(String(p.matchId));
+      if (!m || String(m.status) === "finished") continue;
       let dto;
       try {
         dto = await toRealtimePublicMatchDTO(m);
@@ -684,6 +727,7 @@ async function fetchLiveMatchInfoByCourt(tournamentId) {
         gamesB: games.b,
         bestOf: Number(dto.rules?.bestOf) || 1,
         stageName: dto.stageName || "",
+        status: dto.status || m.status,
       });
     }
   } catch {
