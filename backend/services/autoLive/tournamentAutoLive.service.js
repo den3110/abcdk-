@@ -920,6 +920,8 @@ async function prepareDestinations(destinations, title) {
       try {
         r = await yt.createLive({
           title, description: title, privacy: "public", dedicatedStream: true,
+          // Live xuyên suốt: không để YouTube tự tắt khi luồng chập chờn → tự hồi phục.
+          autoStop: false,
         });
       } catch (e) {
         const err = new Error(`YouTube create live lỗi: ${e?.response?.data?.error?.message || e?.message || e}`);

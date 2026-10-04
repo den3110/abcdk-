@@ -342,7 +342,7 @@ export class YouTubeProvider extends LiveProvider {
     }
   }
 
-  async createLive({ title, description, privacy = "public", dedicatedStream = false }) {
+  async createLive({ title, description, privacy = "public", dedicatedStream = false, autoStop = true }) {
     const { oauth2 } = await getOAuthReady(this.cred || {});
     const yt = google.youtube({ version: "v3", auth: oauth2 });
     try {
@@ -363,7 +363,10 @@ export class YouTubeProvider extends LiveProvider {
             privacyStatus: privacy,
             selfDeclaredMadeForKids: false,
           },
-          contentDetails: { enableAutoStart: true, enableAutoStop: true },
+          // autoStop=false cho live "xuyên suốt": khi luồng bị ngắt tạm (mạng chập
+          // chờn, ffmpeg restart) YouTube KHÔNG tự complete broadcast → đẩy lại cùng
+          // stream key là tiếp tục được, khỏi phải tạo luồng mới / bật lại tay.
+          contentDetails: { enableAutoStart: true, enableAutoStop: autoStop },
         },
       });
       const broadcast = bRes.data;
