@@ -127,6 +127,11 @@ const SPONSOR_BUCKET_MS = 8000;
 // Đặt AUTOLIVE_INTRO_SECONDS=0 để tắt. Mặc định 11s.
 const INTRO_MS =
   Math.max(0, Number(process.env.AUTOLIVE_INTRO_SECONDS ?? 11)) * 1000;
+// AUTOLIVE_INTRO_SECONDS giờ chỉ dùng làm CÔNG TẮC bật/tắt intro (0 = tắt). Thời lượng
+// hiển thị KHÔNG còn cố định: intro hiện tới khi trọng tài bắt đầu trận rồi mới fade.
+const INTRO_ENABLED = INTRO_MS > 0;
+// Thời gian hiệu ứng fade tắt intro (ms) sau khi trọng tài bắt đầu trận.
+const INTRO_FADE_MS = Math.max(150, Number(process.env.AUTOLIVE_INTRO_FADE_MS ?? 700));
 const introStatsCache = new Map(); // matchId → { at, intro }
 const INTRO_STATS_TTL = 5 * 60 * 1000;
 
@@ -367,20 +372,44 @@ export async function getCachedOverlayPng(sessionId) {
   const opacity = await ensureOverlayOpacity();
   const style = String(doc.overlayStyle || "classic");
   const nameMode = doc.nameMode === "full" ? "full" : "nick";
-  // Intro VĐV: chỉ ở style "classic", trong N giây đầu kể từ khi đổi/vào trận.
-  const changedAt = doc.lastMatchChangeAt
-    ? new Date(doc.lastMatchChangeAt).getTime()
-    : 0;
-  const introActive =
-    INTRO_MS > 0 &&
-    style === "classic" &&
-    !!doc.currentMatch &&
-    changedAt > 0 &&
-    Date.now() - changedAt < INTRO_MS;
-  // Trong lúc intro: token cố định theo trận → render 1 lần, giữ nguyên tới khi hết intro.
-  const token = introActive
-    ? `intro:${String(doc.currentMatch)}:${opacity}:${nameMode}`
-    : `${doc.overlayVersion || 0}:${Math.floor(Date.now() / OVERLAY_TIME_BUCKET_MS)}:${opacity}:${style}:${nameMode}`;
+  // Intro VĐV (style classic): HIỆN tới khi trọng tài BẮT ĐẦU trận (match → "live" +
+  // startedAt) rồi FADE tắt trong INTRO_FADE_MS. Trước khi bắt đầu: hiện vô thời hạn.
+  // Mốc so sánh trừ đi OVERLAY_DELAY_MS để intro fade KHỚP lúc camera thấy bắt đầu.
+  let introPhase = null; // "wait" | "fade" | null
+  let introAlpha = 1;
+  if (INTRO_ENABLED && style === "classic" && doc.currentMatch) {
+    const mm = await Match.findById(doc.currentMatch)
+      .select("status startedAt")
+      .lean()
+      .catch(() => null);
+    const startedAt = mm?.startedAt ? new Date(mm.startedAt).getTime() : 0;
+    const isLive = String(mm?.status || "") === "live";
+    const effNow = Date.now() - OVERLAY_DELAY_MS;
+    if (!isLive) {
+      // Chưa bắt đầu → hiện vô thời hạn.
+      introPhase = "wait";
+      introAlpha = 1;
+    } else if (startedAt && effNow < startedAt) {
+      // Đã live nhưng (theo mốc đã trừ trễ) camera chưa thấy bắt đầu → vẫn hiện.
+      introPhase = "wait";
+      introAlpha = 1;
+    } else if (startedAt && effNow < startedAt + INTRO_FADE_MS) {
+      introPhase = "fade";
+      introAlpha = Math.max(0, 1 - (effNow - startedAt) / INTRO_FADE_MS);
+    }
+    // live & (không có startedAt | đã qua fade) → introPhase = null (ẩn).
+  }
+  const introActive = introPhase != null;
+  // Token: "wait" tĩnh (render 1 lần, giữ nguyên dù chờ lâu); "fade" chia bucket nhỏ
+  // (~120ms) để mờ mượt; còn lại theo overlayVersion + bucket thời gian thường.
+  let token;
+  if (introPhase === "wait") {
+    token = `intro:${String(doc.currentMatch)}:wait:${opacity}:${nameMode}`;
+  } else if (introPhase === "fade") {
+    token = `intro:${String(doc.currentMatch)}:fade:${Math.floor(Date.now() / 120)}:${opacity}:${nameMode}`;
+  } else {
+    token = `${doc.overlayVersion || 0}:${Math.floor(Date.now() / OVERLAY_TIME_BUCKET_MS)}:${opacity}:${style}:${nameMode}`;
+  }
   const cached = overlayCache.get(String(sessionId));
   if (cached && cached.token === token) return cached.buf;
   const data = await loadOverlayData(doc.court);
@@ -400,7 +429,7 @@ export async function getCachedOverlayPng(sessionId) {
       try {
         const intro = await buildIntroForMatch(data.match, data);
         if (intro && (intro.teamA.length || intro.teamB.length)) {
-          data.intro = { active: true, ...intro };
+          data.intro = { active: true, alpha: introAlpha, ...intro };
         }
       } catch {
         /* lỗi dựng intro → hiện scoreboard thường */

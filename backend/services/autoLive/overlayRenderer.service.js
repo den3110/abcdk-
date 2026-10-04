@@ -554,12 +554,21 @@ export async function renderOverlayPng(data) {
   await drawBrandLogo(ctx, brandCorner, data?.brandLogoUrl || "");
   await drawSponsorRotating(ctx, data?.sponsorLogos || [], sponsorCorner);
 
-  // INTRO: thẻ giới thiệu VĐV giữa màn vài giây đầu trận → vẽ đè, BỎ scoreboard.
+  // INTRO: thẻ giới thiệu VĐV → hiện tới khi trọng tài bắt đầu trận rồi FADE tắt.
+  // data.intro.alpha: 1 = hiện rõ, giảm dần về 0 trong lúc fade. Khi alpha≈0 chỉ còn
+  // camera (frame kế trọng tài đã bắt đầu → phiên sẽ chuyển sang vẽ scoreboard).
   if (
     data?.intro?.active &&
     ((data.intro.teamA || []).length + (data.intro.teamB || []).length) > 0
   ) {
-    await drawIntroCard(ctx, data.intro);
+    const a = Number(data.intro.alpha);
+    const alpha = Number.isFinite(a) ? Math.max(0, Math.min(1, a)) : 1;
+    if (alpha > 0.001) {
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      await drawIntroCard(ctx, data.intro);
+      ctx.restore();
+    }
     return finalizeBuffer(canvas, data?.opacity);
   }
 
