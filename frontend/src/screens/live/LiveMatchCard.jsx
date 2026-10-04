@@ -344,6 +344,36 @@ function buildCanonicalSessions(match = {}) {
         };
       }
 
+      // YouTube/Vimeo/Twitch/iframe: PHẢI dùng URL EMBED (stream.embedUrl), KHÔNG dùng
+      // watch url — nhúng youtube.com/watch vào iframe bị chặn ("refused to connect" → card xám).
+      if (
+        (kind === "yt" ||
+          kind === "youtube" ||
+          kind === "vimeo" ||
+          kind === "twitch" ||
+          kind === "iframe") &&
+        explicitEmbedUrl
+      ) {
+        return {
+          key: stream?.key || "stream",
+          provider: kind === "yt" ? "youtube" : kind,
+          kind: "iframe",
+          label: stream?.displayLabel || "Video",
+          providerLabel:
+            stream?.providerLabel || (kind === "yt" ? "YouTube" : "Video"),
+          openUrl: openUrl || url,
+          watchUrl: openUrl || url,
+          embedUrl: explicitEmbedUrl,
+          allow:
+            "autoplay; encrypted-media; picture-in-picture; web-share; fullscreen",
+          canEmbedInline: true,
+          primary: isPrimary,
+          ready: stream?.ready !== false,
+          delaySeconds: Number(stream?.delaySeconds || 0),
+          aspect: stream?.aspect || "16:9",
+        };
+      }
+
       return {
         key: stream?.key || "stream",
         provider: kind || "stream",
@@ -352,7 +382,7 @@ function buildCanonicalSessions(match = {}) {
         providerLabel: stream?.providerLabel || "Stream",
         openUrl: openUrl || url,
         watchUrl: openUrl || url,
-        embedUrl: url,
+        embedUrl: explicitEmbedUrl || url,
         allow: "autoplay; encrypted-media; picture-in-picture; fullscreen",
         canEmbedInline: true,
         primary: isPrimary,
