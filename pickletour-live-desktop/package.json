@@ -24,6 +24,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "tailscale-manager.js",
       "renderer/**",
       "worker/**",
       "scripts/**",
