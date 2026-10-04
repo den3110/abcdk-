@@ -4,7 +4,9 @@
 // tức người đứng ô chẵn/bên phải lúc 0-0 (chính là baseSlot=1 khi mở màn).
 // Lineup có thể đổi giữa các ván, nên KHÔNG dùng match.slots.base hiện tại mà dựng
 // lại "base MỞ MÀN" từ liveLog: base ngay trước quả giao đầu tiên.
+import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
+import PlayerCourtPosition from "../models/playerCourtPositionModel.js";
 
 /** Base lúc MỞ MÀN (trước quả giao đầu tiên của ván 1). Trả { A:{uid:1|2}, B:{...} } hoặc null. */
 function openingBaseOfMatch(m) {
@@ -93,4 +95,102 @@ export async function getPlayerPreferredPosition(userId, opts = {}) {
 export function positionLabel(stat) {
   if (!stat || !stat.total || !stat.preferred) return "";
   return stat.preferred === 1 ? "Ô 1" : "Ô 2";
+}
+
+const EMPTY_POS = Object.freeze({
+  slot1: 0,
+  slot2: 0,
+  total: 0,
+  preferred: null,
+  preferredPct: 0,
+});
+
+/** Đọc NHANH vị trí sở trường đã gom sẵn (collection) cho nhiều user — dùng cho
+ *  bảng xếp hạng/hồ sơ/overlay. Trả { [userId]: {slot1,slot2,total,preferred,preferredPct,label} }. */
+export async function getStoredPreferredPositions(userIds = []) {
+  const ids = [...new Set((userIds || []).map((x) => String(x || "")).filter(Boolean))];
+  const out = {};
+  for (const id of ids) out[id] = { ...EMPTY_POS, label: "" };
+  if (!ids.length) return out;
+  const objIds = ids
+    .filter((id) => mongoose.isValidObjectId(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+  if (!objIds.length) return out;
+  const docs = await PlayerCourtPosition.find({ user: { $in: objIds } })
+    .select("user slot1 slot2 total preferred preferredPct")
+    .lean();
+  for (const d of docs) {
+    const id = String(d.user);
+    out[id] = {
+      slot1: d.slot1 || 0,
+      slot2: d.slot2 || 0,
+      total: d.total || 0,
+      preferred: d.preferred ?? null,
+      preferredPct: d.preferredPct || 0,
+      label: positionLabel(d),
+    };
+  }
+  return out;
+}
+
+/** QUÉT TOÀN BỘ trận đã có lineup → gom vị trí sở trường theo từng VĐV (từ base MỞ MÀN)
+ *  rồi lưu vào collection PlayerCourtPosition. Chạy 1 lần (hoặc job định kỳ). */
+export async function rebuildAllPlayerCourtPositions({ onlyFinished = false } = {}) {
+  const q = { "slots.base": { $exists: true, $ne: null } };
+  if (onlyFinished) q.status = "finished";
+  const cursor = Match.find(q).select("slots.base liveLog").lean().cursor();
+
+  const tally = new Map(); // uid -> { slot1, slot2 }
+  let scanned = 0;
+  for (let m = await cursor.next(); m; m = await cursor.next()) {
+    scanned += 1;
+    const base = openingBaseOfMatch(m);
+    if (!base) continue;
+    for (const side of ["A", "B"]) {
+      const map = base[side] || {};
+      for (const [uid, slot] of Object.entries(map)) {
+        const s = Number(slot);
+        if (s !== 1 && s !== 2) continue;
+        if (!mongoose.isValidObjectId(uid)) continue;
+        if (!tally.has(uid)) tally.set(uid, { slot1: 0, slot2: 0 });
+        const t = tally.get(uid);
+        if (s === 1) t.slot1 += 1;
+        else t.slot2 += 1;
+      }
+    }
+  }
+
+  const now = new Date();
+  const ops = [];
+  for (const [uid, t] of tally) {
+    const total = t.slot1 + t.slot2;
+    const preferred = t.slot1 === t.slot2 ? null : t.slot1 > t.slot2 ? 1 : 2;
+    const preferredPct = total > 0 ? Math.round((Math.max(t.slot1, t.slot2) / total) * 100) : 0;
+    ops.push({
+      updateOne: {
+        filter: { user: new mongoose.Types.ObjectId(uid) },
+        update: {
+          $set: {
+            user: new mongoose.Types.ObjectId(uid),
+            slot1: t.slot1,
+            slot2: t.slot2,
+            total,
+            preferred,
+            preferredPct,
+            updatedAt: now,
+          },
+        },
+        upsert: true,
+      },
+    });
+  }
+  let written = 0;
+  const CHUNK = 500;
+  for (let i = 0; i < ops.length; i += CHUNK) {
+    const res = await PlayerCourtPosition.bulkWrite(ops.slice(i, i + CHUNK), {
+      ordered: false,
+    });
+    written += (res.upsertedCount || 0) + (res.modifiedCount || 0);
+  }
+  return { scanned, players: tally.size, written };
 }

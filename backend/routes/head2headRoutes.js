@@ -6,6 +6,7 @@ import {
   getFrequentOpponents,
   getPlayerStats,
   getPlayerPosition,
+  getPlayersPositions,
   searchPlayers,
 } from "../controllers/head2headController.js";
 
@@ -18,6 +19,14 @@ const router = express.Router();
  * @query   keyword (string, min 2 chars), limit (number, default 20)
  */
 router.get("/search", searchPlayers);
+
+/**
+ * @route   POST /api/head2head/positions
+ * @desc    Vị trí sở trường của nhiều VĐV (cho bảng xếp hạng)
+ * @access  Public
+ * @body    { userIds: string[] }
+ */
+router.post("/positions", getPlayersPositions);
 
 /**
  * @route   GET /api/head2head/:playerId/stats

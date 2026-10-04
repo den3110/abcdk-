@@ -29,6 +29,7 @@ import { decryptToken } from "../secret.service.js";
 import { loadOverlayData, loadOverlayDataFromUserMatch, renderOverlayPng, buildOverlayBugData } from "./overlayRenderer.service.js";
 import { buildPublicProfileSummary } from "../publicProfileSummary.service.js";
 import { getUserAchievements } from "../../controllers/achievements.controller.js";
+import { getStoredPreferredPositions } from "../playerCourtPosition.service.js";
 import { sampleProcessTree, clearProcSample, systemCapacity } from "./procStat.service.js";
 import { ensureDahuaTunnel, dahuaChannelUrl, triggerDahuaReconcile } from "./dahuaTunnel.service.js";
 import { getValidPageToken } from "../fbTokenService.js";
@@ -215,6 +216,21 @@ async function buildIntroForMatch(match, extra = {}) {
   const teamB = sideOf(match.pairB);
   const all = [...teamA, ...teamB];
   if (!all.length) return null;
+
+  // Vị trí sở trường (ô 1 / ô 2) đã gom sẵn — chỉ hiện cho ĐÔI (>=2 người/đội).
+  const isDoubles = teamA.length >= 2 || teamB.length >= 2;
+  if (isDoubles) {
+    try {
+      const posMap = await getStoredPreferredPositions(
+        all.map((p) => p.userId).filter(Boolean),
+      );
+      for (const pl of all) {
+        pl.posLabel = (pl.userId && posMap[pl.userId]?.label) || "";
+      }
+    } catch {
+      /* bỏ qua nếu lỗi */
+    }
+  }
 
   await Promise.all(
     all.map(async (pl) => {

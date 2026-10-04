@@ -6,6 +6,7 @@ import User from "../models/userModel.js";
 import Registration from "../models/registrationModel.js";
 import {
   getPlayerPreferredPosition,
+  getStoredPreferredPositions,
   positionLabel,
 } from "../services/playerCourtPosition.service.js";
 
@@ -717,9 +718,24 @@ export const getPlayerPosition = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("playerId không hợp lệ");
   }
-  const stat = await getPlayerPreferredPosition(playerId);
+  // Ưu tiên bản gom sẵn; nếu chưa có thì tính trực tiếp (tươi).
+  const stored = await getStoredPreferredPositions([playerId]);
+  let stat = stored[String(playerId)];
+  if (!stat || !stat.total) {
+    stat = await getPlayerPreferredPosition(playerId);
+    stat = { ...stat, label: positionLabel(stat) };
+  }
   res.set("Cache-Control", "public, max-age=300");
-  res.json({ success: true, data: { ...stat, label: positionLabel(stat) } });
+  res.json({ success: true, data: stat });
+});
+
+// POST /api/head2head/positions  body: { userIds: [...] } (tối đa 200)
+// Trả vị trí sở trường của NHIỀU VĐV (cho bảng xếp hạng / danh sách).
+export const getPlayersPositions = asyncHandler(async (req, res) => {
+  const raw = Array.isArray(req.body?.userIds) ? req.body.userIds : [];
+  const ids = raw.map((x) => String(x || "")).filter(Boolean).slice(0, 200);
+  const data = await getStoredPreferredPositions(ids);
+  res.json({ success: true, data });
 });
 
 export const searchPlayers = asyncHandler(async (req, res) => {

@@ -403,6 +403,15 @@ async function drawIntroPlayerCard(ctx, pl, cardX, cardY, cardW, cardH, accent) 
   const mt = Number(pl?.matches) || 0;
   chipX = drawIntroChip(ctx, chipX, chipY, mt > 0 ? `${mt} trận` : "VĐV mới");
 
+  // Vị trí sở trường ô 1 / ô 2 (chỉ đánh đôi)
+  const pos = String(pl?.posLabel || "").trim();
+  if (pos) {
+    chipX = drawIntroChip(ctx, chipX, chipY, pos, {
+      bg: "rgba(139,92,246,0.92)",
+      fg: "#FFFFFF",
+    });
+  }
+
   // Dòng THÀNH TÍCH (vô địch / thành tích tốt nhất)
   if (hasAch) {
     ctx.save();
