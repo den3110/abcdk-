@@ -1,9 +1,31 @@
 // services/playerCourtPosition.service.js
 // Thống kê VỊ TRÍ SỞ TRƯỜNG (ô 1 / ô 2) của VĐV trong đánh đôi.
-// Dữ liệu gốc đã được trọng tài ghi sẵn trên mỗi trận: match.slots.base.{A,B}[userId] = 1|2
-// (ô 1 = sân chẵn/bên phải khi điểm chẵn; ô 2 = bên còn lại). Hàm dưới gom lại
-// theo từng VĐV để biết họ hay đứng ô nào → phục vụ phân tích/hiển thị sau này.
+// ĐỊNH NGHĨA: ô 1 = vị trí giao/trả giao ở ĐIỂM ĐẦU TIÊN của VÁN ĐẦU (0-0-2),
+// tức người đứng ô chẵn/bên phải lúc 0-0 (chính là baseSlot=1 khi mở màn).
+// Lineup có thể đổi giữa các ván, nên KHÔNG dùng match.slots.base hiện tại mà dựng
+// lại "base MỞ MÀN" từ liveLog: base ngay trước quả giao đầu tiên.
 import Match from "../models/matchModel.js";
+
+/** Base lúc MỞ MÀN (trước quả giao đầu tiên của ván 1). Trả { A:{uid:1|2}, B:{...} } hoặc null. */
+function openingBaseOfMatch(m) {
+  let base = null;
+  for (const e of Array.isArray(m?.liveLog) ? m.liveLog : []) {
+    const t = String(e?.type || "");
+    if (t === "slots" && e?.payload?.nextBase) {
+      base = e.payload.nextBase; // lineup trọng tài đặt (lần gần nhất trước quả giao đầu)
+    } else if (t === "serve" || t === "point") {
+      // Đã tới quả giao / điểm đầu tiên → chốt base mở màn.
+      if (base) return base;
+      break;
+    }
+  }
+  // Không có slots trước quả giao đầu → fallback base đầu tiên từng ghi, hoặc base hiện tại.
+  if (base) return base;
+  const firstSlots = (Array.isArray(m?.liveLog) ? m.liveLog : []).find(
+    (e) => String(e?.type) === "slots" && e?.payload?.nextBase,
+  );
+  return firstSlots?.payload?.nextBase || m?.slots?.base || null;
+}
 
 /**
  * Gom vị trí sở trường cho 1 hoặc nhiều user.
@@ -27,10 +49,11 @@ export async function getPlayerPreferredPositions(userIds = [], opts = {}) {
   const filter = { $or: or };
   if (opts.onlyFinished) filter.status = "finished";
 
-  const matches = await Match.find(filter).select("slots.base").lean();
+  const matches = await Match.find(filter).select("slots.base liveLog").lean();
   for (const m of matches) {
-    const bA = m?.slots?.base?.A || {};
-    const bB = m?.slots?.base?.B || {};
+    const base = openingBaseOfMatch(m) || {};
+    const bA = base.A || {};
+    const bB = base.B || {};
     for (const id of ids) {
       const slot = Number(bA[id] ?? bB[id]);
       if (slot === 1) {
