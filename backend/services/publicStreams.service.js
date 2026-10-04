@@ -397,6 +397,34 @@ function buildYouTubeEmbedUrl(match = {}) {
     : "";
 }
 
+// Trích ID video YouTube từ 1 URL bất kỳ (dùng cho match.video replay: watch?v=, youtu.be,
+// /live/, /embed/, /shorts/). Trả "" nếu không phải YouTube.
+function extractYouTubeIdFromUrl(url) {
+  const raw = asTrimmed(url);
+  if (!raw) return "";
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.toLowerCase();
+    if (host.includes("youtube.com")) {
+      const v = u.searchParams.get("v");
+      if (v) return asTrimmed(v);
+      const parts = u.pathname.split("/").filter(Boolean);
+      if (parts.length >= 2 && ["live", "shorts", "embed"].includes(parts[0])) {
+        return asTrimmed(parts[1]);
+      }
+      return "";
+    }
+    if (host === "youtu.be") {
+      return asTrimmed(u.pathname.replace(/^\/+/, "").split("/")[0]);
+    }
+  } catch {
+    const matched =
+      raw.match(/[?&]v=([^&]+)/i) || raw.match(/youtu\.be\/([^?&/]+)/i);
+    return asTrimmed(matched?.[1] || "");
+  }
+  return "";
+}
+
 function selectTikTokWatchUrl(match = {}) {
   const tiktok = match?.meta?.tiktok || {};
   const tiktokLive = match?.tiktokLive || {};
@@ -853,6 +881,48 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
         pageVideoUrl: facebookStream.pageVideoUrl,
         legacyVideoUrl: facebookStream.legacyVideoUrl,
       },
+    });
+  }
+
+  // YouTube: live (youtubeLive/meta.youtube) hoặc replay lưu ở match.video.
+  // Trước đây feed KHÔNG dựng stream YouTube nào → trận chỉ có YouTube bị loại khỏi
+  // feed ("không tìm thấy video công khai"). Dựng stream kind "yt" + embedUrl để web/app
+  // nhúng qua iframe phát bình thường.
+  const youtubeVideoId =
+    parseYouTubeVideoId(match) ||
+    extractYouTubeIdFromUrl(selectLegacyPlaybackUrl(match));
+  if (youtubeVideoId && (!finishedLike || !completedReplayStream)) {
+    const ytWatchUrl = `https://www.youtube.com/watch?v=${youtubeVideoId}`;
+    const ytEmbedUrl = `https://www.youtube-nocookie.com/embed/${youtubeVideoId}`;
+    let ytKey;
+    let ytPriority;
+    let ytLabel;
+    if (finishedLike) {
+      const hasPrimaryReplay = streams.some((s) => s.key === "full_video");
+      ytKey = hasPrimaryReplay ? "legacy_video" : "full_video";
+      ytPriority = hasPrimaryReplay ? 3 : 0;
+      ytLabel = hasPrimaryReplay ? "Video" : "Video đầy đủ";
+    } else {
+      const hasServer1 = streams.some((s) => s.key === "server1");
+      ytKey = hasServer1 ? "server2" : "server1";
+      ytPriority = hasServer1 ? 2 : 1;
+      ytLabel = hasServer1 ? "Server 2" : "Server 1";
+    }
+    pushUniqueStream(streams, {
+      key: ytKey,
+      displayLabel: ytLabel,
+      providerLabel: "YouTube",
+      kind: "yt",
+      priority: ytPriority,
+      status: "ready",
+      playUrl: ytWatchUrl,
+      openUrl: ytWatchUrl,
+      embedUrl: ytEmbedUrl,
+      allow:
+        "autoplay; encrypted-media; picture-in-picture; web-share; fullscreen",
+      delaySeconds: 0,
+      ready: true,
+      meta: { watchUrl: ytWatchUrl, isCompleteVideo: finishedLike },
     });
   }
 
