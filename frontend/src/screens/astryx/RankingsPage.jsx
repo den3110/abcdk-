@@ -33,6 +33,7 @@ import { skipToken } from "@reduxjs/toolkit/query";
 import { useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import { useLanguage } from "../../context/LanguageContext.jsx";
+import { PROVINCES } from "../ProfileScreen.jsx";
 
 /* ------------------------------- helpers ------------------------------- */
 const Container = ({ children, style }) => (
@@ -745,6 +746,13 @@ export default function RankingsPage() {
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState([]);
   const debounceRef = useRef(null);
+  // Bộ lọc nâng cao: điểm trình (range) / giới tính / tỉnh thành / sở trường ô1-ô2
+  const [scoreType, setScoreType] = useState("double");
+  const [minScore, setMinScore] = useState("");
+  const [maxScore, setMaxScore] = useState("");
+  const [gender, setGender] = useState("");
+  const [province, setProvince] = useState("");
+  const [preferred, setPreferred] = useState("");
 
   // debounce từ khoá 400ms -> query server
   useEffect(() => {
@@ -756,9 +764,21 @@ export default function RankingsPage() {
     return () => clearTimeout(debounceRef.current);
   }, [qInput]);
 
+  // Đổi bộ lọc → về trang 1
+  useEffect(() => {
+    setPage(1);
+  }, [scoreType, minScore, maxScore, gender, province, preferred]);
+
+  const rangeOn = minScore !== "" || maxScore !== "";
   const { data, isFetching, error, refetch } = useGetRankingsListQuery({
     keyword: keyword || undefined,
     scoreStatus: filter || undefined,
+    scoreType: rangeOn ? scoreType : undefined,
+    minScore: minScore !== "" ? Number(minScore) : undefined,
+    maxScore: maxScore !== "" ? Number(maxScore) : undefined,
+    gender: gender || undefined,
+    province: province || undefined,
+    preferred: preferred || undefined,
     // server đếm page từ 0 (page = số trang BỎ QUA) — UI đếm từ 1 nên trừ 1
     page: page - 1,
     limit: 25,
@@ -904,6 +924,92 @@ export default function RankingsPage() {
             <Toolbar qInput={qInput} setQInput={setQInput} filter={filter} setFilter={changeFilter} />
 
             <Container>
+              {(() => {
+                const sel = {
+                  background: "var(--color-background-surface)",
+                  color: "var(--pk-text, inherit)",
+                  border: "1px solid var(--color-border)",
+                  borderRadius: 10,
+                  padding: "8px 10px",
+                  fontSize: 14,
+                  minWidth: 120,
+                };
+                const lbl = { fontSize: 12, color: "#9AA0A6", marginBottom: 4, display: "block" };
+                const anyActive =
+                  scoreType !== "double" || minScore !== "" || maxScore !== "" ||
+                  gender || province || preferred;
+                return (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 12,
+                      alignItems: "flex-end",
+                      marginTop: 8,
+                    }}
+                  >
+                    <div>
+                      <label style={lbl}>Điểm trình</label>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <select style={{ ...sel, minWidth: 96 }} value={scoreType} onChange={(e) => setScoreType(e.target.value)}>
+                          <option value="double">Đôi</option>
+                          <option value="single">Đơn</option>
+                          <option value="mix">Đôi NN</option>
+                        </select>
+                        <input style={{ ...sel, minWidth: 70, width: 70 }} type="number" step="0.1" placeholder="Từ" value={minScore} onChange={(e) => setMinScore(e.target.value)} />
+                        <input style={{ ...sel, minWidth: 70, width: 70 }} type="number" step="0.1" placeholder="Đến" value={maxScore} onChange={(e) => setMaxScore(e.target.value)} />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={lbl}>Giới tính</label>
+                      <select style={sel} value={gender} onChange={(e) => setGender(e.target.value)}>
+                        <option value="">Tất cả</option>
+                        <option value="male">Nam</option>
+                        <option value="female">Nữ</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={lbl}>Tỉnh/thành</label>
+                      <select style={{ ...sel, maxWidth: 200 }} value={province} onChange={(e) => setProvince(e.target.value)}>
+                        <option value="">Tất cả</option>
+                        {PROVINCES.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={lbl}>Sở trường</label>
+                      <select style={sel} value={preferred} onChange={(e) => setPreferred(e.target.value)}>
+                        <option value="">Tất cả</option>
+                        <option value="1">Ô 1</option>
+                        <option value="2">Ô 2</option>
+                      </select>
+                    </div>
+                    {anyActive ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setScoreType("double");
+                          setMinScore("");
+                          setMaxScore("");
+                          setGender("");
+                          setProvince("");
+                          setPreferred("");
+                        }}
+                        style={{
+                          ...sel,
+                          cursor: "pointer",
+                          color: "#ef4444",
+                          borderColor: "#ef4444",
+                          minWidth: 0,
+                        }}
+                      >
+                        Xoá lọc
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })()}
               <div style={{ padding: "26px 0 84px" }}>
                 {/* Toggle hiển thị: Thẻ (kiểu v1) / Bảng */}
                 <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 16 }}>

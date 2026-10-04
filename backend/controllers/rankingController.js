@@ -2978,6 +2978,13 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     ? genderRaw
     : null;
 
+  // ===== Lọc theo tỉnh/thành =====
+  const provinceFilter = String(req.query.province || "").trim() || null;
+
+  // ===== Lọc theo vị trí sở trường (ô 1 / ô 2) =====
+  const posRaw = String(req.query.preferred || req.query.position || "").trim();
+  const preferredFilter = posRaw === "1" ? 1 : posRaw === "2" ? 2 : null;
+
   // ===== Check user roles =====
   const role = String(req.user?.role || "").toLowerCase();
   const isAdmin = role === "admin" || !!req.user?.isAdmin;
@@ -3165,11 +3172,28 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
         localField: "user",
         foreignField: "_id",
         as: "u_chk",
-        pipeline: [{ $project: { _id: 1, gender: 1 } }],
+        pipeline: [{ $project: { _id: 1, gender: 1, province: 1 } }],
       },
     },
     { $match: { "u_chk.0": { $exists: true } } },
     ...(genderFilter ? [{ $match: { "u_chk.gender": genderFilter } }] : []),
+    ...(provinceFilter ? [{ $match: { "u_chk.province": provinceFilter } }] : []),
+    // Lọc theo vị trí sở trường (ô 1 / ô 2) — join collection playercourtpositions
+    ...(preferredFilter
+      ? [
+          {
+            $lookup: {
+              from: "playercourtpositions",
+              localField: "user",
+              foreignField: "user",
+              as: "pos_chk",
+              pipeline: [{ $project: { _id: 0, preferred: 1 } }],
+            },
+          },
+          { $match: { "pos_chk.preferred": preferredFilter } },
+          { $project: { pos_chk: 0 } },
+        ]
+      : []),
     { $project: { u_chk: 0 } },
     {
       $facet: {
@@ -3253,7 +3277,10 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     userIdsFilter.length &&
     page === 0 &&
     !scoreStatusMatch &&
-    !scoreRangeActive
+    !scoreRangeActive &&
+    !genderFilter &&
+    !provinceFilter &&
+    !preferredFilter
   ) {
     try {
       const rankedIds = await Ranking.find(
