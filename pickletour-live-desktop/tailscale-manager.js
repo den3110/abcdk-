@@ -88,8 +88,9 @@ function refreshState() {
 
 function status() { return { ...refreshState(), available: available() }; }
 
-// Shell-escape cho `do shell script` của osascript (bọc trong nháy kép).
-function shq(s) { return String(s).replace(/\\/g, "\\\\").replace(/"/g, '\\"'); }
+// Bọc 1 đối số cho shell bằng NHÁY ĐƠN (an toàn với khoảng trắng trong đường dẫn,
+// vd "Application Support", "PickleTour Live.app"). Escape nháy đơn bên trong.
+function shq(s) { return "'" + String(s).replace(/'/g, `'\\''`) + "'"; }
 
 // macOS: chạy 1 script có quyền root qua hộp thoại hệ thống (hỏi mật khẩu 1 lần).
 function runElevatedMac(script) {
@@ -129,7 +130,7 @@ async function ensureUpMac({ authKey, hostname, loginServer }) {
   const tsd = tailscaledBin();
   const ts = tailscaleBin();
   const sock = sockPath();
-  const dir = statePath();
+  const dir = stateDir(); // THƯ MỤC state cho tailscaled (--statedir cần 1 directory)
   const log = logPath();
   const user = os.userInfo().username || process.env.USER || "";
 
