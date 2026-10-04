@@ -130,6 +130,54 @@ const INTRO_MS =
 const introStatsCache = new Map(); // matchId → { at, intro }
 const INTRO_STATS_TTL = 5 * 60 * 1000;
 
+// ĐỘ TRỄ OVERLAY (ms): hiển thị TỈ SỐ + ĐIỂM GIAO đúng như cách đây N mili-giây để
+// KHỚP với hình camera trên stream. Camera (RTSP/Dahua) qua buffer+encode trễ vài
+// giây trước khi ffmpeg ghép, trong khi overlay PNG phản ánh điểm gần như realtime
+// → overlay "chạy trước" camera. Tua tỉ số lùi lại N ms cho khớp. Chỉnh bằng
+// AUTOLIVE_OVERLAY_DELAY_MS trên .env (0 = tắt, giữ nguyên hành vi cũ).
+const OVERLAY_DELAY_MS = Math.max(
+  0,
+  Number(process.env.AUTOLIVE_OVERLAY_DELAY_MS ?? 0)
+);
+// Khi bật trễ, token overlay refresh ~mỗi 1s (thay vì 8s) để tua tỉ số mượt & đúng mốc.
+const OVERLAY_TIME_BUCKET_MS = OVERLAY_DELAY_MS > 0 ? 1000 : SPONSOR_BUCKET_MS;
+// Lịch sử tỉ số theo phiên/trận để "tua lại" trạng thái cách đây OVERLAY_DELAY_MS.
+const scoreHistory = new Map(); // key → [{ at, matchId, snap }]
+
+function _snapScore(m) {
+  if (!m) return null;
+  return { gameScores: m.gameScores, currentGame: m.currentGame, serve: m.serve };
+}
+
+// Ghi mẫu tỉ số hiện tại vào buffer rồi GÁN LẠI tỉ số cách đây delayMs vào data.match.
+// Chỉ tua TỈ SỐ + ĐIỂM GIAO; tên/vòng/sponsor giữ nguyên hiện tại. Chỉ áp cùng 1 trận
+// (đổi trận thì không tua lẫn điểm trận cũ).
+function applyOverlayScoreDelay(key, data, delayMs) {
+  if (!delayMs || !data?.match) return data;
+  const matchId = String(data.match._id || "");
+  const now = Date.now();
+  let hist = scoreHistory.get(key);
+  if (!hist) { hist = []; scoreHistory.set(key, hist); }
+  hist.push({ at: now, matchId, snap: _snapScore(data.match) });
+  const cutoff = now - delayMs - 5000;
+  while (hist.length > 1 && hist[0].at < cutoff) hist.shift();
+  const target = now - delayMs;
+  let chosen = null;
+  for (let i = hist.length - 1; i >= 0; i--) {
+    if (hist[i].at <= target) { chosen = hist[i]; break; }
+  }
+  if (!chosen) chosen = hist[0]; // chưa đủ lịch sử → dùng mẫu cũ nhất (hội tụ sau delay)
+  if (chosen && chosen.matchId === matchId && chosen.snap) {
+    data.match = {
+      ...data.match,
+      gameScores: chosen.snap.gameScores,
+      currentGame: chosen.snap.currentGame,
+      serve: chosen.snap.serve,
+    };
+  }
+  return data;
+}
+
 /** Gọi getUserAchievements (controller) an toàn qua req/res giả, có timeout → trả summary hoặc null. */
 function fetchUserAchievementSummary(userId, timeoutMs = 4000) {
   return new Promise((resolve) => {
@@ -332,7 +380,7 @@ export async function getCachedOverlayPng(sessionId) {
   // Trong lúc intro: token cố định theo trận → render 1 lần, giữ nguyên tới khi hết intro.
   const token = introActive
     ? `intro:${String(doc.currentMatch)}:${opacity}:${nameMode}`
-    : `${doc.overlayVersion || 0}:${Math.floor(Date.now() / SPONSOR_BUCKET_MS)}:${opacity}:${style}:${nameMode}`;
+    : `${doc.overlayVersion || 0}:${Math.floor(Date.now() / OVERLAY_TIME_BUCKET_MS)}:${opacity}:${style}:${nameMode}`;
   const cached = overlayCache.get(String(sessionId));
   if (cached && cached.token === token) return cached.buf;
   const data = await loadOverlayData(doc.court);
@@ -358,6 +406,8 @@ export async function getCachedOverlayPng(sessionId) {
         /* lỗi dựng intro → hiện scoreboard thường */
       }
     }
+    // Tua tỉ số lùi lại cho khớp hình camera (chỉ khi KHÔNG ở màn intro).
+    if (!introActive) applyOverlayScoreDelay(String(sessionId), data, OVERLAY_DELAY_MS);
   }
   const buf = await renderOverlayPng(data);
   overlayCache.set(String(sessionId), { buf, token });
@@ -383,10 +433,12 @@ export async function getUserMatchOverlayPng(userMatchId) {
   const opacity = await ensureOverlayOpacity();
   data.opacity = opacity;
   // Token đổi ~mỗi 800ms để overlay bắt kịp điểm số mới (referee patch) mà vẫn
-  // tránh render mọi request (~2fps worker fetch).
-  const token = `${Math.floor(Date.now() / 800)}:${opacity}`;
+  // tránh render mọi request (~2fps worker fetch). Khi bật trễ → dùng bucket 1s.
+  const token = `${Math.floor(Date.now() / (OVERLAY_DELAY_MS > 0 ? 1000 : 800))}:${opacity}`;
   const cached = userOverlayCache.get(id);
   if (cached && cached.token === token) return cached.buf;
+  // Tua tỉ số lùi lại cho khớp hình camera (giống path phiên giải).
+  applyOverlayScoreDelay(`um:${id}`, data, OVERLAY_DELAY_MS);
   const buf = await renderOverlayPng(data);
   userOverlayCache.set(id, { buf, token });
   return buf;
