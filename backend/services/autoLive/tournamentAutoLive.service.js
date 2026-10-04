@@ -677,6 +677,8 @@ function sessionWatchUrls(session) {
 /** Gắn link xem live (FB + YouTube) của phiên vào ĐÚNG trận đang live → lịch thi
  *  đấu / chi tiết trận hiện nút "Xem trực tiếp" (dùng match.video + liveTargets,
  *  đúng convention app live). RTMP thuần (không watchUrl) → bỏ qua. */
+// Buffer (giây) lùi mốc tua về trước thời điểm trận lên sân một chút cho chắc.
+const VIDEO_START_BUFFER_SEC = 10;
 async function applyLiveLinksToMatch(session, matchId) {
   try {
     if (!matchId) return;
@@ -690,9 +692,29 @@ async function applyLiveLinksToMatch(session, matchId) {
         createdAt: new Date(),
       }));
     if (!targets.length) return;
+    // Live "xuyên suốt": tính mốc (giây) trận này xuất hiện trong clip = thời điểm lên
+    // sân trừ thời điểm bắt đầu phát (clip t=0). Dùng để player tua thẳng tới trận.
+    const clipStartMs = session?.workerStartedAt
+      ? new Date(session.workerStartedAt).getTime()
+      : session?.createdAt
+        ? new Date(session.createdAt).getTime()
+        : 0;
+    let videoStartSeconds = 0;
+    if (clipStartMs > 0) {
+      videoStartSeconds = Math.max(
+        0,
+        Math.round((Date.now() - clipStartMs) / 1000) - VIDEO_START_BUFFER_SEC
+      );
+    }
     await Match.updateOne(
       { _id: matchId },
-      { $set: { liveTargets: targets, video: targets[0].watchUrl } }
+      {
+        $set: {
+          liveTargets: targets,
+          video: targets[0].watchUrl,
+          videoStartSeconds,
+        },
+      }
     );
   } catch (e) {
     console.warn("[auto-live] gắn link live vào trận lỗi:", e?.message || e);

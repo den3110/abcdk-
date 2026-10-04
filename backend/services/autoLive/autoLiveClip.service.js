@@ -493,7 +493,12 @@ async function processOneClip(clip, cov) {
       },
     });
     // Gán link xem lại vào trận — thay link live đã kết thúc (giống mobile native).
-    if (viewUrl) await Match.updateOne({ _id: clip.match }, { $set: { video: viewUrl } }).catch(() => {});
+    // Clip này là clip RIÊNG của trận (bắt đầu từ đầu trận) → reset mốc tua về 0.
+    if (viewUrl)
+      await Match.updateOne(
+        { _id: clip.match },
+        { $set: { video: viewUrl, videoStartSeconds: 0 } }
+      ).catch(() => {});
     console.log(`[autolive-clip] DONE match=${clip.match} → ${viewUrl}`);
   } catch (e) {
     const failed = (clip.attempts + 1) >= MAX_ATTEMPTS;

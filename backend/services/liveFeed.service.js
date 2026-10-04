@@ -80,6 +80,7 @@ const MATCH_LIST_SELECT = [
   "updatedAt",
   "createdAt",
   "video",
+  "videoStartSeconds",
   "playbackUrl",
   "streamUrl",
   "liveUrl",

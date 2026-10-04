@@ -892,8 +892,14 @@ export function buildPublicStreamsForMatch(match = {}, recording = null) {
     parseYouTubeVideoId(match) ||
     extractYouTubeIdFromUrl(selectLegacyPlaybackUrl(match));
   if (youtubeVideoId && (!finishedLike || !completedReplayStream)) {
-    const ytWatchUrl = `https://www.youtube.com/watch?v=${youtubeVideoId}`;
-    const ytEmbedUrl = `https://www.youtube-nocookie.com/embed/${youtubeVideoId}`;
+    // Live "xuyên suốt": tua thẳng tới trận trong clip dài (match.videoStartSeconds).
+    const startSec = Math.max(0, Math.floor(Number(match?.videoStartSeconds) || 0));
+    const ytWatchUrl = startSec
+      ? `https://www.youtube.com/watch?v=${youtubeVideoId}&t=${startSec}s`
+      : `https://www.youtube.com/watch?v=${youtubeVideoId}`;
+    const ytEmbedUrl = startSec
+      ? `https://www.youtube-nocookie.com/embed/${youtubeVideoId}?start=${startSec}`
+      : `https://www.youtube-nocookie.com/embed/${youtubeVideoId}`;
     let ytKey;
     let ytPriority;
     let ytLabel;

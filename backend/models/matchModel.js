@@ -280,6 +280,9 @@ const matchSchema = new Schema(
       trim: true,
       set: (v) => (v == null ? "" : String(v).trim()),
     },
+    // Live "xuyên suốt": 1 clip dài gán cho nhiều trận → mốc (giây) trận này bắt đầu
+    // trong clip, để player tua thẳng tới trận (0 = clip riêng của trận/không tua).
+    videoStartSeconds: { type: Number, default: 0 },
     liveLog: [
       {
         type: {
@@ -521,7 +524,7 @@ async function emitMatchRefereeSnapshot(matchIds = []) {
           "tournament bracket rules currentGame gameScores " +
           "round order code roundCode roundName " +
           "seedA seedB previousA previousB nextMatch winner serve overlay " +
-          "video videoUrl stream streams meta " +
+          "video videoStartSeconds videoUrl stream streams meta " +
           "format rrRound pool " +
           "liveBy startedBy finishedBy liveVersion"
       )
