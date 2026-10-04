@@ -4,6 +4,10 @@ import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import User from "../models/userModel.js";
 import Registration from "../models/registrationModel.js";
+import {
+  getPlayerPreferredPosition,
+  positionLabel,
+} from "../services/playerCourtPosition.service.js";
 
 /* =========================
  * Helpers
@@ -705,6 +709,19 @@ export const getPlayerStats = asyncHandler(async (req, res) => {
  * 5) Search Players
  * GET /api/head2head/search?keyword=&limit=
  * ========================= */
+// GET /api/head2head/:playerId/position
+// Vị trí sở trường (ô 1 / ô 2) của VĐV trong đánh đôi — gom từ match.slots.base.
+export const getPlayerPosition = asyncHandler(async (req, res) => {
+  const { playerId } = req.params;
+  if (!mongoose.isValidObjectId(playerId)) {
+    res.status(400);
+    throw new Error("playerId không hợp lệ");
+  }
+  const stat = await getPlayerPreferredPosition(playerId);
+  res.set("Cache-Control", "public, max-age=300");
+  res.json({ success: true, data: { ...stat, label: positionLabel(stat) } });
+});
+
 export const searchPlayers = asyncHandler(async (req, res) => {
   const { keyword } = req.query;
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);

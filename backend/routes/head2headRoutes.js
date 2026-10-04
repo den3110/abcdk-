@@ -5,6 +5,7 @@ import {
   getHead2HeadMatches,
   getFrequentOpponents,
   getPlayerStats,
+  getPlayerPosition,
   searchPlayers,
 } from "../controllers/head2headController.js";
 
@@ -25,6 +26,14 @@ router.get("/search", searchPlayers);
  * @params  playerId - ObjectId của user
  */
 router.get("/:playerId/stats", getPlayerStats);
+
+/**
+ * @route   GET /api/head2head/:playerId/position
+ * @desc    Vị trí sở trường (ô 1 / ô 2) của VĐV trong đánh đôi
+ * @access  Public
+ * @params  playerId - ObjectId của user
+ */
+router.get("/:playerId/position", getPlayerPosition);
 
 /**
  * @route   GET /api/head2head/:playerId/opponents
