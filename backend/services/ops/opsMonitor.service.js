@@ -93,9 +93,10 @@ async function markResolved(key, result) {
  * Một vòng quét. Trả về snapshot + danh sách cảnh báo đã gửi.
  * `notify=false` để chỉ lấy trạng thái (dùng cho API xem nhanh, không bắn Telegram).
  */
-export async function runOpsMonitorCycle({ notify = true } = {}) {
-  const snapshot = await runOpsHealthChecks();
-  lastSnapshot = snapshot;
+export async function runOpsMonitorCycle({ notify = true, only = null } = {}) {
+  const snapshot = await runOpsHealthChecks({ only });
+  // Quét có lọc (vd chỉ autolive) KHÔNG ghi đè snapshot tổng (giữ cho API xem nhanh).
+  if (!only) lastSnapshot = snapshot;
 
   if (!notify || !(await isOpsAlertEnabled())) {
     return { ...snapshot, notified: [], skipped: !notify ? "notify-off" : "disabled" };

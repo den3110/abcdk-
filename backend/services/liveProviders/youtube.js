@@ -429,6 +429,40 @@ export class YouTubeProvider extends LiveProvider {
     }
   }
 
+  /** GIÁM SÁT (chỉ đọc): trả trạng thái vòng đời broadcast + tín hiệu liveStream.
+   *  lifeCycle: created/ready/testing/live/complete/revoked…
+   *  streamStatus: active/inactive/ready/error; healthStatus: good/ok/bad/noData. */
+  async getStreamHealth({ broadcastId, streamId } = {}) {
+    const { oauth2 } = await getOAuthReady(this.cred || {});
+    const yt = google.youtube({ version: "v3", auth: oauth2 });
+    const out = { found: false, lifeCycle: "", streamStatus: "", healthStatus: "" };
+    if (broadcastId) {
+      const b = await yt.liveBroadcasts.list({
+        id: [broadcastId],
+        part: ["status", "contentDetails"],
+      });
+      const item = (b.data.items || [])[0];
+      if (item) {
+        out.found = true;
+        out.lifeCycle = String(item.status?.lifeCycleStatus || "");
+        if (!streamId) streamId = item.contentDetails?.boundStreamId || "";
+      }
+    }
+    if (streamId) {
+      try {
+        const s = await yt.liveStreams.list({ id: [streamId], part: ["status"] });
+        const item = (s.data.items || [])[0];
+        if (item) {
+          out.streamStatus = String(item.status?.streamStatus || "");
+          out.healthStatus = String(item.status?.healthStatus?.status || "");
+        }
+      } catch {
+        /* liveStream có thể đã bị xoá — bỏ qua, dựa vào lifeCycle */
+      }
+    }
+    return out;
+  }
+
   /** Kết thúc + xoá broadcast/stream (best-effort) — dùng cho dọn phiên test (KHÔNG giữ VOD). */
   async endAndDelete({ broadcastId, streamId }) {
     const { oauth2 } = await getOAuthReady(this.cred || {});

@@ -17,6 +17,9 @@ import CourtOwnerRequest from "../../models/courtOwnerRequestModel.js";
 import NicknameChangeRequest from "../../models/nicknameChangeRequestModel.js";
 import FeedReport from "../../models/feedReportModel.js";
 import User from "../../models/userModel.js";
+import TournamentAutoLiveSession from "../../models/tournamentAutoLiveSessionModel.js";
+import CourtStation from "../../models/courtStationModel.js";
+import { YouTubeProvider } from "../liveProviders/youtube.js";
 
 import { getSystemSettingsRuntime } from "../systemSettingsRuntime.service.js";
 import { getRecordingDriveStatus } from "../driveRecordings.service.js";
@@ -578,6 +581,100 @@ async function checkPendingModeration() {
   });
 }
 
+/* ═══════════════════════ Auto-live YouTube broadcast ═══════════════════════ */
+// Nhớ thời điểm từng luồng bắt đầu "mất tín hiệu" để chỉ cảnh báo khi kéo dài (tránh
+// báo động giả do mạng chập chờn vài giây — luồng tự nối lại vì enableAutoStop=false).
+const _autoliveDownSince = new Map(); // "sessionId:broadcastId" -> ms
+
+async function checkAutoLiveBroadcasts() {
+  const KEY = "autolive-broadcast";
+  const LABEL = "Live giải (YouTube)";
+  const START_GRACE_MS = envNum("OPS_AUTOLIVE_START_GRACE_MS", 120000); // bỏ qua 2' đầu
+  const OUTAGE_MS = envNum("OPS_AUTOLIVE_OUTAGE_MS", 90000); // mất tín hiệu quá 90s → cảnh báo
+
+  const sessions = await TournamentAutoLiveSession.find({
+    status: { $in: ["live", "reconnecting"] },
+    stoppedAt: null,
+    "destinations.type": "youtube",
+  })
+    .select("_id court currentMatchLabel runnerLabel startedAt destinations status")
+    .lean();
+
+  if (!sessions.length)
+    return check(KEY, LABEL, "ok", "Không có phiên live YouTube đang chạy");
+
+  const refreshToken = (await getCfgStr("YOUTUBE_REFRESH_TOKEN", "")).trim();
+  if (!refreshToken)
+    return check(KEY, LABEL, "warn", `${sessions.length} phiên live YouTube nhưng chưa kết nối YouTube để kiểm tra`, {
+      hint: "Vào /admin/youtube-live để kết nối lại tài khoản YouTube.",
+    });
+
+  // Tên sân cho thông báo dễ đọc.
+  const courtIds = [...new Set(sessions.map((s) => String(s.court)).filter(Boolean))];
+  const courts = courtIds.length
+    ? await CourtStation.find({ _id: { $in: courtIds } }).select("_id name code").lean()
+    : [];
+  const courtName = new Map(courts.map((c) => [String(c._id), c.name || c.code || ""]));
+  const labelOf = (s) => {
+    const cn = courtName.get(String(s.court)) || (s.runnerLabel || "Phiên");
+    return s.currentMatchLabel ? `${cn} · ${s.currentMatchLabel}` : cn;
+  };
+
+  const provider = new YouTubeProvider({ refreshToken, accessToken: "", expiresAt: "" });
+  const now = Date.now();
+  const dead = [];
+  const outage = [];
+  const seen = new Set();
+
+  for (const s of sessions) {
+    const startedMs = s.startedAt ? new Date(s.startedAt).getTime() : 0;
+    const yts = (s.destinations || []).filter((d) => d.type === "youtube" && d.broadcastId);
+    for (const d of yts) {
+      const tag = `${s._id}:${d.broadcastId}`;
+      seen.add(tag);
+      let h;
+      try {
+        h = await provider.getStreamHealth({ broadcastId: d.broadcastId, streamId: d.ytStreamId || "" });
+      } catch {
+        continue; // lỗi gọi API → bỏ qua vòng này, không báo động giả
+      }
+      if (!h.found) continue;
+      if (/^(complete|revoked)$/i.test(h.lifeCycle)) {
+        dead.push(`${labelOf(s)} (broadcast ${h.lifeCycle})`);
+        _autoliveDownSince.delete(tag);
+        continue;
+      }
+      // Đang khởi động (2' đầu) → chưa xét mất tín hiệu.
+      if (startedMs && now - startedMs < START_GRACE_MS) {
+        _autoliveDownSince.delete(tag);
+        continue;
+      }
+      if (/^(inactive|error)$/i.test(h.streamStatus)) {
+        if (!_autoliveDownSince.has(tag)) _autoliveDownSince.set(tag, now);
+        const downMs = now - _autoliveDownSince.get(tag);
+        if (downMs >= OUTAGE_MS)
+          outage.push(`${labelOf(s)} (mất tín hiệu ${Math.round(downMs / 1000)}s)`);
+      } else {
+        _autoliveDownSince.delete(tag);
+      }
+    }
+  }
+  // Dọn các tag không còn theo dõi nữa.
+  for (const k of [..._autoliveDownSince.keys()]) if (!seen.has(k)) _autoliveDownSince.delete(k);
+
+  if (dead.length)
+    return check(KEY, LABEL, "critical", `${dead.length} luồng YouTube đã TẮT: ${dead.join("; ")}`, {
+      hint: "Vào bật lại live cho sân bị tắt (broadcast đã kết thúc, không tự hồi được).",
+      detail: { dead, outage },
+    });
+  if (outage.length)
+    return check(KEY, LABEL, "warn", `${outage.length} luồng YouTube mất tín hiệu: ${outage.join("; ")}`, {
+      hint: "Kiểm tra mạng/máy live của sân tương ứng. Chập chờn ngắn sẽ tự nối lại.",
+      detail: { outage },
+    });
+  return check(KEY, LABEL, "ok", `${sessions.length} phiên live YouTube bình thường`);
+}
+
 /* ═══════════════════════ Chạy toàn bộ ═══════════════════════ */
 
 const CHECKS = [
@@ -593,15 +690,18 @@ const CHECKS = [
   { key: "pending-support", run: checkPendingSupport },
   { key: "pending-approvals", run: checkPendingApprovals },
   { key: "pending-moderation", run: checkPendingModeration },
+  { key: "autolive-broadcast", run: checkAutoLiveBroadcasts },
 ];
 
 const DISABLED = new Set(envList("OPS_MONITOR_DISABLED_CHECKS", []));
 
 /** Chạy tất cả check, trả về mảng kết quả đã chuẩn hoá. */
-export async function runOpsHealthChecks() {
+export async function runOpsHealthChecks({ only = null } = {}) {
   const startedAt = Date.now();
+  const onlySet = Array.isArray(only) && only.length ? new Set(only) : null;
+  const selected = onlySet ? CHECKS.filter((c) => onlySet.has(c.key)) : CHECKS;
   const results = await Promise.all(
-    CHECKS.map(async ({ key, run }) => {
+    selected.map(async ({ key, run }) => {
       if (DISABLED.has(key)) {
         return check(key, key, "skip", "Đã tắt qua OPS_MONITOR_DISABLED_CHECKS");
       }

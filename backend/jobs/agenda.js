@@ -109,12 +109,15 @@ export async function startAgenda() {
     // 🆕 Giám sát vận hành: quét sức khoẻ định kỳ + báo cáo tổng hợp hằng ngày.
     const opsEvery = process.env.OPS_MONITOR_INTERVAL || "10 minutes";
     await agenda.every(opsEvery, "ops-monitor.check");
+    // Quét nhanh RIÊNG cho live giải YouTube (phát hiện luồng sập sớm). Mặc định 2'.
+    const opsAutoliveEvery = process.env.OPS_AUTOLIVE_INTERVAL || "2 minutes";
+    await agenda.every(opsAutoliveEvery, "ops-monitor.autolive");
     // Digest: cron theo giờ VN (mặc định 08:00). Đổi qua OPS_MONITOR_DIGEST_CRON.
     const digestCron = process.env.OPS_MONITOR_DIGEST_CRON || "0 8 * * *";
     await agenda.every(digestCron, "ops-monitor.digest", {}, {
       timezone: process.env.TZ || "Asia/Ho_Chi_Minh",
     });
-    console.log(`✅ ops-monitor scheduled (check: ${opsEvery}, digest: ${digestCron})`);
+    console.log(`✅ ops-monitor scheduled (check: ${opsEvery}, autolive: ${opsAutoliveEvery}, digest: ${digestCron})`);
   } catch (e) {
     console.error("[agenda] schedule event-live.auto-notify error:", e?.message);
   }

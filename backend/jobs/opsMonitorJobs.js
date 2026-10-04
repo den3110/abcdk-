@@ -6,6 +6,9 @@ import { isOpsAlertEnabled } from "../services/ops/opsAlert.service.js";
 
 export const OPS_CHECK_JOB = "ops-monitor.check";
 export const OPS_DIGEST_JOB = "ops-monitor.digest";
+// Quét nhanh RIÊNG cho live giải (YouTube) để phát hiện luồng sập sớm, chạy dày hơn
+// vòng tổng (vd mỗi 2'), dùng chung cơ chế cảnh báo/dedup của ops.
+export const OPS_AUTOLIVE_JOB = "ops-monitor.autolive";
 
 agenda.define(OPS_CHECK_JOB, { lockLifetime: 5 * 60 * 1000 }, async (_job, done) => {
   try {
@@ -14,6 +17,22 @@ agenda.define(OPS_CHECK_JOB, { lockLifetime: 5 * 60 * 1000 }, async (_job, done)
     if (result.notified?.length) {
       console.log(
         `[ops-monitor] gửi ${result.notified.length} cảnh báo:`,
+        result.notified.map((n) => `${n.key}(${n.reason})`).join(", ")
+      );
+    }
+    done();
+  } catch (error) {
+    done(error);
+  }
+});
+
+agenda.define(OPS_AUTOLIVE_JOB, { lockLifetime: 3 * 60 * 1000 }, async (_job, done) => {
+  try {
+    if (!(await isOpsAlertEnabled())) return done();
+    const result = await runOpsMonitorCycle({ notify: true, only: ["autolive-broadcast"] });
+    if (result.notified?.length) {
+      console.log(
+        `[ops-monitor] (autolive) gửi ${result.notified.length} cảnh báo:`,
         result.notified.map((n) => `${n.key}(${n.reason})`).join(", ")
       );
     }
