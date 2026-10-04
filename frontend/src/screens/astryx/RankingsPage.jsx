@@ -8,7 +8,7 @@
  */
 import "@fontsource-variable/figtree";
 
-import { createContext, useContext, useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Theme } from "@astryxdesign/core/theme";
 import { neutralTheme } from "@astryxdesign/theme-neutral/built";
@@ -24,6 +24,7 @@ import SiteFooter from "./SiteFooter.jsx";
 import PickleMark from "./PickleMark.jsx";
 import { A, GrayPill } from "./ui.jsx";
 import { useGetRankingsListQuery } from "../../slices/rankingsApiSlice.js";
+import { useGetPlayerPositionsQuery } from "../../slices/head2headApiSlice.js";
 import PlayerName from "../../components/PlayerName";
 import { useOpenDmMutation } from "../../slices/messagesApiSlice.js";
 import { useGetMeQuery } from "../../slices/usersApiSlice";
@@ -549,7 +550,30 @@ function MessageIconBtn({ userId }) {
   );
 }
 
-function RankRow({ r, fallbackRank, showGlobal }) {
+function PositionBadge({ pos }) {
+  const label = pos?.label;
+  if (!label) return null;
+  return (
+    <span
+      title={`Sở trường ${label} · ${pos.preferredPct}% (${pos.total} trận)`}
+      style={{
+        flexShrink: 0,
+        fontSize: 10.5,
+        fontWeight: 800,
+        color: "#fff",
+        background: "rgba(139,92,246,.95)",
+        borderRadius: 6,
+        padding: "1px 6px",
+        lineHeight: 1.6,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function RankRow({ r, fallbackRank, showGlobal, pos }) {
   const { t } = useLanguage();
   // Bảng mặc định: số vị trí (liền mạch khi phân trang). Khi search/lọc: hạng chính thức.
   const rank = showGlobal ? Number(r?.globalRank) || null : fallbackRank;
@@ -577,6 +601,7 @@ function RankRow({ r, fallbackRank, showGlobal }) {
           </span>
           {isVerified(r) && <BadgeCheck size={15} color="#3E9EFB" style={{ flexShrink: 0 }} />}
           {tierDot && <span title={r?.tierLabel || ""} style={{ width: 7, height: 7, borderRadius: 99, background: tierDot, flexShrink: 0 }} />}
+          <PositionBadge pos={pos} />
         </span>
       </div>
       <div className="pk-col-hide" style={{ padding: "0 16px", color: "#9AA0A6", fontSize: 13.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -612,7 +637,7 @@ function TableSkeleton() {
 }
 
 /* ----------------------------- card (kiểu v1) ---------------------------- */
-function RankCard({ r, rank }) {
+function RankCard({ r, rank, pos }) {
   const { t } = useLanguage();
   const medal = rank >= 1 && rank <= 3 ? MEDAL[rank - 1] : null;
   const tierDot = TIER_DOT[String(r?.tierColor || "").toLowerCase()];
@@ -661,6 +686,7 @@ function RankCard({ r, rank }) {
             </span>
             {isVerified(r) && <BadgeCheck size={16} color="#3E9EFB" style={{ flexShrink: 0 }} />}
             {tierDot && <span title={r?.tierLabel || ""} style={{ width: 8, height: 8, borderRadius: 99, background: tierDot, flexShrink: 0 }} />}
+            <PositionBadge pos={pos} />
           </div>
           <div style={{ marginTop: 4, display: "flex", alignItems: "center", gap: 5, color: "#9AA0A6", fontSize: 13 }}>
             <MapPin size={13} /> {r?.user?.province || "—"}
@@ -770,6 +796,15 @@ export default function RankingsPage() {
   const podiumRows = pureBoard ? rows.slice(0, 3) : [];
   const tableRows = pureBoard ? rows.slice(3) : rows;
   const hasMore = Boolean(data?.hasMore);
+
+  // Vị trí sở trường ô 1/ô 2 cho các VĐV đang hiển thị (gọi batch 1 lần)
+  const posUserIds = useMemo(
+    () => rows.map((r) => r?.user?._id).filter(Boolean),
+    [rows],
+  );
+  const { data: posByUser = {} } = useGetPlayerPositionsQuery(posUserIds, {
+    skip: !posUserIds.length,
+  });
   const initialLoading = isFetching && page === 1 && !rows.length;
 
   /* ---- chấm trình (admin/mod) ---- */
@@ -913,7 +948,7 @@ export default function RankingsPage() {
                   view === "card" ? (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
                       {tableRows.map((r, i) => (
-                        <RankCard key={r._id || i} r={r} rank={(pureBoard ? 4 : 1) + i} />
+                        <RankCard key={r._id || i} r={r} rank={(pureBoard ? 4 : 1) + i} pos={posByUser[r?.user?._id]} />
                       ))}
                     </div>
                   ) : (
@@ -926,7 +961,7 @@ export default function RankingsPage() {
                         ))}
                       </div>
                       {tableRows.map((r, i) => (
-                        <RankRow key={r._id || i} r={r} fallbackRank={(pureBoard ? 4 : 1) + i} showGlobal={!pureBoard} />
+                        <RankRow key={r._id || i} r={r} fallbackRank={(pureBoard ? 4 : 1) + i} showGlobal={!pureBoard} pos={posByUser[r?.user?._id]} />
                       ))}
                     </div>
                   )

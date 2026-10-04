@@ -45,6 +45,8 @@ import PlaceIcon from "@mui/icons-material/Place";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import GridViewIcon from "@mui/icons-material/GridView";
+import { useGetPlayerPositionQuery } from "../slices/head2headApiSlice";
 
 import {
   useGetPublicProfileQuery,
@@ -460,6 +462,10 @@ export default function PublicProfilePage() {
   // Auth viewer (để biết có phải admin / chính chủ không)
   const { userInfo } = useSelector((state) => state.auth || {});
   const baseId = base?._id || "";
+  // Vị trí sở trường ô 1 / ô 2 (đánh đôi)
+  const { data: positionStat } = useGetPlayerPositionQuery(baseId, {
+    skip: !baseId,
+  });
   const viewerId = userInfo?._id || userInfo?.id;
   const isSelf = viewerId && baseId && String(viewerId) === String(baseId);
   const isAdminViewer =
@@ -828,6 +834,17 @@ export default function PublicProfilePage() {
           color="success"
         />
       </Grid>
+      {positionStat?.label ? (
+        <Grid size={{ xs: 12, sm: 4 }}>
+          <StatBox
+            icon={<GridViewIcon />}
+            label="Sở trường"
+            value={positionStat.label}
+            subValue={`${positionStat.preferredPct}% · ${positionStat.total} trận`}
+            color="secondary"
+          />
+        </Grid>
+      ) : null}
     </Grid>
   );
 

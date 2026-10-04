@@ -121,12 +121,14 @@ const BRACKET_NAV_WIDTH_SX = {
 };
 
 function readStoredGroupViewMode() {
-  if (typeof window === "undefined") return "classic";
+  // Mặc định kiểu BẢNG (board); vẫn tôn trọng lựa chọn CHUẨN đã lưu trước đó.
+  if (typeof window === "undefined") return "board";
   try {
     const raw = window.localStorage.getItem(GROUP_VIEW_STORAGE_KEY);
-    return raw === "board" ? "board" : "classic";
+    if (raw === "board" || raw === "classic") return raw;
+    return "board";
   } catch {
-    return "classic";
+    return "board";
   }
 }
 
