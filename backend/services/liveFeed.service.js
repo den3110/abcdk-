@@ -1394,6 +1394,7 @@ export async function listLiveFeed({
             : null,
           meta: match.meta || {},
           video: match.video || "",
+          videoStartSeconds: Number(match.videoStartSeconds) || 0,
           playbackUrl: match.playbackUrl || "",
           streamUrl: match.streamUrl || "",
           liveUrl: match.liveUrl || "",
