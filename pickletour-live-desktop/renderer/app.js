@@ -21,6 +21,34 @@ function show(view) {
 function apiGet(p) { return window.api.get({ baseUrl: state.baseUrl, token: state.token, path: p }); }
 function apiReq(method, p, body) { return window.api.req({ baseUrl: state.baseUrl, token: state.token, method, path: p, body }); }
 
+// Tailscale tích hợp: sau khi đăng nhập, tự đưa máy vào tailnet (lấy vé ephemeral từ
+// backend). Lần đầu macOS sẽ hỏi mật khẩu 1 lần để bật dịch vụ mạng.
+async function ensureTailscale() {
+  try {
+    if (!window.api || typeof window.api.tailscaleEnsure !== "function") return;
+    const r = await window.api.tailscaleEnsure({
+      baseUrl: state.baseUrl,
+      token: state.token,
+      hostname: state.runnerLabel,
+    });
+    renderTailscale(r);
+    // Kết nối có thể mất vài giây → thử refresh trạng thái sau đó.
+    setTimeout(async () => {
+      try { renderTailscale(await window.api.tailscaleStatus()); } catch {}
+    }, 8000);
+  } catch (e) { console.warn("[tailscale] ensure fail", e?.message || e); }
+}
+function renderTailscale(st) {
+  try {
+    const el = document.getElementById("tailscaleStatus");
+    if (!el) { if (st) console.log("[tailscale]", JSON.stringify(st)); return; }
+    if (!st || !st.available) { el.textContent = "Tailscale: chưa kèm trong bản app"; el.style.color = "#9ca3af"; return; }
+    if (st.connected) { el.textContent = `Tailscale: đã kết nối · ${st.ip || ""}`; el.style.color = "#22c55e"; }
+    else if (st.lastError) { el.textContent = "Tailscale: " + st.lastError; el.style.color = "#f59e0b"; }
+    else { el.textContent = "Tailscale: đang kết nối…"; el.style.color = "#f59e0b"; }
+  } catch {}
+}
+
 const LS = "ptlive_auth";
 function saveAuth() {
   try {
@@ -100,6 +128,7 @@ function renderSetupHelper(env) {
         await loadSetup();
         $("logoutBtn").classList.remove("hidden");
         goDashboard();
+        ensureTailscale();
       } catch { clearAuth(); }
     }
   }
@@ -117,6 +146,7 @@ $("loginBtn").onclick = async () => {
     await loadSetup();
     $("logoutBtn").classList.remove("hidden");
     goDashboard();
+    ensureTailscale();
   } catch (e) { $("loginErr").textContent = e.message; }
 };
 

@@ -1,6 +1,6 @@
 {
   "name": "pickletour-live-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "PickleTour Live — app desktop chạy livestream giải đấu bằng GPU (PC/Mac), đỡ tải cho server",
   "main": "main.js",
   "author": "PickleTour",

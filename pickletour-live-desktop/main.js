@@ -9,6 +9,7 @@ const http = require("http");
 const https = require("https");
 const crypto = require("crypto");
 const { spawn, spawnSync } = require("child_process");
+const tailscale = require("./tailscale-manager");
 
 let win;
 // sessionId → { proc, previewDir, previewServer, previewPort, cfg }
@@ -89,6 +90,15 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+  // Tailscale tích hợp: init (chưa kết nối — renderer gọi tailscale-ensure sau đăng nhập
+  // để lấy authKey ephemeral từ backend rồi vào tailnet).
+  try {
+    tailscale.init({
+      app,
+      binDir: path.join(__dirname, "bin"),
+      logger: (...a) => console.log("[tailscale]", ...a),
+    });
+  } catch (e) { console.error("[tailscale] init fail", e?.message || e); }
   // Resume đẩy segment recording còn sót (nếu app từng tắt giữa chừng).
   setTimeout(() => { try { resumePendingUploaders(); } catch (e) { console.error("[rec-upload] resume fail", e?.message || e); } }, 6000);
   // Tự bật điều khiển từ xa nếu lần trước đã bật.
@@ -108,6 +118,8 @@ app.on("before-quit", (e) => {
   if (isQuitting) return;
   isQuitting = true;
   try { stopPreview(); } catch {}
+  // Rời tailnet (node ephemeral → tự biến mất). KHÔNG cần root nhờ operator đã set.
+  try { tailscale.down(); } catch {}
   if (!running.size) return; // không còn luồng → thoát ngay
   e.preventDefault();
   const finish = () => { try { app.exit(0); } catch { try { process.exit(0); } catch {} } };
@@ -1447,6 +1459,41 @@ ipcMain.handle("control-enable", (_e, { enabled }) => {
   return controlInfo();
 });
 ipcMain.handle("control-regen-pin", () => { control.pin = genPin(); writeSettings({ controlPin: control.pin }); return controlInfo(); });
+
+// ══════════ Tailscale tích hợp (máy tự vào tailnet khi mở app) ══════════
+ipcMain.handle("tailscale-status", () => {
+  try { return tailscale.status(); } catch (e) { return { available: false, connected: false, lastError: e?.message || String(e) }; }
+});
+// Renderer gọi sau khi đăng nhập (có baseUrl + token): lấy authKey ephemeral từ backend
+// rồi đưa máy vào tailnet. Nếu backend chưa cấu hình, cho phép authKey thủ công (settings).
+ipcMain.handle("tailscale-ensure", async (_e, { baseUrl, token, hostname } = {}) => {
+  try {
+    if (!tailscale.available()) return { available: false, connected: false, lastError: "Bản app chưa kèm Tailscale." };
+    // Đã kết nối rồi → trả luôn.
+    const cur = tailscale.status();
+    if (cur.connected) return cur;
+    let authKey = "";
+    let loginServer = "";
+    // 1) Ưu tiên lấy vé ephemeral từ backend (admin-authed).
+    if (baseUrl && token) {
+      try {
+        const r = await apiFetch(baseUrl, "/api/network-access/session", { method: "POST", token });
+        authKey = String(r?.authKey || "");
+        loginServer = String(r?.loginServer || "");
+      } catch (e) { console.warn("[tailscale] lấy vé backend lỗi:", e?.message || e); }
+    }
+    // 2) Fallback: authKey thủ công trong settings (nếu có).
+    if (!authKey) {
+      try { authKey = String(readSettings().tailscaleAuthKey || ""); } catch {}
+    }
+    if (!authKey) return { ...tailscale.status(), lastError: "Chưa lấy được vé Tailscale (backend chưa cấu hình Pickletour Network và chưa có authKey thủ công)." };
+    const machineName = hostname || readSettings().machineName || os.hostname();
+    return await tailscale.ensureUp({ authKey, loginServer, hostname: machineName });
+  } catch (e) {
+    return { available: tailscale.available(), connected: false, lastError: e?.message || String(e) };
+  }
+});
+ipcMain.handle("tailscale-down", () => { try { tailscale.down(); } catch {} return tailscale.status(); });
 
 ipcMain.handle("env-check", () => {
   const selfContained = isSelfContained();

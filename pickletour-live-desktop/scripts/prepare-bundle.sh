@@ -61,6 +61,27 @@ else
   echo "  !! không thấy $DHSRC → bỏ qua dh-p2p"
 fi
 
+echo "==> Tailscale (tailscaled + tailscale) — build từ nguồn Go để nhúng app (tự vào tailnet)"
+# Cần Go trên máy build. Chỉ build lại nếu chưa có trong bin/.
+if command -v go >/dev/null 2>&1; then
+  TSEXT=""; [ "$OS_WIN" = "1" ] && TSEXT=".exe"
+  if [ ! -x "$BIN/tailscaled$TSEXT" ] || [ ! -x "$BIN/tailscale$TSEXT" ]; then
+    # GOOS/GOARCH theo máy build (mac arm64 / win amd64). Đổi khi build chéo.
+    GOARCH_DEF="$(go env GOARCH)"; GOOS_DEF="$(go env GOOS)"
+    GOBIN="$BIN" GOFLAGS=-trimpath CGO_ENABLED=0 GOOS="$GOOS_DEF" GOARCH="$GOARCH_DEF" \
+      go install tailscale.com/cmd/tailscaled@latest && \
+    GOBIN="$BIN" GOFLAGS=-trimpath CGO_ENABLED=0 GOOS="$GOOS_DEF" GOARCH="$GOARCH_DEF" \
+      go install tailscale.com/cmd/tailscale@latest || echo "  !! build tailscale lỗi"
+  fi
+  if [ "$(uname)" = "Darwin" ]; then
+    codesign --force --sign - "$BIN/tailscaled" 2>/dev/null || true
+    codesign --force --sign - "$BIN/tailscale" 2>/dev/null || true
+  fi
+  [ -x "$BIN/tailscaled$TSEXT" ] && echo "  → bin/tailscaled$TSEXT, bin/tailscale$TSEXT"
+else
+  echo "  !! Go chưa cài → BỎ QUA Tailscale (app sẽ không tự vào tailnet; cài Go rồi chạy lại)"
+fi
+
 echo "==> Xong. bin/:"
 ls -lah "$BIN"
 echo "Giờ chạy: npm run dist:mac  (hoặc dist:win trên Windows)"

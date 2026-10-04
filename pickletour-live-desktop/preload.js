@@ -11,6 +11,10 @@ contextBridge.exposeInMainWorld("api", {
   controlGet: () => ipcRenderer.invoke("control-get"),
   controlEnable: (enabled) => ipcRenderer.invoke("control-enable", { enabled }),
   controlRegenPin: () => ipcRenderer.invoke("control-regen-pin"),
+  // Tailscale tích hợp
+  tailscaleStatus: () => ipcRenderer.invoke("tailscale-status"),
+  tailscaleEnsure: (args) => ipcRenderer.invoke("tailscale-ensure", args),
+  tailscaleDown: () => ipcRenderer.invoke("tailscale-down"),
   onRemoteCmd: (cb) => ipcRenderer.on("remote-cmd", (_e, m) => cb(m)),
   remoteReply: (m) => ipcRenderer.send("remote-reply", m),
   login: (args) => ipcRenderer.invoke("login", args),
