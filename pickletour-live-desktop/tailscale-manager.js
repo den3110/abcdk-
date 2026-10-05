@@ -10,7 +10,7 @@
 // Windows: chạy tailscaled như tiến trình nền (cần quyền admin cho wintun) — bản MVP
 // khởi chạy trực tiếp; nếu thiếu quyền sẽ báo lỗi để người dùng mở app bằng admin.
 
-const { spawn, spawnSync, execFile } = require("child_process");
+const { spawnSync, execFile } = require("child_process");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -36,14 +36,64 @@ function exe(name) {
   return fs.existsSync(p) ? p : null;
 }
 function tailscaledBin() { return exe("tailscaled"); }
-function tailscaleBin() { return exe("tailscale"); }
-function available() { return Boolean(tailscaledBin() && tailscaleBin()); }
+// Windows: tìm CLI chính thức (nếu còn) để fallback khi daemon đang chạy là bản chính thức.
+function officialWinTailscaleBin() {
+  if (!isWin()) return null;
+  const candidates = [
+    "C:\\Program Files\\Tailscale\\tailscale.exe",
+    "C:\\Program Files (x86)\\Tailscale\\tailscale.exe",
+  ];
+  for (const p of candidates) { try { if (fs.existsSync(p)) return p; } catch {} }
+  return null;
+}
+function bundledTailscaleBin() { return exe("tailscale"); }
+// Chọn CLI khớp version daemon đang chạy (CLI/daemon lệch major.minor → `up` có thể
+// silently no-op). Trên Windows có thể có cả 2: bundle (vd 1.104) và chính thức (vd 1.102).
+// Dò bằng cách so daemon version với từng CLI version, cache để tránh gọi lặp.
+let _cachedCli = null;
+let _cachedCliTs = 0;
+function tailscaleBin() {
+  const bundled = bundledTailscaleBin();
+  if (!isWin()) return bundled;
+  const official = officialWinTailscaleBin();
+  if (!official) return bundled;
+  // Cache 10s để tránh spawnSync mỗi lần tsCli.
+  if (_cachedCli && Date.now() - _cachedCliTs < 10000) return _cachedCli;
+  _cachedCli = bundled;
+  try {
+    const r = spawnSync(bundled, ["status", "--json", "--peers=false"], { encoding: "utf8", timeout: 5000 });
+    if (r.status === 0 && r.stdout) {
+      const st = JSON.parse(r.stdout);
+      const dv = String(st.Version || "").split("-")[0]; // vd "1.104.0"
+      if (dv) {
+        const majMin = dv.split(".").slice(0, 2).join(".");
+        const bv = spawnSync(bundled, ["--version"], { encoding: "utf8", timeout: 3000 });
+        const bundledVer = ((bv.stdout || "").split("\n")[0] || "").trim();
+        if (!bundledVer.startsWith(majMin)) {
+          const ov = spawnSync(official, ["--version"], { encoding: "utf8", timeout: 3000 });
+          const officialVer = ((ov.stdout || "").split("\n")[0] || "").trim();
+          if (officialVer.startsWith(majMin)) _cachedCli = official;
+        }
+      }
+    }
+  } catch {}
+  _cachedCliTs = Date.now();
+  return _cachedCli;
+}
+function available() { return Boolean(tailscaledBin() && bundledTailscaleBin()); }
 
 function stateDir() {
   const base = _app ? _app.getPath("userData") : path.join(os.tmpdir(), "pickletour-live");
   const d = path.join(base, "tailscale");
   try { fs.mkdirSync(d, { recursive: true }); } catch {}
   return d;
+}
+function opLogPath() { return path.join(stateDir(), "op.log"); }
+function fileLog(...parts) {
+  try {
+    const line = `[${new Date().toISOString()}] ${parts.map((p) => (typeof p === "string" ? p : JSON.stringify(p))).join(" ")}\n`;
+    fs.appendFileSync(opLogPath(), line);
+  } catch {}
 }
 function sockPath() {
   // Windows: KHÔNG ép named pipe tùy chỉnh (tailscaled.exe dùng pipe mặc định
@@ -87,6 +137,12 @@ function refreshState() {
   const v4 = ips.find((x) => /^100\./.test(String(x))) || "";
   _state.ip = v4;
   _state.connected = _state.backendState === "Running" && Boolean(v4);
+  // Nhặt cảnh báo từ daemon (Health[]) để surface lên UI khi chưa connected.
+  if (!_state.connected && Array.isArray(st.Health) && st.Health.length) {
+    _state.health = st.Health.join("; ");
+  } else {
+    _state.health = "";
+  }
   return _state;
 }
 
@@ -104,6 +160,54 @@ function runElevatedMac(script) {
     execFile("/usr/bin/osascript", ["-e", osa], { timeout: 120000 }, (err, stdout, stderr) => {
       if (err) resolve({ ok: false, error: (stderr || err.message || "").toString().trim() });
       else resolve({ ok: true, stdout: (stdout || "").toString() });
+    });
+  });
+}
+
+// Windows: bọc 1 đối số cho PowerShell single-quoted string.
+function psq(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
+
+// Windows: spawn 1 tiến trình nền với quyền admin (UAC popup) — KHÔNG chờ exit.
+// Dùng cho tailscaled.exe (daemon chạy mãi).
+function spawnElevatedWinDetached(exePath, args) {
+  const argList = args.map(psq).join(",");
+  const ps = `try { Start-Process -FilePath ${psq(exePath)} -ArgumentList ${argList} -Verb RunAs -WindowStyle Hidden -ErrorAction Stop; exit 0 } catch { exit 1 }`;
+  return new Promise((resolve) => {
+    execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], { timeout: 60000 }, (err) => {
+      resolve({ ok: !err, error: err?.message || "" });
+    });
+  });
+}
+
+// Windows: chạy 1 lệnh với quyền admin (UAC popup) và CHỜ exit. Trả mã thoát + output.
+// Dùng cho tailscale.exe up/down/logout. Dùng wrapper .cmd để BẮT stdout/stderr
+// (Start-Process -Verb RunAs không cho kèm -RedirectStandardOutput).
+function runElevatedWinWait(exePath, args) {
+  const ts = Date.now();
+  const wrapper = path.join(os.tmpdir(), `ptlive-ts-${ts}.cmd`);
+  const outFile = path.join(os.tmpdir(), `ptlive-ts-${ts}.log`);
+  const argLine = args.map((a) => `"${String(a).replace(/"/g, '""')}"`).join(" ");
+  const body = [
+    `@echo off`,
+    `"${exePath}" ${argLine} > "${outFile}" 2>&1`,
+    `echo __EXITCODE__=%ERRORLEVEL% >> "${outFile}"`,
+  ].join("\r\n");
+  try { fs.writeFileSync(wrapper, body, "utf8"); } catch (e) {
+    return Promise.resolve({ ok: false, code: -1, error: "Không ghi được wrapper: " + (e?.message || e), stdout: "" });
+  }
+  const ps = `try { $p = Start-Process -FilePath ${psq(wrapper)} -Verb RunAs -PassThru -Wait -WindowStyle Hidden -ErrorAction Stop; exit $p.ExitCode } catch { exit 1 }`;
+  return new Promise((resolve) => {
+    execFile("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], { timeout: 180000 }, (err) => {
+      let stdout = "", code = 0;
+      try { stdout = fs.readFileSync(outFile, "utf8"); } catch {}
+      const m = stdout.match(/__EXITCODE__=(-?\d+)/);
+      if (m) { code = parseInt(m[1], 10); stdout = stdout.replace(/__EXITCODE__=-?\d+\s*$/, "").trim(); }
+      try { fs.unlinkSync(wrapper); } catch {}
+      try { fs.unlinkSync(outFile); } catch {}
+      const scrub = args.map((a) => String(a).replace(/(authkey=)[^\s"]+/i, "$1<redacted>"));
+      _log("elevated", exePath, "args=", scrub, "exit=", code, "err=", err?.message || "", "out=", stdout.slice(0, 300));
+      fileLog("elevated", path.basename(exePath), "args=", scrub, "exit=", code, "err=", err?.message || "", "out=", stdout.slice(0, 500));
+      resolve({ ok: !err && code === 0, code, error: err?.message || "", stdout });
     });
   });
 }
@@ -226,33 +330,69 @@ async function ensureUpMac({ authKey, hostname, loginServer }) {
 
 async function ensureUpWin({ authKey, hostname, loginServer }) {
   const tsd = tailscaledBin();
-  const dir = stateDir(); // THƯ MỤC state (không phải file)
-  // Windows: spawn tailscaled nền (cần wintun + quyền admin; nếu thiếu → báo lỗi).
-  // KHÔNG ép --socket/--tun: dùng named pipe + wintun MẶC ĐỊNH để CLI tìm đúng pipe.
-  const daemonUp = readStatus() != null;
+  const ts = tailscaleBin();
+  const dir = stateDir();
+  fileLog("ensureUpWin start · tailscaled=", tsd, " · tailscaleCli=", ts, " · hostname=", hostname);
+  // 1) Có daemon đang chạy không? (service Tailscale chính thức, hoặc app đã spawn trước đó).
+  //    CLI đọc status qua pipe mặc định — chỉ cần read, user process làm được.
+  let daemonUp = readStatus() != null;
   if (!daemonUp) {
-    try {
-      _daemonProc = spawn(tsd, ["--statedir", dir, "--port", "0"], {
-        detached: true, stdio: "ignore", windowsHide: true,
-      });
-      _daemonProc.unref();
-    } catch (e) {
-      _state.lastError = "Không chạy được tailscaled (thử mở app bằng quyền admin): " + (e?.message || e);
+    // Không có tailscaled nào → spawn qua UAC (cần admin cho wintun). 1 lần popup.
+    const r = await spawnElevatedWinDetached(tsd, ["--statedir", dir, "--port", "0"]);
+    if (!r.ok) {
+      _state.lastError = "Không chạy được tailscaled (UAC bị từ chối): " + r.error;
       return status();
     }
-    for (let i = 0; i < 30; i++) { if (readStatus() != null) break; await new Promise((r) => setTimeout(r, 500)); }
+    for (let i = 0; i < 30; i++) {
+      if (readStatus() != null) { daemonUp = true; break; }
+      await new Promise((r2) => setTimeout(r2, 500));
+    }
+    if (!daemonUp) {
+      _state.lastError = "tailscaled chưa khởi động sau khi được cấp quyền.";
+      return status();
+    }
   }
+  // 2) `tailscale up` trên Windows phải chạy qua UAC vì pipe daemon có ACL Administrators-only.
+  //    Nếu gọi trực tiếp từ user process → thường exit 0 nhưng silently no-op (không áp authKey).
   if (authKey) {
-    const loginArg = loginServer ? ["--login-server", loginServer] : [];
-    const r = tsCli(["up", "--authkey", authKey, "--hostname", hostname, "--accept-routes", ...loginArg], { timeout: 60000 });
-    if (r.code !== 0) _state.lastError = (r.stderr || r.stdout || "tailscale up lỗi").trim();
+    // KHÔNG dùng --reset: nó reset mọi pref chưa truyền về default và có thể làm
+    // WantRunning=false ngay sau khi login → daemon bị "disconnecting" trong chính request.
+    // --timeout=60s để CLI chờ login hoàn tất đồng bộ (mặc định có thể fire-and-forget).
+    // --unattended (Windows-only) BẮT BUỘC: tailscaled Windows chạy "client mode" — khi
+    // client cuối (chính CLI up này) thoát, daemon tự "disconnecting Tailscale" → NoState.
+    const upArgs = ["up", "--authkey=" + authKey, "--hostname=" + hostname, "--accept-routes", "--timeout=60s", "--unattended"];
+    if (loginServer) upArgs.push("--login-server=" + loginServer);
+    const r = await runElevatedWinWait(ts, upArgs);
+    if (!r.ok) {
+      _state.lastError = "Lệnh 'tailscale up' lỗi (mã " + r.code + "): " + (r.stdout?.trim() || r.error || "không rõ nguyên nhân");
+      return status();
+    }
+    // Có output nhưng exit 0 (ví dụ cảnh báo version) — vẫn tiếp tục poll.
+    if (r.stdout && r.stdout.trim()) _log("tailscale up stdout:", r.stdout.trim().slice(0, 500));
   }
-  for (let i = 0; i < 20; i++) { refreshState(); if (_state.connected) break; await new Promise((r) => setTimeout(r, 1000)); }
+  // 3) Poll tới khi connected (~30s). Nếu vẫn fail → surface Health[] từ daemon.
+  for (let i = 0; i < 30; i++) { refreshState(); if (_state.connected) break; await new Promise((r) => setTimeout(r, 1000)); }
+  if (!_state.connected) {
+    const hints = [];
+    if (_state.backendState) hints.push("BackendState=" + _state.backendState);
+    if (_state.health) hints.push(_state.health);
+    _state.lastError = "Chưa vào được tailnet. " + (hints.join(" · ") || "Thử lại hoặc kiểm tra authKey.");
+  }
   return status();
 }
 
-// Ngắt kết nối (node ephemeral → tự rời tailnet). KHÔNG cần root nhờ operator đã set.
-function down() {
+// Ngắt kết nối (node ephemeral → tự rời tailnet).
+// macOS: không cần root nhờ operator đã set. Windows: pipe ACL Admin-only → qua UAC.
+async function down() {
+  if (isWin()) {
+    const ts = tailscaleBin();
+    if (ts) {
+      try { await runElevatedWinWait(ts, ["down"]); } catch {}
+      try { await runElevatedWinWait(ts, ["logout"]); } catch {}
+    }
+    try { if (_daemonProc && !_daemonProc.killed) _daemonProc.kill(); } catch {}
+    return;
+  }
   try { tsCli(["down"], { timeout: 8000 }); } catch {}
   try { tsCli(["logout"], { timeout: 8000 }); } catch {}
   try { if (_daemonProc && !_daemonProc.killed) _daemonProc.kill(); } catch {}

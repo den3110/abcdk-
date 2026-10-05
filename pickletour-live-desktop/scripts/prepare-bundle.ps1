@@ -62,6 +62,15 @@ if ((Test-Path (Join-Path $Vend 'tailscaled.exe')) -and (Test-Path (Join-Path $V
   Copy-Item (Join-Path $Vend 'tailscale.exe')  $tsExe  -Force
   Write-Host '  -> copy tu vendor/tailscale/windows-amd64 (tailscaled.exe, tailscale.exe)'
 }
+# wintun.dll (0.14.1) BAT BUOC canh tailscaled.exe de tao TUN adapter tren Windows.
+$wintunSrc = Join-Path $Vend 'wintun.dll'
+$wintunDst = Join-Path $Bin 'wintun.dll'
+if (Test-Path $wintunSrc) {
+  Copy-Item $wintunSrc $wintunDst -Force
+  Write-Host '  -> copy wintun.dll (bat buoc cho tailscaled tren Windows)'
+} else {
+  Write-Host '  !! THIEU vendor/tailscale/windows-amd64/wintun.dll -> tailscaled se fail khi tao TUN'
+}
 # 2) Neu chua co + co Go -> build tu nguon (ban moi nhat).
 if ((-not (Test-Path $tsdExe)) -or (-not (Test-Path $tsExe))) {
   $go = Get-Command go -ErrorAction SilentlyContinue

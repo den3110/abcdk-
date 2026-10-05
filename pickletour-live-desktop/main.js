@@ -119,7 +119,7 @@ app.on("before-quit", (e) => {
   isQuitting = true;
   try { stopPreview(); } catch {}
   // Rời tailnet (node ephemeral → tự biến mất). KHÔNG cần root nhờ operator đã set.
-  try { tailscale.down(); } catch {}
+  try { Promise.resolve(tailscale.down()).catch(() => {}); } catch {}
   if (!running.size) return; // không còn luồng → thoát ngay
   e.preventDefault();
   const finish = () => { try { app.exit(0); } catch { try { process.exit(0); } catch {} } };
@@ -1494,7 +1494,7 @@ ipcMain.handle("tailscale-ensure", async (_e, { baseUrl, token, hostname } = {})
     return { available: tailscale.available(), connected: false, lastError: e?.message || String(e) };
   }
 });
-ipcMain.handle("tailscale-down", () => { try { tailscale.down(); } catch {} return tailscale.status(); });
+ipcMain.handle("tailscale-down", async () => { try { await tailscale.down(); } catch {} return tailscale.status(); });
 
 ipcMain.handle("env-check", () => {
   const selfContained = isSelfContained();
