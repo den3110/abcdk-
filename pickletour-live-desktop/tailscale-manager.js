@@ -46,8 +46,10 @@ function stateDir() {
   return d;
 }
 function sockPath() {
-  // Socket riêng cho app → KHÔNG đụng Tailscale chính thức (nếu có cài).
-  if (isWin()) return "\\\\.\\pipe\\pickletour-tailscaled";
+  // Windows: KHÔNG ép named pipe tùy chỉnh (tailscaled.exe dùng pipe mặc định
+  // \\.\pipe\ProtectedPrefix\Administrators\Tailscale\tailscaled) → trả "" để CLI + daemon
+  // cùng dùng mặc định. macOS: socket riêng trong thư mục app (không đụng Tailscale chính thức).
+  if (isWin()) return "";
   return path.join(stateDir(), "tailscaled.sock");
 }
 function statePath() { return path.join(stateDir(), "tailscaled.state"); }
@@ -57,7 +59,9 @@ function logPath() { return path.join(stateDir(), "tailscaled.log"); }
 function tsCli(args, { timeout = 15000 } = {}) {
   const bin = tailscaleBin();
   if (!bin) return { code: -1, stdout: "", stderr: "thiếu bin/tailscale" };
-  const r = spawnSync(bin, ["--socket", sockPath(), ...args], { encoding: "utf8", timeout });
+  const sock = sockPath();
+  const full = sock ? ["--socket", sock, ...args] : [...args];
+  const r = spawnSync(bin, full, { encoding: "utf8", timeout });
   return { code: r.status == null ? -1 : r.status, stdout: r.stdout || "", stderr: r.stderr || "" };
 }
 
@@ -222,14 +226,13 @@ async function ensureUpMac({ authKey, hostname, loginServer }) {
 
 async function ensureUpWin({ authKey, hostname, loginServer }) {
   const tsd = tailscaledBin();
-  const sock = sockPath();
-  const dir = statePath();
+  const dir = stateDir(); // THƯ MỤC state (không phải file)
   // Windows: spawn tailscaled nền (cần wintun + quyền admin; nếu thiếu → báo lỗi).
+  // KHÔNG ép --socket/--tun: dùng named pipe + wintun MẶC ĐỊNH để CLI tìm đúng pipe.
   const daemonUp = readStatus() != null;
   if (!daemonUp) {
     try {
-      // Windows: dùng wintun mặc định (cần quyền admin). Không ép --tun.
-      _daemonProc = spawn(tsd, ["--statedir", dir, "--socket", sock, "--port", "0"], {
+      _daemonProc = spawn(tsd, ["--statedir", dir, "--port", "0"], {
         detached: true, stdio: "ignore", windowsHide: true,
       });
       _daemonProc.unref();
